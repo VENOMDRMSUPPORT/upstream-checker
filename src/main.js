@@ -98,11 +98,34 @@ function initAutoUpdater() {
     mainWindow?.webContents.send('update-checking');
   });
 
-  autoUpdater.on('update-available', (info) => {
+  autoUpdater.on('update-available', async (info) => {
     log.info('Update available:', info.version);
+    let releaseNotes = info.releaseNotes;
+
+    // Fetch release notes from GitHub if not available
+    if (!releaseNotes || (Array.isArray(releaseNotes) && releaseNotes.length === 0)) {
+      try {
+        const url = `https://api.github.com/repos/VENOMDRMSUPPORT/upstream-checker/releases/tags/v${info.version}`;
+        const response = await new Promise((resolve, reject) => {
+          https.get(url, { headers: { 'User-Agent': 'Upstream-Checker' } }, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => resolve({ status: res.statusCode, body: data }));
+          }).on('error', reject);
+        });
+
+        if (response.status === 200) {
+          const release = JSON.parse(response.body);
+          releaseNotes = release.body || 'No release notes available';
+        }
+      } catch (err) {
+        log.warn('Failed to fetch release notes:', err);
+      }
+    }
+
     mainWindow?.webContents.send('update-available', {
       version: info.version,
-      releaseNotes: info.releaseNotes,
+      releaseNotes: releaseNotes,
       releaseDate: info.releaseDate,
     });
   });
