@@ -704,7 +704,7 @@ $('#btn-export-csv').addEventListener('click', () => {
   if (testResults.length === 0) return;
   const header = 'Model,Provider,Plan,Status,Time (ms),Tokens,Response\n';
   const rows = testResults
-    .map((r) => `"${r.model}","${r.provider}","${r.planTier || ''}","${r.status}",${r.time},${r.tokens},"${(r.response || '').replace(/"/g, '""')}"`)
+    .map((r) => `"${r.model}","${r.provider}","${r.group || ''}","${r.status}",${r.time},${r.tokens},"${(r.response || '').replace(/"/g, '""')}"`)
     .join('\n');
   downloadFile(header + rows, 'upstream-checker-results.csv', 'text/csv');
 });
@@ -905,11 +905,14 @@ $('#btn-add-key').addEventListener('click', () => {
   setTimeout(() => $('#key-name-input').focus(), 100);
 });
 
-$('#modal-cancel').addEventListener('click', () => {
+function closeAddKeyModal() {
   $('#add-key-modal').style.display = 'none';
   $('#key-name-input').value = '';
   $('#key-value-input').value = '';
-});
+}
+
+$('#modal-cancel').addEventListener('click', closeAddKeyModal);
+$('#modal-cancel-btn').addEventListener('click', closeAddKeyModal);
 
 $('#modal-add').addEventListener('click', () => {
   addKey();
