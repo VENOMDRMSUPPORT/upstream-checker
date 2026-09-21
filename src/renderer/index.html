@@ -75,17 +75,15 @@
 
       <!-- Provider Tabs (dynamic) -->
       <div class="sidebar-section">
-        <div class="section-label">PROVIDER</div>
-        <div class="provider-selector" id="provider-tabs"></div>
-      </div>
-
-      <!-- Base URL -->
-      <div class="sidebar-section">
-        <div class="section-label">ENDPOINT</div>
-        <div class="config-group">
-          <label class="config-label">Base URL</label>
-          <input type="text" class="config-input" id="base-url" placeholder="https://router.bynara.id/v1">
+        <div class="section-label">
+          PROVIDER
+          <button class="section-action-btn" id="btn-add-provider" title="Add provider">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </button>
         </div>
+        <div class="provider-selector" id="provider-tabs"></div>
       </div>
 
       <!-- API Keys -->
@@ -275,7 +273,7 @@
   <div class="modal-overlay" id="add-provider-modal" style="display:none">
     <div class="modal">
       <div class="modal-header">
-        <h3>Add Provider</h3>
+        <h3 id="provider-modal-title">Add Provider</h3>
         <button class="modal-close" id="provider-modal-close">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
