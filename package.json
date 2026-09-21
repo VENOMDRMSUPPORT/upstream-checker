@@ -6,9 +6,16 @@
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --win --x64",
-    "build:portable": "electron-builder --win portable"
+    "build:portable": "electron-builder --win portable",
+    "publish": "electron-builder --win --x64 --publish always"
   },
   "build": {
+    "publish": {
+      "provider": "github",
+      "owner": "upstream-checker-releases",
+      "repo": "upstream-checker",
+      "releaseType": "release"
+    },
     "appId": "com.upstream.checker",
     "productName": "Upstream Checker",
     "directories": {
@@ -29,7 +36,8 @@
           ]
         }
       ],
-      "icon": "src/assets/icon.ico"
+      "icon": "src/assets/icon.ico",
+      "publisherName": "Upstream Checker"
     },
     "nsis": {
       "oneClick": false,
@@ -44,6 +52,8 @@
     ]
   },
   "dependencies": {
+    "electron-log": "^5.2.0",
+    "electron-updater": "^6.3.0",
     "node-fetch": "^3.3.2"
   },
   "devDependencies": {
