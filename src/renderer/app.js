@@ -5,6 +5,12 @@
 const DEFAULT_TEST_PROMPT = 'What is 2+2? Answer in one word.';
 const DEFAULT_MAX_TOKENS = 50;
 
+// Set app version from main process
+window.electronAPI.onAppVersion((version) => {
+  const versionEl = document.getElementById('app-version');
+  if (versionEl) versionEl.textContent = `v${version}`;
+});
+
 // Provider definitions — integrated, extensible
 const PROVIDERS = {
   nara: {
@@ -37,21 +43,23 @@ const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
 // ============================================
-// Persistence — localStorage
+// Persistence — JSON config file
 // ============================================
-function saveProviderConfig(providerId) {
+async function saveProviderConfig(providerId) {
   const p = PROVIDERS[providerId];
-  const data = { keys: p.keys, baseUrl: p.baseUrl };
-  localStorage.setItem(`provider_${providerId}`, JSON.stringify(data));
+  const data = await window.electronAPI.readConfig();
+  if (!data.providers) data.providers = {};
+  data.providers[providerId] = { keys: p.keys, baseUrl: p.baseUrl };
+  await window.electronAPI.writeConfig(data);
 }
 
-function loadProviderConfig(providerId) {
-  const raw = localStorage.getItem(`provider_${providerId}`);
-  if (!raw) return;
+async function loadProviderConfig(providerId) {
   try {
-    const data = JSON.parse(raw);
-    PROVIDERS[providerId].keys = data.keys || [];
-    if (data.baseUrl) PROVIDERS[providerId].baseUrl = data.baseUrl;
+    const data = await window.electronAPI.readConfig();
+    const providerData = data.providers?.[providerId];
+    if (!providerData) return;
+    PROVIDERS[providerId].keys = providerData.keys || [];
+    if (providerData.baseUrl) PROVIDERS[providerId].baseUrl = providerData.baseUrl;
   } catch (_) {}
 }
 
@@ -197,25 +205,25 @@ function toggleKeyReveal(keyId) {
   }
 }
 
-function toggleKeyActive(keyId) {
+async function toggleKeyActive(keyId) {
   const p = PROVIDERS[activeProvider];
   const key = p.keys.find((k) => k.id === keyId);
   if (!key) return;
   key.active = !key.active;
-  saveProviderConfig(activeProvider);
+  await saveProviderConfig(activeProvider);
   renderKeysList();
   updateTestAllButton();
 }
 
-function removeKey(keyId) {
+async function removeKey(keyId) {
   const p = PROVIDERS[activeProvider];
   p.keys = p.keys.filter((k) => k.id !== keyId);
-  saveProviderConfig(activeProvider);
+  await saveProviderConfig(activeProvider);
   renderKeysList();
   updateTestAllButton();
 }
 
-function addKey() {
+async function addKey() {
   const nameInput = $('#key-name-input');
   const keyInput = $('#key-value-input');
   const name = nameInput.value.trim() || `Key ${Date.now()}`;
@@ -236,7 +244,7 @@ function addKey() {
 
   nameInput.value = '';
   keyInput.value = '';
-  saveProviderConfig(activeProvider);
+  await saveProviderConfig(activeProvider);
   renderKeysList();
   updateTestAllButton();
   setStatus('done', `Key "${name}" added`);
@@ -245,9 +253,9 @@ function addKey() {
 // ============================================
 // Base URL
 // ============================================
-$('#base-url').addEventListener('change', () => {
+$('#base-url').addEventListener('change', async () => {
   PROVIDERS[activeProvider].baseUrl = $('#base-url').value.trim().replace(/\/$/, '');
-  saveProviderConfig(activeProvider);
+  await saveProviderConfig(activeProvider);
 });
 
 // ============================================
@@ -917,8 +925,8 @@ $('#add-key-modal').addEventListener('click', (e) => {
 // ============================================
 // Init
 // ============================================
-function init() {
-  loadProviderConfig(activeProvider);
+async function init() {
+  await loadProviderConfig(activeProvider);
   const p = PROVIDERS[activeProvider];
   $('#base-url').value = p.baseUrl;
   renderProviderTabs();

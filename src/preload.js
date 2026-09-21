@@ -10,6 +10,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   apiRequest: (opts) => ipcRenderer.invoke('api-request', opts),
   openExternal: (url) => ipcRenderer.send('open-external', url),
 
+  // App info
+  onAppVersion: (callback) => {
+    ipcRenderer.on('app-version', (_, version) => callback(version));
+  },
+
+  // Config file operations
+  readConfig: () => ipcRenderer.invoke('read-config'),
+  writeConfig: (data) => ipcRenderer.invoke('write-config', data),
+
   // Update API
   updateAPI: {
     onUpdateChecking: (callback) => {

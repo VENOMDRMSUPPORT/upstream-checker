@@ -2,14 +2,48 @@ const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const https = require('https');
 const http = require('http');
-const { autoUpdater } = require('electron-updater');
+const fs = require('fs');
 const log = require('electron-log');
 
-// Auto-updater configuration
-autoUpdater.autoDownload = false;
-autoUpdater.autoInstallOnAppQuit = true;
-
+let autoUpdater; // Lazy load after app ready
 let updateCheckInterval;
+let configPath;
+
+// Config file helpers
+function getConfigPath() {
+  if (!configPath) {
+    configPath = path.join(app.getPath('userData'), 'config.json');
+  }
+  return configPath;
+}
+
+function readConfig() {
+  try {
+    const cp = getConfigPath();
+    if (fs.existsSync(cp)) {
+      const data = fs.readFileSync(cp, 'utf-8');
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    log.error('Failed to read config:', err);
+  }
+  return { providers: {} };
+}
+
+function writeConfig(data) {
+  try {
+    const cp = getConfigPath();
+    const dir = path.dirname(cp);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(cp, JSON.stringify(data, null, 2), 'utf-8');
+    return { success: true };
+  } catch (err) {
+    log.error('Failed to write config:', err);
+    return { success: false, error: err.message };
+  }
+}
 
 let mainWindow;
 
@@ -32,6 +66,11 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
+  // Send app version to renderer after load
+  mainWindow.webContents.on('did-finish-load', () => {
+    mainWindow.webContents.send('app-version', app.getVersion());
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -42,9 +81,54 @@ function checkForUpdates() {
     log.info('Skipping update check in development');
     return;
   }
-
+  if (!autoUpdater) return;
   autoUpdater.checkForUpdates().catch(err => {
     log.error('Error checking for updates:', err);
+  });
+}
+
+function initAutoUpdater() {
+  const { autoUpdater: updater } = require('electron-updater');
+  autoUpdater = updater;
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('checking-for-update', () => {
+    log.info('Checking for updates...');
+    mainWindow?.webContents.send('update-checking');
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    log.info('Update available:', info.version);
+    mainWindow?.webContents.send('update-available', {
+      version: info.version,
+      releaseNotes: info.releaseNotes,
+      releaseDate: info.releaseDate,
+    });
+  });
+
+  autoUpdater.on('update-not-available', (info) => {
+    log.info('Update not available. Current version:', info.version);
+    mainWindow?.webContents.send('update-not-available');
+  });
+
+  autoUpdater.on('error', (err) => {
+    log.error('Update error:', err);
+    mainWindow?.webContents.send('update-error', { message: err.message });
+  });
+
+  autoUpdater.on('download-progress', (progressObj) => {
+    log.info(`Download speed: ${progressObj.bytesPerSecond} - Downloaded ${progressObj.percent}%`);
+    mainWindow?.webContents.send('update-download-progress', {
+      percent: Math.round(progressObj.percent),
+      transferred: progressObj.transferred,
+      total: progressObj.total,
+    });
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    log.info('Update downloaded:', info.version);
+    mainWindow?.webContents.send('update-downloaded', { version: info.version });
   });
 }
 
@@ -60,45 +144,8 @@ function stopUpdateChecks() {
   }
 }
 
-autoUpdater.on('checking-for-update', () => {
-  log.info('Checking for updates...');
-  mainWindow?.webContents.send('update-checking');
-});
-
-autoUpdater.on('update-available', (info) => {
-  log.info('Update available:', info.version);
-  mainWindow?.webContents.send('update-available', {
-    version: info.version,
-    releaseNotes: info.releaseNotes,
-    releaseDate: info.releaseDate,
-  });
-});
-
-autoUpdater.on('update-not-available', (info) => {
-  log.info('Update not available. Current version:', info.version);
-  mainWindow?.webContents.send('update-not-available');
-});
-
-autoUpdater.on('error', (err) => {
-  log.error('Update error:', err);
-  mainWindow?.webContents.send('update-error', { message: err.message });
-});
-
-autoUpdater.on('download-progress', (progressObj) => {
-  log.info(`Download speed: ${progressObj.bytesPerSecond} - Downloaded ${progressObj.percent}%`);
-  mainWindow?.webContents.send('update-download-progress', {
-    percent: Math.round(progressObj.percent),
-    transferred: progressObj.transferred,
-    total: progressObj.total,
-  });
-});
-
-autoUpdater.on('update-downloaded', (info) => {
-  log.info('Update downloaded:', info.version);
-  mainWindow?.webContents.send('update-downloaded', { version: info.version });
-});
-
 app.whenReady().then(() => {
+  initAutoUpdater();
   createWindow();
   startUpdateChecks();
 });
@@ -174,15 +221,24 @@ ipcMain.on('open-external', (event, url) => {
   shell.openExternal(url);
 });
 
+// Config IPC handlers
+ipcMain.handle('read-config', () => {
+  return readConfig();
+});
+
+ipcMain.handle('write-config', (event, data) => {
+  return writeConfig(data);
+});
+
 // Update IPC handlers
 ipcMain.on('download-update', () => {
   log.info('User requested update download');
-  autoUpdater.downloadUpdate();
+  if (autoUpdater) autoUpdater.downloadUpdate();
 });
 
 ipcMain.on('install-update', () => {
   log.info('User requested update install');
-  setImmediate(() => autoUpdater.quitAndInstall());
+  if (autoUpdater) setImmediate(() => autoUpdater.quitAndInstall());
 });
 
 ipcMain.on('check-for-updates-manual', () => {
