@@ -56,10 +56,9 @@ async function saveProviderConfig(providerId) {
   if (!p) return;
   const data = await window.electronAPI.readConfig();
   if (!data.providers) data.providers = {};
-  const entry = { keys: p.keys, baseUrl: p.baseUrl };
+  const entry = { name: p.name, baseUrl: p.baseUrl, keys: p.keys };
   if (p.custom) {
     entry.custom = true;
-    entry.name = p.name;
     entry.color = p.color;
   }
   data.providers[providerId] = entry;
@@ -67,21 +66,25 @@ async function saveProviderConfig(providerId) {
 }
 
 async function loadAllProviders() {
-  let stored = {};
+  let data = { providers: {} };
   try {
-    const data = await window.electronAPI.readConfig();
-    stored = data.providers || {};
+    data = await window.electronAPI.readConfig();
   } catch (_) {}
+  const stored = data.providers || {};
+  let needsSeed = false;
 
   PROVIDERS = {};
 
-  // Built-ins first, hydrated from config
+  // Built-ins: code template with config name/baseUrl/keys overlaid (config wins)
   Object.values(BUILTIN_PROVIDERS).forEach((def) => {
     const p = makeRuntimeProvider(def);
     const s = stored[def.id];
     if (s) {
-      p.keys = s.keys || [];
+      if (s.name) p.name = s.name;
       if (s.baseUrl) p.baseUrl = s.baseUrl;
+      p.keys = s.keys || [];
+    } else {
+      needsSeed = true;
     }
     PROVIDERS[def.id] = p;
   });
@@ -89,15 +92,27 @@ async function loadAllProviders() {
   // Custom providers from config
   Object.entries(stored).forEach(([id, s]) => {
     if (!s.custom || PROVIDERS[id]) return;
-    PROVIDERS[id] = makeRuntimeProvider({
+    const p = makeRuntimeProvider({
       id,
       name: s.name || id,
       baseUrl: s.baseUrl || '',
       color: s.color || CUSTOM_COLORS[0],
       custom: true,
     });
-    PROVIDERS[id].keys = s.keys || [];
+    p.keys = s.keys || [];
+    PROVIDERS[id] = p;
   });
+
+  // Seed any built-in missing from config so its name/baseUrl are visible + editable
+  if (needsSeed) {
+    if (!data.providers) data.providers = {};
+    Object.values(PROVIDERS).forEach((p) => {
+      if (!p.custom && !stored[p.id]) {
+        data.providers[p.id] = { name: p.name, baseUrl: p.baseUrl, keys: p.keys };
+      }
+    });
+    await window.electronAPI.writeConfig(data);
+  }
 }
 
 // ============================================
