@@ -384,68 +384,93 @@ $('#btn-fetch-models').addEventListener('click', async () => {
   setStatus('running', 'Fetching models for this key...');
 
   try {
-    // Fetch both endpoints in parallel
-    const [modelsResult, plansResult] = await Promise.all([
-      window.electronAPI.apiRequest({
+    if (p.plansUrl) {
+      // Plan-aware provider (e.g. nara): fetch models + plans, keep only free tiers
+      const [modelsResult, plansResult] = await Promise.all([
+        window.electronAPI.apiRequest({
+          url: `${p.baseUrl}/models`,
+          method: 'GET',
+          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        }),
+        window.electronAPI.apiRequest({
+          url: p.plansUrl,
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ]);
+
+      if (modelsResult.status !== 200) throw new Error(`HTTP ${modelsResult.status}`);
+      const rawModels = JSON.parse(modelsResult.body).data || [];
+
+      let planModels = {};
+      if (plansResult.status === 200) {
+        JSON.parse(plansResult.body).data?.forEach((plan) => {
+          planModels[plan.code] = { name: plan.name, models: plan.models || [] };
+        });
+      }
+
+      const freeIds = new Set(planModels['free']?.models || []);
+      const freemiumIds = new Set(planModels['freemium']?.models || []);
+      const allowedIds = new Set([...freeIds, ...freemiumIds]);
+
+      models = rawModels
+        .filter((m) => allowedIds.has(m.id))
+        .map((m) => {
+          const isFree = freeIds.has(m.id);
+          const isFreeForPaid = !isFree && freemiumIds.has(m.id);
+          return {
+            ...m,
+            isFree,
+            isFreeForPaid,
+            noPlans: false,
+            groupName: getFreeGroupName(isFree ? 'free' : 'freemium'),
+            hasVision: !!m.vision,
+            hasReasoning: !!m.reasoning,
+            contextLabel: formatContext(m.context_window),
+          };
+        })
+        .sort((a, b) => {
+          if (a.isFree !== b.isFree) return a.isFree ? -1 : 1;
+          return a.id.localeCompare(b.id);
+        });
+
+      p.planModels = planModels;
+    } else {
+      // Plain OpenAI-compatible provider: show all models, no plan filtering
+      const modelsResult = await window.electronAPI.apiRequest({
         url: `${p.baseUrl}/models`,
         method: 'GET',
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      }),
-      window.electronAPI.apiRequest({
-        url: p.plansUrl,
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    ]);
-
-    if (modelsResult.status !== 200) throw new Error(`HTTP ${modelsResult.status}`);
-
-    const rawModels = JSON.parse(modelsResult.body).data || [];
-
-    // Build plan map: plan.code -> { name, models }
-    let planModels = {};
-    if (plansResult.status === 200) {
-      JSON.parse(plansResult.body).data?.forEach((plan) => {
-        planModels[plan.code] = { name: plan.name, models: plan.models || [] };
       });
-    }
+      if (modelsResult.status !== 200) throw new Error(`HTTP ${modelsResult.status}`);
+      const rawModels = JSON.parse(modelsResult.body).data || [];
 
-    // Collect ONLY free/free-for-paid model ids
-    const freeIds = new Set(planModels['free']?.models || []);
-    const freemiumIds = new Set(planModels['freemium']?.models || []);
-    // freemium-max is identical to freemium models, skip to avoid duplicates
-    const allowedIds = new Set([...freeIds, ...freemiumIds]);
-
-    // Filter: keep only models the key's plan actually entitles (via /api/plans free tiers)
-    // Also exclude video models
-    models = rawModels
-      .filter((m) => allowedIds.has(m.id))
-      .map((m) => {
-        const isFree = freeIds.has(m.id);
-        // "Free for paid" = in freemium but NOT in free
-        const isFreeForPaid = !isFree && freemiumIds.has(m.id);
-        return {
+      models = rawModels
+        .map((m) => ({
           ...m,
-          isFree,
-          isFreeForPaid,
-          groupName: getFreeGroupName(isFree ? 'free' : 'freemium'),
+          isFree: false,
+          isFreeForPaid: false,
+          noPlans: true,
+          groupName: 'MODELS',
           hasVision: !!m.vision,
           hasReasoning: !!m.reasoning,
           contextLabel: formatContext(m.context_window),
-        };
-      })
-      .sort((a, b) => {
-        if (a.isFree !== b.isFree) return a.isFree ? -1 : 1;
-        return a.id.localeCompare(b.id);
-      });
+        }))
+        .sort((a, b) => a.id.localeCompare(b.id));
+
+      p.planModels = {};
+    }
 
     p.models = [...models];
-    p.planModels = planModels;
 
     renderModelsList();
-    const freeCount = models.filter((m) => m.isFree).length;
-    const freeForPaidCount = models.filter((m) => m.isFreeForPaid).length;
-    setStatus('done', `Fetched ${models.length} models (${freeCount} free + ${freeForPaidCount} free for paid)`);
+    if (p.plansUrl) {
+      const freeCount = models.filter((m) => m.isFree).length;
+      const freeForPaidCount = models.filter((m) => m.isFreeForPaid).length;
+      setStatus('done', `Fetched ${models.length} models (${freeCount} free + ${freeForPaidCount} free for paid)`);
+    } else {
+      setStatus('done', `Fetched ${models.length} models`);
+    }
     updateStats();
   } catch (err) {
     setStatus('error', err.message || 'Failed to fetch models');
@@ -484,20 +509,23 @@ function renderModelsList() {
     return;
   }
 
-  // Group: only FREE + FREE FOR PAID (paid models are ignored)
-  const free = models.filter((m) => m.isFree);
-  const freeForPaid = models.filter((m) => m.isFreeForPaid);
-
   let html = '';
+  const noPlans = models.length > 0 && models[0].noPlans;
 
-  if (free.length > 0) {
-    html += `<div class="model-group-label">FREE (${free.length})</div>`;
-    html += free.map((m) => buildModelItem(m)).join('');
-  }
-
-  if (freeForPaid.length > 0) {
-    html += `<div class="model-group-label">FREE FOR PAID (${freeForPaid.length})</div>`;
-    html += freeForPaid.map((m) => buildModelItem(m)).join('');
+  if (noPlans) {
+    html += `<div class="model-group-label">MODELS (${models.length})</div>`;
+    html += models.map((m) => buildModelItem(m)).join('');
+  } else {
+    const free = models.filter((m) => m.isFree);
+    const freeForPaid = models.filter((m) => m.isFreeForPaid);
+    if (free.length > 0) {
+      html += `<div class="model-group-label">FREE (${free.length})</div>`;
+      html += free.map((m) => buildModelItem(m)).join('');
+    }
+    if (freeForPaid.length > 0) {
+      html += `<div class="model-group-label">FREE FOR PAID (${freeForPaid.length})</div>`;
+      html += freeForPaid.map((m) => buildModelItem(m)).join('');
+    }
   }
 
   container.innerHTML = html;
@@ -731,9 +759,11 @@ function buildRowHtml(model, result) {
   if (model.hasVision) typeIcons.push(iconSpan('vision', 'Vision', 'type-vision'));
   if (model.hasReasoning) typeIcons.push(iconSpan('think', 'Reasoning', 'type-think'));
   // Free tier icon: show on every row (tier comes from provider grouping, not free/paid anymore)
-  const planIcon = model.isFree
-    ? iconSpan('free', 'Free', 'tier-free')
-    : iconSpan('free', 'Free for Paid', 'tier-freepaid');
+  const planIcon = model.noPlans
+    ? ''
+    : model.isFree
+      ? iconSpan('free', 'Free', 'tier-free')
+      : iconSpan('free', 'Free for Paid', 'tier-freepaid');
 
   const tokens = result.tokens != null ? String(result.tokens) : '-';
   const responseHtml = isRunning
