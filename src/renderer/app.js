@@ -111,7 +111,11 @@ async function loadAllProviders() {
         data.providers[p.id] = { name: p.name, baseUrl: p.baseUrl, keys: p.keys };
       }
     });
-    await window.electronAPI.writeConfig(data);
+    try {
+      await window.electronAPI.writeConfig(data);
+    } catch (err) {
+      console.warn('Failed to seed providers:', err);
+    }
   }
 }
 
