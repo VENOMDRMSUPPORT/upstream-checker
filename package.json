@@ -1,6 +1,6 @@
 {
   "name": "upstream-checker",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Professional AI Model Provider Testing Tool",
   "main": "src/main.js",
   "scripts": {
@@ -41,7 +41,8 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true
+      "createDesktopShortcut": true,
+      "artifactName": "Upstream-Checker-Setup-${version}.exe"
     },
     "portable": {
       "artifactName": "Upstream Checker - Portable.exe"

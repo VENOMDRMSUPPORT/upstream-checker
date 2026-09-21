@@ -757,12 +757,30 @@ function hideUpdateModal() {
 }
 
 function formatReleaseNotes(notes) {
+  // Strip markdown/HTML tags and format cleanly
   const lines = notes.split('\n');
   let html = '<ul>';
   lines.forEach(line => {
     line = line.trim();
-    if (!line || line.startsWith('#')) return;
-    line = line.replace(/^[-*+]\s+/, '');
+    if (!line || line.startsWith('#') || line.startsWith('[') || line === '---') return;
+    if (line.startsWith('<')) {
+      // Strip HTML tags
+      line = line.replace(/<[^>]*>/g, '').trim();
+    }
+    if (line.startsWith('### ')) {
+      // Section header
+      line = line.replace(/^###\s*/, '<strong style="color:var(--accent);font-size:11px;">');
+      line += '</strong>';
+    } else if (line.startsWith('- ')) {
+      // List item
+      line = line.replace(/^-\s*/, '');
+    } else if (line.startsWith('## ')) {
+      // Version header
+      line = line.replace(/^##\s*/, '<strong style="color:var(--text-0);font-size:12px;">');
+      line += '</strong>';
+    } else {
+      return; // Skip non-list lines
+    }
     if (line.length > 0) html += `<li>${escapeHtml(line)}</li>`;
   });
   html += '</ul>';
