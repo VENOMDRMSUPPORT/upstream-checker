@@ -190,6 +190,7 @@ async function removeProvider(id) {
 function switchProvider(providerId) {
   activeProvider = providerId;
   const p = PROVIDERS[activeProvider];
+  models = p.models || [];
   $('#base-url').value = p.baseUrl;
   renderProviderTabs();
   renderKeysList();
