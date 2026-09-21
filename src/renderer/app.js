@@ -11,8 +11,8 @@ window.electronAPI.onAppVersion((version) => {
   if (versionEl) versionEl.textContent = `v${version}`;
 });
 
-// Provider definitions — integrated, extensible
-const PROVIDERS = {
+// Built-in provider templates — code-defined, never mutated
+const BUILTIN_PROVIDERS = {
   nara: {
     id: 'nara',
     name: 'NARA Router',
@@ -22,11 +22,17 @@ const PROVIDERS = {
     modelsEndpoint: '/models',
     plansEndpoint: '/api/plans',
     chatEndpoint: '/chat/completions',
-    models: [],       // populated from API
-    planModels: {},   // plan_code -> [model_ids]
-    keys: [],         // array of { id, name, key, active }
   },
 };
+
+const CUSTOM_COLORS = ['#7b2ff7', '#00e0a4', '#ff6b6b', '#ffb020', '#4dabf7', '#e64980'];
+
+// Runtime provider map — built at init from BUILTIN_PROVIDERS + config
+let PROVIDERS = {};
+
+function makeRuntimeProvider(def) {
+  return { models: [], planModels: {}, keys: [], ...structuredClone(def) };
+}
 
 // State
 let activeProvider = 'nara';
@@ -47,20 +53,51 @@ const $$ = (s) => document.querySelectorAll(s);
 // ============================================
 async function saveProviderConfig(providerId) {
   const p = PROVIDERS[providerId];
+  if (!p) return;
   const data = await window.electronAPI.readConfig();
   if (!data.providers) data.providers = {};
-  data.providers[providerId] = { keys: p.keys, baseUrl: p.baseUrl };
+  const entry = { keys: p.keys, baseUrl: p.baseUrl };
+  if (p.custom) {
+    entry.custom = true;
+    entry.name = p.name;
+    entry.color = p.color;
+  }
+  data.providers[providerId] = entry;
   await window.electronAPI.writeConfig(data);
 }
 
-async function loadProviderConfig(providerId) {
+async function loadAllProviders() {
+  let stored = {};
   try {
     const data = await window.electronAPI.readConfig();
-    const providerData = data.providers?.[providerId];
-    if (!providerData) return;
-    PROVIDERS[providerId].keys = providerData.keys || [];
-    if (providerData.baseUrl) PROVIDERS[providerId].baseUrl = providerData.baseUrl;
+    stored = data.providers || {};
   } catch (_) {}
+
+  PROVIDERS = {};
+
+  // Built-ins first, hydrated from config
+  Object.values(BUILTIN_PROVIDERS).forEach((def) => {
+    const p = makeRuntimeProvider(def);
+    const s = stored[def.id];
+    if (s) {
+      p.keys = s.keys || [];
+      if (s.baseUrl) p.baseUrl = s.baseUrl;
+    }
+    PROVIDERS[def.id] = p;
+  });
+
+  // Custom providers from config
+  Object.entries(stored).forEach(([id, s]) => {
+    if (!s.custom || PROVIDERS[id]) return;
+    PROVIDERS[id] = makeRuntimeProvider({
+      id,
+      name: s.name || id,
+      baseUrl: s.baseUrl || '',
+      color: s.color || CUSTOM_COLORS[0],
+      custom: true,
+    });
+    PROVIDERS[id].keys = s.keys || [];
+  });
 }
 
 // ============================================
@@ -929,7 +966,10 @@ $('#add-key-modal').addEventListener('click', (e) => {
 // Init
 // ============================================
 async function init() {
-  await loadProviderConfig(activeProvider);
+  await loadAllProviders();
+  if (!PROVIDERS[activeProvider]) {
+    activeProvider = Object.keys(PROVIDERS)[0];
+  }
   const p = PROVIDERS[activeProvider];
   $('#base-url').value = p.baseUrl;
   renderProviderTabs();
