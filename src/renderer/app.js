@@ -28,6 +28,9 @@ let models = [];
 let testResults = [];
 let isTesting = false;
 let abortTesting = false;
+let updateInfo = null;
+let isUpdateDownloading = false;
+let isUpdateReady = false;
 
 // DOM helpers
 const $ = (s) => document.querySelector(s);
@@ -724,6 +727,113 @@ function downloadFile(content, filename, mimeType) {
 }
 
 // ============================================
+// Update handling
+// ============================================
+function showUpdateModal(info) {
+  updateInfo = info;
+  $('#update-modal-version').textContent = info.version;
+
+  const notesEl = $('#update-modal-notes');
+  if (info.releaseNotes) {
+    const notes = Array.isArray(info.releaseNotes) ? info.releaseNotes.join('\n') : info.releaseNotes;
+    notesEl.innerHTML = formatReleaseNotes(notes);
+  } else {
+    notesEl.textContent = 'No release notes available.';
+  }
+
+  $('#update-progress').style.display = 'none';
+  $('#update-modal-download-btn').style.display = '';
+  $('#update-modal-download-btn').disabled = false;
+  $('#update-modal-download-btn').innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download Update`;
+  $('#update-modal-install-btn').style.display = 'none';
+  $('#update-modal-later-btn').style.display = '';
+
+  $('#update-modal').style.display = 'flex';
+}
+
+function hideUpdateModal() {
+  $('#update-modal').style.display = 'none';
+  updateInfo = null;
+}
+
+function formatReleaseNotes(notes) {
+  const lines = notes.split('\n');
+  let html = '<ul>';
+  lines.forEach(line => {
+    line = line.trim();
+    if (!line || line.startsWith('#')) return;
+    line = line.replace(/^[-*+]\s+/, '');
+    if (line.length > 0) html += `<li>${escapeHtml(line)}</li>`;
+  });
+  html += '</ul>';
+  return html;
+}
+
+function showDownloadProgress(percent) {
+  $('#update-progress').style.display = '';
+  $('#update-progress-bar').style.width = `${percent}%`;
+  $('#update-progress-percent').textContent = `${percent}%`;
+}
+
+function showInstallButton() {
+  $('#update-modal-download-btn').style.display = 'none';
+  $('#update-modal-install-btn').style.display = '';
+  $('#update-modal-later-btn').style.display = 'none';
+  $('#update-progress').style.display = 'none';
+}
+
+function setupUpdateListeners() {
+  if (!window.electronAPI || !window.electronAPI.updateAPI) return;
+  const updateAPI = window.electronAPI.updateAPI;
+
+  updateAPI.onUpdateChecking(() => console.log('Checking for updates...'));
+
+  updateAPI.onUpdateAvailable((info) => {
+    if (!isUpdateDownloading && !isUpdateReady) showUpdateModal(info);
+  });
+
+  updateAPI.onUpdateNotAvailable(() => console.log('No updates available'));
+
+  updateAPI.onUpdateError((data) => {
+    console.error('Update error:', data.message);
+    if (isUpdateDownloading) {
+      setStatus('error', 'Update download failed');
+      isUpdateDownloading = false;
+    }
+  });
+
+  updateAPI.onDownloadProgress((progress) => showDownloadProgress(progress.percent));
+
+  updateAPI.onUpdateDownloaded(() => {
+    isUpdateDownloading = false;
+    isUpdateReady = true;
+    showInstallButton();
+  });
+
+  // Update modal button handlers
+  $('#update-modal-download-btn')?.addEventListener('click', () => {
+    isUpdateDownloading = true;
+    const btn = $('#update-modal-download-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Downloading...';
+    updateAPI.downloadUpdate();
+  });
+
+  $('#update-modal-install-btn')?.addEventListener('click', () => {
+    updateAPI.installUpdate();
+  });
+
+  $('#update-modal-later-btn')?.addEventListener('click', () => {
+    hideUpdateModal();
+    isUpdateDownloading = false;
+  });
+
+  $('#update-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'update-modal') hideUpdateModal();
+  });
+}
+
+// ============================================
 // Add Key modal
 // ============================================
 $('#btn-add-key').addEventListener('click', () => {
@@ -760,6 +870,7 @@ function init() {
   renderKeysList();
   renderModelsList();
   setStatus('idle', 'Ready — add an API key to begin');
+  setupUpdateListeners();
 }
 
 init();
