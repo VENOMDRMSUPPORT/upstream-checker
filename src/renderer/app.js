@@ -56,10 +56,9 @@ async function saveProviderConfig(providerId) {
   if (!p) return;
   const data = await window.electronAPI.readConfig();
   if (!data.providers) data.providers = {};
-  const entry = { keys: p.keys, baseUrl: p.baseUrl };
+  const entry = { name: p.name, baseUrl: p.baseUrl, keys: p.keys };
   if (p.custom) {
     entry.custom = true;
-    entry.name = p.name;
     entry.color = p.color;
   }
   data.providers[providerId] = entry;
@@ -67,21 +66,25 @@ async function saveProviderConfig(providerId) {
 }
 
 async function loadAllProviders() {
-  let stored = {};
+  let data = { providers: {} };
   try {
-    const data = await window.electronAPI.readConfig();
-    stored = data.providers || {};
+    data = await window.electronAPI.readConfig();
   } catch (_) {}
+  const stored = data.providers || {};
+  let needsSeed = false;
 
   PROVIDERS = {};
 
-  // Built-ins first, hydrated from config
+  // Built-ins: code template with config name/baseUrl/keys overlaid (config wins)
   Object.values(BUILTIN_PROVIDERS).forEach((def) => {
     const p = makeRuntimeProvider(def);
     const s = stored[def.id];
     if (s) {
-      p.keys = s.keys || [];
+      if (s.name) p.name = s.name;
       if (s.baseUrl) p.baseUrl = s.baseUrl;
+      p.keys = s.keys || [];
+    } else {
+      needsSeed = true;
     }
     PROVIDERS[def.id] = p;
   });
@@ -89,15 +92,31 @@ async function loadAllProviders() {
   // Custom providers from config
   Object.entries(stored).forEach(([id, s]) => {
     if (!s.custom || PROVIDERS[id]) return;
-    PROVIDERS[id] = makeRuntimeProvider({
+    const p = makeRuntimeProvider({
       id,
       name: s.name || id,
       baseUrl: s.baseUrl || '',
       color: s.color || CUSTOM_COLORS[0],
       custom: true,
     });
-    PROVIDERS[id].keys = s.keys || [];
+    p.keys = s.keys || [];
+    PROVIDERS[id] = p;
   });
+
+  // Seed any built-in missing from config so its name/baseUrl are visible + editable
+  if (needsSeed) {
+    if (!data.providers) data.providers = {};
+    Object.values(PROVIDERS).forEach((p) => {
+      if (!p.custom && !stored[p.id]) {
+        data.providers[p.id] = { name: p.name, baseUrl: p.baseUrl, keys: p.keys };
+      }
+    });
+    try {
+      await window.electronAPI.writeConfig(data);
+    } catch (err) {
+      console.warn('Failed to seed providers:', err);
+    }
+  }
 }
 
 // ============================================
@@ -117,25 +136,30 @@ function renderProviderTabs() {
     const btn = document.createElement('button');
     btn.className = `provider-btn ${p.id === activeProvider ? 'active' : ''}`;
     btn.dataset.provider = p.id;
-    let inner = `<span class="provider-dot" style="background:${p.color}"></span>${escapeHtml(p.name)}`;
+    let actions =
+      `<span class="provider-action provider-edit" data-provider="${p.id}" title="Edit provider">` +
+      `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>` +
+      `</span>`;
     if (p.custom) {
-      inner += `<span class="provider-delete" data-provider="${p.id}" title="Remove provider">&times;</span>`;
+      actions +=
+        `<span class="provider-action provider-delete" data-provider="${p.id}" title="Remove provider">` +
+        `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>` +
+        `</span>`;
     }
-    btn.innerHTML = inner;
+    btn.innerHTML =
+      `<span class="provider-dot" style="background:${p.color}"></span>` +
+      `<span class="provider-name">${escapeHtml(p.name)}</span>` +
+      `<span class="provider-actions">${actions}</span>`;
     btn.addEventListener('click', () => switchProvider(p.id));
     container.appendChild(btn);
   });
 
-  const addBtn = document.createElement('button');
-  addBtn.className = 'provider-btn provider-add';
-  addBtn.title = 'Add provider';
-  addBtn.innerHTML = '+';
-  addBtn.addEventListener('click', () => {
-    $('#add-provider-modal').style.display = 'flex';
-    setTimeout(() => $('#provider-name-input').focus(), 100);
+  $$('.provider-edit').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openProviderModal(el.dataset.provider);
+    });
   });
-  container.appendChild(addBtn);
-
   $$('.provider-delete').forEach((el) => {
     el.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -146,7 +170,7 @@ function renderProviderTabs() {
 
 async function addProvider({ name, baseUrl }) {
   name = (name || '').trim();
-  baseUrl = (baseUrl || '').trim().replace(/\/$/, '');
+  baseUrl = (baseUrl || '').trim().replace(/\/+$/, '');
 
   if (!name || !baseUrl) {
     setStatus('error', 'Provider name and Base URL are required');
@@ -191,7 +215,6 @@ function switchProvider(providerId) {
   activeProvider = providerId;
   const p = PROVIDERS[activeProvider];
   models = p.models || [];
-  $('#base-url').value = p.baseUrl;
   renderProviderTabs();
   renderKeysList();
   renderModelsList();
@@ -351,14 +374,6 @@ async function addKey() {
   updateTestAllButton();
   setStatus('done', `Key "${name}" added`);
 }
-
-// ============================================
-// Base URL
-// ============================================
-$('#base-url').addEventListener('change', async () => {
-  PROVIDERS[activeProvider].baseUrl = $('#base-url').value.trim().replace(/\/$/, '');
-  await saveProviderConfig(activeProvider);
-});
 
 // ============================================
 // Fetch models from provider — only models for the key's plan
@@ -1058,21 +1073,78 @@ $('#add-key-modal').addEventListener('click', (e) => {
 });
 
 // ============================================
-// Add Provider modal
+// Add / Edit Provider modal
 // ============================================
+let editingProviderId = null;
+
+function openProviderModal(id) {
+  editingProviderId = id || null;
+  const title = $('#provider-modal-title');
+  const submitBtn = $('#provider-modal-add');
+  if (editingProviderId) {
+    const p = PROVIDERS[editingProviderId];
+    title.textContent = 'Edit Provider';
+    submitBtn.textContent = 'Save Changes';
+    $('#provider-name-input').value = p.name;
+    $('#provider-url-input').value = p.baseUrl;
+  } else {
+    title.textContent = 'Add Provider';
+    submitBtn.textContent = 'Add Provider';
+    $('#provider-name-input').value = '';
+    $('#provider-url-input').value = '';
+  }
+  $('#add-provider-modal').style.display = 'flex';
+  setTimeout(() => $('#provider-name-input').focus(), 100);
+}
+
+async function updateProvider(id, { name, baseUrl }) {
+  const p = PROVIDERS[id];
+  if (!p) return false;
+  name = (name || '').trim();
+  baseUrl = (baseUrl || '').trim().replace(/\/+$/, '');
+  if (!name || !baseUrl) {
+    setStatus('error', 'Provider name and Base URL are required');
+    return false;
+  }
+  try {
+    new URL(baseUrl);
+  } catch (_) {
+    setStatus('error', 'Base URL is not a valid URL');
+    return false;
+  }
+  const dupe = Object.values(PROVIDERS).some(
+    (o) => o.id !== id && o.name.toLowerCase() === name.toLowerCase()
+  );
+  if (dupe) {
+    setStatus('error', `A provider named "${name}" already exists`);
+    return false;
+  }
+  p.name = name;
+  p.baseUrl = baseUrl;
+  await saveProviderConfig(id);
+  renderProviderTabs();
+  setStatus('done', `Provider "${name}" updated`);
+  return true;
+}
+
 function closeAddProviderModal() {
   $('#add-provider-modal').style.display = 'none';
   $('#provider-name-input').value = '';
   $('#provider-url-input').value = '';
+  editingProviderId = null;
 }
 
+$('#btn-add-provider').addEventListener('click', () => openProviderModal(null));
 $('#provider-modal-close').addEventListener('click', closeAddProviderModal);
 $('#provider-modal-cancel').addEventListener('click', closeAddProviderModal);
 $('#provider-modal-add').addEventListener('click', async () => {
-  const ok = await addProvider({
+  const payload = {
     name: $('#provider-name-input').value,
     baseUrl: $('#provider-url-input').value,
-  });
+  };
+  const ok = editingProviderId
+    ? await updateProvider(editingProviderId, payload)
+    : await addProvider(payload);
   if (ok) closeAddProviderModal();
 });
 $('#add-provider-modal').addEventListener('click', (e) => {
@@ -1087,8 +1159,6 @@ async function init() {
   if (!PROVIDERS[activeProvider]) {
     activeProvider = Object.keys(PROVIDERS)[0];
   }
-  const p = PROVIDERS[activeProvider];
-  $('#base-url').value = p.baseUrl;
   renderProviderTabs();
   renderKeysList();
   renderModelsList();
