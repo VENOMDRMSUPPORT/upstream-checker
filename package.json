@@ -12,7 +12,7 @@
   "build": {
     "publish": {
       "provider": "github",
-      "owner": "upstream-checker-releases",
+      "owner": "VENOMDRMSUPPORT",
       "repo": "upstream-checker",
       "releaseType": "release"
     },
@@ -36,8 +36,7 @@
           ]
         }
       ],
-      "icon": "src/assets/icon.ico",
-      "publisherName": "Upstream Checker"
+      "icon": "src/assets/icon.ico"
     },
     "nsis": {
       "oneClick": false,
