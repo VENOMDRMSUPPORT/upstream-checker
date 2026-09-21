@@ -271,6 +271,34 @@
     </div>
   </div>
 
+  <!-- Add Provider Modal -->
+  <div class="modal-overlay" id="add-provider-modal" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Add Provider</h3>
+        <button class="modal-close" id="provider-modal-close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="config-group">
+          <label class="config-label">Provider Name</label>
+          <input type="text" class="config-input" id="provider-name-input" placeholder="e.g. OpenRouter">
+        </div>
+        <div class="config-group">
+          <label class="config-label">Base URL (OpenAI-compatible)</label>
+          <input type="text" class="config-input" id="provider-url-input" placeholder="https://api.example.com/v1">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="provider-modal-cancel">Cancel</button>
+        <button class="btn btn-primary" id="provider-modal-add">Add Provider</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Update Notification Modal -->
   <div class="modal-overlay" id="update-modal" style="display:none">
     <div class="modal update-modal">

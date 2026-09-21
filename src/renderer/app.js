@@ -117,10 +117,74 @@ function renderProviderTabs() {
     const btn = document.createElement('button');
     btn.className = `provider-btn ${p.id === activeProvider ? 'active' : ''}`;
     btn.dataset.provider = p.id;
-    btn.innerHTML = `<span class="provider-dot" style="background:${p.color}"></span>${p.name}`;
+    let inner = `<span class="provider-dot" style="background:${p.color}"></span>${escapeHtml(p.name)}`;
+    if (p.custom) {
+      inner += `<span class="provider-delete" data-provider="${p.id}" title="Remove provider">&times;</span>`;
+    }
+    btn.innerHTML = inner;
     btn.addEventListener('click', () => switchProvider(p.id));
     container.appendChild(btn);
   });
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'provider-btn provider-add';
+  addBtn.title = 'Add provider';
+  addBtn.innerHTML = '+';
+  addBtn.addEventListener('click', () => {
+    $('#add-provider-modal').style.display = 'flex';
+    setTimeout(() => $('#provider-name-input').focus(), 100);
+  });
+  container.appendChild(addBtn);
+
+  $$('.provider-delete').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeProvider(el.dataset.provider);
+    });
+  });
+}
+
+async function addProvider({ name, baseUrl }) {
+  name = (name || '').trim();
+  baseUrl = (baseUrl || '').trim().replace(/\/$/, '');
+
+  if (!name || !baseUrl) {
+    setStatus('error', 'Provider name and Base URL are required');
+    return false;
+  }
+  try {
+    new URL(baseUrl);
+  } catch (_) {
+    setStatus('error', 'Base URL is not a valid URL');
+    return false;
+  }
+  const dupe = Object.values(PROVIDERS).some(
+    (p) => p.name.toLowerCase() === name.toLowerCase()
+  );
+  if (dupe) {
+    setStatus('error', `A provider named "${name}" already exists`);
+    return false;
+  }
+
+  const id = `prov_${Date.now()}`;
+  const color = CUSTOM_COLORS[Object.keys(PROVIDERS).length % CUSTOM_COLORS.length];
+  PROVIDERS[id] = makeRuntimeProvider({ id, name, baseUrl, color, custom: true });
+  await saveProviderConfig(id);
+  switchProvider(id);
+  setStatus('done', `Provider "${name}" added`);
+  return true;
+}
+
+async function removeProvider(id) {
+  const p = PROVIDERS[id];
+  if (!p || !p.custom) return;
+  delete PROVIDERS[id];
+  const data = await window.electronAPI.readConfig();
+  if (data.providers) delete data.providers[id];
+  await window.electronAPI.writeConfig(data);
+  if (activeProvider === id) activeProvider = Object.keys(PROVIDERS)[0];
+  switchProvider(activeProvider);
+  setStatus('done', `Provider "${p.name}" removed`);
 }
 
 function switchProvider(providerId) {
@@ -960,6 +1024,28 @@ $('#add-key-modal').addEventListener('click', (e) => {
   if (e.target.id === 'add-key-modal') {
     $('#add-key-modal').style.display = 'none';
   }
+});
+
+// ============================================
+// Add Provider modal
+// ============================================
+function closeAddProviderModal() {
+  $('#add-provider-modal').style.display = 'none';
+  $('#provider-name-input').value = '';
+  $('#provider-url-input').value = '';
+}
+
+$('#provider-modal-close').addEventListener('click', closeAddProviderModal);
+$('#provider-modal-cancel').addEventListener('click', closeAddProviderModal);
+$('#provider-modal-add').addEventListener('click', async () => {
+  const ok = await addProvider({
+    name: $('#provider-name-input').value,
+    baseUrl: $('#provider-url-input').value,
+  });
+  if (ok) closeAddProviderModal();
+});
+$('#add-provider-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'add-provider-modal') closeAddProviderModal();
 });
 
 // ============================================
