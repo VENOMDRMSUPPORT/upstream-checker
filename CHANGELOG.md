@@ -30,4 +30,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Releases as update server
 - NSIS installer and portable builds for Windows x64
 
-[1.0.0]: https://github.com/upstream-checker-releases/upstream-checker/releases/tag/v1.0.0
+[1.0.0]: https://github.com/VENOMDRMSUPPORT/upstream-checker/releases/tag/v1.0.0
