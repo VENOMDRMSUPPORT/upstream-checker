@@ -2,6 +2,14 @@ const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const https = require('https');
 const http = require('http');
+const { autoUpdater } = require('electron-updater');
+const log = require('electron-log');
+
+// Auto-updater configuration
+autoUpdater.autoDownload = false;
+autoUpdater.autoInstallOnAppQuit = true;
+
+let updateCheckInterval;
 
 let mainWindow;
 
@@ -29,7 +37,75 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(createWindow);
+function checkForUpdates() {
+  if (process.env.NODE_ENV === 'development') {
+    log.info('Skipping update check in development');
+    return;
+  }
+
+  autoUpdater.checkForUpdates().catch(err => {
+    log.error('Error checking for updates:', err);
+  });
+}
+
+function startUpdateChecks() {
+  setTimeout(() => checkForUpdates(), 5000);
+  updateCheckInterval = setInterval(() => checkForUpdates(), 2 * 60 * 60 * 1000);
+}
+
+function stopUpdateChecks() {
+  if (updateCheckInterval) {
+    clearInterval(updateCheckInterval);
+    updateCheckInterval = null;
+  }
+}
+
+autoUpdater.on('checking-for-update', () => {
+  log.info('Checking for updates...');
+  mainWindow?.webContents.send('update-checking');
+});
+
+autoUpdater.on('update-available', (info) => {
+  log.info('Update available:', info.version);
+  mainWindow?.webContents.send('update-available', {
+    version: info.version,
+    releaseNotes: info.releaseNotes,
+    releaseDate: info.releaseDate,
+  });
+});
+
+autoUpdater.on('update-not-available', (info) => {
+  log.info('Update not available. Current version:', info.version);
+  mainWindow?.webContents.send('update-not-available');
+});
+
+autoUpdater.on('error', (err) => {
+  log.error('Update error:', err);
+  mainWindow?.webContents.send('update-error', { message: err.message });
+});
+
+autoUpdater.on('download-progress', (progressObj) => {
+  log.info(`Download speed: ${progressObj.bytesPerSecond} - Downloaded ${progressObj.percent}%`);
+  mainWindow?.webContents.send('update-download-progress', {
+    percent: Math.round(progressObj.percent),
+    transferred: progressObj.transferred,
+    total: progressObj.total,
+  });
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+  log.info('Update downloaded:', info.version);
+  mainWindow?.webContents.send('update-downloaded', { version: info.version });
+});
+
+app.whenReady().then(() => {
+  createWindow();
+  startUpdateChecks();
+});
+
+app.on('will-quit', () => {
+  stopUpdateChecks();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
@@ -96,4 +172,20 @@ ipcMain.handle('api-request', async (event, { url, method, headers, body }) => {
 // Open external links
 ipcMain.on('open-external', (event, url) => {
   shell.openExternal(url);
+});
+
+// Update IPC handlers
+ipcMain.on('download-update', () => {
+  log.info('User requested update download');
+  autoUpdater.downloadUpdate();
+});
+
+ipcMain.on('install-update', () => {
+  log.info('User requested update install');
+  setImmediate(() => autoUpdater.quitAndInstall());
+});
+
+ipcMain.on('check-for-updates-manual', () => {
+  log.info('Manual update check requested');
+  checkForUpdates();
 });
