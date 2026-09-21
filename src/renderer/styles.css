@@ -1354,3 +1354,20 @@ html, body {
 .update-progress {
   margin-top: 16px;
 }
+
+.provider-btn.provider-add {
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 600;
+  min-width: 34px;
+  opacity: 0.7;
+}
+.provider-btn.provider-add:hover { opacity: 1; }
+.provider-delete {
+  margin-left: 6px;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.5;
+  padding: 0 2px;
+}
+.provider-delete:hover { opacity: 1; color: var(--fail, #ff6b6b); }

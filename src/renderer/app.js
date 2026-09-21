@@ -11,8 +11,8 @@ window.electronAPI.onAppVersion((version) => {
   if (versionEl) versionEl.textContent = `v${version}`;
 });
 
-// Provider definitions — integrated, extensible
-const PROVIDERS = {
+// Built-in provider templates — code-defined, never mutated
+const BUILTIN_PROVIDERS = {
   nara: {
     id: 'nara',
     name: 'NARA Router',
@@ -22,11 +22,17 @@ const PROVIDERS = {
     modelsEndpoint: '/models',
     plansEndpoint: '/api/plans',
     chatEndpoint: '/chat/completions',
-    models: [],       // populated from API
-    planModels: {},   // plan_code -> [model_ids]
-    keys: [],         // array of { id, name, key, active }
   },
 };
+
+const CUSTOM_COLORS = ['#7b2ff7', '#00e0a4', '#ff6b6b', '#ffb020', '#4dabf7', '#e64980'];
+
+// Runtime provider map — built at init from BUILTIN_PROVIDERS + config
+let PROVIDERS = {};
+
+function makeRuntimeProvider(def) {
+  return { models: [], planModels: {}, keys: [], ...structuredClone(def) };
+}
 
 // State
 let activeProvider = 'nara';
@@ -47,20 +53,51 @@ const $$ = (s) => document.querySelectorAll(s);
 // ============================================
 async function saveProviderConfig(providerId) {
   const p = PROVIDERS[providerId];
+  if (!p) return;
   const data = await window.electronAPI.readConfig();
   if (!data.providers) data.providers = {};
-  data.providers[providerId] = { keys: p.keys, baseUrl: p.baseUrl };
+  const entry = { keys: p.keys, baseUrl: p.baseUrl };
+  if (p.custom) {
+    entry.custom = true;
+    entry.name = p.name;
+    entry.color = p.color;
+  }
+  data.providers[providerId] = entry;
   await window.electronAPI.writeConfig(data);
 }
 
-async function loadProviderConfig(providerId) {
+async function loadAllProviders() {
+  let stored = {};
   try {
     const data = await window.electronAPI.readConfig();
-    const providerData = data.providers?.[providerId];
-    if (!providerData) return;
-    PROVIDERS[providerId].keys = providerData.keys || [];
-    if (providerData.baseUrl) PROVIDERS[providerId].baseUrl = providerData.baseUrl;
+    stored = data.providers || {};
   } catch (_) {}
+
+  PROVIDERS = {};
+
+  // Built-ins first, hydrated from config
+  Object.values(BUILTIN_PROVIDERS).forEach((def) => {
+    const p = makeRuntimeProvider(def);
+    const s = stored[def.id];
+    if (s) {
+      p.keys = s.keys || [];
+      if (s.baseUrl) p.baseUrl = s.baseUrl;
+    }
+    PROVIDERS[def.id] = p;
+  });
+
+  // Custom providers from config
+  Object.entries(stored).forEach(([id, s]) => {
+    if (!s.custom || PROVIDERS[id]) return;
+    PROVIDERS[id] = makeRuntimeProvider({
+      id,
+      name: s.name || id,
+      baseUrl: s.baseUrl || '',
+      color: s.color || CUSTOM_COLORS[0],
+      custom: true,
+    });
+    PROVIDERS[id].keys = s.keys || [];
+  });
 }
 
 // ============================================
@@ -80,15 +117,80 @@ function renderProviderTabs() {
     const btn = document.createElement('button');
     btn.className = `provider-btn ${p.id === activeProvider ? 'active' : ''}`;
     btn.dataset.provider = p.id;
-    btn.innerHTML = `<span class="provider-dot" style="background:${p.color}"></span>${p.name}`;
+    let inner = `<span class="provider-dot" style="background:${p.color}"></span>${escapeHtml(p.name)}`;
+    if (p.custom) {
+      inner += `<span class="provider-delete" data-provider="${p.id}" title="Remove provider">&times;</span>`;
+    }
+    btn.innerHTML = inner;
     btn.addEventListener('click', () => switchProvider(p.id));
     container.appendChild(btn);
   });
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'provider-btn provider-add';
+  addBtn.title = 'Add provider';
+  addBtn.innerHTML = '+';
+  addBtn.addEventListener('click', () => {
+    $('#add-provider-modal').style.display = 'flex';
+    setTimeout(() => $('#provider-name-input').focus(), 100);
+  });
+  container.appendChild(addBtn);
+
+  $$('.provider-delete').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeProvider(el.dataset.provider);
+    });
+  });
+}
+
+async function addProvider({ name, baseUrl }) {
+  name = (name || '').trim();
+  baseUrl = (baseUrl || '').trim().replace(/\/$/, '');
+
+  if (!name || !baseUrl) {
+    setStatus('error', 'Provider name and Base URL are required');
+    return false;
+  }
+  try {
+    new URL(baseUrl);
+  } catch (_) {
+    setStatus('error', 'Base URL is not a valid URL');
+    return false;
+  }
+  const dupe = Object.values(PROVIDERS).some(
+    (p) => p.name.toLowerCase() === name.toLowerCase()
+  );
+  if (dupe) {
+    setStatus('error', `A provider named "${name}" already exists`);
+    return false;
+  }
+
+  const id = `prov_${Date.now()}`;
+  const color = CUSTOM_COLORS[Object.keys(PROVIDERS).length % CUSTOM_COLORS.length];
+  PROVIDERS[id] = makeRuntimeProvider({ id, name, baseUrl, color, custom: true });
+  await saveProviderConfig(id);
+  switchProvider(id);
+  setStatus('done', `Provider "${name}" added`);
+  return true;
+}
+
+async function removeProvider(id) {
+  const p = PROVIDERS[id];
+  if (!p || !p.custom) return;
+  delete PROVIDERS[id];
+  const data = await window.electronAPI.readConfig();
+  if (data.providers) delete data.providers[id];
+  await window.electronAPI.writeConfig(data);
+  if (activeProvider === id) activeProvider = Object.keys(PROVIDERS)[0];
+  switchProvider(activeProvider);
+  setStatus('done', `Provider "${p.name}" removed`);
 }
 
 function switchProvider(providerId) {
   activeProvider = providerId;
   const p = PROVIDERS[activeProvider];
+  models = p.models || [];
   $('#base-url').value = p.baseUrl;
   renderProviderTabs();
   renderKeysList();
@@ -283,68 +385,93 @@ $('#btn-fetch-models').addEventListener('click', async () => {
   setStatus('running', 'Fetching models for this key...');
 
   try {
-    // Fetch both endpoints in parallel
-    const [modelsResult, plansResult] = await Promise.all([
-      window.electronAPI.apiRequest({
+    if (p.plansUrl) {
+      // Plan-aware provider (e.g. nara): fetch models + plans, keep only free tiers
+      const [modelsResult, plansResult] = await Promise.all([
+        window.electronAPI.apiRequest({
+          url: `${p.baseUrl}/models`,
+          method: 'GET',
+          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        }),
+        window.electronAPI.apiRequest({
+          url: p.plansUrl,
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ]);
+
+      if (modelsResult.status !== 200) throw new Error(`HTTP ${modelsResult.status}`);
+      const rawModels = JSON.parse(modelsResult.body).data || [];
+
+      let planModels = {};
+      if (plansResult.status === 200) {
+        JSON.parse(plansResult.body).data?.forEach((plan) => {
+          planModels[plan.code] = { name: plan.name, models: plan.models || [] };
+        });
+      }
+
+      const freeIds = new Set(planModels['free']?.models || []);
+      const freemiumIds = new Set(planModels['freemium']?.models || []);
+      const allowedIds = new Set([...freeIds, ...freemiumIds]);
+
+      models = rawModels
+        .filter((m) => allowedIds.has(m.id))
+        .map((m) => {
+          const isFree = freeIds.has(m.id);
+          const isFreeForPaid = !isFree && freemiumIds.has(m.id);
+          return {
+            ...m,
+            isFree,
+            isFreeForPaid,
+            noPlans: false,
+            groupName: getFreeGroupName(isFree ? 'free' : 'freemium'),
+            hasVision: !!m.vision,
+            hasReasoning: !!m.reasoning,
+            contextLabel: formatContext(m.context_window),
+          };
+        })
+        .sort((a, b) => {
+          if (a.isFree !== b.isFree) return a.isFree ? -1 : 1;
+          return a.id.localeCompare(b.id);
+        });
+
+      p.planModels = planModels;
+    } else {
+      // Plain OpenAI-compatible provider: show all models, no plan filtering
+      const modelsResult = await window.electronAPI.apiRequest({
         url: `${p.baseUrl}/models`,
         method: 'GET',
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      }),
-      window.electronAPI.apiRequest({
-        url: p.plansUrl,
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    ]);
-
-    if (modelsResult.status !== 200) throw new Error(`HTTP ${modelsResult.status}`);
-
-    const rawModels = JSON.parse(modelsResult.body).data || [];
-
-    // Build plan map: plan.code -> { name, models }
-    let planModels = {};
-    if (plansResult.status === 200) {
-      JSON.parse(plansResult.body).data?.forEach((plan) => {
-        planModels[plan.code] = { name: plan.name, models: plan.models || [] };
       });
-    }
+      if (modelsResult.status !== 200) throw new Error(`HTTP ${modelsResult.status}`);
+      const rawModels = JSON.parse(modelsResult.body).data || [];
 
-    // Collect ONLY free/free-for-paid model ids
-    const freeIds = new Set(planModels['free']?.models || []);
-    const freemiumIds = new Set(planModels['freemium']?.models || []);
-    // freemium-max is identical to freemium models, skip to avoid duplicates
-    const allowedIds = new Set([...freeIds, ...freemiumIds]);
-
-    // Filter: keep only models the key's plan actually entitles (via /api/plans free tiers)
-    // Also exclude video models
-    models = rawModels
-      .filter((m) => allowedIds.has(m.id))
-      .map((m) => {
-        const isFree = freeIds.has(m.id);
-        // "Free for paid" = in freemium but NOT in free
-        const isFreeForPaid = !isFree && freemiumIds.has(m.id);
-        return {
+      models = rawModels
+        .map((m) => ({
           ...m,
-          isFree,
-          isFreeForPaid,
-          groupName: getFreeGroupName(isFree ? 'free' : 'freemium'),
+          isFree: false,
+          isFreeForPaid: false,
+          noPlans: true,
+          groupName: 'MODELS',
           hasVision: !!m.vision,
           hasReasoning: !!m.reasoning,
           contextLabel: formatContext(m.context_window),
-        };
-      })
-      .sort((a, b) => {
-        if (a.isFree !== b.isFree) return a.isFree ? -1 : 1;
-        return a.id.localeCompare(b.id);
-      });
+        }))
+        .sort((a, b) => a.id.localeCompare(b.id));
+
+      p.planModels = {};
+    }
 
     p.models = [...models];
-    p.planModels = planModels;
 
     renderModelsList();
-    const freeCount = models.filter((m) => m.isFree).length;
-    const freeForPaidCount = models.filter((m) => m.isFreeForPaid).length;
-    setStatus('done', `Fetched ${models.length} models (${freeCount} free + ${freeForPaidCount} free for paid)`);
+    if (p.plansUrl) {
+      const freeCount = models.filter((m) => m.isFree).length;
+      const freeForPaidCount = models.filter((m) => m.isFreeForPaid).length;
+      setStatus('done', `Fetched ${models.length} models (${freeCount} free + ${freeForPaidCount} free for paid)`);
+    } else {
+      setStatus('done', `Fetched ${models.length} models`);
+    }
     updateStats();
   } catch (err) {
     setStatus('error', err.message || 'Failed to fetch models');
@@ -383,20 +510,23 @@ function renderModelsList() {
     return;
   }
 
-  // Group: only FREE + FREE FOR PAID (paid models are ignored)
-  const free = models.filter((m) => m.isFree);
-  const freeForPaid = models.filter((m) => m.isFreeForPaid);
-
   let html = '';
+  const noPlans = models.length > 0 && models[0].noPlans;
 
-  if (free.length > 0) {
-    html += `<div class="model-group-label">FREE (${free.length})</div>`;
-    html += free.map((m) => buildModelItem(m)).join('');
-  }
-
-  if (freeForPaid.length > 0) {
-    html += `<div class="model-group-label">FREE FOR PAID (${freeForPaid.length})</div>`;
-    html += freeForPaid.map((m) => buildModelItem(m)).join('');
+  if (noPlans) {
+    html += `<div class="model-group-label">MODELS (${models.length})</div>`;
+    html += models.map((m) => buildModelItem(m)).join('');
+  } else {
+    const free = models.filter((m) => m.isFree);
+    const freeForPaid = models.filter((m) => m.isFreeForPaid);
+    if (free.length > 0) {
+      html += `<div class="model-group-label">FREE (${free.length})</div>`;
+      html += free.map((m) => buildModelItem(m)).join('');
+    }
+    if (freeForPaid.length > 0) {
+      html += `<div class="model-group-label">FREE FOR PAID (${freeForPaid.length})</div>`;
+      html += freeForPaid.map((m) => buildModelItem(m)).join('');
+    }
   }
 
   container.innerHTML = html;
@@ -630,9 +760,11 @@ function buildRowHtml(model, result) {
   if (model.hasVision) typeIcons.push(iconSpan('vision', 'Vision', 'type-vision'));
   if (model.hasReasoning) typeIcons.push(iconSpan('think', 'Reasoning', 'type-think'));
   // Free tier icon: show on every row (tier comes from provider grouping, not free/paid anymore)
-  const planIcon = model.isFree
-    ? iconSpan('free', 'Free', 'tier-free')
-    : iconSpan('free', 'Free for Paid', 'tier-freepaid');
+  const planIcon = model.noPlans
+    ? ''
+    : model.isFree
+      ? iconSpan('free', 'Free', 'tier-free')
+      : iconSpan('free', 'Free for Paid', 'tier-freepaid');
 
   const tokens = result.tokens != null ? String(result.tokens) : '-';
   const responseHtml = isRunning
@@ -704,7 +836,7 @@ $('#btn-export-csv').addEventListener('click', () => {
   if (testResults.length === 0) return;
   const header = 'Model,Provider,Plan,Status,Time (ms),Tokens,Response\n';
   const rows = testResults
-    .map((r) => `"${r.model}","${r.provider}","${r.planTier || ''}","${r.status}",${r.time},${r.tokens},"${(r.response || '').replace(/"/g, '""')}"`)
+    .map((r) => `"${r.model}","${r.provider}","${r.group || ''}","${r.status}",${r.time},${r.tokens},"${(r.response || '').replace(/"/g, '""')}"`)
     .join('\n');
   downloadFile(header + rows, 'upstream-checker-results.csv', 'text/csv');
 });
@@ -905,11 +1037,14 @@ $('#btn-add-key').addEventListener('click', () => {
   setTimeout(() => $('#key-name-input').focus(), 100);
 });
 
-$('#modal-cancel').addEventListener('click', () => {
+function closeAddKeyModal() {
   $('#add-key-modal').style.display = 'none';
   $('#key-name-input').value = '';
   $('#key-value-input').value = '';
-});
+}
+
+$('#modal-cancel').addEventListener('click', closeAddKeyModal);
+$('#modal-cancel-btn').addEventListener('click', closeAddKeyModal);
 
 $('#modal-add').addEventListener('click', () => {
   addKey();
@@ -923,10 +1058,35 @@ $('#add-key-modal').addEventListener('click', (e) => {
 });
 
 // ============================================
+// Add Provider modal
+// ============================================
+function closeAddProviderModal() {
+  $('#add-provider-modal').style.display = 'none';
+  $('#provider-name-input').value = '';
+  $('#provider-url-input').value = '';
+}
+
+$('#provider-modal-close').addEventListener('click', closeAddProviderModal);
+$('#provider-modal-cancel').addEventListener('click', closeAddProviderModal);
+$('#provider-modal-add').addEventListener('click', async () => {
+  const ok = await addProvider({
+    name: $('#provider-name-input').value,
+    baseUrl: $('#provider-url-input').value,
+  });
+  if (ok) closeAddProviderModal();
+});
+$('#add-provider-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'add-provider-modal') closeAddProviderModal();
+});
+
+// ============================================
 // Init
 // ============================================
 async function init() {
-  await loadProviderConfig(activeProvider);
+  await loadAllProviders();
+  if (!PROVIDERS[activeProvider]) {
+    activeProvider = Object.keys(PROVIDERS)[0];
+  }
   const p = PROVIDERS[activeProvider];
   $('#base-url').value = p.baseUrl;
   renderProviderTabs();
