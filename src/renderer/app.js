@@ -789,7 +789,14 @@ function setupUpdateListeners() {
   updateAPI.onUpdateChecking(() => console.log('Checking for updates...'));
 
   updateAPI.onUpdateAvailable((info) => {
-    if (!isUpdateDownloading && !isUpdateReady) showUpdateModal(info);
+    if (!isUpdateDownloading && !isUpdateReady) {
+      // Show titlebar badge
+      const badge = $('#update-badge');
+      badge.style.display = 'flex';
+      $('#update-badge-version').textContent = info.version;
+      // Also show modal
+      showUpdateModal(info);
+    }
   });
 
   updateAPI.onUpdateNotAvailable(() => console.log('No updates available'));
@@ -799,15 +806,45 @@ function setupUpdateListeners() {
     if (isUpdateDownloading) {
       setStatus('error', 'Update download failed');
       isUpdateDownloading = false;
+      // Update badge progress
+      const progressEl = $('#update-badge-progress');
+      if (progressEl) progressEl.style.display = 'none';
     }
   });
 
-  updateAPI.onDownloadProgress((progress) => showDownloadProgress(progress.percent));
+  updateAPI.onDownloadProgress((progress) => {
+    showDownloadProgress(progress.percent);
+    // Update badge text
+    const progressEl = $('#update-badge-progress');
+    if (progressEl) {
+      progressEl.style.display = '';
+      progressEl.textContent = `${progress.percent}%`;
+    }
+  });
 
   updateAPI.onUpdateDownloaded(() => {
     isUpdateDownloading = false;
     isUpdateReady = true;
     showInstallButton();
+    // Update badge to install state
+    const badge = $('#update-badge');
+    badge.classList.add('update-ready');
+    $('#update-badge-progress').style.display = 'none';
+    $('#update-badge-version').textContent = 'ready!';
+    badge.title = 'Click to install update';
+  });
+
+  // Badge click handler
+  $('#update-badge')?.addEventListener('click', () => {
+    if (isUpdateReady) {
+      window.electronAPI.updateAPI.installUpdate();
+    } else if (!isUpdateDownloading) {
+      // Start download
+      isUpdateDownloading = true;
+      const badge = $('#update-badge');
+      badge.classList.add('update-downloading');
+      window.electronAPI.updateAPI.downloadUpdate();
+    }
   });
 
   // Update modal button handlers

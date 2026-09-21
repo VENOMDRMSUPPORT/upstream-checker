@@ -168,6 +168,60 @@ html, body {
   color: white;
 }
 
+/* Update badge */
+.update-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 8px;
+  margin-left: 8px;
+  background: linear-gradient(135deg, #00d4ff, #7b2ff7);
+  border: none;
+  border-radius: 20px;
+  color: white;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  animation: pulse-glow 2s ease-in-out infinite;
+  box-shadow: 0 0 12px rgba(0, 212, 255, 0.4);
+}
+
+.update-badge:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 20px rgba(0, 212, 255, 0.6);
+}
+
+.update-badge-text {
+  letter-spacing: 0.5px;
+}
+
+.update-badge-progress {
+  font-size: 10px;
+  opacity: 0.9;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 12px rgba(0, 212, 255, 0.4); }
+  50% { box-shadow: 0 0 20px rgba(0, 212, 255, 0.7); }
+}
+
+.update-badge.update-downloading {
+  animation: none;
+  cursor: wait;
+}
+
+.update-badge.update-ready {
+  background: var(--pass);
+  animation: none;
+  box-shadow: 0 0 16px rgba(34, 197, 94, 0.5);
+}
+
+.update-badge.update-ready:hover {
+  box-shadow: 0 0 24px rgba(34, 197, 94, 0.7);
+}
+
 /* ============================================
    App Layout
    ============================================ */

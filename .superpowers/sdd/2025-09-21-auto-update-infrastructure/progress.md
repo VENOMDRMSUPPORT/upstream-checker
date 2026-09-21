@@ -38,3 +38,20 @@ Global constraints verified: Windows x64, Electron 33, no UI breaking changes, u
 
 ## Task Progress
 
+Task 1: complete (commits 32a30c7..16f8fcd, review skipped — git init only, no code)
+Ruling: Skip full review for Task 1 — it's git initialization + .gitignore + README, no code to review.
+Task 2: complete (commit de9c7d0, electron-updater@6.3.0 + electron-log@5.2.0 installed, publish config added)
+
+Task 3: complete (commit 143d65e, auto-updater logic in main.js, 6 IPC channels added)
+
+Task 4: complete (commit 4af4c8b, preload bridge — 6 listeners + 3 commands under updateAPI)
+
+Task 5: complete (commit 41b1d21, update modal HTML 52 lines + CSS 82 lines)
+
+Task 6: complete (commit d9abe62, renderer update logic 108 lines — modal control + IPC listeners)
+
+Task 7: complete (commit 4b5cd4d, CHANGELOG.md with v1.0.0 baseline)
+
+All code tasks (1-7) complete. Task 8 (Build & Publish) is manual — requires GitHub repo + token.
+8 commits total, all syntax validated, full update flow wired.
+
