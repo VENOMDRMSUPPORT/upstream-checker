@@ -9,6 +9,12 @@ let autoUpdater; // Lazy load after app ready
 let updateCheckInterval;
 let configPath;
 
+const CONFIG_VERSION = 1;
+
+function getDefaultConfig() {
+  return { version: CONFIG_VERSION, providers: {} };
+}
+
 // Config file helpers
 function getConfigPath() {
   if (!configPath) {
@@ -20,14 +26,23 @@ function getConfigPath() {
 function readConfig() {
   try {
     const cp = getConfigPath();
-    if (fs.existsSync(cp)) {
-      const data = fs.readFileSync(cp, 'utf-8');
-      return JSON.parse(data);
+    if (!fs.existsSync(cp)) {
+      writeConfig(getDefaultConfig());
+      return getDefaultConfig();
     }
+    const parsed = JSON.parse(fs.readFileSync(cp, 'utf-8'));
+    if (typeof parsed.version !== 'number') parsed.version = CONFIG_VERSION;
+    if (!parsed.providers || typeof parsed.providers !== 'object') parsed.providers = {};
+    return parsed;
   } catch (err) {
     log.error('Failed to read config:', err);
+    return getDefaultConfig();
   }
-  return { providers: {} };
+}
+
+function ensureConfig() {
+  const cp = getConfigPath();
+  if (!fs.existsSync(cp)) writeConfig(getDefaultConfig());
 }
 
 function writeConfig(data) {
@@ -168,6 +183,7 @@ function stopUpdateChecks() {
 }
 
 app.whenReady().then(() => {
+  ensureConfig();
   initAutoUpdater();
   createWindow();
   startUpdateChecks();
