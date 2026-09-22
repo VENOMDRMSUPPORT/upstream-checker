@@ -1719,3 +1719,10 @@ html, body {
   color: var(--text-2);
   border: 1px solid var(--border-2);
 }
+
+/* Which key reaches this model, when a provider's keys unlock different catalogues */
+.badge-key {
+  background: rgba(249, 115, 22, 0.14);
+  color: #fb923c;
+  border: 1px solid rgba(249, 115, 22, 0.3);
+}

@@ -698,6 +698,50 @@ function getFreeGroupName(code) {
   return code;
 }
 
+// Discovery for one key. A provider can hand out catalogues that differ per key —
+// one key unlocking the Chinese models and another the Claude/GPT ones is a real
+// arrangement — so this runs once per key and the caller merges the results.
+async function discoverModels(p, apiKey) {
+  const adapter = (window.INTEGRATED_PROVIDERS || {})[p.id];
+  if (adapter && adapter.fetchModels) {
+    return adapter.fetchModels({
+      apiKey,
+      baseUrl: p.baseUrl,
+      plansUrl: p.plansUrl,
+      pricingUrl: p.pricingUrl,
+      apiRequest: window.electronAPI.apiRequest,
+      formatContext,
+      getFreeGroupName,
+    });
+  }
+
+  // Plain OpenAI-compatible provider: show all models, no plan filtering
+  const modelsResult = await window.electronAPI.apiRequest({
+    url: `${p.baseUrl}/models`,
+    method: 'GET',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+  });
+  if (modelsResult.status !== 200) throw new Error(`HTTP ${modelsResult.status}`);
+  const rawModels = JSON.parse(modelsResult.body).data || [];
+
+  return rawModels
+    .map((m) => {
+      const ctx = readContextWindow(m);
+      return {
+        ...m,
+        isFree: false,
+        isFreeForPaid: false,
+        noPlans: true,
+        groupName: 'MODELS',
+        hasVision: readsVision(m),
+        hasReasoning: readsReasoning(m),
+        context_window: ctx,
+        contextLabel: formatContext(ctx),
+      };
+    })
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
 $('#btn-fetch-models').addEventListener('click', async () => {
   const p = PROVIDERS[activeProvider];
   const activeKeys = usableKeys(p);
@@ -706,56 +750,40 @@ $('#btn-fetch-models').addEventListener('click', async () => {
     return;
   }
 
-  // Discovery is a single request, so it just takes the next key in rotation
-  // rather than pacing — the catalogue is the same whichever key asks for it.
-  const apiKey = (pickKey(p) || activeKeys[0]).key;
   const btn = $('#btn-fetch-models');
   const originalText = btn.innerHTML;
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> Fetching...';
-  setStatus('running', 'Fetching models for this key...');
+  setStatus('running', `Fetching models from ${activeKeys.length} key${activeKeys.length === 1 ? '' : 's'}...`);
+
+  // Every key is asked, and the catalogues are unioned. Each model records which
+  // keys returned it, because that is what testing needs later: sending a Claude
+  // model the key that only unlocks the Chinese ones produces a 404 and records a
+  // working model as broken.
+  const byId = new Map();
+  const failures = [];
+
+  for (const k of activeKeys) {
+    try {
+      const list = await discoverModels(p, k.key);
+      list.forEach((m) => {
+        const existing = byId.get(m.id);
+        if (existing) {
+          if (!existing.keyIds.includes(k.id)) existing.keyIds.push(k.id);
+        } else {
+          byId.set(m.id, { ...m, keyIds: [k.id] });
+        }
+      });
+    } catch (err) {
+      // One bad key must not empty the catalogue the others returned.
+      failures.push(`${k.name}: ${err.message || 'failed'}`);
+    }
+  }
 
   try {
-    const adapter = (window.INTEGRATED_PROVIDERS || {})[p.id];
-    if (adapter && adapter.fetchModels) {
-      // Integrated provider: delegate discovery to its module
-      models = await adapter.fetchModels({
-        apiKey,
-        baseUrl: p.baseUrl,
-        plansUrl: p.plansUrl,
-        pricingUrl: p.pricingUrl,
-        apiRequest: window.electronAPI.apiRequest,
-        formatContext,
-        getFreeGroupName,
-      });
-    } else {
-      // Plain OpenAI-compatible provider: show all models, no plan filtering
-      const modelsResult = await window.electronAPI.apiRequest({
-        url: `${p.baseUrl}/models`,
-        method: 'GET',
-        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      });
-      if (modelsResult.status !== 200) throw new Error(`HTTP ${modelsResult.status}`);
-      const rawModels = JSON.parse(modelsResult.body).data || [];
+    if (byId.size === 0) throw new Error(failures[0] || 'No models returned');
 
-      models = rawModels
-        .map((m) => {
-          const ctx = readContextWindow(m);
-          return {
-            ...m,
-            isFree: false,
-            isFreeForPaid: false,
-            noPlans: true,
-            groupName: 'MODELS',
-            hasVision: readsVision(m),
-            hasReasoning: readsReasoning(m),
-            context_window: ctx,
-            contextLabel: formatContext(ctx),
-          };
-        })
-        .sort((a, b) => a.id.localeCompare(b.id));
-    }
-
+    models = [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
     // Two entries sharing an id are the same model; keeping both would create two
     // table rows with the same key, and only the first would ever be updated.
     models = tagAliasGroups(dedupeById(models));
@@ -768,12 +796,16 @@ $('#btn-fetch-models').addEventListener('click', async () => {
     p.selected = new Set(models.filter((m) => !isMedia(m)).map((m) => m.id));
 
     renderModelsList();
+
+    const keyNote = activeKeys.length > 1 ? ` across ${activeKeys.length} keys` : '';
     if (p.plansUrl) {
       const freeCount = models.filter((m) => m.isFree).length;
       const freeForPaidCount = models.filter((m) => m.isFreeForPaid).length;
-      setStatus('done', `Fetched ${models.length} models (${freeCount} free + ${freeForPaidCount} free for paid)`);
+      setStatus('done', `Fetched ${models.length} models${keyNote} (${freeCount} free + ${freeForPaidCount} free for paid)`);
+    } else if (failures.length) {
+      setStatus('error', `Fetched ${models.length} models${keyNote} — ${failures.join('; ')}`);
     } else {
-      setStatus('done', `Fetched ${models.length} models`);
+      setStatus('done', `Fetched ${models.length} models${keyNote}`);
     }
     updateStats();
   } catch (err) {
@@ -958,6 +990,22 @@ $('#btn-select-none').addEventListener('click', () => setSelectionForVisible(fal
 
 function buildModelItem(m) {
   const badges = [];
+  // When a provider's keys unlock different catalogues, say which key reaches
+  // this model — otherwise the list looks like one pool and a model that only
+  // one key can serve is indistinguishable from one any key can.
+  const p = PROVIDERS[activeProvider];
+  const allKeys = p ? usableKeys(p) : [];
+  if (allKeys.length > 1 && Array.isArray(m.keyIds) && m.keyIds.length < allKeys.length) {
+    const names = allKeys.filter((k) => m.keyIds.includes(k.id)).map((k) => k.name);
+    if (names.length) {
+      const short = names[0].length > 12 ? names[0].slice(0, 11) + '…' : names[0];
+      badges.push(
+        `<span class="model-badge badge-key" title="${escapeHtml('Served by: ' + names.join(', '))}">${escapeHtml(
+          names.length > 1 ? `${names.length} keys` : short
+        )}</span>`
+      );
+    }
+  }
   if (m.aliasGroup) {
     badges.push(
       `<span class="model-badge badge-alias" title="${escapeHtml(m.aliasCount + ' routes expose ' + m.aliasGroup + '. Tested separately — one can be up while another is down.')}">×${m.aliasCount}</span>`
@@ -1068,9 +1116,21 @@ function rpmOf(provider) {
   return Number.isFinite(n) && n > 0 ? n : 0; // 0 = unknown, so don't pace
 }
 
-// Round-robin over the keys that aren't cooling off; null when all of them are.
-function pickKey(provider) {
+// The keys that can actually serve this model. Discovery records which keys
+// returned each model, so a provider whose keys unlock different catalogues gets
+// each request sent to a key that has the model — otherwise a working model is
+// recorded as broken because the wrong key was used to ask for it.
+function keysFor(provider, model) {
   const keys = usableKeys(provider);
+  if (!model || !Array.isArray(model.keyIds) || model.keyIds.length === 0) return keys;
+  const allowed = keys.filter((k) => model.keyIds.includes(k.id));
+  return allowed.length > 0 ? allowed : keys;
+}
+
+// Round-robin over the eligible keys that aren't cooling off; null when all of
+// them are.
+function pickKey(provider, model) {
+  const keys = keysFor(provider, model);
   if (keys.length === 0) return null;
   const now = Date.now();
   for (let i = 0; i < keys.length; i++) {
@@ -1083,8 +1143,8 @@ function pickKey(provider) {
   return null;
 }
 
-function soonestKeyAvailable(provider) {
-  const keys = usableKeys(provider);
+function soonestKeyAvailable(provider, model) {
+  const keys = keysFor(provider, model);
   if (keys.length === 0) return Infinity;
   return Math.min(...keys.map((k) => keyCooldownUntil.get(k.id) || 0));
 }
@@ -1111,10 +1171,10 @@ async function waitForSlot(provider, key) {
 }
 
 // Every key is cooling off; wait for whichever frees up first.
-async function waitForAnyKey(provider) {
+async function waitForAnyKey(provider, model) {
   let waited = false;
   while (!abortTesting) {
-    const remaining = soonestKeyAvailable(provider) - Date.now();
+    const remaining = soonestKeyAvailable(provider, model) - Date.now();
     if (remaining <= 0 || !Number.isFinite(remaining)) break;
     waited = true;
     setStatus('running', `Rate limited — resuming in ${Math.ceil(remaining / 1000)}s`);
@@ -1161,7 +1221,7 @@ function retryDelay(attempt) {
 // One single request. Returns a pass (content), an empty pass, or a fail carrying
 // statusCode/retryAfter so the caller can decide whether to retry.
 async function attemptOnce(model, provider, stream, requestId) {
-  const key = pickKey(provider);
+  const key = pickKey(provider, model);
   if (!key) return { status: 'fail', response: 'All keys are rate limited', time: 0, tokens: 0, allKeysCooling: true };
   await waitForSlot(provider, key);
   if (abortTesting) return { status: 'fail', response: 'Aborted', time: 0, tokens: 0, cancelled: true };
@@ -1361,9 +1421,9 @@ async function testModel(model, provider) {
 
   while (true) {
     // Every key may still be cooling from an earlier model's 429.
-    if (soonestKeyAvailable(provider) > Date.now()) {
+    if (soonestKeyAvailable(provider, model) > Date.now()) {
       updateResultRow(model, { status: 'running', waiting: true, time: null, tokens: null });
-      await waitForAnyKey(provider);
+      await waitForAnyKey(provider, model);
       updateResultRow(model, RUNNING_RESULT);
     }
     if (abortTesting) return done({ status: 'fail', response: 'Aborted', time: 0, tokens: 0 });
