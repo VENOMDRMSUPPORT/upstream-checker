@@ -5,6 +5,19 @@ All notable changes to Upstream Checker will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-09-22
+
+### Fixed
+- The update dialog showed an empty "What's New" panel. A GitHub release is
+  created by the asset upload and only gets its notes afterwards, so an app that
+  checked during that gap received an empty body and cached it. The release
+  script now publishes the release with its notes before any asset exists, which
+  removes the gap, and the dialog no longer renders a blank panel either — it
+  says whether nothing arrived or something arrived in a shape it could not
+  parse, and shows unparsed notes verbatim rather than swallowing them.
+
+[1.2.1]: https://github.com/VENOMDRMSUPPORT/upstream-checker/releases/tag/v1.2.1
+
 ## [1.2.0] - 2026-09-22
 
 Three more providers, a settings page, encrypted keys, and a record that turns

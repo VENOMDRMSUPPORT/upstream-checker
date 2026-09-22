@@ -2416,12 +2416,28 @@ function showUpdateModal(info) {
   updateInfo = info;
   $('#update-modal-version').textContent = info.version;
 
+  // A release is published before its notes are written, so an app that checks in
+  // that window receives an empty body. Rather than a blank panel, say which case
+  // it is: nothing arrived, or something arrived that parsed to nothing.
   const notesEl = $('#update-modal-notes');
-  if (info.releaseNotes) {
-    const notes = Array.isArray(info.releaseNotes) ? info.releaseNotes.join('\n') : info.releaseNotes;
-    notesEl.replaceChildren(buildReleaseNotes(notes));
+  const raw = Array.isArray(info.releaseNotes)
+    ? info.releaseNotes.map((n) => (typeof n === 'string' ? n : n?.note || '')).join(String.fromCharCode(10))
+    : info.releaseNotes || '';
+
+  if (raw.trim()) {
+    const list = buildReleaseNotes(raw);
+    if (list.childElementCount > 0) {
+      notesEl.replaceChildren(list);
+    } else {
+      // Notes in a shape the parser does not recognise are shown verbatim rather
+      // than swallowed.
+      const pre = document.createElement('pre');
+      pre.className = 'response-full';
+      pre.textContent = raw.trim();
+      notesEl.replaceChildren(pre);
+    }
   } else {
-    notesEl.textContent = 'No release notes available.';
+    notesEl.textContent = 'Release notes were not published yet — see the release page on GitHub.';
   }
 
   $('#update-progress').style.display = 'none';

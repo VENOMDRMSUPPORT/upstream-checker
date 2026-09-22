@@ -1,9 +1,16 @@
-// One-shot release: tag the current version, push it, then build + publish.
+// One-shot release: tag the current version, push it, publish the notes, then
+// build and upload the installers.
 //
 // electron-builder's GitHub publisher (releaseType: "release") needs the git tag
 // to already exist on the remote, otherwise GitHub returns
 // 422 "Published releases must have a valid tag". This script guarantees that
 // ordering so `npm run release` works in a single command.
+//
+// It also creates the release *with its notes* before any asset is uploaded.
+// electron-builder will otherwise create the release itself as a side effect of
+// uploading, leaving a window where the release is live and visible to
+// auto-update while its body is still empty — an app that checks during that
+// window shows an empty "What's New" and caches it.
 //
 // Usage:  bump "version" in package.json, commit, then:  npm run release
 // The GitHub token is taken from $GH_TOKEN / $GITHUB_TOKEN, or from the `gh` CLI
@@ -11,6 +18,7 @@
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
+const REPO = 'VENOMDRMSUPPORT/upstream-checker';
 const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 const tag = `v${version}`;
 
@@ -34,12 +42,37 @@ if (!process.env.GH_TOKEN && !process.env.GITHUB_TOKEN) {
   process.exit(1);
 }
 
+// 2. The notes for this version, straight out of the CHANGELOG. Read before
+//    anything is published so a missing section is caught early rather than
+//    after the installers are already on the release.
+function changelogNotes() {
+  const changelog = readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8');
+  const escaped = version.replace(/\./g, '\\.');
+  const section = changelog.match(
+    new RegExp('## \\[' + escaped + '\\][^\\n]*\\n([\\s\\S]*?)(?=\\n## \\[)')
+  );
+  if (!section) return '';
+  return section[1]
+    .split('\n')
+    .filter((line) => !line.startsWith('[' + version + ']:'))
+    .join('\n')
+    .trim();
+}
+
+const notes = changelogNotes();
+if (!notes) {
+  console.warn(`No CHANGELOG section found for ${version}. The release will have no notes.`);
+}
+
+const releasesForTag = () =>
+  JSON.parse(capture(`gh api "repos/${REPO}/releases?per_page=100"`)).filter((r) => r.tag_name === tag);
+
 console.log(`Releasing ${tag} ...\n`);
 
-// 2. Push the current branch so the tag points at a commit that exists on the remote.
+// 3. Push the current branch so the tag points at a commit that exists on the remote.
 run('git push origin HEAD');
 
-// 3. Create the tag locally if it is missing.
+// 4. Create the tag locally if it is missing.
 const localTags = capture('git tag').split(/\r?\n/).filter(Boolean);
 if (!localTags.includes(tag)) {
   run(`git tag -a ${tag} -m "${tag}"`);
@@ -47,29 +80,35 @@ if (!localTags.includes(tag)) {
   console.log(`Tag ${tag} already exists locally.`);
 }
 
-// 4. Push the tag (ignore the case where it is already on the remote).
+// 5. Push the tag (ignore the case where it is already on the remote).
 try {
   run(`git push origin ${tag}`);
 } catch {
   console.log(`Tag ${tag} is already on the remote — continuing.`);
 }
 
-// 5. Build the installers and publish the release + assets to GitHub.
+// 6. Publish the release with its notes, before any asset exists. This is what
+//    closes the empty-notes window described at the top of the file.
+if (notes && releasesForTag().length === 0) {
+  console.log(`Creating release ${tag} with notes from CHANGELOG ...`);
+  execSync(`gh api -X POST "repos/${REPO}/releases" --input -`, {
+    input: JSON.stringify({ tag_name: tag, name: tag, body: notes, draft: false, prerelease: false }),
+    stdio: ['pipe', 'ignore', 'inherit'],
+  });
+}
+
+// 7. Build the installers and upload them to that release.
 run('electron-builder --win --x64 --publish always');
 
-// 6. Finalize the GitHub release (best-effort). electron-builder publishes each
-//    build target (nsis + portable) separately and can create a DUPLICATE release
-//    for the same tag, so keep the one with the most assets and delete the rest,
-//    then set the notes from the CHANGELOG (the in-app update modal shows these as
-//    "What's New"). Notes are sent as JSON on stdin to avoid quoting/CLI quirks.
-const REPO = 'VENOMDRMSUPPORT/upstream-checker';
+// 8. Tidy up (best-effort). electron-builder publishes each build target
+//    (nsis + portable) separately and can still end up creating a duplicate
+//    release for the tag, so keep whichever carries the most assets, delete the
+//    rest, and make sure the survivor has the notes.
 try {
-  const releases = JSON.parse(capture(`gh api "repos/${REPO}/releases?per_page=100"`))
-    .filter((r) => r.tag_name === tag)
-    .sort((a, b) => (b.assets?.length || 0) - (a.assets?.length || 0));
+  const releases = releasesForTag().sort((a, b) => (b.assets?.length || 0) - (a.assets?.length || 0));
 
   if (releases.length === 0) {
-    console.log(`No GitHub release found for ${tag}; skipping notes.`);
+    console.log(`No GitHub release found for ${tag}; nothing to tidy.`);
   } else {
     const keep = releases[0];
     for (const dup of releases.slice(1)) {
@@ -77,20 +116,14 @@ try {
       execSync(`gh api -X DELETE "repos/${REPO}/releases/${dup.id}"`, { stdio: 'ignore' });
     }
 
-    const changelog = readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8');
-    const esc = version.replace(/\./g, '\\.');
-    const m = changelog.match(new RegExp('## \\[' + esc + '\\][^\\n]*\\n([\\s\\S]*?)(?=\\n## \\[)'));
-    const notes = m
-      ? m[1].split('\n').filter((l) => !l.startsWith('[' + version + ']:')).join('\n').trim()
-      : '';
-    if (notes) {
+    if (notes && !String(keep.body || '').trim()) {
       execSync(`gh api -X PATCH "repos/${REPO}/releases/${keep.id}" --input -`, {
         input: JSON.stringify({ body: notes }),
         stdio: ['pipe', 'ignore', 'ignore'],
       });
-      console.log('Release notes set from CHANGELOG.');
-    } else {
-      console.log(`No CHANGELOG section for ${version}; skipping release notes.`);
+      console.log('Release notes restored from CHANGELOG.');
+    } else if (notes) {
+      console.log('Release notes already present.');
     }
   }
 } catch (err) {
