@@ -1205,7 +1205,12 @@ const RATE_LIMIT_PATTERN =
 
 let runStatusText = '';
 
+// Checked before the rate limit, because a provider will happily return 429 for
+// a billing problem: NaraRouter answers "Insufficient credits. Please top up your
+// balance" with a 429, and treating that as throttling means waiting out three
+// full windows for something no amount of waiting fixes.
 function isRateLimit(r) {
+  if (isEntitlementDenial(r)) return false;
   if (r.statusCode === 429) return true;
   return typeof r.response === 'string' && RATE_LIMIT_PATTERN.test(r.response);
 }
@@ -1214,12 +1219,27 @@ function isRateLimit(r) {
 // asked for a paid-tier model, a plan that doesn't include it. That is a fact
 // about the key, not about the model, and it is permanent until the account
 // changes, so unlike a rate limit there is nothing to wait for.
-const ENTITLEMENT_PATTERN =
-  /insufficient|top[\s-]?up|balance|no credit|out of credit|不足|quota exceeded|not (?:entitled|available on|included)|upgrade your|requires? a paid|billing|payment required|subscribe/i;
+// Matched on the message, not the status code. Real examples this has to catch:
+//   403 "Your plan does not include the requested model."
+//   429 "Insufficient credits. Please top up your balance and try again..."
+// The status is unreliable — the second is a billing problem wearing a rate
+// limit's code — so the wording is what decides.
+const ENTITLEMENT_PATTERN = new RegExp(
+  [
+    'insufficient',
+    'top[\s-]?up',
+    'no credit|out of credit|credits? remaining',
+    'plan does not includ|not includ(?:e|ed) (?:in|on) your',
+    'not (?:entitled|available on) your',
+    'upgrade your|requires? a paid|paid plan',
+    'payment required|billing',
+    'quota exceeded|subscribe',
+  ].join('|'),
+  'i'
+);
 
 function isEntitlementDenial(r) {
   if (r.statusCode === 402) return true;
-  if (r.statusCode !== 403 && r.statusCode !== 400 && r.statusCode !== 404) return false;
   return typeof r.response === 'string' && ENTITLEMENT_PATTERN.test(r.response);
 }
 
