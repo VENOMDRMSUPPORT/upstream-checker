@@ -19,6 +19,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readConfig: () => ipcRenderer.invoke('read-config'),
   writeConfig: (data) => ipcRenderer.invoke('write-config', data),
 
+  // Run history
+  readHistory: () => ipcRenderer.invoke('read-history'),
+  appendRun: (run) => ipcRenderer.invoke('append-run', run),
+  clearHistory: () => ipcRenderer.invoke('clear-history'),
+  notifyRegression: (payload) => ipcRenderer.send('notify-regression', payload),
+
   // Update API
   updateAPI: {
     onUpdateChecking: (callback) => {

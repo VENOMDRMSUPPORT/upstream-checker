@@ -93,7 +93,7 @@
       <div class="sidebar-section">
         <div class="section-label">
           API KEYS
-          <button class="section-add-btn" id="btn-add-key" title="Add API key">
+          <button class="section-action-btn" id="btn-add-key" title="Add API key">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
               <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
@@ -160,6 +160,18 @@
           </svg>
           Test Selected
         </button>
+        <div class="auto-test-row">
+          <label class="auto-test-label" for="auto-test-select">Auto re-test</label>
+          <select class="auto-test-select" id="auto-test-select"
+                  title="Re-runs the selected models on a timer and notifies you when one stops working. Each run spends API quota.">
+            <option value="0">Off</option>
+            <option value="15">15 min</option>
+            <option value="60">1 hour</option>
+            <option value="360">6 hours</option>
+            <option value="1440">24 hours</option>
+          </select>
+        </div>
+        <div class="auto-test-note" id="auto-test-note"></div>
       </div>
     </aside>
 
@@ -251,6 +263,7 @@
               <th class="th-tokens th-sortable" data-sort="tokens">TOKENS</th>
               <th class="th-tps th-sortable" data-sort="tps" title="Completion tokens per second of total response time">TPS</th>
               <th class="th-correct th-sortable" data-sort="correct" title="Whether the response contains the expected answer">OK?</th>
+              <th class="th-uptime th-sortable" data-sort="uptime" title="Share of recorded runs this model passed, newest run on the right">UPTIME</th>
               <th class="th-response">RESPONSE</th>
               <th class="th-actions"></th>
             </tr>

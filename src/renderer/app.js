@@ -85,6 +85,104 @@ async function saveProviderConfig(providerId) {
 }
 
 // ============================================
+// Run history — uptime, regressions, scheduling
+// ============================================
+// Answers the question the tool's name implies: not "does this model work right
+// now" but "is it reliable". Keyed per provider, because the same model id can
+// be solid on one router and flaky on another.
+const SPARK_RUNS = 12;    // recent runs drawn in the uptime cell
+const MIN_RUNS_FOR_UPTIME = 2; // one data point is not a rate
+
+// providerId::modelId -> [{ at, ok }] oldest first
+let history = new Map();
+let autoTestMinutes = 0; // 0 = off
+let autoTestTimer = null;
+
+function historyKey(providerId, modelId) {
+  return `${providerId}::${modelId}`;
+}
+
+async function loadHistory() {
+  history = new Map();
+  let data = { runs: [] };
+  try {
+    data = await window.electronAPI.readHistory();
+  } catch (_) {}
+  (data.runs || []).forEach((run) => {
+    (run.results || []).forEach((r) => {
+      const key = historyKey(run.provider, r.model);
+      if (!history.has(key)) history.set(key, []);
+      history.get(key).push({ at: run.at, ok: r.status === 'pass' });
+    });
+  });
+}
+
+function modelHistory(modelId) {
+  return history.get(historyKey(activeProvider, modelId)) || [];
+}
+
+// null until there are enough runs to mean anything — a single sample rendered
+// as "100%" or "0%" reads like a measurement it isn't.
+function uptimeOf(modelId) {
+  const h = modelHistory(modelId);
+  if (h.length < MIN_RUNS_FOR_UPTIME) return null;
+  return h.filter((e) => e.ok).length / h.length;
+}
+
+// How the model finished the run before this one, or null if it's new.
+function previousStatus(modelId) {
+  const h = modelHistory(modelId);
+  if (h.length < 2) return null;
+  return h[h.length - 2].ok;
+}
+
+async function recordRun(providerId, providerName, results) {
+  if (results.length === 0) return;
+  const run = {
+    at: Date.now(),
+    provider: providerId,
+    providerName,
+    prompt: testPrompt,
+    results: results.map((r) => ({
+      model: r.model,
+      status: r.status,
+      time: r.time ?? null,
+      tokens: r.tokens ?? null,
+      completionTokens: r.completionTokens ?? null,
+      attempts: r.attempts ?? 1,
+      correct: isCorrect(r),
+    })),
+  };
+  try {
+    await window.electronAPI.appendRun(run);
+  } catch (err) {
+    console.warn('Failed to record run history:', err);
+  }
+  // Fold into the in-memory index so the table reflects it immediately.
+  run.results.forEach((r) => {
+    const key = historyKey(providerId, r.model);
+    if (!history.has(key)) history.set(key, []);
+    history.get(key).push({ at: run.at, ok: r.status === 'pass' });
+  });
+}
+
+// Compares this run against each model's previous recorded outcome. Called after
+// the run is folded in, so the last entry is this run and the one before it is
+// what we are comparing against.
+function runRegressions() {
+  const broke = [];
+  const recovered = [];
+  testResults.forEach((r) => {
+    const was = previousStatus(r.model);
+    if (was === null) return;
+    const now = r.status === 'pass';
+    if (was && !now) broke.push(r.model);
+    else if (!was && now) recovered.push(r.model);
+  });
+  return { broke, recovered };
+}
+
+// ============================================
 // Test definition — prompt + expected answer
 // ============================================
 async function loadTestDefinition() {
@@ -95,15 +193,18 @@ async function loadTestDefinition() {
     // An empty string is a real choice (checking off), so only a missing key
     // falls back to the default.
     if (typeof t.expected === 'string') expectedAnswer = t.expected;
+    if (Number.isFinite(t.autoMinutes)) autoTestMinutes = t.autoMinutes;
   } catch (_) {}
   $('#prompt-input').value = testPrompt;
   $('#expected-input').value = expectedAnswer;
+  $('#auto-test-select').value = String(autoTestMinutes);
+  applyAutoTestSchedule();
 }
 
 async function saveTestDefinition() {
   try {
     const data = await window.electronAPI.readConfig();
-    data.test = { prompt: testPrompt, expected: expectedAnswer };
+    data.test = { prompt: testPrompt, expected: expectedAnswer, autoMinutes: autoTestMinutes };
     await window.electronAPI.writeConfig(data);
   } catch (err) {
     console.warn('Failed to persist test definition:', err);
@@ -1221,7 +1322,7 @@ function recordResult(model, result, providerName) {
   else testResults.push(entry);
 }
 
-async function runTests(list, { reset = true } = {}) {
+async function runTests(list, { reset = true, scheduled = false } = {}) {
   if (list.length === 0 || isTesting) return;
 
   const p = PROVIDERS[activeProvider];
@@ -1284,8 +1385,23 @@ async function runTests(list, { reset = true } = {}) {
   updateTestAllButton();
   updateStats();
 
-  lastRun = { done, total: list.length, stopped: abortTesting };
+  await recordRun(p.id, p.name, testResults);
+  lastRun = { done, total: list.length, stopped: abortTesting, changes: runRegressions() };
+  renderResultsTable(); // uptime cells now include this run
   renderRunSummary();
+  announceRegressions(lastRun.changes, scheduled);
+}
+
+// A scheduled run happens while the user is looking elsewhere, so a model that
+// used to pass and now doesn't is worth an OS notification. A manual run doesn't
+// need one — the result is already on screen.
+function announceRegressions(changes, scheduled) {
+  if (!scheduled || changes.broke.length === 0) return;
+  const n = changes.broke.length;
+  window.electronAPI.notifyRegression({
+    title: `${n} model${n === 1 ? '' : 's'} stopped working`,
+    body: changes.broke.slice(0, 5).join(', ') + (n > 5 ? `, +${n - 5} more` : ''),
+  });
 }
 
 // Rebuilt from the results rather than written once at the end of the run, so
@@ -1303,11 +1419,19 @@ function renderRunSummary() {
   const correct = judged.filter((r) => isCorrect(r)).length;
   const answers = judged.length > 0 ? ` — ${correct}/${judged.length} correct` : '';
 
+  // What moved since the previous run matters more than the absolute numbers —
+  // "2 stopped working" is the thing a person actually needs to see.
+  const c = lastRun.changes || { broke: [], recovered: [] };
+  const moved = [];
+  if (c.broke.length) moved.push(`${c.broke.length} newly failing`);
+  if (c.recovered.length) moved.push(`${c.recovered.length} recovered`);
+  const delta = moved.length ? ` · ${moved.join(', ')}` : '';
+
   if (lastRun.stopped) {
-    setStatus('idle', `Stopped — ${lastRun.done}/${lastRun.total} tested (${passed} passed, ${failed} failed)${answers}`);
-  } else if (failed === 0) setStatus('done', `All ${passed} models passed${answers}`);
-  else if (passed === 0) setStatus('error', `All ${failed} models failed`);
-  else setStatus('done', `Done: ${passed} passed, ${failed} failed${answers}`);
+    setStatus('idle', `Stopped — ${lastRun.done}/${lastRun.total} tested (${passed} passed, ${failed} failed)${answers}${delta}`);
+  } else if (failed === 0) setStatus('done', `All ${passed} models passed${answers}${delta}`);
+  else if (passed === 0) setStatus('error', `All ${failed} models failed${delta}`);
+  else setStatus(c.broke.length ? 'error' : 'done', `Done: ${passed} passed, ${failed} failed${answers}${delta}`);
 }
 
 // ============================================
@@ -1350,6 +1474,7 @@ const SORTERS = {
   time: (e) => (e.result.status === 'pass' ? e.result.time : null),
   tokens: (e) => (e.result.status === 'pass' ? e.result.tokens : null),
   tps: (e) => tokensPerSecond(e.result),
+  uptime: (e) => uptimeOf(e.model.id),
   correct: (e) => {
     const c = isCorrect(e.result);
     return c == null ? null : c ? 1 : 0;
@@ -1404,6 +1529,8 @@ function syncColumnVisibility() {
   // Answer checking is off when no expected answer is set — hide the column
   // rather than fill it with placeholders.
   table.classList.toggle('hide-correct', expectedAnswer.trim() === '');
+  const hasUptime = tableRows.some(({ model }) => uptimeOf(model.id) != null);
+  table.classList.toggle('hide-uptime', !hasUptime);
 }
 
 $('#results-table thead').addEventListener('click', (e) => {
@@ -1535,6 +1662,13 @@ function buildRowHtml(model, result) {
   // Answer correctness is deliberately separate from pass/fail: pass means the
   // endpoint worked, this means the model got it right. A model that answers
   // fast and wrong is a different problem from one that 502s.
+  // Reliability over time, next to this run's result: a model that passed now
+  // but fails a third of the time is a different proposition from a steady one.
+  const uptime = uptimeOf(model.id);
+  const uptimeHtml = uptime == null ? NA : `${Math.round(uptime * 100)}%`;
+  const uptimeClass =
+    uptime == null ? 'cell-na' : uptime >= 0.95 ? 'uptime-high' : uptime >= 0.8 ? 'uptime-mid' : 'uptime-low';
+
   const correct = isCorrect(result);
   const correctHtml =
     correct == null
@@ -1576,6 +1710,7 @@ function buildRowHtml(model, result) {
     <td class="cell-tokens ${tokens === NA ? 'cell-na' : ''}">${tokens}</td>
     <td class="cell-tps ${tps == null ? 'cell-na' : ''}">${tpsHtml}</td>
     <td class="cell-correct ${correct == null ? 'cell-na' : ''}">${correctHtml}</td>
+    <td class="cell-uptime ${uptimeClass}">${uptimeHtml}${sparkline(model.id)}</td>
     <td class="cell-response ${truncated ? 'response-expandable' : ''}" title="${responseTitle}">${responseHtml}</td>
     <td class="cell-actions">${actionsHtml}</td>
   `;
@@ -1614,6 +1749,25 @@ $('#response-modal').addEventListener('click', (e) => {
 $('#response-modal-copy').addEventListener('click', () => {
   navigator.clipboard.writeText($('#response-modal-body').textContent || '');
 });
+
+// A bar per recent run, oldest on the left. Drawn rather than charted because
+// the only question it has to answer at a glance is "was this always like that,
+// or did something change".
+function sparkline(modelId) {
+  const h = modelHistory(modelId).slice(-SPARK_RUNS);
+  if (h.length < MIN_RUNS_FOR_UPTIME) return '';
+  const w = 4;
+  const gap = 1;
+  const bars = h
+    .map(
+      (e, i) =>
+        `<rect x="${i * (w + gap)}" y="${e.ok ? 0 : 5}" width="${w}" height="${e.ok ? 12 : 7}" rx="1" fill="${
+          e.ok ? 'var(--pass)' : 'var(--fail)'
+        }"/>`
+    )
+    .join('');
+  return `<svg class="spark" width="${h.length * (w + gap)}" height="12" viewBox="0 0 ${h.length * (w + gap)} 12">${bars}</svg>`;
+}
 
 function escapeHtml(str) {
   if (!str) return '';
@@ -1998,8 +2152,39 @@ $('#add-provider-modal').addEventListener('click', (e) => {
 // ============================================
 // Init
 // ============================================
+// ============================================
+// Scheduled re-testing
+// ============================================
+// Off by default and never silently enabled: every tick spends real API quota.
+function applyAutoTestSchedule() {
+  clearInterval(autoTestTimer);
+  autoTestTimer = null;
+  if (autoTestMinutes > 0) {
+    autoTestTimer = setInterval(runScheduledTest, autoTestMinutes * 60 * 1000);
+  }
+  const label = $('#auto-test-note');
+  if (label) {
+    label.textContent = autoTestMinutes > 0 ? `Re-tests every ${autoTestMinutes}m` : '';
+  }
+}
+
+function runScheduledTest() {
+  // Never interrupt a run in progress, and never fire with nothing selected.
+  if (isTesting) return;
+  const selected = getSelectedModels();
+  if (selected.length === 0 || usableKeys(PROVIDERS[activeProvider]).length === 0) return;
+  runTests(selected, { scheduled: true });
+}
+
+$('#auto-test-select').addEventListener('change', (e) => {
+  autoTestMinutes = Number(e.target.value) || 0;
+  applyAutoTestSchedule();
+  saveTestDefinition();
+});
+
 async function init() {
   await loadTestDefinition();
+  await loadHistory();
   await loadAllProviders();
   if (!PROVIDERS[activeProvider]) {
     activeProvider = Object.keys(PROVIDERS)[0];

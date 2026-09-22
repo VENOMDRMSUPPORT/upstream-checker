@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification } = require('electron');
 const path = require('path');
 const https = require('https');
 const http = require('http');
@@ -88,6 +88,57 @@ function writeConfig(data) {
     return { success: true };
   } catch (err) {
     log.error('Failed to write config:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+// ============================================
+// Run history
+// ============================================
+// Kept out of config.json so the settings file stays small and a corrupt or
+// pruned history can never cost the user their providers or keys. Only the
+// verdict of each test is stored — never the response text, which would grow the
+// file without bound for no benefit.
+const HISTORY_VERSION = 1;
+const MAX_RUNS = 300;
+
+let historyPath;
+function getHistoryPath() {
+  if (!historyPath) historyPath = path.join(app.getPath('userData'), 'history.json');
+  return historyPath;
+}
+
+function readHistory() {
+  try {
+    const hp = getHistoryPath();
+    if (!fs.existsSync(hp)) return { version: HISTORY_VERSION, runs: [] };
+    const parsed = JSON.parse(fs.readFileSync(hp, 'utf-8'));
+    if (!Array.isArray(parsed.runs)) parsed.runs = [];
+    return parsed;
+  } catch (err) {
+    // A damaged history is an inconvenience, not a reason to fail the app.
+    log.error('Failed to read history:', err);
+    return { version: HISTORY_VERSION, runs: [] };
+  }
+}
+
+function writeHistory(data) {
+  const hp = getHistoryPath();
+  const tmp = `${hp}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(data), 'utf-8');
+  fs.renameSync(tmp, hp);
+}
+
+function appendRun(run) {
+  try {
+    const data = readHistory();
+    data.version = HISTORY_VERSION;
+    data.runs.push(run);
+    if (data.runs.length > MAX_RUNS) data.runs = data.runs.slice(-MAX_RUNS);
+    writeHistory(data);
+    return { success: true, runs: data.runs.length };
+  } catch (err) {
+    log.error('Failed to append run to history:', err);
     return { success: false, error: err.message };
   }
 }
@@ -317,6 +368,25 @@ ipcMain.on('cancel-api-request', (event, requestId) => {
     req.__cancelled = true;
     req.destroy();
   }
+});
+
+// History IPC handlers
+ipcMain.handle('read-history', () => readHistory());
+ipcMain.handle('append-run', (event, run) => appendRun(run));
+ipcMain.handle('clear-history', () => {
+  try {
+    writeHistory({ version: HISTORY_VERSION, runs: [] });
+    return { success: true };
+  } catch (err) {
+    log.error('Failed to clear history:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Fired when a scheduled run finds a model that used to pass and no longer does.
+ipcMain.on('notify-regression', (event, { title, body }) => {
+  if (!Notification.isSupported()) return;
+  new Notification({ title: String(title || ''), body: String(body || '') }).show();
 });
 
 // Config IPC handlers

@@ -322,26 +322,6 @@ html, body {
   justify-content: space-between;
 }
 
-.section-add-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  background: var(--accent-bg);
-  border: 1px solid var(--accent-border);
-  border-radius: var(--radius-md);
-  color: var(--accent);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.section-add-btn:hover {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--bg-0);
-}
-
 .model-count {
   background: var(--accent-bg);
   color: var(--accent);
@@ -932,6 +912,7 @@ html, body {
 .th-tokens { width: 76px; }
 .th-tps { width: 64px; }
 .th-correct { width: 52px; text-align: center; }
+.th-uptime { width: 118px; }
 .th-response { }
 
 .cell-correct { text-align: center; }
@@ -941,6 +922,8 @@ html, body {
 
 .results-table.hide-correct .th-correct,
 .results-table.hide-correct .cell-correct { display: none; }
+.results-table.hide-uptime .th-uptime,
+.results-table.hide-uptime .cell-uptime { display: none; }
 
 /* Columns no provider in the table has data for are hidden rather than shown
    as a full column of placeholders. */
@@ -1661,3 +1644,58 @@ html, body {
 .notes-heading { list-style: none; margin-left: -18px; margin-top: 6px; }
 .notes-version { color: var(--text-0); font-size: 12px; }
 .notes-section { color: var(--accent); font-size: 11px; }
+
+/* Uptime: share of recorded runs passed, with a bar per recent run */
+.cell-uptime {
+  font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
+}
+
+.cell-uptime .spark {
+  margin-left: 7px;
+  vertical-align: middle;
+  opacity: 0.85;
+}
+
+.uptime-high { color: var(--pass); }
+.uptime-mid  { color: var(--warn); }
+.uptime-low  { color: var(--fail); }
+
+/* Scheduled re-testing */
+.auto-test-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.auto-test-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--text-4);
+  text-transform: uppercase;
+}
+
+.auto-test-select {
+  background: var(--bg-2);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-md);
+  color: var(--text-2);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  padding: 4px 6px;
+  outline: none;
+  cursor: pointer;
+}
+
+.auto-test-select:focus { border-color: var(--accent-border); }
+
+.auto-test-note {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  color: var(--accent);
+  margin-top: 5px;
+  min-height: 12px;
+}
