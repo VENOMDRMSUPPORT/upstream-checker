@@ -27,7 +27,7 @@ function makeRuntimeProvider(def) {
 }
 
 // State
-let activeProvider = 'nara';
+let activeProvider = null; // resolved to the first available provider in init()
 let models = [];
 let testResults = [];
 let isTesting = false;
@@ -62,12 +62,16 @@ async function loadAllProviders() {
   try {
     data = await window.electronAPI.readConfig();
   } catch (_) {}
-  const stored = data.providers || {};
-  let needsSeed = false;
+  data.providers = data.providers || {};
+  const stored = data.providers;
+  const norm = (u) => (u || '').trim().replace(/\/+$/, '').toLowerCase();
+  let dirty = false;
 
   PROVIDERS = {};
 
-  // Built-ins: code template with config name/baseUrl/keys overlaid (config wins)
+  // Built-ins: code template with config name/baseUrl/keys overlaid (config wins).
+  // A newly-shipped built-in that isn't in config yet is seeded so its name/baseUrl
+  // are visible and editable.
   Object.values(BUILTIN_PROVIDERS).forEach((def) => {
     const p = makeRuntimeProvider(def);
     const s = stored[def.id];
@@ -76,14 +80,31 @@ async function loadAllProviders() {
       if (s.baseUrl) p.baseUrl = s.baseUrl;
       p.keys = s.keys || [];
     } else {
-      needsSeed = true;
+      stored[def.id] = { name: p.name, baseUrl: p.baseUrl, keys: p.keys };
+      dirty = true;
     }
     PROVIDERS[def.id] = p;
   });
 
-  // Custom providers from config
+  // Custom providers from config. A custom provider whose baseUrl now matches a
+  // built-in (i.e. that provider became integrated) is migrated into the built-in:
+  // its keys move over and the standalone custom entry is dropped.
   Object.entries(stored).forEach(([id, s]) => {
     if (!s.custom || PROVIDERS[id]) return;
+    const builtin = Object.values(PROVIDERS).find((p) => !p.custom && norm(p.baseUrl) === norm(s.baseUrl));
+    if (builtin) {
+      const have = new Set(builtin.keys.map((k) => k.key));
+      (s.keys || []).forEach((k) => {
+        if (!have.has(k.key)) {
+          builtin.keys.push(k);
+          have.add(k.key);
+        }
+      });
+      delete stored[id];
+      stored[builtin.id] = { name: builtin.name, baseUrl: builtin.baseUrl, keys: builtin.keys };
+      dirty = true;
+      return;
+    }
     const p = makeRuntimeProvider({
       id,
       name: s.name || id,
@@ -95,18 +116,11 @@ async function loadAllProviders() {
     PROVIDERS[id] = p;
   });
 
-  // Seed any built-in missing from config so its name/baseUrl are visible + editable
-  if (needsSeed) {
-    if (!data.providers) data.providers = {};
-    Object.values(PROVIDERS).forEach((p) => {
-      if (!p.custom && !stored[p.id]) {
-        data.providers[p.id] = { name: p.name, baseUrl: p.baseUrl, keys: p.keys };
-      }
-    });
+  if (dirty) {
     try {
       await window.electronAPI.writeConfig(data);
     } catch (err) {
-      console.warn('Failed to seed providers:', err);
+      console.warn('Failed to persist providers:', err);
     }
   }
 }
@@ -138,8 +152,13 @@ function renderProviderTabs() {
         `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>` +
         `</span>`;
     }
+    // An integrated provider can ship a logo (meta.logo); otherwise fall back to a
+    // colored dot (used by custom, user-added providers).
+    const badge = p.logo
+      ? `<img class="provider-logo" src="${escapeHtml(p.logo)}" alt="" onerror="this.style.display='none'">`
+      : `<span class="provider-dot" style="background:${p.color}"></span>`;
     btn.innerHTML =
-      `<span class="provider-dot" style="background:${p.color}"></span>` +
+      badge +
       `<span class="provider-name">${escapeHtml(p.name)}</span>` +
       `<span class="provider-actions">${actions}</span>`;
     btn.addEventListener('click', () => switchProvider(p.id));

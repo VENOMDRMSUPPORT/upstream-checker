@@ -13,6 +13,7 @@ window.INTEGRATED_PROVIDERS.nara = {
     plansUrl: 'https://router.bynara.id/api/plans',
     pricingUrl: 'https://router.bynara.id/api/pricing',
     color: '#00d4ff',
+    logo: '../assets/providers/nara.svg',
     modelsEndpoint: '/models',
     plansEndpoint: '/api/plans',
     chatEndpoint: '/chat/completions',
