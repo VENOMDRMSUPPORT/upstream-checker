@@ -758,7 +758,7 @@ $('#btn-fetch-models').addEventListener('click', async () => {
 
     // Two entries sharing an id are the same model; keeping both would create two
     // table rows with the same key, and only the first would ever be updated.
-    models = dedupeById(models);
+    models = tagAliasGroups(dedupeById(models));
     models.forEach((m) => { m.kind = classifyModel(p.id, m); });
 
     p.models = [...models];
@@ -784,6 +784,29 @@ $('#btn-fetch-models').addEventListener('click', async () => {
     btn.innerHTML = originalText;
   }
 });
+
+// A router often exposes the same upstream model twice: once bare and once under
+// a tier prefix ("deepseek-v4.1-flash" and "dark-free/deepseek-v4.1-flash"). They
+// are separate entries with separate ids, so they can't be deduped — but they are
+// the same model, and counting them as two distorts uptime and makes the list
+// read as twice the catalogue it is.
+//
+// The bare name is recorded as an alias group so the sidebar can say so. They are
+// still tested separately: a prefix usually routes to a different pool, and the
+// whole point of the tool is that one can be up while the other is down.
+function tagAliasGroups(list) {
+  const bare = (id) => String(id).split('/').pop().toLowerCase();
+  const counts = new Map();
+  list.forEach((m) => counts.set(bare(m.id), (counts.get(bare(m.id)) || 0) + 1));
+  list.forEach((m) => {
+    const b = bare(m.id);
+    if (counts.get(b) > 1) {
+      m.aliasGroup = b;
+      m.aliasCount = counts.get(b);
+    }
+  });
+  return list;
+}
 
 function dedupeById(list) {
   const seen = new Set();
@@ -935,6 +958,11 @@ $('#btn-select-none').addEventListener('click', () => setSelectionForVisible(fal
 
 function buildModelItem(m) {
   const badges = [];
+  if (m.aliasGroup) {
+    badges.push(
+      `<span class="model-badge badge-alias" title="${escapeHtml(m.aliasCount + ' routes expose ' + m.aliasGroup + '. Tested separately — one can be up while another is down.')}">×${m.aliasCount}</span>`
+    );
+  }
   const kindLabel = (KIND_SETTINGS[m.kind] || {}).label;
   if (kindLabel) badges.push(`<span class="model-badge badge-media">${kindLabel}</span>`);
   if (m.hasVision) badges.push('<span class="model-badge badge-vision">Vision</span>');
@@ -977,6 +1005,18 @@ function updateTestAllButton() {
   btn.innerHTML = `${TEST_ICON} Test Selected${count > 0 ? ` (${count})` : ''}`;
   btn.classList.remove('btn-stop');
   btn.disabled = count === 0 || activeKeys.length === 0;
+}
+
+// Which field a provider accepts for the output cap. Starts at the long-standing
+// max_tokens and flips the first time a provider rejects it.
+const tokenLimitFields = new Map();
+function tokenLimitField(providerId) {
+  return tokenLimitFields.get(providerId) || 'max_tokens';
+}
+function swapTokenLimitField(providerId) {
+  if (tokenLimitFields.get(providerId) === 'max_completion_tokens') return false;
+  tokenLimitFields.set(providerId, 'max_completion_tokens');
+  return true;
 }
 
 // ============================================
@@ -1135,9 +1175,12 @@ async function attemptOnce(model, provider, stream, requestId) {
   const payload = {
     model: model.id,
     messages: [{ role: 'user', content: media ? MEDIA_PROMPT : testPrompt || DEFAULT_TEST_PROMPT }],
-    max_tokens: 512,
     stream: !!stream,
   };
+  // Newer OpenAI-compatible gateways rejected max_tokens in favour of
+  // max_completion_tokens. Which one a provider accepts is learned from its own
+  // 400 and remembered, so the swap costs one request per provider, once.
+  payload[tokenLimitField(provider.id)] = 512;
   // reasoning_effort steers a reasoning model away from a deep chain on a trivial
   // prompt. It means nothing to a generator, so it isn't sent to one.
   if (!media) payload.reasoning_effort = 'low';
@@ -1184,6 +1227,13 @@ async function attemptOnce(model, provider, stream, requestId) {
       const errData = JSON.parse(result.body);
       errMsg = errData.error?.message || errMsg;
     } catch (_) {}
+
+    // "Unsupported parameter: max_tokens" and friends — switch the field and go
+    // again rather than reporting a working model as broken.
+    if (result.status === 400 && /max_tokens|max_completion_tokens/i.test(errMsg)) {
+      const swapped = swapTokenLimitField(provider.id);
+      if (swapped) return attemptOnce(model, provider, stream, nextRequestId());
+    }
     const ra = parseInt(result.headers?.['retry-after'], 10);
     return { status: 'fail', response: errMsg, time: result.elapsed, tokens: 0, statusCode: result.status, retryAfter: isNaN(ra) ? 0 : ra, keyId: key.id };
   } catch (err) {
@@ -1985,12 +2035,12 @@ $('#btn-export-csv').addEventListener('click', () => {
       ].join(',');
     })
     .join('\n');
-  downloadFile(header + rows, 'upstream-checker-results.csv', 'text/csv');
+  downloadFile(header + rows, exportFilename('csv'), 'text/csv');
 });
 
 $('#btn-export-json').addEventListener('click', () => {
   if (testResults.length === 0) return;
-  downloadFile(JSON.stringify(testResults, null, 2), 'upstream-checker-results.json', 'application/json');
+  downloadFile(JSON.stringify(testResults, null, 2), exportFilename('json'), 'application/json');
 });
 
 $('#btn-clear-results').addEventListener('click', () => {
@@ -2010,6 +2060,17 @@ $('#btn-clear-results').addEventListener('click', () => {
   setStatus('idle', 'Ready');
   $('#progress-container').style.display = 'none';
 });
+
+// Fixed names meant every export after the first landed as "(1)", "(2)" with no
+// way to tell which provider or run it came from.
+function exportFilename(ext) {
+  const p = PROVIDERS[activeProvider];
+  const slug = (p ? p.name : 'results').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+  return `upstream-${slug}-${stamp}.${ext}`;
+}
 
 function downloadFile(content, filename, mimeType) {
   const blob = new Blob([content], { type: mimeType });

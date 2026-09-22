@@ -1712,3 +1712,10 @@ html, body {
   background: rgba(139, 92, 246, 0.1);
   border: 1px solid rgba(139, 92, 246, 0.25);
 }
+
+/* Same upstream model reachable under more than one route */
+.badge-alias {
+  background: rgba(100, 116, 139, 0.16);
+  color: var(--text-2);
+  border: 1px solid var(--border-2);
+}
