@@ -124,6 +124,11 @@ const DEFAULT_SETTINGS = {
   // off | errors | all. Off by default: the log is a file on disk holding the
   // traffic of an authenticated API, even with the key stripped out of it.
   logLevel: 'off',
+
+  // Models tested at the same time. 1 is the original behaviour. Raising it is
+  // the only thing that actually shortens a run — widening the hedge spends more
+  // requests on one model without lowering that model's own latency.
+  concurrency: 1,
 };
 
 const THEMES = [
@@ -1290,20 +1295,33 @@ function keysFor(provider, model) {
   return permitted.length > 0 ? permitted : keys;
 }
 
-// Round-robin over the eligible keys that aren't cooling off; null when all of
-// them are.
+function slotsUsed(keyId, now) {
+  return (keyRequestTimes.get(keyId) || []).filter((t) => now - t < 60000).length;
+}
+
+// Round-robin over the eligible keys, but a key with a free slot in its own
+// minute beats one that is merely not cooling off. Without that preference the
+// rotation would stop on a key that has spent its budget and wait there while a
+// second key sat idle — which is the whole reason a second key is worth having.
 function pickKey(provider, model) {
   const keys = keysFor(provider, model);
   if (keys.length === 0) return null;
   const now = Date.now();
+  const rpm = rpmOf(provider);
+
+  let free = null;  // usable right now
+  let ready = null; // not cooling, but at its per-minute cap
+
   for (let i = 0; i < keys.length; i++) {
     const k = keys[(keyCursor + i) % keys.length];
-    if ((keyCooldownUntil.get(k.id) || 0) <= now) {
-      keyCursor = (keyCursor + i + 1) % keys.length;
-      return k;
-    }
+    if ((keyCooldownUntil.get(k.id) || 0) > now) continue;
+    if (!rpm || slotsUsed(k.id, now) < rpm) { free = k; break; }
+    if (!ready) ready = k;
   }
-  return null;
+
+  const chosen = free || ready;
+  if (chosen) keyCursor = (keys.indexOf(chosen) + 1) % keys.length;
+  return chosen;
 }
 
 function soonestKeyAvailable(provider, model) {
@@ -1785,25 +1803,40 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
   setStatus('running', runStatusText);
   showProgress(0, list.length);
 
-  // Sequential, in order: each model is fully resolved before the next starts, so
-  // results appear top-to-bottom (never out of order) and only one request is in
-  // flight at a time — well within the provider's per-minute request limit.
+  // Models are pulled off a shared queue by a fixed number of lanes. Rows were
+  // created up front so the table keeps its order regardless of which lane
+  // finishes first; only the fill order varies.
+  //
+  // This is safe to do now in a way it wasn't before: budget, cooldown and
+  // entitlement are all tracked per key, so lanes compete for real slots rather
+  // than racing each other into the provider's per-minute cap.
+  const lanes = Math.max(1, Math.min(settings.concurrency, list.length));
+  let next = 0;
   let done = 0;
-  for (const model of list) {
-    if (abortTesting) break;
-    updateResultRow(model, RUNNING_RESULT); // its turn has come
-    const result = await testModel(model, p);
-    if (abortTesting) break;
-    recordResult(model, result, p.name);
-    updateResultRow(model, result);
-    done += 1;
-    updateStats();
-    showProgress(done, list.length);
+
+  async function lane() {
+    while (!abortTesting) {
+      const i = next++;
+      if (i >= list.length) return;
+      const model = list[i];
+      updateResultRow(model, RUNNING_RESULT);
+      const result = await testModel(model, p);
+      if (abortTesting) return;
+      recordResult(model, result, p.name);
+      updateResultRow(model, result);
+      done += 1;
+      updateStats();
+      showProgress(done, list.length);
+    }
   }
 
-  // Models the run never reached would otherwise sit on "Testing..." forever.
+  await Promise.all(Array.from({ length: lanes }, lane));
+
+  // Anything the run never reached would otherwise sit on "Queued" forever. With
+  // lanes the untested models aren't a contiguous tail, so the whole list is
+  // checked rather than sliced.
   if (abortTesting) {
-    list.slice(done).forEach((model) => {
+    list.forEach((model) => {
       if (!testResults.some((r) => r.model === model.id)) {
         updateResultRow(model, { status: 'skipped', response: 'Not tested — run stopped', time: null, tokens: null });
       }
@@ -2694,6 +2727,7 @@ const SETTING_INPUTS = [
   ['#set-notify-complete', 'notifyRunComplete', 'bool'],
   ['#set-density', 'density', 'text'],
   ['#set-log-level', 'logLevel', 'text'],
+  ['#set-concurrency', 'concurrency', 'int'],
 ];
 
 function fillSettingsForm() {
@@ -2745,6 +2779,7 @@ function renderCostEstimate() {
   const low = models;
   const high = models * perModelMax;
   let text = `${models} models · ${low} to ${high} requests per run`;
+  if (settings.concurrency > 1) text += ` · ${settings.concurrency} at a time`;
   if (autoTestMinutes > 0) {
     const perDay = Math.round((24 * 60) / autoTestMinutes);
     text += ` · ${(low * perDay).toLocaleString()} to ${(high * perDay).toLocaleString()} per day on this schedule`;

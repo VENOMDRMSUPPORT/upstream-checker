@@ -394,6 +394,12 @@
             </div>
 
             <div class="setting">
+              <label class="setting-label" for="set-concurrency">Models tested at once</label>
+              <input type="number" min="1" max="6" step="1" class="prompt-input tiny" id="set-concurrency">
+              <p class="setting-hint">The only setting that shortens a run. Widening the hedge below spends more requests on one model without lowering that model&rsquo;s own latency; this works through the list faster. Each lane draws from the same per-key minute budget, so raising it past the number of keys mostly means more pacing.</p>
+            </div>
+
+            <div class="setting">
               <label class="setting-label">Retries</label>
               <div class="setting-row">
                 Transient errors (5xx, network)
