@@ -1706,6 +1706,7 @@ function buildEmptyResult(usage, elapsed) {
 // Test all selected models
 // ============================================
 const RUNNING_RESULT = { status: 'running', time: null, tokens: null, response: '' };
+const QUEUED_RESULT = { status: 'queued', time: null, tokens: null, response: '' };
 
 // The one button is Test while idle and Stop while a run is going.
 $('#btn-test-all').addEventListener('click', () => {
@@ -1773,9 +1774,9 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
     runTotal = list.length;
     initResultsTable();
     // Pre-create rows in selection order; each is filled in turn, top to bottom.
-    list.forEach((model) => addResultRow(model, RUNNING_RESULT));
+    list.forEach((model) => addResultRow(model, QUEUED_RESULT));
   } else {
-    list.forEach((model) => updateResultRow(model, RUNNING_RESULT));
+    list.forEach((model) => updateResultRow(model, QUEUED_RESULT));
   }
 
   updateStats();
@@ -1790,6 +1791,7 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
   let done = 0;
   for (const model of list) {
     if (abortTesting) break;
+    updateResultRow(model, RUNNING_RESULT); // its turn has come
     const result = await testModel(model, p);
     if (abortTesting) break;
     recordResult(model, result, p.name);
@@ -1904,7 +1906,7 @@ function addResultRow(model, result) {
 }
 
 const SORTERS = {
-  status: (e) => ({ fail: 0, skipped: 1, running: 2, pass: e.result.isEmpty ? 3 : 4 })[e.result.status] ?? 5,
+  status: (e) => ({ fail: 0, skipped: 1, queued: 2, running: 3, pass: e.result.isEmpty ? 4 : 5 })[e.result.status] ?? 6,
   model: (e) => e.model.id.toLowerCase(),
   context: (e) => e.model.context_window ?? -1,
   time: (e) => (e.result.status === 'pass' ? e.result.time : null),
@@ -2004,6 +2006,7 @@ function findResultRow(modelId) {
 
 function rowClassFor(result) {
   if (result.isEmpty) return 'row-empty';
+  if (result.status === 'queued') return 'row-pending';
   if (result.status === 'running') return 'row-running';
   if (result.status === 'skipped') return 'row-skipped';
   return result.status === 'pass' ? 'row-pass' : 'row-fail';
@@ -2052,6 +2055,9 @@ function statusIconBadge(status, isEmpty) {
   if (status === 'fail') {
     return `<span class="status-icon fail" title="Failed"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 6l12 12M18 6L6 18"/></svg></span>`;
   }
+  if (status === 'queued') {
+    return `<span class="status-icon queued" title="Waiting its turn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>`;
+  }
   if (status === 'skipped') {
     return `<span class="status-icon skipped" title="Not tested"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 12h12"/></svg></span>`;
   }
@@ -2059,7 +2065,7 @@ function statusIconBadge(status, isEmpty) {
 }
 
 function buildRowHtml(model, result) {
-  const isRunning = result.status === 'running';
+  const isRunning = result.status === 'running' || result.status === 'queued';
   const isFailed = result.status === 'fail';
   const badge = statusIconBadge(result.status, result.isEmpty);
 
@@ -2139,7 +2145,9 @@ function buildRowHtml(model, result) {
   const truncated = full.length > RESPONSE_PREVIEW;
   const preview = escapeHtml(full.slice(0, RESPONSE_PREVIEW)) + (truncated ? '…' : '');
   const responseHtml = isRunning
-    ? `<span class="response-placeholder">${result.waiting ? 'Waiting out rate limit…' : 'Testing...'}</span>`
+    ? `<span class="response-placeholder">${
+        result.status === 'queued' ? 'Queued' : result.waiting ? 'Waiting out rate limit…' : 'Testing…'
+      }</span>`
     : result.isEmpty
       ? `<span class="response-empty">${preview}</span>`
       : preview;
@@ -2155,6 +2163,7 @@ function buildRowHtml(model, result) {
       : '';
 
   const canRetry = !isRunning && (isFailed || result.status === 'skipped' || result.isEmpty);
+
   const actionsHtml = canRetry
     ? `<button class="row-retry-btn" data-model-id="${escapeHtml(model.id)}" title="Retry this model">${ICONS.retry}</button>`
     : '';
