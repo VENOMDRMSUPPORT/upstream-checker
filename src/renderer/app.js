@@ -19,6 +19,12 @@ const NA = '—';
 // Characters of a response shown inline; longer ones get a click-to-expand cell.
 const RESPONSE_PREVIEW = 160;
 
+// Latency bands for the TIME column. Calibrated to what a chat completion
+// actually costs: under 5s was flagging most of a healthy run amber, which left
+// the colour saying nothing.
+const TIME_GOOD_MS = 10000; // green below this
+const TIME_OK_MS = 15000;   // amber up to here, red beyond
+
 // Set app version from main process
 window.electronAPI.onAppVersion((version) => {
   const versionEl = document.getElementById('app-version');
@@ -384,12 +390,6 @@ function renderKeysList() {
       </div>
       <div class="key-value">
         <span class="key-masked">${maskKey(k.key)}</span>
-        <button class="key-icon-btn key-reveal-btn" data-key-id="${k.id}" title="Reveal">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-            <circle cx="12" cy="12" r="3"/>
-          </svg>
-        </button>
         <button class="key-icon-btn key-copy-btn" data-key-id="${k.id}" title="Copy key">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <rect x="9" y="9" width="12" height="12" rx="2"/>
@@ -402,14 +402,6 @@ function renderKeysList() {
     .join('');
 
   // Bind events
-  $$('.key-reveal-btn').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const keyId = btn.dataset.keyId;
-      toggleKeyReveal(keyId);
-    });
-  });
-
   $$('.key-toggle-btn').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -434,8 +426,8 @@ function renderKeysList() {
   });
 }
 
-// The masked form stays one line, so revealing a long key can't reflow the card.
-// The copy button is how the full key actually leaves the app.
+// The key is only ever shown masked. Copy is the one way the full value leaves
+// the app, so it can't be shoulder-surfed off the screen.
 function maskKey(key) {
   if (!key) return '';
   const head = key.length <= 12 ? 6 : 10;
@@ -455,33 +447,6 @@ async function copyKey(keyId, btn) {
     }, 1200);
   } catch (err) {
     setStatus('error', 'Could not copy the key to the clipboard');
-  }
-}
-
-function toggleKeyReveal(keyId) {
-  const p = PROVIDERS[activeProvider];
-  const key = p.keys.find((k) => k.id === keyId);
-  if (!key) return;
-
-  const valueEl = $(`.key-item[data-key-id="${keyId}"] .key-masked`);
-  const revealBtn = $(`.key-item[data-key-id="${keyId}"] .key-reveal-btn`);
-
-  if (valueEl.dataset.revealed === 'true') {
-    valueEl.textContent = maskKey(key.key);
-    valueEl.dataset.revealed = 'false';
-    revealBtn.style.color = '';
-  } else {
-    valueEl.textContent = key.key;
-    valueEl.dataset.revealed = 'true';
-    revealBtn.style.color = 'var(--accent)';
-    // Auto-hide after 5 seconds
-    setTimeout(() => {
-      if (valueEl.dataset.revealed === 'true') {
-        valueEl.textContent = maskKey(key.key);
-        valueEl.dataset.revealed = 'false';
-        revealBtn.style.color = '';
-      }
-    }, 5000);
   }
 }
 
@@ -1506,9 +1471,9 @@ function buildRowHtml(model, result) {
   } else if (result.time != null) {
     timeStr = `${(result.time / 1000).toFixed(1)}s`;
     if (isFailed) timeClass = 'time-dead';
-    else if (result.time < 5000) timeClass = 'time-fast';
-    else if (result.time > 15000) timeClass = 'time-slow';
-    else timeClass = 'time-medium';
+    else if (result.time < TIME_GOOD_MS) timeClass = 'time-fast';
+    else if (result.time <= TIME_OK_MS) timeClass = 'time-medium';
+    else timeClass = 'time-slow';
   }
 
   const typeIcons = [];
