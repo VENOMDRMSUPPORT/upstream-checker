@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, shell } = require('electron');
 const path = require('path');
 const https = require('https');
 const http = require('http');
@@ -100,7 +100,7 @@ function writeConfig(data) {
 // verdict of each test is stored — never the response text, which would grow the
 // file without bound for no benefit.
 const HISTORY_VERSION = 1;
-const MAX_RUNS = 300;
+const MAX_RUNS = 300; // fallback when the renderer sends no cap
 
 let historyPath;
 function getHistoryPath() {
@@ -129,12 +129,13 @@ function writeHistory(data) {
   fs.renameSync(tmp, hp);
 }
 
-function appendRun(run) {
+function appendRun(run, maxRuns) {
   try {
+    const cap = Number(maxRuns) > 0 ? Math.min(Number(maxRuns), 5000) : MAX_RUNS;
     const data = readHistory();
     data.version = HISTORY_VERSION;
     data.runs.push(run);
-    if (data.runs.length > MAX_RUNS) data.runs = data.runs.slice(-MAX_RUNS);
+    if (data.runs.length > cap) data.runs = data.runs.slice(-cap);
     writeHistory(data);
     return { success: true, runs: data.runs.length };
   } catch (err) {
@@ -145,10 +146,24 @@ function appendRun(run) {
 
 let mainWindow;
 
+function saveWindowState() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    const data = readConfig();
+    data.window = { ...mainWindow.getNormalBounds(), maximized: mainWindow.isMaximized() };
+    writeConfig(data);
+  } catch (err) {
+    log.warn('Could not save window state:', err.message);
+  }
+}
+
 function createWindow() {
+  const saved = (readConfig().window) || {};
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    width: saved.width || 1400,
+    height: saved.height || 900,
+    x: Number.isInteger(saved.x) ? saved.x : undefined,
+    y: Number.isInteger(saved.y) ? saved.y : undefined,
     minWidth: 1000,
     minHeight: 700,
     frame: false,
@@ -162,6 +177,7 @@ function createWindow() {
     icon: path.join(__dirname, 'assets', 'icon.png'),
   });
 
+  if (saved.maximized) mainWindow.maximize();
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
   // Send app version to renderer after load
@@ -169,6 +185,7 @@ function createWindow() {
     mainWindow.webContents.send('app-version', app.getVersion());
   });
 
+  mainWindow.on('close', saveWindowState);
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -381,7 +398,7 @@ ipcMain.on('cancel-api-request', (event, requestId) => {
 
 // History IPC handlers
 ipcMain.handle('read-history', () => readHistory());
-ipcMain.handle('append-run', (event, run) => appendRun(run));
+ipcMain.handle('append-run', (event, run, maxRuns) => appendRun(run, maxRuns));
 ipcMain.handle('clear-history', () => {
   try {
     writeHistory({ version: HISTORY_VERSION, runs: [] });
@@ -397,6 +414,9 @@ ipcMain.on('notify-regression', (event, { title, body }) => {
   if (!Notification.isSupported()) return;
   new Notification({ title: String(title || ''), body: String(body || '') }).show();
 });
+
+ipcMain.handle('get-data-path', () => app.getPath('userData'));
+ipcMain.on('open-data-folder', () => shell.openPath(app.getPath('userData')));
 
 // Config IPC handlers
 ipcMain.handle('read-config', () => {

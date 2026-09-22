@@ -38,6 +38,12 @@
       </button>
     </div>
     <div class="titlebar-controls">
+      <button class="titlebar-btn" id="btn-settings" title="Settings">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+        </svg>
+      </button>
       <button class="titlebar-btn" id="btn-minimize" title="Minimize">
         <svg width="12" height="12" viewBox="0 0 12 12"><rect y="5" width="12" height="1.5" fill="currentColor"/></svg>
       </button>
@@ -113,22 +119,6 @@
         </button>
       </div>
 
-      <!-- Test definition -->
-      <div class="sidebar-section">
-        <div class="section-label">
-          TEST PROMPT
-          <button class="btn-mini" id="btn-reset-prompt" title="Restore the default prompt and expected answer">Reset</button>
-        </div>
-        <textarea class="prompt-input" id="prompt-input" rows="2" spellcheck="false"
-                  placeholder="Prompt sent to every model"></textarea>
-        <label class="config-label expected-label" for="expected-input">
-          Expected answer
-          <span class="hint" title="Comma-separated alternatives, case-insensitive. Leave empty to skip answer checking.">?</span>
-        </label>
-        <input type="text" class="prompt-input" id="expected-input" spellcheck="false"
-               placeholder="e.g. 4, four — empty = no checking">
-      </div>
-
       <!-- Models List -->
       <div class="sidebar-section sidebar-section-grow">
         <div class="section-label">
@@ -160,18 +150,6 @@
           </svg>
           Test Selected
         </button>
-        <div class="auto-test-row">
-          <label class="auto-test-label" for="auto-test-select">Auto re-test</label>
-          <select class="auto-test-select" id="auto-test-select"
-                  title="Re-runs the selected models on a timer and notifies you when one stops working. Each run spends API quota.">
-            <option value="0">Off</option>
-            <option value="15">15 min</option>
-            <option value="60">1 hour</option>
-            <option value="360">6 hours</option>
-            <option value="1440">24 hours</option>
-          </select>
-        </div>
-        <div class="auto-test-note" id="auto-test-note"></div>
       </div>
     </aside>
 
@@ -283,6 +261,179 @@
         </div>
       </div>
     </main>
+  </div>
+
+  <!-- Settings -->
+  <div class="settings-overlay" id="settings-overlay" style="display:none">
+    <div class="settings-panel">
+      <div class="settings-header">
+        <h2>Settings</h2>
+        <button class="modal-close" id="settings-close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="settings-body">
+        <nav class="settings-nav" id="settings-nav">
+          <button class="settings-nav-item active" data-section="sec-test">Test</button>
+          <button class="settings-nav-item" data-section="sec-schedule">Schedule</button>
+          <button class="settings-nav-item" data-section="sec-speed">Speed &amp; timeouts</button>
+          <button class="settings-nav-item" data-section="sec-reliability">Reliability</button>
+          <button class="settings-nav-item" data-section="sec-history">History</button>
+          <button class="settings-nav-item" data-section="sec-data">Data</button>
+        </nav>
+
+        <div class="settings-content">
+          <!-- What the current configuration actually costs per run -->
+          <div class="settings-estimate" id="settings-estimate"></div>
+
+          <section class="settings-section" id="sec-test">
+            <h3>Test</h3>
+            <p class="settings-note">One prompt for every provider — that is what makes their results comparable.</p>
+
+            <div class="setting">
+              <label class="setting-label" for="prompt-input">Prompt</label>
+              <textarea class="prompt-input" id="prompt-input" rows="3" spellcheck="false"></textarea>
+            </div>
+
+            <div class="setting">
+              <label class="setting-label" for="expected-input">Expected answer</label>
+              <input type="text" class="prompt-input" id="expected-input" spellcheck="false">
+              <p class="setting-hint">Comma-separated alternatives, case-insensitive. Empty turns answer checking off.</p>
+            </div>
+
+            <div class="setting">
+              <label class="setting-label" for="media-prompt-input">Prompt for image and video generators</label>
+              <input type="text" class="prompt-input" id="media-prompt-input" spellcheck="false">
+              <p class="setting-hint">Generators pass by returning an asset, so there is no expected answer to match.</p>
+            </div>
+
+            <div class="setting">
+              <label class="setting-label" for="set-max-tokens">Output token limit</label>
+              <input type="number" min="1" step="1" class="prompt-input narrow" id="set-max-tokens">
+              <p class="setting-hint">A reasoning model can spend this whole budget thinking and return no content, which shows up as an empty response. Raise it if that happens.</p>
+            </div>
+
+            <button class="btn btn-ghost" id="btn-reset-prompt">Restore default prompt and answer</button>
+          </section>
+
+          <section class="settings-section" id="sec-schedule" hidden>
+            <h3>Schedule</h3>
+            <p class="settings-note">Unattended re-testing. Every run spends real API quota.</p>
+
+            <div class="setting">
+              <label class="setting-label" for="auto-test-select">Re-test the selected models</label>
+              <select class="prompt-input narrow" id="auto-test-select">
+                <option value="0">Off</option>
+                <option value="15">Every 15 minutes</option>
+                <option value="60">Every hour</option>
+                <option value="360">Every 6 hours</option>
+                <option value="1440">Every 24 hours</option>
+              </select>
+              <p class="setting-hint" id="auto-test-note"></p>
+            </div>
+
+            <label class="setting-check">
+              <input type="checkbox" id="set-skip-media">
+              <span>Leave image and video generators out of scheduled runs</span>
+            </label>
+            <p class="setting-hint">Without this, ticking a generator once means generating images on a timer, unattended.</p>
+
+            <label class="setting-check">
+              <input type="checkbox" id="set-notify-regression">
+              <span>Notify me when a model that was working stops</span>
+            </label>
+            <label class="setting-check">
+              <input type="checkbox" id="set-notify-complete">
+              <span>Notify me whenever a scheduled run finishes</span>
+            </label>
+          </section>
+
+          <section class="settings-section" id="sec-speed" hidden>
+            <h3>Speed and timeouts</h3>
+
+            <div class="setting">
+              <label class="setting-label">Latency colours</label>
+              <div class="setting-row">
+                <span class="swatch pass"></span> Green under
+                <input type="number" min="1" step="1" class="prompt-input tiny" id="set-time-good"> s
+                <span class="swatch warn"></span> Amber up to
+                <input type="number" min="1" step="1" class="prompt-input tiny" id="set-time-ok"> s
+                <span class="swatch fail"></span> Red beyond
+              </div>
+            </div>
+
+            <div class="setting">
+              <label class="setting-label">How long one model may take</label>
+              <div class="setting-row">
+                Chat <input type="number" min="5" step="5" class="prompt-input tiny" id="set-deadline-chat"> s
+                Image <input type="number" min="10" step="10" class="prompt-input tiny" id="set-deadline-image"> s
+                Video <input type="number" min="10" step="10" class="prompt-input tiny" id="set-deadline-video"> s
+              </div>
+              <p class="setting-hint">A generator legitimately needs minutes; a chat model that takes minutes is broken.</p>
+            </div>
+          </section>
+
+          <section class="settings-section" id="sec-reliability" hidden>
+            <h3>Reliability</h3>
+
+            <label class="setting-check">
+              <input type="checkbox" id="set-hedge-enabled">
+              <span>Race extra attempts at models that are being slow</span>
+            </label>
+            <p class="setting-hint">Rescues a model that is merely slow, and is the single biggest multiplier on what a run costs. Never applied to generators — they are supposed to be slow.</p>
+
+            <div class="setting-row indent">
+              At most <input type="number" min="1" max="20" step="1" class="prompt-input tiny" id="set-hedge-max"> attempts,
+              a new one every <input type="number" min="200" step="100" class="prompt-input tiny" id="set-hedge-step"> ms
+            </div>
+
+            <div class="setting">
+              <label class="setting-label">Retries</label>
+              <div class="setting-row">
+                Transient errors (5xx, network)
+                <input type="number" min="0" max="10" step="1" class="prompt-input tiny" id="set-retries"> times
+              </div>
+              <div class="setting-row">
+                Rate limits — wait out up to
+                <input type="number" min="0" max="10" step="1" class="prompt-input tiny" id="set-rl-waits"> windows
+              </div>
+              <p class="setting-hint">Being rate limited is never recorded as the model failing; the run waits, or moves to another key.</p>
+            </div>
+          </section>
+
+          <section class="settings-section" id="sec-history" hidden>
+            <h3>History</h3>
+            <p class="settings-note">Uptime is computed from stored runs. Only verdicts are kept, never response text.</p>
+
+            <div class="setting-row">
+              Keep the last <input type="number" min="10" max="5000" step="10" class="prompt-input tiny" id="set-history-max"> runs
+            </div>
+            <div class="setting-row">
+              Show <input type="number" min="4" max="40" step="1" class="prompt-input tiny" id="set-spark-runs"> runs in the uptime bars
+            </div>
+
+            <div class="settings-actions">
+              <button class="btn btn-ghost" id="btn-export-history">Export history</button>
+              <button class="btn btn-ghost danger" id="btn-clear-history">Clear history</button>
+            </div>
+          </section>
+
+          <section class="settings-section" id="sec-data" hidden>
+            <h3>Data</h3>
+            <p class="settings-note">Settings, providers and encrypted keys live in one folder; history sits beside them.</p>
+            <div class="setting-row"><code class="settings-path" id="settings-path">...</code></div>
+            <div class="settings-actions">
+              <button class="btn btn-ghost" id="btn-open-data">Open folder</button>
+              <button class="btn btn-ghost danger" id="btn-reset-settings">Reset all settings</button>
+            </div>
+            <p class="setting-hint">Resetting settings leaves your providers, keys and history untouched.</p>
+          </section>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Full Response Modal -->

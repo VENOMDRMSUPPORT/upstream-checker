@@ -31,19 +31,23 @@ const RESPONSE_PREVIEW = 160;
 // A provider module can override this with its own classify(model); the fallback
 // below is name matching, which is a guess and is shown as a badge so it can be
 // seen and corrected.
-const MEDIA_PROMPT = 'A single red circle centred on a plain white background.';
 
-const KIND_SETTINGS = {
-  chat:  { deadline: 75000,  hedge: true,  label: '' },
-  image: { deadline: 240000, hedge: false, label: 'Image' },
-  video: { deadline: 600000, hedge: false, label: 'Video' },
-};
+const KIND_LABELS = { chat: '', image: 'Image', video: 'Video' };
+
+// Hedging is never applied to a generator: it exists to rescue a chat model that
+// is unusually slow, and a generator is supposed to be slow, so racing it would
+// just buy several images at once.
+function kindLimits(kind) {
+  if (kind === 'image') return { deadline: settings.deadlineImageMs, hedge: false };
+  if (kind === 'video') return { deadline: settings.deadlineVideoMs, hedge: false };
+  return { deadline: settings.deadlineChatMs, hedge: settings.hedgeEnabled };
+}
 
 function classifyModel(providerId, model) {
   const adapter = (window.INTEGRATED_PROVIDERS || {})[providerId];
   if (adapter && typeof adapter.classify === 'function') {
     const k = adapter.classify(model);
-    if (KIND_SETTINGS[k]) return k;
+    if (KIND_LABELS[k] !== undefined) return k;
   }
   const id = `${model.id || ''} ${model.display_name || model.name || ''}`.toLowerCase();
   if (/\b(wan|veo|sora|kling|runway|luma|hailuo|pika)\b|video|t2v|i2v/.test(id)) return 'video';
@@ -65,11 +69,80 @@ function containsMediaUrl(text) {
   return /https?:\/\/\S+|data:(image|video)\//i.test(text || '');
 }
 
-// Latency bands for the TIME column. Calibrated to what a chat completion
-// actually costs: under 5s was flagging most of a healthy run amber, which left
-// the colour saying nothing.
-const TIME_GOOD_MS = 10000; // green below this
-const TIME_OK_MS = 15000;   // amber up to here, red beyond
+// ============================================
+// Settings
+// ============================================
+// Every value here was a constant in the source. They are settings because each
+// one maps to a decision a user actually faces — how much a slow model is worth
+// spending on, how long a generator is allowed to take, how much history to
+// keep. Defaults are the values the app shipped with.
+const DEFAULT_SETTINGS = {
+  // Latency bands for the TIME column. Calibrated to what a chat completion
+  // actually costs: under 5s flagged most of a healthy run amber, which left
+  // the colour saying nothing.
+  timeGoodMs: 10000,
+  timeOkMs: 15000,
+
+  // How long one model may take before it is called hung. A generator needs
+  // minutes; a chat model that takes minutes is broken.
+  deadlineChatMs: 75000,
+  deadlineImageMs: 240000,
+  deadlineVideoMs: 600000,
+
+  // Retry policy for transient failures and for provider rate limits.
+  maxTestRetries: 2,
+  maxRateLimitWaits: 3,
+
+  // Hedging rescues a model that is merely slow by racing extra attempts. It is
+  // also the single biggest multiplier on how many requests a run costs.
+  hedgeEnabled: true,
+  hedgeMax: 6,
+  hedgeStepMs: 2000,
+
+  // A reasoning model can spend its whole budget thinking and return no content
+  // at all, which the app then reports as an empty response. Raising this fixes
+  // that case.
+  maxOutputTokens: 512,
+  mediaPrompt: 'A single red circle centred on a plain white background.',
+
+  historyMaxRuns: 300,
+  sparkRuns: 12,
+
+  notifyRegression: true,
+  notifyRunComplete: false,
+
+  // Generators are unselected by default, but once selected they would join
+  // every scheduled run — generating images on a timer, unattended.
+  scheduleSkipMedia: true,
+};
+
+let settings = { ...DEFAULT_SETTINGS };
+
+async function loadSettings() {
+  try {
+    const data = await window.electronAPI.readConfig();
+    if (data.settings && typeof data.settings === 'object') {
+      Object.keys(DEFAULT_SETTINGS).forEach((k) => {
+        const v = data.settings[k];
+        if (typeof v === typeof DEFAULT_SETTINGS[k]) settings[k] = v;
+      });
+    }
+  } catch (_) {}
+}
+
+let saveSettingsTimer = null;
+function queueSettingsSave() {
+  clearTimeout(saveSettingsTimer);
+  saveSettingsTimer = setTimeout(async () => {
+    try {
+      const data = await window.electronAPI.readConfig();
+      data.settings = { ...settings };
+      await window.electronAPI.writeConfig(data);
+    } catch (err) {
+      console.warn('Failed to persist settings:', err);
+    }
+  }, 350);
+}
 
 // Set app version from main process
 window.electronAPI.onAppVersion((version) => {
@@ -136,7 +209,6 @@ async function saveProviderConfig(providerId) {
 // Answers the question the tool's name implies: not "does this model work right
 // now" but "is it reliable". Keyed per provider, because the same model id can
 // be solid on one router and flaky on another.
-const SPARK_RUNS = 12;    // recent runs drawn in the uptime cell
 const MIN_RUNS_FOR_UPTIME = 2; // one data point is not a rate
 
 // providerId::modelId -> [{ at, ok }] oldest first
@@ -200,7 +272,7 @@ async function recordRun(providerId, providerName, results) {
     })),
   };
   try {
-    await window.electronAPI.appendRun(run);
+    await window.electronAPI.appendRun(run, settings.historyMaxRuns);
   } catch (err) {
     console.warn('Failed to record run history:', err);
   }
@@ -956,6 +1028,7 @@ function renderModelsList() {
 
   updateTestAllButton();
   updateStats();
+  renderCostEstimate();
 }
 
 // Toggling must refresh the Test button (it disables at zero selected) and the
@@ -1011,7 +1084,7 @@ function buildModelItem(m) {
       `<span class="model-badge badge-alias" title="${escapeHtml(m.aliasCount + ' routes expose ' + m.aliasGroup + '. Tested separately — one can be up while another is down.')}">×${m.aliasCount}</span>`
     );
   }
-  const kindLabel = (KIND_SETTINGS[m.kind] || {}).label;
+  const kindLabel = KIND_LABELS[m.kind] || '';
   if (kindLabel) badges.push(`<span class="model-badge badge-media">${kindLabel}</span>`);
   if (m.hasVision) badges.push('<span class="model-badge badge-vision">Vision</span>');
   if (m.hasReasoning) badges.push('<span class="model-badge badge-reasoning">Think</span>');
@@ -1075,12 +1148,9 @@ function swapTokenLimitField(providerId) {
 // automatically — firing another parallel attempt every HEDGE_STEP_MS up to
 // HEDGE_MAX — and the fastest correct answer wins, cancelling the rest. Fast
 // models cost one request; only slow ones fan out, so the result comes back ASAP.
-const HEDGE_MAX = 6;
-const HEDGE_STEP_MS = 2000;
-// Per-model hard cap now lives in KIND_SETTINGS — a video generator legitimately
+// Per-model hard cap lives in kindLimits() — a video generator legitimately
 // needs minutes, a chat model that takes one is broken.
 const STREAM_HEDGE = 2;          // parallel streaming attempts during empty recovery
-const MAX_TEST_RETRIES = 2;
 // 429 is handled by the rate-limit path below, not here: it isn't a transient
 // glitch to back off from, it's the provider telling us to wait out its window.
 const RETRYABLE_STATUS = new Set([502, 503, 504]);
@@ -1089,7 +1159,6 @@ const RETRYABLE_STATUS = new Set([502, 503, 504]);
 // how fast we were going. Waiting the window out and continuing gives the model
 // a real verdict instead of recording our own pacing as its failure.
 const RATE_LIMIT_WAIT_MS = 60000; // a full window, when the provider doesn't say
-const MAX_RATE_LIMIT_WAITS = 3;   // stop after ~3 windows rather than hang forever
 const RATE_LIMIT_PATTERN =
   /rate.?limit|too many requests|per[- ]minute|requests? per (minute|min)|\brpm\b|concurrency limit/i;
 
@@ -1196,7 +1265,7 @@ function coolKeyDown(keyId, result) {
 
 let requestSeq = 0;
 // Every id handed out during a run, so Stop can kill sockets that are already in
-// flight. Without this, hitting Stop still leaves up to HEDGE_MAX requests
+// flight. Without this, hitting Stop still leaves the hedged requests
 // running (and billing) until the 60s request timeout fires.
 const inflightIds = new Set();
 
@@ -1240,19 +1309,19 @@ async function attemptOnce(model, provider, stream, requestId) {
   const media = isMedia(model);
   const payload = {
     model: model.id,
-    messages: [{ role: 'user', content: media ? MEDIA_PROMPT : testPrompt || DEFAULT_TEST_PROMPT }],
+    messages: [{ role: 'user', content: media ? settings.mediaPrompt : testPrompt || DEFAULT_TEST_PROMPT }],
     stream: !!stream,
   };
   // Newer OpenAI-compatible gateways rejected max_tokens in favour of
   // max_completion_tokens. Which one a provider accepts is learned from its own
   // 400 and remembered, so the swap costs one request per provider, once.
-  payload[tokenLimitField(provider.id)] = 512;
+  payload[tokenLimitField(provider.id)] = settings.maxOutputTokens;
   // reasoning_effort steers a reasoning model away from a deep chain on a trivial
   // prompt. It means nothing to a generator, so it isn't sent to one.
   if (!media) payload.reasoning_effort = 'low';
 
   try {
-    const { deadline } = KIND_SETTINGS[model.kind] || KIND_SETTINGS.chat;
+    const { deadline } = kindLimits(model.kind);
     const result = await window.electronAPI.apiRequest({
       url: `${baseUrl}/chat/completions`,
       method: 'POST',
@@ -1352,8 +1421,8 @@ function raceAttempts(model, provider, stream, count) {
 // model, so we stop escalating once we see one and resolve with the best result.
 // A hard per-kind deadline prevents a pathologically slow model from hanging.
 function adaptiveNonStream(model, provider) {
-  const { deadline, hedge } = KIND_SETTINGS[model.kind] || KIND_SETTINGS.chat;
-  const maxAttempts = hedge ? HEDGE_MAX : 1;
+  const { deadline, hedge } = kindLimits(model.kind);
+  const maxAttempts = hedge ? Math.max(1, settings.hedgeMax) : 1;
   return new Promise((resolve) => {
     const ids = [];
     let settled = false;
@@ -1399,7 +1468,7 @@ function adaptiveNonStream(model, provider) {
         }
         if (inflight === 0 && (stop || abortTesting || launched >= maxAttempts)) finish(best);
       });
-      if (!stop && launched < maxAttempts) stepTimer = setTimeout(launch, HEDGE_STEP_MS);
+      if (!stop && launched < maxAttempts) stepTimer = setTimeout(launch, settings.hedgeStepMs);
     };
 
     deadlineTimer = setTimeout(
@@ -1460,7 +1529,7 @@ async function testModel(model, provider) {
     // Rate limited. Cool that key down and try again — with a second key the run
     // simply moves onto it, and only waits when every key is capped. Being
     // throttled never gets recorded as the model's failure.
-    if ((isRateLimit(r) || r.allKeysCooling) && rateLimitWaits < MAX_RATE_LIMIT_WAITS && !abortTesting) {
+    if ((isRateLimit(r) || r.allKeysCooling) && rateLimitWaits < settings.maxRateLimitWaits && !abortTesting) {
       rateLimitWaits += 1;
       if (r.keyId) coolKeyDown(r.keyId, r);
       continue;
@@ -1474,7 +1543,7 @@ async function testModel(model, provider) {
 
     // A failure. Retry on transient errors (5xx/network) with backoff.
     const retryable = (r.statusCode && RETRYABLE_STATUS.has(r.statusCode)) || r.networkError;
-    if (retryable && transientRetries < MAX_TEST_RETRIES && !abortTesting) {
+    if (retryable && transientRetries < settings.maxTestRetries && !abortTesting) {
       await sleep(retryDelay(transientRetries));
       transientRetries++;
       continue;
@@ -1652,7 +1721,15 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
 // used to pass and now doesn't is worth an OS notification. A manual run doesn't
 // need one — the result is already on screen.
 function announceRegressions(changes, scheduled) {
-  if (!scheduled || changes.broke.length === 0) return;
+  if (!scheduled) return;
+  if (settings.notifyRunComplete) {
+    const passed = testResults.filter((r) => r.status === 'pass').length;
+    window.electronAPI.notifyRegression({
+      title: 'Scheduled run finished',
+      body: `${passed}/${testResults.length} passed`,
+    });
+  }
+  if (!settings.notifyRegression || changes.broke.length === 0) return;
   const n = changes.broke.length;
   window.electronAPI.notifyRegression({
     title: `${n} model${n === 1 ? '' : 's'} stopped working`,
@@ -1892,8 +1969,8 @@ function buildRowHtml(model, result) {
   } else if (result.time != null) {
     timeStr = `${(result.time / 1000).toFixed(1)}s`;
     if (isFailed) timeClass = 'time-dead';
-    else if (result.time < TIME_GOOD_MS) timeClass = 'time-fast';
-    else if (result.time <= TIME_OK_MS) timeClass = 'time-medium';
+    else if (result.time < settings.timeGoodMs) timeClass = 'time-fast';
+    else if (result.time <= settings.timeOkMs) timeClass = 'time-medium';
     else timeClass = 'time-slow';
   }
 
@@ -2032,7 +2109,7 @@ $('#response-modal-copy').addEventListener('click', () => {
 // the only question it has to answer at a glance is "was this always like that,
 // or did something change".
 function sparkline(modelId) {
-  const h = modelHistory(modelId).slice(-SPARK_RUNS);
+  const h = modelHistory(modelId).slice(-settings.sparkRuns);
   if (h.length < MIN_RUNS_FOR_UPTIME) return '';
   const w = 4;
   const gap = 1;
@@ -2466,7 +2543,9 @@ function applyAutoTestSchedule() {
 function runScheduledTest() {
   // Never interrupt a run in progress, and never fire with nothing selected.
   if (isTesting) return;
-  const selected = getSelectedModels();
+  // Generating images and video unattended on a timer is rarely what someone
+  // meant when they ticked a generator once.
+  const selected = getSelectedModels().filter((m) => !(settings.scheduleSkipMedia && isMedia(m)));
   if (selected.length === 0 || usableKeys(PROVIDERS[activeProvider]).length === 0) return;
   runTests(selected, { scheduled: true });
 }
@@ -2477,7 +2556,139 @@ $('#auto-test-select').addEventListener('change', (e) => {
   saveTestDefinition();
 });
 
+
+// ============================================
+// Settings panel
+// ============================================
+// Each control binds a settings key to an input, converting where the stored
+// unit and the displayed one differ (milliseconds stored, seconds shown).
+const SETTING_INPUTS = [
+  ['#set-max-tokens', 'maxOutputTokens', 'int'],
+  ['#media-prompt-input', 'mediaPrompt', 'text'],
+  ['#set-time-good', 'timeGoodMs', 'sec'],
+  ['#set-time-ok', 'timeOkMs', 'sec'],
+  ['#set-deadline-chat', 'deadlineChatMs', 'sec'],
+  ['#set-deadline-image', 'deadlineImageMs', 'sec'],
+  ['#set-deadline-video', 'deadlineVideoMs', 'sec'],
+  ['#set-hedge-enabled', 'hedgeEnabled', 'bool'],
+  ['#set-hedge-max', 'hedgeMax', 'int'],
+  ['#set-hedge-step', 'hedgeStepMs', 'int'],
+  ['#set-retries', 'maxTestRetries', 'int'],
+  ['#set-rl-waits', 'maxRateLimitWaits', 'int'],
+  ['#set-history-max', 'historyMaxRuns', 'int'],
+  ['#set-spark-runs', 'sparkRuns', 'int'],
+  ['#set-skip-media', 'scheduleSkipMedia', 'bool'],
+  ['#set-notify-regression', 'notifyRegression', 'bool'],
+  ['#set-notify-complete', 'notifyRunComplete', 'bool'],
+];
+
+function fillSettingsForm() {
+  SETTING_INPUTS.forEach(([sel, key, kind]) => {
+    const el = $(sel);
+    if (!el) return;
+    if (kind === 'bool') el.checked = !!settings[key];
+    else if (kind === 'sec') el.value = Math.round(settings[key] / 1000);
+    else el.value = settings[key];
+  });
+  $('#prompt-input').value = testPrompt;
+  $('#expected-input').value = expectedAnswer;
+  $('#auto-test-select').value = String(autoTestMinutes);
+  renderCostEstimate();
+}
+
+function bindSettingsForm() {
+  SETTING_INPUTS.forEach(([sel, key, kind]) => {
+    const el = $(sel);
+    if (!el) return;
+    el.addEventListener(kind === 'bool' ? 'change' : 'input', () => {
+      if (kind === 'bool') settings[key] = el.checked;
+      else if (kind === 'text') settings[key] = el.value;
+      else {
+        const n = Number(el.value);
+        if (!Number.isFinite(n) || n <= 0) return; // ignore a half-typed number
+        settings[key] = kind === 'sec' ? Math.round(n * 1000) : Math.round(n);
+      }
+      queueSettingsSave();
+      renderCostEstimate();
+      // Colour bands and sparkline length change what is already on screen.
+      if (tableRows.length > 0) renderResultsTable();
+    });
+  });
+}
+
+// Hedging, retries and the schedule all multiply together, and the product is
+// invisible while you are turning one knob. Saying it out loud is the difference
+// between settings you can change and settings you can reason about.
+function renderCostEstimate() {
+  const el = $('#settings-estimate');
+  if (!el) return;
+  const models = getSelectedModels().length;
+  if (models === 0) {
+    el.textContent = 'Select some models to see what a run costs.';
+    return;
+  }
+  const perModelMax = (settings.hedgeEnabled ? Math.max(1, settings.hedgeMax) : 1) * (1 + settings.maxTestRetries);
+  const low = models;
+  const high = models * perModelMax;
+  let text = `${models} models · ${low} to ${high} requests per run`;
+  if (autoTestMinutes > 0) {
+    const perDay = Math.round((24 * 60) / autoTestMinutes);
+    text += ` · ${(low * perDay).toLocaleString()} to ${(high * perDay).toLocaleString()} per day on this schedule`;
+  }
+  el.textContent = text;
+}
+
+function openSettings() {
+  fillSettingsForm();
+  $('#settings-overlay').style.display = 'flex';
+}
+
+function closeSettings() {
+  $('#settings-overlay').style.display = 'none';
+}
+
+$('#btn-settings').addEventListener('click', openSettings);
+$('#settings-close').addEventListener('click', closeSettings);
+$('#settings-overlay').addEventListener('click', (e) => {
+  if (e.target.id === 'settings-overlay') closeSettings();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $('#settings-overlay').style.display === 'flex') closeSettings();
+});
+
+$('#settings-nav').addEventListener('click', (e) => {
+  const btn = e.target.closest('.settings-nav-item');
+  if (!btn) return;
+  $$('.settings-nav-item').forEach((b) => b.classList.toggle('active', b === btn));
+  $$('.settings-section').forEach((sec) => { sec.hidden = sec.id !== btn.dataset.section; });
+});
+
+$('#btn-export-history').addEventListener('click', async () => {
+  const data = await window.electronAPI.readHistory();
+  downloadFile(JSON.stringify(data, null, 2), exportFilename('history.json'), 'application/json');
+});
+
+$('#btn-clear-history').addEventListener('click', async () => {
+  await window.electronAPI.clearHistory();
+  await loadHistory();
+  if (tableRows.length > 0) renderResultsTable();
+  setStatus('done', 'History cleared');
+});
+
+$('#btn-open-data').addEventListener('click', () => window.electronAPI.openDataFolder());
+
+$('#btn-reset-settings').addEventListener('click', () => {
+  settings = { ...DEFAULT_SETTINGS };
+  queueSettingsSave();
+  fillSettingsForm();
+  if (tableRows.length > 0) renderResultsTable();
+  setStatus('done', 'Settings reset to defaults');
+});
+
 async function init() {
+  await loadSettings();
+  bindSettingsForm();
+  window.electronAPI.getDataPath().then((dir) => { $('#settings-path').textContent = dir; });
   await loadTestDefinition();
   await loadHistory();
   await loadAllProviders();
