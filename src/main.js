@@ -318,7 +318,7 @@ const activeApiRequests = new Map();
 // renderer as "Error invoking remote method 'api-request': ..." with the real
 // message buried and every other field — notably the elapsed time — gone, so a
 // failed model showed a meaningless error and 0.0s.
-ipcMain.handle('api-request', async (event, { url, method, headers, body, requestId, timeoutMs }) => {
+ipcMain.handle('api-request', async (event, { url, method, headers, body, requestId, timeoutMs, logLevel }) => {
   return new Promise((resolve) => {
     const startTime = Date.now();
     const urlObj = new URL(url);
@@ -350,12 +350,20 @@ ipcMain.handle('api-request', async (event, { url, method, headers, body, reques
       res.on('end', () => {
         cleanup();
         const elapsed = Date.now() - startTime;
-        resolve({
-          status: res.statusCode,
-          body: Buffer.concat(chunks).toString('utf8'),
-          elapsed,
-          headers: res.headers,
-        });
+        const text = Buffer.concat(chunks).toString('utf8');
+        if (logLevel === 'all' || (logLevel === 'errors' && res.statusCode !== 200)) {
+          appendRequestLog({
+            at: new Date().toISOString(),
+            url,
+            method: method || 'GET',
+            status: res.statusCode,
+            elapsedMs: elapsed,
+            requestHeaders: redactHeaders(headers),
+            requestBody: clip(body),
+            responseBody: clip(text),
+          });
+        }
+        resolve({ status: res.statusCode, body: text, elapsed, headers: res.headers });
       });
     });
 
@@ -369,6 +377,13 @@ ipcMain.handle('api-request', async (event, { url, method, headers, body, reques
       if (req.__cancelled) {
         resolve({ status: 0, body: '', elapsed, headers: {}, cancelled: true });
         return;
+      }
+      if (logLevel === 'all' || logLevel === 'errors') {
+        appendRequestLog({
+          at: new Date().toISOString(), url, method: method || 'GET', status: 0,
+          elapsedMs: elapsed, requestHeaders: redactHeaders(headers),
+          requestBody: clip(body), error: err.message,
+        });
       }
       resolve({ status: 0, body: '', elapsed, headers: {}, networkError: true, error: err.message });
     });
@@ -393,6 +408,81 @@ ipcMain.on('cancel-api-request', (event, requestId) => {
     activeApiRequests.delete(requestId);
     req.__cancelled = true;
     req.destroy();
+  }
+});
+
+
+// ============================================
+// Request log
+// ============================================
+// Written so a failed test can be explained after the fact: what was sent, what
+// came back. Off by default, because it is a file on disk containing the
+// traffic of an authenticated API.
+//
+// The Authorization header is never written. A log that captures the request
+// faithfully would capture the key with it, which turns a debugging aid into the
+// exact thing the keystore work was meant to prevent.
+const LOG_MAX_BYTES = 5 * 1024 * 1024;
+const REDACTED = '[redacted]';
+
+let requestLogPath;
+function getRequestLogPath() {
+  if (!requestLogPath) requestLogPath = path.join(app.getPath('userData'), 'requests.log');
+  return requestLogPath;
+}
+
+function redactHeaders(headers) {
+  const out = {};
+  Object.entries(headers || {}).forEach(([k, v]) => {
+    out[k] = /^(authorization|x-api-key|api-key|cookie)$/i.test(k) ? REDACTED : v;
+  });
+  return out;
+}
+
+function clip(text, max = 4000) {
+  const str = String(text ?? '');
+  return str.length > max ? `${str.slice(0, max)}… [${str.length - max} more chars]` : str;
+}
+
+function appendRequestLog(entry) {
+  try {
+    const lp = getRequestLogPath();
+    // Rotate rather than grow without bound; one previous file is kept.
+    try {
+      if (fs.existsSync(lp) && fs.statSync(lp).size > LOG_MAX_BYTES) {
+        fs.renameSync(lp, `${lp}.1`);
+      }
+    } catch (_) {}
+    fs.appendFileSync(lp, JSON.stringify(entry) + String.fromCharCode(10), 'utf-8');
+  } catch (err) {
+    log.warn('Could not write request log:', err.message);
+  }
+}
+
+ipcMain.handle('read-log-info', () => {
+  try {
+    const lp = getRequestLogPath();
+    const size = fs.existsSync(lp) ? fs.statSync(lp).size : 0;
+    return { path: lp, size };
+  } catch (_) {
+    return { path: getRequestLogPath(), size: 0 };
+  }
+});
+
+ipcMain.on('open-request-log', () => {
+  const lp = getRequestLogPath();
+  if (fs.existsSync(lp)) shell.showItemInFolder(lp);
+  else shell.openPath(app.getPath('userData'));
+});
+
+ipcMain.handle('clear-request-log', () => {
+  try {
+    [getRequestLogPath(), `${getRequestLogPath()}.1`].forEach((f) => {
+      if (fs.existsSync(f)) fs.unlinkSync(f);
+    });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
   }
 });
 

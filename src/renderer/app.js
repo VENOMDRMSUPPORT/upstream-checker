@@ -114,7 +114,40 @@ const DEFAULT_SETTINGS = {
   // Generators are unselected by default, but once selected they would join
   // every scheduled run — generating images on a timer, unattended.
   scheduleSkipMedia: true,
+
+  // Appearance. Every colour in the stylesheet comes from a custom property, so
+  // a theme is a block of overrides rather than a second stylesheet.
+  theme: 'default',
+  accent: 'cyan',
+  density: 'normal',
+
+  // off | errors | all. Off by default: the log is a file on disk holding the
+  // traffic of an authenticated API, even with the key stripped out of it.
+  logLevel: 'off',
 };
+
+const THEMES = [
+  { id: 'default',  name: 'Deep Space', strip: ['#060a14', '#0f1526', '#243054', '#00d4ff'] },
+  { id: 'midnight', name: 'Midnight',   strip: ['#0b0d12', '#181b24', '#2a3040', '#00d4ff'] },
+  { id: 'carbon',   name: 'Carbon',     strip: ['#0d0d0d', '#1c1c1c', '#2e2e2e', '#00d4ff'] },
+  { id: 'amoled',   name: 'AMOLED',     strip: ['#000000', '#0a0a0a', '#242424', '#00d4ff'] },
+  { id: 'nord',     name: 'Nord',       strip: ['#20242e', '#2e3440', '#3f4858', '#88c0d0'] },
+  { id: 'daylight', name: 'Daylight',   strip: ['#f4f6fa', '#ffffff', '#cfd8e3', '#0ea5e9'] },
+];
+
+const ACCENTS = [
+  { id: 'cyan', hex: '#00d4ff' }, { id: 'violet', hex: '#a78bfa' }, { id: 'green', hex: '#34d399' },
+  { id: 'amber', hex: '#fbbf24' }, { id: 'rose', hex: '#fb7185' }, { id: 'blue', hex: '#60a5fa' },
+];
+
+// The default theme is the stylesheet's own :root, so it carries no attribute.
+function applyAppearance() {
+  const el = document.documentElement;
+  if (settings.theme && settings.theme !== 'default') el.setAttribute('data-theme', settings.theme);
+  else el.removeAttribute('data-theme');
+  el.setAttribute('data-accent', settings.accent);
+  el.setAttribute('data-density', settings.density);
+}
 
 let settings = { ...DEFAULT_SETTINGS };
 
@@ -1177,6 +1210,27 @@ function isRateLimit(r) {
   return typeof r.response === 'string' && RATE_LIMIT_PATTERN.test(r.response);
 }
 
+// A key can be refused a model it simply isn't entitled to — an unfunded account
+// asked for a paid-tier model, a plan that doesn't include it. That is a fact
+// about the key, not about the model, and it is permanent until the account
+// changes, so unlike a rate limit there is nothing to wait for.
+const ENTITLEMENT_PATTERN =
+  /insufficient|top[\s-]?up|balance|no credit|out of credit|不足|quota exceeded|not (?:entitled|available on|included)|upgrade your|requires? a paid|billing|payment required|subscribe/i;
+
+function isEntitlementDenial(r) {
+  if (r.statusCode === 402) return true;
+  if (r.statusCode !== 403 && r.statusCode !== 400 && r.statusCode !== 404) return false;
+  return typeof r.response === 'string' && ENTITLEMENT_PATTERN.test(r.response);
+}
+
+// "keyId::modelId" pairs the provider has refused this session. Discovery can't
+// always tell what a key is entitled to — NaraRouter's catalogue comes from
+// public pricing endpoints that never see a key, so every key looks like it can
+// reach everything — so entitlement is learned the only way it can be: by being
+// told no, once, and not asking that key again.
+const deniedPairs = new Set();
+const denialKey = (keyId, modelId) => `${keyId}::${modelId}`;
+
 // ============================================
 // Keys and pacing
 // ============================================
@@ -1204,10 +1258,16 @@ function rpmOf(provider) {
 // each request sent to a key that has the model — otherwise a working model is
 // recorded as broken because the wrong key was used to ask for it.
 function keysFor(provider, model) {
-  const keys = usableKeys(provider);
-  if (!model || !Array.isArray(model.keyIds) || model.keyIds.length === 0) return keys;
-  const allowed = keys.filter((k) => model.keyIds.includes(k.id));
-  return allowed.length > 0 ? allowed : keys;
+  let keys = usableKeys(provider);
+  if (model && Array.isArray(model.keyIds) && model.keyIds.length > 0) {
+    const listed = keys.filter((k) => model.keyIds.includes(k.id));
+    if (listed.length > 0) keys = listed;
+  }
+  if (!model) return keys;
+  const permitted = keys.filter((k) => !deniedPairs.has(denialKey(k.id, model.id)));
+  // If every key has been refused, hand back the full list so the caller still
+  // gets a real error to report rather than "no key available".
+  return permitted.length > 0 ? permitted : keys;
 }
 
 // Round-robin over the eligible keys that aren't cooling off; null when all of
@@ -1337,6 +1397,7 @@ async function attemptOnce(model, provider, stream, requestId) {
       body: JSON.stringify(payload),
       requestId,
       timeoutMs: deadline,
+      logLevel: settings.logLevel,
     });
 
     // Cancelled hedge loser — ignore it (raceAttempts skips cancelled results).
@@ -1534,6 +1595,19 @@ async function testModel(model, provider) {
       return done(r);
     }
 
+    // This key isn't entitled to this model. Remember that and try another key
+    // if one is left — a model the account can actually reach must not be
+    // recorded as down because the wrong key asked for it.
+    if (isEntitlementDenial(r) && r.keyId && !abortTesting) {
+      const before = keysFor(provider, model).length;
+      deniedPairs.add(denialKey(r.keyId, model.id));
+      const after = keysFor(provider, model).filter(
+        (k) => !deniedPairs.has(denialKey(k.id, model.id))
+      ).length;
+      if (after > 0 && after < before) continue; // another key may be entitled
+      return done({ ...r, entitlementDenied: true });
+    }
+
     // Rate limited. Cool that key down and try again — with a second key the run
     // simply moves onto it, and only waits when every key is capped. Being
     // throttled never gets recorded as the model's failure.
@@ -1672,6 +1746,7 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
   abortTesting = false;
   inflightIds.clear();
   keyCooldownUntil.clear();
+  if (reset) deniedPairs.clear();
 
   if (reset) {
     testResults = [];
@@ -2588,6 +2663,8 @@ const SETTING_INPUTS = [
   ['#set-skip-media', 'scheduleSkipMedia', 'bool'],
   ['#set-notify-regression', 'notifyRegression', 'bool'],
   ['#set-notify-complete', 'notifyRunComplete', 'bool'],
+  ['#set-density', 'density', 'text'],
+  ['#set-log-level', 'logLevel', 'text'],
 ];
 
 function fillSettingsForm() {
@@ -2646,8 +2723,80 @@ function renderCostEstimate() {
   el.textContent = text;
 }
 
+function renderAppearancePickers() {
+  $('#theme-grid').innerHTML = THEMES.map((t) =>
+    `<button class="theme-card ${t.id === settings.theme ? 'active' : ''}" data-theme-id="${t.id}">
+       <span class="theme-card-name">${t.name}</span>
+       <span class="theme-card-strip">${t.strip.map((c) => `<span style="background:${c}"></span>`).join('')}</span>
+     </button>`).join('');
+
+  $('#accent-row').innerHTML = ACCENTS.map((a) =>
+    `<button class="swatch-btn ${a.id === settings.accent ? 'active' : ''}" data-accent-id="${a.id}"
+             style="background:${a.hex}" title="${a.id}"></button>`).join('');
+}
+
+$('#theme-grid').addEventListener('click', (e) => {
+  const card = e.target.closest('.theme-card');
+  if (!card) return;
+  settings.theme = card.dataset.themeId;
+  applyAppearance();
+  queueSettingsSave();
+  renderAppearancePickers();
+});
+
+$('#accent-row').addEventListener('click', (e) => {
+  const btn = e.target.closest('.swatch-btn');
+  if (!btn) return;
+  settings.accent = btn.dataset.accentId;
+  applyAppearance();
+  queueSettingsSave();
+  renderAppearancePickers();
+});
+
+async function refreshLogInfo() {
+  try {
+    const info = await window.electronAPI.readLogInfo();
+    const kb = info.size > 0 ? ` — ${(info.size / 1024).toFixed(0)} KB` : ' — empty';
+    $('#log-path').textContent = info.path + kb;
+  } catch (_) {}
+}
+
+function renderAbout() {
+  $('#about-version').textContent = ($('#app-version').textContent || '').replace(/^v/, '') || '—';
+
+  $('#about-providers').innerHTML = Object.values(PROVIDERS)
+    .map((p) => {
+      const n = (p.models || []).length;
+      return `<div class="about-provider">
+        <span class="about-provider-name">${escapeHtml(p.name)}</span>
+        <span class="about-provider-meta">${n ? `${n} models` : 'not fetched'}${p.custom ? ' · custom' : ''}</span>
+      </div>`;
+    })
+    .join('');
+
+  const runs = [...history.values()].reduce((a, h) => a + h.length, 0);
+  const tracked = history.size;
+  $('#about-stats').innerHTML =
+    `<div class="about-provider"><span class="about-provider-name">Models tracked</span><span class="about-provider-meta">${tracked}</span></div>` +
+    `<div class="about-provider"><span class="about-provider-name">Results recorded</span><span class="about-provider-meta">${runs}</span></div>`;
+}
+
+$('#btn-open-log').addEventListener('click', () => window.electronAPI.openRequestLog());
+$('#btn-clear-log').addEventListener('click', async () => {
+  await window.electronAPI.clearRequestLog();
+  refreshLogInfo();
+});
+$('#btn-check-updates').addEventListener('click', () => {
+  window.electronAPI.updateAPI.checkForUpdates();
+  $('#about-update-note').textContent = 'Checking…';
+  setTimeout(() => { $('#about-update-note').textContent = ''; }, 6000);
+});
+
 function openSettings() {
   fillSettingsForm();
+  renderAppearancePickers();
+  refreshLogInfo();
+  renderAbout();
   $('#settings-overlay').style.display = 'flex';
 }
 
@@ -2687,14 +2836,17 @@ $('#btn-open-data').addEventListener('click', () => window.electronAPI.openDataF
 
 $('#btn-reset-settings').addEventListener('click', () => {
   settings = { ...DEFAULT_SETTINGS };
+  applyAppearance();
   queueSettingsSave();
   fillSettingsForm();
+  renderAppearancePickers();
   if (tableRows.length > 0) renderResultsTable();
   setStatus('done', 'Settings reset to defaults');
 });
 
 async function init() {
   await loadSettings();
+  applyAppearance();
   bindSettingsForm();
   window.electronAPI.getDataPath().then((dir) => { $('#settings-path').textContent = dir; });
   await loadTestDefinition();

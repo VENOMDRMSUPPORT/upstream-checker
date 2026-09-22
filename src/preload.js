@@ -25,6 +25,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   clearHistory: () => ipcRenderer.invoke('clear-history'),
   getDataPath: () => ipcRenderer.invoke('get-data-path'),
   openDataFolder: () => ipcRenderer.send('open-data-folder'),
+  readLogInfo: () => ipcRenderer.invoke('read-log-info'),
+  openRequestLog: () => ipcRenderer.send('open-request-log'),
+  clearRequestLog: () => ipcRenderer.invoke('clear-request-log'),
   notifyRegression: (payload) => ipcRenderer.send('notify-regression', payload),
 
   // Update API

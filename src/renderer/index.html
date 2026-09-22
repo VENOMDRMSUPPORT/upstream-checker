@@ -282,7 +282,10 @@
           <button class="settings-nav-item" data-section="sec-speed">Speed &amp; timeouts</button>
           <button class="settings-nav-item" data-section="sec-reliability">Reliability</button>
           <button class="settings-nav-item" data-section="sec-history">History</button>
+          <button class="settings-nav-item" data-section="sec-appearance">Appearance</button>
+          <button class="settings-nav-item" data-section="sec-logs">Diagnostics</button>
           <button class="settings-nav-item" data-section="sec-data">Data</button>
+          <button class="settings-nav-item" data-section="sec-about">About</button>
         </nav>
 
         <div class="settings-content">
@@ -421,6 +424,89 @@
             </div>
           </section>
 
+          <section class="settings-section" id="sec-appearance" hidden>
+            <h3>Appearance</h3>
+
+            <div class="setting">
+              <label class="setting-label">Theme</label>
+              <div class="theme-grid" id="theme-grid"></div>
+            </div>
+
+            <div class="setting">
+              <label class="setting-label">Accent</label>
+              <div class="swatch-row" id="accent-row"></div>
+            </div>
+
+            <div class="setting">
+              <label class="setting-label" for="set-density">Row density</label>
+              <select class="prompt-input narrow" id="set-density">
+                <option value="compact">Compact</option>
+                <option value="normal">Normal</option>
+                <option value="roomy">Roomy</option>
+              </select>
+              <p class="setting-hint">How much of the results table fits on screen at once.</p>
+            </div>
+          </section>
+
+          <section class="settings-section" id="sec-logs" hidden>
+            <h3>Diagnostics</h3>
+            <p class="settings-note">Records what was sent and what came back, so a failed test can be explained after the fact.</p>
+
+            <div class="setting">
+              <label class="setting-label" for="set-log-level">Log requests</label>
+              <select class="prompt-input narrow" id="set-log-level">
+                <option value="off">Off</option>
+                <option value="errors">Failures only</option>
+                <option value="all">Every request</option>
+              </select>
+              <p class="setting-hint">API keys are never written to the log — the Authorization header is replaced before anything reaches disk. Bodies are clipped at 4,000 characters and the file rotates at 5 MB.</p>
+            </div>
+
+            <div class="setting-row"><code class="settings-path" id="log-path">...</code></div>
+            <div class="settings-actions">
+              <button class="btn btn-ghost" id="btn-open-log">Show log file</button>
+              <button class="btn btn-ghost danger" id="btn-clear-log">Clear log</button>
+            </div>
+          </section>
+
+          <section class="settings-section" id="sec-about" hidden>
+            <h3>About</h3>
+
+            <div class="about-head">
+              <div class="about-mark">
+                <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                  <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                  <path d="M2 17l10 5 10-5"/>
+                  <path d="M2 12l10 5 10-5"/>
+                </svg>
+              </div>
+              <div>
+                <div class="about-name">Upstream Checker</div>
+                <div class="about-version">Version <span id="about-version">-</span></div>
+              </div>
+            </div>
+
+            <p class="settings-note">
+              Tests every model a provider offers against one prompt, and keeps the results
+              so the question stops being &ldquo;does this model work right now&rdquo; and becomes
+              &ldquo;is this model reliable&rdquo;.
+            </p>
+
+            <div class="setting">
+              <label class="setting-label">Providers</label>
+              <div class="about-providers" id="about-providers"></div>
+            </div>
+
+            <div class="setting">
+              <label class="setting-label">This install</label>
+              <div class="about-stats" id="about-stats"></div>
+            </div>
+
+            <div class="settings-actions">
+              <button class="btn btn-ghost" id="btn-check-updates">Check for updates</button>
+            </div>
+            <p class="setting-hint" id="about-update-note"></p>
+          </section>
           <section class="settings-section" id="sec-data" hidden>
             <h3>Data</h3>
             <p class="settings-note">Settings, providers and encrypted keys live in one folder; history sits beside them.</p>

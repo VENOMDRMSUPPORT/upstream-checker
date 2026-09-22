@@ -1915,3 +1915,139 @@ html, body {
   user-select: text;
   word-break: break-all;
 }
+
+/* ============================================
+   Themes
+   ============================================ */
+/* Every colour in the app already came from a custom property, so a theme is a
+   block of overrides rather than a second stylesheet. Accent and density are
+   separate axes: the accent is the app's identity and people disagree about it,
+   density is about how much of the results table fits on screen. */
+
+[data-theme="midnight"] {
+  --bg-0: #0b0d12; --bg-1: #12141b; --bg-2: #181b24; --bg-3: #20242f;
+  --bg-4: #272c3a; --bg-hover: #2d3342;
+  --border-1: #1e2230; --border-2: #2a3040; --border-3: #384055;
+  --text-0: #ffffff; --text-1: #e4e7ee; --text-2: #9aa2b4; --text-3: #6b7383; --text-4: #4c535f;
+}
+
+[data-theme="carbon"] {
+  --bg-0: #0d0d0d; --bg-1: #141414; --bg-2: #1c1c1c; --bg-3: #242424;
+  --bg-4: #2c2c2c; --bg-hover: #333333;
+  --border-1: #1f1f1f; --border-2: #2e2e2e; --border-3: #3d3d3d;
+  --text-0: #ffffff; --text-1: #e6e6e6; --text-2: #9e9e9e; --text-3: #707070; --text-4: #545454;
+}
+
+[data-theme="amoled"] {
+  --bg-0: #000000; --bg-1: #000000; --bg-2: #0a0a0a; --bg-3: #131313;
+  --bg-4: #1a1a1a; --bg-hover: #202020;
+  --border-1: #161616; --border-2: #242424; --border-3: #333333;
+  --text-0: #ffffff; --text-1: #e8e8e8; --text-2: #9c9c9c; --text-3: #6e6e6e; --text-4: #4f4f4f;
+}
+
+[data-theme="nord"] {
+  --bg-0: #20242e; --bg-1: #272c38; --bg-2: #2e3440; --bg-3: #3b4252;
+  --bg-4: #434c5e; --bg-hover: #4c566a;
+  --border-1: #333a47; --border-2: #3f4858; --border-3: #4c566a;
+  --text-0: #eceff4; --text-1: #e5e9f0; --text-2: #a9b3c4; --text-3: #7b869b; --text-4: #5c6779;
+}
+
+[data-theme="daylight"] {
+  --bg-0: #f4f6fa; --bg-1: #ffffff; --bg-2: #f0f3f8; --bg-3: #e6ebf3;
+  --bg-4: #dae1ec; --bg-hover: #e2e8f2;
+  --border-1: #e2e8f0; --border-2: #cfd8e3; --border-3: #b6c2d2;
+  --text-0: #0f172a; --text-1: #1e293b; --text-2: #475569; --text-3: #64748b; --text-4: #94a3b8;
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 8px 32px rgba(15, 23, 42, 0.12);
+}
+
+/* The light theme needs a few pieces that were written assuming a dark canvas */
+[data-theme="daylight"] .logo-title { -webkit-text-fill-color: initial; background: none; color: #0f172a; }
+[data-theme="daylight"] .settings-overlay { background: rgba(15, 23, 42, 0.35); }
+[data-theme="daylight"] .titlebar-btn-close:hover { color: #fff; }
+
+/* Accent */
+[data-accent="cyan"]   { --accent: #00d4ff; --accent-dim: #0098b8; --accent-bg: rgba(0,212,255,0.08);  --accent-border: rgba(0,212,255,0.22); }
+[data-accent="violet"] { --accent: #a78bfa; --accent-dim: #7c5cf0; --accent-bg: rgba(167,139,250,0.10); --accent-border: rgba(167,139,250,0.26); }
+[data-accent="green"]  { --accent: #34d399; --accent-dim: #10a877; --accent-bg: rgba(52,211,153,0.10);  --accent-border: rgba(52,211,153,0.26); }
+[data-accent="amber"]  { --accent: #fbbf24; --accent-dim: #d99a08; --accent-bg: rgba(251,191,36,0.10);  --accent-border: rgba(251,191,36,0.26); }
+[data-accent="rose"]   { --accent: #fb7185; --accent-dim: #e04256; --accent-bg: rgba(251,113,133,0.10); --accent-border: rgba(251,113,133,0.26); }
+[data-accent="blue"]   { --accent: #60a5fa; --accent-dim: #3b82f6; --accent-bg: rgba(96,165,250,0.10);  --accent-border: rgba(96,165,250,0.26); }
+
+/* Density — how many result rows fit on screen */
+[data-density="compact"] .results-table td { padding: 5px 16px; }
+[data-density="compact"] .status-icon { width: 24px; height: 24px; }
+[data-density="compact"] .cell-model-key { margin-top: 1px; }
+[data-density="roomy"] .results-table td { padding: 15px 16px; }
+
+/* Appearance pickers */
+.swatch-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.swatch-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  transition: transform var(--transition-fast), border-color var(--transition-fast);
+}
+
+.swatch-btn:hover { transform: scale(1.12); }
+.swatch-btn.active { border-color: var(--text-1); }
+
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+
+.theme-card {
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-md);
+  padding: 10px;
+  background: var(--bg-2);
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--transition-fast);
+}
+
+.theme-card:hover { border-color: var(--border-3); }
+.theme-card.active { border-color: var(--accent); background: var(--accent-bg); }
+
+.theme-card-name {
+  display: block;
+  font-size: 12px;
+  color: var(--text-1);
+  margin-bottom: 7px;
+}
+
+.theme-card-strip { display: flex; height: 16px; border-radius: 3px; overflow: hidden; }
+.theme-card-strip span { flex: 1; }
+
+/* About */
+.about-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+
+.about-mark {
+  width: 54px; height: 54px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-lg);
+  background: var(--bg-3);
+  border: 1px solid var(--border-2);
+  color: var(--accent);
+}
+
+.about-name { font-size: 16px; font-weight: 700; color: var(--text-0); }
+.about-version { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-3); margin-top: 2px; }
+
+.about-providers, .about-stats { display: flex; flex-direction: column; gap: 1px; }
+
+.about-provider {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 11px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-1);
+}
+
+.about-provider:first-child { border-radius: var(--radius-md) var(--radius-md) 0 0; }
+.about-provider:last-child { border-radius: 0 0 var(--radius-md) var(--radius-md); }
+.about-provider:only-child { border-radius: var(--radius-md); }
+
+.about-provider-name { font-size: 12.5px; color: var(--text-1); }
+.about-provider-meta { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--text-3); }
