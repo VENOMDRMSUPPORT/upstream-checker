@@ -116,6 +116,22 @@
         </button>
       </div>
 
+      <!-- Test definition -->
+      <div class="sidebar-section">
+        <div class="section-label">
+          TEST PROMPT
+          <button class="btn-mini" id="btn-reset-prompt" title="Restore the default prompt and expected answer">Reset</button>
+        </div>
+        <textarea class="prompt-input" id="prompt-input" rows="2" spellcheck="false"
+                  placeholder="Prompt sent to every model"></textarea>
+        <label class="config-label expected-label" for="expected-input">
+          Expected answer
+          <span class="hint" title="Comma-separated alternatives, case-insensitive. Leave empty to skip answer checking.">?</span>
+        </label>
+        <input type="text" class="prompt-input" id="expected-input" spellcheck="false"
+               placeholder="e.g. 4, four — empty = no checking">
+      </div>
+
       <!-- Models List -->
       <div class="sidebar-section sidebar-section-grow">
         <div class="section-label">
@@ -237,6 +253,7 @@
               <th class="th-time th-sortable" data-sort="time">TIME</th>
               <th class="th-tokens th-sortable" data-sort="tokens">TOKENS</th>
               <th class="th-tps th-sortable" data-sort="tps" title="Completion tokens per second of total response time">TPS</th>
+              <th class="th-correct th-sortable" data-sort="correct" title="Whether the response contains the expected answer">OK?</th>
               <th class="th-response">RESPONSE</th>
               <th class="th-actions"></th>
             </tr>

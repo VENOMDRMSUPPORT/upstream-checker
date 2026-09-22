@@ -3,6 +3,14 @@
 // ============================================
 
 const DEFAULT_TEST_PROMPT = 'What is 2+2? Answer in one word.';
+const DEFAULT_EXPECTED = '4, four';
+
+// The prompt actually sent, and what a correct answer looks like. Both are user
+// editable and persisted, so the pair always travels together — changing the
+// prompt without changing the expected answer would silently mark everything
+// wrong.
+let testPrompt = DEFAULT_TEST_PROMPT;
+let expectedAnswer = DEFAULT_EXPECTED;
 
 // Single placeholder for "no value applies here", so an empty cell never reads as
 // a real measurement (a failed request has no token count — it is not zero).
@@ -42,6 +50,7 @@ let models = [];
 let modelFilter = ''; // sidebar search box, lowercased
 let testResults = [];
 let runTotal = null; // models covered by the current/last run; null = no run yet
+let lastRun = null; // { done, total, stopped } — lets the summary be re-stated
 let isTesting = false;
 let abortTesting = false;
 let updateInfo = null;
@@ -67,6 +76,83 @@ async function saveProviderConfig(providerId) {
   }
   data.providers[providerId] = entry;
   await window.electronAPI.writeConfig(data);
+}
+
+// ============================================
+// Test definition — prompt + expected answer
+// ============================================
+async function loadTestDefinition() {
+  try {
+    const data = await window.electronAPI.readConfig();
+    const t = data.test || {};
+    if (typeof t.prompt === 'string') testPrompt = t.prompt;
+    // An empty string is a real choice (checking off), so only a missing key
+    // falls back to the default.
+    if (typeof t.expected === 'string') expectedAnswer = t.expected;
+  } catch (_) {}
+  $('#prompt-input').value = testPrompt;
+  $('#expected-input').value = expectedAnswer;
+}
+
+async function saveTestDefinition() {
+  try {
+    const data = await window.electronAPI.readConfig();
+    data.test = { prompt: testPrompt, expected: expectedAnswer };
+    await window.electronAPI.writeConfig(data);
+  } catch (err) {
+    console.warn('Failed to persist test definition:', err);
+  }
+}
+
+$('#prompt-input').addEventListener('input', (e) => {
+  testPrompt = e.target.value;
+  saveTestDefinition();
+});
+
+$('#expected-input').addEventListener('input', (e) => {
+  expectedAnswer = e.target.value;
+  saveTestDefinition();
+  // Existing rows are re-judged against the new answer without re-running them.
+  if (tableRows.length > 0) renderResultsTable();
+  updateStats();
+  renderRunSummary();
+});
+
+$('#btn-reset-prompt').addEventListener('click', () => {
+  testPrompt = DEFAULT_TEST_PROMPT;
+  expectedAnswer = DEFAULT_EXPECTED;
+  $('#prompt-input').value = testPrompt;
+  $('#expected-input').value = expectedAnswer;
+  saveTestDefinition();
+  if (tableRows.length > 0) renderResultsTable();
+  updateStats();
+  renderRunSummary();
+});
+
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Returns true/false, or null when answer checking is switched off (no expected
+// answer) or there is no response to judge.
+function isCorrect(result) {
+  const alts = expectedAnswer
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  if (alts.length === 0) return null;
+  if (!result || result.status !== 'pass' || result.isEmpty) return null;
+
+  const text = (result.response || '').toLowerCase();
+  return alts.some((alt) => {
+    // A plain alphanumeric answer is matched on token boundaries, so "4" doesn't
+    // match "14" and "four" doesn't match "fourteen". Anything containing spaces
+    // or punctuation is matched as a substring, where boundaries don't apply.
+    if (/^[a-z0-9]+$/.test(alt)) {
+      return new RegExp(`(^|[^a-z0-9])${escapeRegex(alt)}([^a-z0-9]|$)`).test(text);
+    }
+    return text.includes(alt);
+  });
 }
 
 async function loadAllProviders() {
@@ -740,7 +826,7 @@ async function attemptOnce(model, apiKey, baseUrl, stream, requestId) {
   // NOT safe — some models return empty under it — so 'low' is the floor.)
   const payload = {
     model: model.id,
-    messages: [{ role: 'user', content: DEFAULT_TEST_PROMPT }],
+    messages: [{ role: 'user', content: testPrompt || DEFAULT_TEST_PROMPT }],
     max_tokens: 512,
     reasoning_effort: 'low',
     stream: !!stream,
@@ -1095,12 +1181,30 @@ async function runTests(list, { reset = true } = {}) {
   updateTestAllButton();
   updateStats();
 
+  lastRun = { done, total: list.length, stopped: abortTesting };
+  renderRunSummary();
+}
+
+// Rebuilt from the results rather than written once at the end of the run, so
+// editing the expected answer re-states the summary instead of leaving the
+// status bar claiming "6/7 correct" while the table shows seven ticks.
+function renderRunSummary() {
+  if (!lastRun || isTesting) return;
+
   const passed = testResults.filter((r) => r.status === 'pass').length;
   const failed = testResults.filter((r) => r.status === 'fail').length;
-  if (abortTesting) setStatus('idle', `Stopped — ${done}/${list.length} tested (${passed} passed, ${failed} failed)`);
-  else if (failed === 0) setStatus('done', `All ${passed} models passed`);
+
+  // Answer quality is reported alongside the HTTP outcome, never folded into it:
+  // "7 passed" and "6 of 7 correct" are two different things a user needs.
+  const judged = testResults.filter((r) => isCorrect(r) !== null);
+  const correct = judged.filter((r) => isCorrect(r)).length;
+  const answers = judged.length > 0 ? ` — ${correct}/${judged.length} correct` : '';
+
+  if (lastRun.stopped) {
+    setStatus('idle', `Stopped — ${lastRun.done}/${lastRun.total} tested (${passed} passed, ${failed} failed)${answers}`);
+  } else if (failed === 0) setStatus('done', `All ${passed} models passed${answers}`);
   else if (passed === 0) setStatus('error', `All ${failed} models failed`);
-  else setStatus('done', `Done: ${passed} passed, ${failed} failed`);
+  else setStatus('done', `Done: ${passed} passed, ${failed} failed${answers}`);
 }
 
 // ============================================
@@ -1143,6 +1247,10 @@ const SORTERS = {
   time: (e) => (e.result.status === 'pass' ? e.result.time : null),
   tokens: (e) => (e.result.status === 'pass' ? e.result.tokens : null),
   tps: (e) => tokensPerSecond(e.result),
+  correct: (e) => {
+    const c = isCorrect(e.result);
+    return c == null ? null : c ? 1 : 0;
+  },
 };
 
 // Rows with no value for the sort column always sink to the bottom, whichever
@@ -1190,6 +1298,9 @@ function syncColumnVisibility() {
   const hasContext = tableRows.some(({ model }) => !!model.contextLabel);
   table.classList.toggle('hide-type', !hasType);
   table.classList.toggle('hide-context', !hasContext);
+  // Answer checking is off when no expected answer is set — hide the column
+  // rather than fill it with placeholders.
+  table.classList.toggle('hide-correct', expectedAnswer.trim() === '');
 }
 
 $('#results-table thead').addEventListener('click', (e) => {
@@ -1318,6 +1429,17 @@ function buildRowHtml(model, result) {
   const tps = tokensPerSecond(result);
   const tpsHtml = tps == null ? NA : tps >= 100 ? String(Math.round(tps)) : tps.toFixed(1);
 
+  // Answer correctness is deliberately separate from pass/fail: pass means the
+  // endpoint worked, this means the model got it right. A model that answers
+  // fast and wrong is a different problem from one that 502s.
+  const correct = isCorrect(result);
+  const correctHtml =
+    correct == null
+      ? NA
+      : correct
+        ? `<span class="correct-mark yes" title="Matches the expected answer">✓</span>`
+        : `<span class="correct-mark no" title="Does not contain the expected answer">✗</span>`;
+
   const full = result.response || '';
   const truncated = full.length > RESPONSE_PREVIEW;
   const preview = escapeHtml(full.slice(0, RESPONSE_PREVIEW)) + (truncated ? '…' : '');
@@ -1350,6 +1472,7 @@ function buildRowHtml(model, result) {
     <td class="cell-time ${timeClass}">${timeStr}${retriesHtml}</td>
     <td class="cell-tokens ${tokens === NA ? 'cell-na' : ''}">${tokens}</td>
     <td class="cell-tps ${tps == null ? 'cell-na' : ''}">${tpsHtml}</td>
+    <td class="cell-correct ${correct == null ? 'cell-na' : ''}">${correctHtml}</td>
     <td class="cell-response ${truncated ? 'response-expandable' : ''}" title="${responseTitle}">${responseHtml}</td>
     <td class="cell-actions">${actionsHtml}</td>
   `;
@@ -1446,12 +1569,15 @@ function hideProgress() {
 $('#btn-export-csv').addEventListener('click', () => {
   if (testResults.length === 0) return;
   const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const header = 'Model,Provider,Plan,Status,Time (ms),Tokens,Completion Tokens,TPS,Attempts,Response\n';
+  const header =
+    'Model,Provider,Plan,Status,Correct,Time (ms),Tokens,Completion Tokens,TPS,Attempts,Response\n';
   const rows = testResults
     .map((r) => {
       const tps = tokensPerSecond(r);
+      const correct = isCorrect(r);
       return [
         q(r.model), q(r.provider), q(r.group || ''), q(r.status),
+        correct == null ? '' : correct ? 'yes' : 'no',
         r.time ?? '', r.tokens ?? '', r.completionTokens ?? '',
         tps == null ? '' : tps.toFixed(2), r.attempts ?? 1,
         q(r.response),
@@ -1469,6 +1595,7 @@ $('#btn-export-json').addEventListener('click', () => {
 $('#btn-clear-results').addEventListener('click', () => {
   testResults = [];
   runTotal = null;
+  lastRun = null;
   tableRows = [];
   sortKey = null;
   sortDir = 1;
@@ -1767,6 +1894,7 @@ $('#add-provider-modal').addEventListener('click', (e) => {
 // Init
 // ============================================
 async function init() {
+  await loadTestDefinition();
   await loadAllProviders();
   if (!PROVIDERS[activeProvider]) {
     activeProvider = Object.keys(PROVIDERS)[0];

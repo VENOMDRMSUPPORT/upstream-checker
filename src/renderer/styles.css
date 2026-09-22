@@ -323,6 +323,45 @@ html, body {
   border: 1px solid var(--accent-border);
 }
 
+/* Test prompt + expected answer */
+.prompt-input {
+  width: 100%;
+  background: var(--bg-2);
+  border: 1px solid var(--border-1);
+  border-radius: 6px;
+  padding: 7px 9px;
+  color: var(--text-1);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  outline: none;
+  resize: vertical;
+  transition: border-color var(--transition-fast);
+}
+
+.prompt-input:focus { border-color: var(--accent-border); }
+.prompt-input::placeholder { color: var(--text-4); }
+
+.expected-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 8px 0 4px;
+}
+
+.expected-label .hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1px solid var(--border-2);
+  color: var(--text-4);
+  font-size: 9px;
+  cursor: help;
+}
+
 /* Models filter + bulk selection */
 .models-toolbar {
   display: flex;
@@ -863,7 +902,16 @@ html, body {
 .th-time { width: 88px; }
 .th-tokens { width: 76px; }
 .th-tps { width: 64px; }
+.th-correct { width: 52px; text-align: center; }
 .th-response { }
+
+.cell-correct { text-align: center; }
+.correct-mark { font-size: 15px; font-weight: 700; }
+.correct-mark.yes { color: var(--pass); }
+.correct-mark.no { color: var(--warn); }
+
+.results-table.hide-correct .th-correct,
+.results-table.hide-correct .cell-correct { display: none; }
 
 /* Columns no provider in the table has data for are hidden rather than shown
    as a full column of placeholders. */
