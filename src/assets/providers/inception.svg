@@ -1,0 +1,20 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Traced from the company mark: twelve tiles laid on a sphere, small and
+       sparse on the receding left edge, large and dense toward the front. Centre
+       positions and areas measured off the source bitmap; the shared -8° tilt is
+       what gives the tiles their tumbling look. Brand cream, #f9f6ef. -->
+  <g fill="#f9f6ef">
+    <rect x="10.42" y="20.79" width="3.61" height="3.61" rx="0.50" transform="rotate(-8 12.22 22.59)"/>
+    <rect x="10.45" y="39.25" width="3.61" height="3.61" rx="0.50" transform="rotate(-8 12.26 41.06)"/>
+    <rect x="18.98" y="11.04" width="4.93" height="4.93" rx="0.69" transform="rotate(-8 21.44 13.50)"/>
+    <rect x="17.12" y="28.77" width="6.14" height="6.14" rx="0.86" transform="rotate(-8 20.19 31.84)"/>
+    <rect x="18.97" y="47.64" width="4.94" height="4.94" rx="0.69" transform="rotate(-8 21.44 50.11)"/>
+    <rect x="26.74" y="17.62" width="7.76" height="7.76" rx="1.09" transform="rotate(-8 30.62 21.50)"/>
+    <rect x="26.75" y="38.30" width="7.75" height="7.75" rx="1.09" transform="rotate(-8 30.62 42.18)"/>
+    <rect x="35.92" y="9.80" width="7.59" height="7.59" rx="1.06" transform="rotate(-8 39.71 13.60)"/>
+    <rect x="36.28" y="27.16" width="9.29" height="9.29" rx="1.30" transform="rotate(-8 40.93 31.81)"/>
+    <rect x="35.91" y="46.25" width="7.60" height="7.60" rx="1.06" transform="rotate(-8 39.71 50.05)"/>
+    <rect x="44.27" y="18.29" width="8.93" height="8.93" rx="1.25" transform="rotate(-8 48.74 22.75)"/>
+    <rect x="44.27" y="36.43" width="8.94" height="8.94" rx="1.25" transform="rotate(-8 48.74 40.90)"/>
+  </g>
+</svg>

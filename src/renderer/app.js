@@ -859,6 +859,12 @@ $('#btn-fetch-models').addEventListener('click', async () => {
     // Two entries sharing an id are the same model; keeping both would create two
     // table rows with the same key, and only the first would ever be updated.
     models = tagAliasGroups(dedupeById(models));
+
+    const adapter = (window.INTEGRATED_PROVIDERS || {})[p.id];
+    if (adapter && typeof adapter.excludeModel === 'function') {
+      models = models.filter((m) => !adapter.excludeModel(m));
+    }
+
     models.forEach((m) => { m.kind = classifyModel(p.id, m); });
 
     p.models = [...models];
@@ -1132,7 +1138,9 @@ function updateTestAllButton() {
 // max_tokens and flips the first time a provider rejects it.
 const tokenLimitFields = new Map();
 function tokenLimitField(providerId) {
-  return tokenLimitFields.get(providerId) || 'max_tokens';
+  if (tokenLimitFields.has(providerId)) return tokenLimitFields.get(providerId);
+  const declared = (window.INTEGRATED_PROVIDERS || {})[providerId]?.meta?.tokenLimitField;
+  return declared || 'max_tokens';
 }
 function swapTokenLimitField(providerId) {
   if (tokenLimitFields.get(providerId) === 'max_completion_tokens') return false;
