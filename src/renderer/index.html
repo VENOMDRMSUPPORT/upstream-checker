@@ -122,6 +122,11 @@
           MODELS
           <span class="model-count" id="model-count">0</span>
         </div>
+        <div class="models-toolbar">
+          <input type="text" class="models-search" id="models-search" placeholder="Filter…" autocomplete="off" spellcheck="false">
+          <button class="btn-mini" id="btn-select-all" title="Select all matching models">All</button>
+          <button class="btn-mini" id="btn-select-none" title="Deselect all matching models">None</button>
+        </div>
         <div class="models-list" id="models-list">
           <div class="models-empty">
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3">
@@ -140,29 +145,8 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polygon points="5 3 19 12 5 21 5 3"/>
           </svg>
-          Test All Models
+          Test Selected
         </button>
-        <div class="footer-actions">
-          <button class="btn btn-ghost" id="btn-export-csv" title="Export CSV">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-              <polyline points="7 10 12 15 17 10"/>
-              <line x1="12" y1="15" x2="12" y2="3"/>
-            </svg>
-          </button>
-          <button class="btn btn-ghost" id="btn-export-json" title="Export JSON">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-            </svg>
-          </button>
-          <button class="btn btn-ghost" id="btn-clear-results" title="Clear Results">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="3 6 5 6 21 6"/>
-              <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
-            </svg>
-          </button>
-        </div>
       </div>
     </aside>
 
@@ -196,6 +180,36 @@
             <span class="stat-label">Avg Time</span>
             <span class="stat-value" id="stat-avg-time">-</span>
           </div>
+          <div class="stat-divider"></div>
+          <!-- These act on the results table, so they live next to it rather than
+               at the bottom of the models sidebar. -->
+          <div class="results-actions">
+            <button class="btn btn-ghost" id="btn-retry-failed" title="Retry failed / not-tested models" disabled>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 12a9 9 0 11-6.219-8.56"/>
+                <polyline points="22 2 22 8 16 8"/>
+              </svg>
+            </button>
+            <button class="btn btn-ghost" id="btn-export-csv" title="Export CSV">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+            </button>
+            <button class="btn btn-ghost" id="btn-export-json" title="Export JSON">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+              </svg>
+            </button>
+            <button class="btn btn-ghost" id="btn-clear-results" title="Clear Results">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -222,6 +236,7 @@
               <th class="th-time">TIME</th>
               <th class="th-tokens">TOKENS</th>
               <th class="th-response">RESPONSE</th>
+              <th class="th-actions"></th>
             </tr>
           </thead>
           <tbody id="results-body"></tbody>

@@ -27,12 +27,16 @@ const CUSTOM_COLORS = ['#7b2ff7', '#00e0a4', '#ff6b6b', '#ffb020', '#4dabf7', '#
 let PROVIDERS = {};
 
 function makeRuntimeProvider(def) {
-  return { models: [], planModels: {}, keys: [], ...structuredClone(def) };
+  // `selected` holds the chosen model ids. It lives on the provider rather than in
+  // the DOM so a re-render (or switching providers and back) doesn't silently
+  // reset the user's picks to "everything".
+  return { models: [], planModels: {}, keys: [], selected: new Set(), ...structuredClone(def) };
 }
 
 // State
 let activeProvider = null; // resolved to the first available provider in init()
 let models = [];
+let modelFilter = ''; // sidebar search box, lowercased
 let testResults = [];
 let runTotal = null; // models covered by the current/last run; null = no run yet
 let isTesting = false;
@@ -231,6 +235,9 @@ function switchProvider(providerId) {
   activeProvider = providerId;
   const p = PROVIDERS[activeProvider];
   models = p.models || [];
+  modelFilter = '';
+  const search = $('#models-search');
+  if (search) search.value = '';
   renderProviderTabs();
   renderKeysList();
   renderModelsList();
@@ -454,6 +461,7 @@ $('#btn-fetch-models').addEventListener('click', async () => {
     }
 
     p.models = [...models];
+    p.selected = new Set(models.map((m) => m.id)); // a fresh fetch starts fully selected
 
     renderModelsList();
     if (p.plansUrl) {
@@ -486,10 +494,21 @@ function formatContext(ctx) {
 // ============================================
 // Render models list in sidebar
 // ============================================
+// The models matching the sidebar search box. Filtering is display-only — it
+// never changes which models are selected, so a filtered-out model stays in the
+// run if it was already ticked.
+function visibleModels() {
+  if (!modelFilter) return models;
+  return models.filter((m) => m.id.toLowerCase().includes(modelFilter));
+}
+
 function renderModelsList() {
   const container = $('#models-list');
   const countEl = $('#model-count');
-  countEl.textContent = models.length;
+  const shown = visibleModels();
+  // While filtering, read "matching/total" so the hidden models stay accounted for.
+  countEl.textContent =
+    shown.length === models.length ? String(models.length) : `${shown.length}/${models.length}`;
 
   if (models.length === 0) {
     container.innerHTML = `
@@ -501,18 +520,26 @@ function renderModelsList() {
         <span>No models loaded</span>
         <span class="models-empty-hint">Add API key and fetch models</span>
       </div>`;
+    updateTestAllButton();
+    return;
+  }
+
+  if (shown.length === 0) {
+    container.innerHTML = `
+      <div class="models-empty">
+        <span>No model matches "${escapeHtml(modelFilter)}"</span>
+      </div>`;
+    updateTestAllButton();
     return;
   }
 
   let html = '';
-  const noPlans = models.length > 0 && models[0].noPlans;
-
-  if (noPlans) {
+  if (shown[0].noPlans) {
     // No group label here — the sidebar section header already reads "MODELS <n>".
-    html += models.map((m) => buildModelItem(m)).join('');
+    html += shown.map((m) => buildModelItem(m)).join('');
   } else {
-    const free = models.filter((m) => m.isFree);
-    const freeForPaid = models.filter((m) => m.isFreeForPaid);
+    const free = shown.filter((m) => m.isFree);
+    const freeForPaid = shown.filter((m) => m.isFreeForPaid);
     if (free.length > 0) {
       html += `<div class="model-group-label">FREE (${free.length})</div>`;
       html += free.map((m) => buildModelItem(m)).join('');
@@ -525,18 +552,43 @@ function renderModelsList() {
 
   container.innerHTML = html;
 
-  // Bind selection. Toggling must refresh the Test button (it disables at zero
-  // selected) and the Total stat (which counts the models this run will cover).
   $$('.model-item').forEach((item) => {
-    item.addEventListener('click', () => {
-      item.classList.toggle('selected');
-      updateTestAllButton();
-      updateStats();
-    });
+    item.addEventListener('click', () => toggleModelSelection(item.dataset.modelId, item));
   });
 
   updateTestAllButton();
+  updateStats();
 }
+
+// Toggling must refresh the Test button (it disables at zero selected) and the
+// Total stat (which counts the models the next run will cover).
+function toggleModelSelection(id, item) {
+  const sel = PROVIDERS[activeProvider].selected;
+  if (sel.has(id)) {
+    sel.delete(id);
+    item.classList.remove('selected');
+  } else {
+    sel.add(id);
+    item.classList.add('selected');
+  }
+  updateTestAllButton();
+  updateStats();
+}
+
+// All / None apply to what the filter is currently showing, so "None" after a
+// search clears just that subset rather than the whole list.
+function setSelectionForVisible(on) {
+  const sel = PROVIDERS[activeProvider].selected;
+  visibleModels().forEach((m) => (on ? sel.add(m.id) : sel.delete(m.id)));
+  renderModelsList();
+}
+
+$('#models-search').addEventListener('input', (e) => {
+  modelFilter = e.target.value.trim().toLowerCase();
+  renderModelsList();
+});
+$('#btn-select-all').addEventListener('click', () => setSelectionForVisible(true));
+$('#btn-select-none').addEventListener('click', () => setSelectionForVisible(false));
 
 function buildModelItem(m) {
   const badges = [];
@@ -544,11 +596,13 @@ function buildModelItem(m) {
   if (m.hasReasoning) badges.push('<span class="model-badge badge-reasoning">Think</span>');
   if (m.isFree) badges.push('<span class="model-badge badge-free">Free</span>');
 
+  const id = escapeHtml(m.id);
+  const selected = PROVIDERS[activeProvider]?.selected.has(m.id);
   return `
-    <div class="model-item selected" data-model-id="${m.id}">
+    <div class="model-item ${selected ? 'selected' : ''}" data-model-id="${id}">
       <div class="model-checkbox"></div>
       <div class="model-info">
-        <span class="model-name" title="${m.id}">${m.id}</span>
+        <span class="model-name" title="${id}">${id}</span>
         ${m.contextLabel ? `<span class="model-context">${m.contextLabel}</span>` : ''}
       </div>
       <div class="model-badges">${badges.join('')}</div>
@@ -556,17 +610,28 @@ function buildModelItem(m) {
 }
 
 function getSelectedModels() {
-  const items = $$('.model-item.selected');
-  const ids = [];
-  items.forEach((el) => ids.push(el.dataset.modelId));
-  return models.filter((m) => ids.includes(m.id));
+  const sel = PROVIDERS[activeProvider]?.selected;
+  if (!sel) return [];
+  return models.filter((m) => sel.has(m.id));
 }
 
+const TEST_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
+const STOP_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`;
+
 function updateTestAllButton() {
-  const count = getSelectedModels().length;
   const btn = $('#btn-test-all');
+  // Mid-run the same button is Stop, which must stay clickable.
+  if (isTesting) {
+    btn.innerHTML = `${STOP_ICON} Stop`;
+    btn.classList.add('btn-stop');
+    btn.disabled = false;
+    return;
+  }
+  const count = getSelectedModels().length;
   const activeKeys = PROVIDERS[activeProvider].keys.filter((k) => k.active);
-  btn.disabled = count === 0 || isTesting || activeKeys.length === 0;
+  btn.innerHTML = `${TEST_ICON} Test Selected${count > 0 ? ` (${count})` : ''}`;
+  btn.classList.remove('btn-stop');
+  btn.disabled = count === 0 || activeKeys.length === 0;
 }
 
 // ============================================
@@ -585,9 +650,23 @@ const MAX_TEST_RETRIES = 2;
 const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
 
 let requestSeq = 0;
+// Every id handed out during a run, so Stop can kill sockets that are already in
+// flight. Without this, hitting Stop still leaves up to HEDGE_MAX requests
+// running (and billing) until the 60s request timeout fires.
+const inflightIds = new Set();
+
 function nextRequestId() {
   requestSeq += 1;
-  return `req_${Date.now()}_${requestSeq}`;
+  const id = `req_${Date.now()}_${requestSeq}`;
+  inflightIds.add(id);
+  return id;
+}
+
+// Cancelling an already-finished id is a no-op in the main process, so this can
+// safely fire at every id from the current run.
+function cancelAllInflight() {
+  inflightIds.forEach((id) => window.electronAPI.cancelApiRequest(id));
+  inflightIds.clear();
 }
 
 function sleep(ms) {
@@ -730,6 +809,10 @@ function adaptiveNonStream(model, apiKey, baseUrl) {
       attemptOnce(model, apiKey, baseUrl, false, id).then((r) => {
         inflight -= 1;
         if (settled) return;
+        // Stop was pressed. Every attempt comes back `cancelled`, which sets
+        // neither `stop` nor `best` — without this the promise would hang until
+        // the 75s deadline and "Stopping..." would sit there for over a minute.
+        if (abortTesting) return finish(best || { status: 'fail', response: 'Aborted', time: 0, tokens: 0 });
         if (r.status === 'pass' && !r.isEmpty) return finish(r); // fastest correct wins
         if (!r.cancelled && (!best || resultRank(r) > resultRank(best))) best = r;
         // A completed non-win result (empty or failure) means the model isn't just
@@ -740,7 +823,7 @@ function adaptiveNonStream(model, apiKey, baseUrl) {
           stop = true;
           clearTimeout(stepTimer);
         }
-        if (inflight === 0 && (stop || launched >= HEDGE_MAX)) finish(best);
+        if (inflight === 0 && (stop || abortTesting || launched >= HEDGE_MAX)) finish(best);
       });
       if (!stop && launched < HEDGE_MAX) stepTimer = setTimeout(launch, HEDGE_STEP_MS);
     };
@@ -846,9 +929,52 @@ function buildEmptyResult(usage, elapsed) {
 // ============================================
 // Test all selected models
 // ============================================
-$('#btn-test-all').addEventListener('click', async () => {
-  const selected = getSelectedModels();
-  if (selected.length === 0 || isTesting) return;
+const RUNNING_RESULT = { status: 'running', time: null, tokens: null, response: '' };
+
+// The one button is Test while idle and Stop while a run is going.
+$('#btn-test-all').addEventListener('click', () => {
+  if (isTesting) {
+    abortTesting = true;
+    cancelAllInflight();
+    setStatus('running', 'Stopping...');
+    return;
+  }
+  runTests(getSelectedModels());
+});
+
+// Retry just the models that failed or never got tested, reusing their existing
+// rows instead of wiping the table and re-running everything.
+$('#btn-retry-failed').addEventListener('click', () => {
+  const list = retryableModels();
+  if (list.length > 0) runTests(list, { reset: false });
+});
+
+// Delegated so it survives every table re-render.
+$('#results-body').addEventListener('click', (e) => {
+  const btn = e.target.closest('.row-retry-btn');
+  if (!btn || isTesting) return;
+  const model = models.find((m) => m.id === btn.dataset.modelId);
+  if (model) runTests([model], { reset: false });
+});
+
+// Failed results, plus rows a stopped run never reached (those aren't recorded
+// in testResults at all, so they're read back off the table).
+function retryableModels() {
+  const ids = new Set(testResults.filter((r) => r.status === 'fail').map((r) => r.model));
+  $$('#results-body tr.row-skipped').forEach((tr) => ids.add(tr.dataset.modelId));
+  return models.filter((m) => ids.has(m.id));
+}
+
+// A retry replaces the model's previous verdict rather than appending a second one.
+function recordResult(model, result, providerName) {
+  const entry = { model: model.id, ...result, provider: providerName, group: model.groupName || '' };
+  const i = testResults.findIndex((r) => r.model === model.id);
+  if (i >= 0) testResults[i] = entry;
+  else testResults.push(entry);
+}
+
+async function runTests(list, { reset = true } = {}) {
+  if (list.length === 0 || isTesting) return;
 
   const p = PROVIDERS[activeProvider];
   const activeKeys = p.keys.filter((k) => k.active);
@@ -862,47 +988,59 @@ $('#btn-test-all').addEventListener('click', async () => {
 
   isTesting = true;
   abortTesting = false;
-  testResults = [];
-  runTotal = selected.length;
+  inflightIds.clear();
+
+  if (reset) {
+    testResults = [];
+    runTotal = list.length;
+    initResultsTable();
+    // Pre-create rows in selection order; each is filled in turn, top to bottom.
+    list.forEach((model) => addResultRow(model, RUNNING_RESULT));
+  } else {
+    list.forEach((model) => updateResultRow(model, RUNNING_RESULT));
+  }
+
   updateStats();
   updateTestAllButton();
-  setStatus('running', `Testing ${selected.length} models...`);
-  showProgress(0, selected.length);
-  initResultsTable();
-  $('#btn-test-all').innerHTML = '<span class="spinner"></span> Testing...';
-
-  // Pre-create rows in selection order; each is filled in turn, top to bottom.
-  selected.forEach((model) =>
-    addResultRow(model, { status: 'running', time: 0, response: 'Testing...', tokens: '-' })
-  );
+  setStatus('running', `Testing ${list.length} model${list.length === 1 ? '' : 's'}...`);
+  showProgress(0, list.length);
 
   // Sequential, in order: each model is fully resolved before the next starts, so
   // results appear top-to-bottom (never out of order) and only one request is in
   // flight at a time — well within the provider's per-minute request limit.
-  for (let i = 0; i < selected.length; i++) {
+  let done = 0;
+  for (const model of list) {
     if (abortTesting) break;
-    const model = selected[i];
     const result = await testModel(model, apiKey, baseUrl);
     if (abortTesting) break;
-    testResults.push({ model: model.id, ...result, provider: p.name, group: model.groupName || '' });
+    recordResult(model, result, p.name);
     updateResultRow(model, result);
+    done += 1;
     updateStats();
-    showProgress(i + 1, selected.length);
+    showProgress(done, list.length);
+  }
+
+  // Models the run never reached would otherwise sit on "Testing..." forever.
+  if (abortTesting) {
+    list.slice(done).forEach((model) => {
+      if (!testResults.some((r) => r.model === model.id)) {
+        updateResultRow(model, { status: 'skipped', response: 'Not tested — run stopped', time: null, tokens: null });
+      }
+    });
   }
 
   hideProgress();
   isTesting = false;
-  $('#btn-test-all').innerHTML = originalBtnText;
   updateTestAllButton();
+  updateStats();
 
   const passed = testResults.filter((r) => r.status === 'pass').length;
   const failed = testResults.filter((r) => r.status === 'fail').length;
-  if (failed === 0) setStatus('done', `All ${passed} models passed`);
+  if (abortTesting) setStatus('idle', `Stopped — ${done}/${list.length} tested (${passed} passed, ${failed} failed)`);
+  else if (failed === 0) setStatus('done', `All ${passed} models passed`);
   else if (passed === 0) setStatus('error', `All ${failed} models failed`);
   else setStatus('done', `Done: ${passed} passed, ${failed} failed`);
-});
-
-const originalBtnText = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Test All Models`;
+}
 
 // ============================================
 // Results table
@@ -917,16 +1055,32 @@ function addResultRow(model, result) {
   const tbody = $('#results-body');
   const tr = document.createElement('tr');
   tr.dataset.modelId = model.id;
-  tr.className = result.status === 'running' ? 'row-running' : 'row-pending';
+  tr.className = rowClassFor(result);
   tr.innerHTML = buildRowHtml(model, result);
   tbody.appendChild(tr);
 }
 
+// Matched on the dataset value rather than an attribute selector, because model
+// ids carry '/', '.' and ':' and would need escaping to be used as a selector.
+function findResultRow(modelId) {
+  let found = null;
+  $$('#results-body tr').forEach((tr) => {
+    if (!found && tr.dataset.modelId === modelId) found = tr;
+  });
+  return found;
+}
+
+function rowClassFor(result) {
+  if (result.isEmpty) return 'row-empty';
+  if (result.status === 'running') return 'row-running';
+  if (result.status === 'skipped') return 'row-skipped';
+  return result.status === 'pass' ? 'row-pass' : 'row-fail';
+}
+
 function updateResultRow(model, result) {
-  const tr = $(`#results-body tr[data-model-id="${model.id}"]`);
+  const tr = findResultRow(model.id);
   if (!tr) return;
-  if (result.isEmpty) tr.className = 'row-empty';
-  else tr.className = result.status === 'pass' ? 'row-pass' : 'row-fail';
+  tr.className = rowClassFor(result);
   tr.innerHTML = buildRowHtml(model, result);
 }
 
@@ -937,6 +1091,7 @@ const ICONS = {
   free: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12V8H6a2 2 0 01-2-2V6a2 2 0 012-2h12"/><circle cx="16" cy="16" r="4"/><path d="M16 14v4M14 16h4"/></svg>`,
   timeout: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
   tokens: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9 9h6M9 15h6"/><path d="M12 9v6"/></svg>`,
+  retry: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="22 2 22 8 16 8"/></svg>`,
 };
 
 function iconSpan(key, label, cls) {
@@ -953,6 +1108,9 @@ function statusIconBadge(status, isEmpty) {
   }
   if (status === 'fail') {
     return `<span class="status-icon fail" title="Failed"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 6l12 12M18 6L6 18"/></svg></span>`;
+  }
+  if (status === 'skipped') {
+    return `<span class="status-icon skipped" title="Not tested"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 12h12"/></svg></span>`;
   }
   return `<span class="status-icon running" title="Testing"><span class="spinner"></span></span>`;
 }
@@ -999,6 +1157,13 @@ function buildRowHtml(model, result) {
       : escapeHtml(result.response.slice(0, 120));
   const responseTitle = escapeHtml(result.response || '');
 
+  // A row worth re-running gets its own retry button, so one bad model doesn't
+  // cost a full re-test of the whole list.
+  const canRetry = !isRunning && (isFailed || result.status === 'skipped' || result.isEmpty);
+  const actionsHtml = canRetry
+    ? `<button class="row-retry-btn" data-model-id="${escapeHtml(model.id)}" title="Retry this model">${ICONS.retry}</button>`
+    : '';
+
   return `
     <td class="cell-status">${badge}</td>
     <td class="cell-model">${escapeHtml(model.id)}</td>
@@ -1007,6 +1172,7 @@ function buildRowHtml(model, result) {
     <td class="cell-time ${timeClass}">${timeStr}</td>
     <td class="cell-tokens ${tokens === NA ? 'cell-na' : ''}">${tokens}</td>
     <td class="cell-response" title="${responseTitle}">${responseHtml}</td>
+    <td class="cell-actions">${actionsHtml}</td>
   `;
 }
 
@@ -1044,6 +1210,9 @@ function updateStats() {
   } else {
     $('#stat-avg-time').textContent = NA;
   }
+
+  const retryBtn = $('#btn-retry-failed');
+  if (retryBtn) retryBtn.disabled = isTesting || retryableModels().length === 0;
 }
 
 function showProgress(current, total) {
