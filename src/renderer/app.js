@@ -399,6 +399,7 @@ $('#btn-fetch-models').addEventListener('click', async () => {
         apiKey,
         baseUrl: p.baseUrl,
         plansUrl: p.plansUrl,
+        pricingUrl: p.pricingUrl,
         apiRequest: window.electronAPI.apiRequest,
         formatContext,
         getFreeGroupName,

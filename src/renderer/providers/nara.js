@@ -11,55 +11,54 @@ window.INTEGRATED_PROVIDERS.nara = {
     name: 'NARA Router',
     baseUrl: 'https://router.bynara.id/v1',
     plansUrl: 'https://router.bynara.id/api/plans',
+    pricingUrl: 'https://router.bynara.id/api/pricing',
     color: '#00d4ff',
     modelsEndpoint: '/models',
     plansEndpoint: '/api/plans',
     chatEndpoint: '/chat/completions',
   },
 
-  // Plan-aware discovery: keep only free / free-for-paid models.
-  async fetchModels({ apiKey, baseUrl, plansUrl, apiRequest, formatContext, getFreeGroupName }) {
-    const [modelsResult, plansResult] = await Promise.all([
-      apiRequest({
-        url: `${baseUrl}/models`,
-        method: 'GET',
-        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      }),
-      apiRequest({
-        url: plansUrl,
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      }),
+  // Discovery is driven entirely by NaraRouter's own data, so new models appear
+  // with no code changes:
+  //   - /api/pricing  → per-model `free_for_paid` flag (+ `free_min_balance`) and
+  //     rich metadata (vision, reasoning, context). This is the source of truth
+  //     the NaraRouter Models page uses, so it stays in sync.
+  //   - /api/plans    → the genuinely-free tier = models of any plan priced at 0.
+  // A model is shown if it is in the free tier OR flagged free_for_paid.
+  async fetchModels({ pricingUrl, plansUrl, apiRequest, formatContext, getFreeGroupName }) {
+    const [pricingResult, plansResult] = await Promise.all([
+      apiRequest({ url: pricingUrl, method: 'GET', headers: { 'Content-Type': 'application/json' } }),
+      apiRequest({ url: plansUrl, method: 'GET', headers: { 'Content-Type': 'application/json' } }),
     ]);
 
-    if (modelsResult.status !== 200) throw new Error(`HTTP ${modelsResult.status}`);
-    const rawModels = JSON.parse(modelsResult.body).data || [];
+    if (pricingResult.status !== 200) throw new Error(`HTTP ${pricingResult.status}`);
+    const priced = JSON.parse(pricingResult.body).data || [];
 
-    const planModels = {};
+    // Free tier: union of models across any plan that costs nothing per day.
+    const freeIds = new Set();
     if (plansResult.status === 200) {
       JSON.parse(plansResult.body).data?.forEach((plan) => {
-        planModels[plan.code] = { name: plan.name, models: plan.models || [] };
+        if (Number(plan.price_daily_idr) === 0) (plan.models || []).forEach((id) => freeIds.add(id));
       });
     }
 
-    const freeIds = new Set(planModels['free']?.models || []);
-    const freemiumIds = new Set(planModels['freemium']?.models || []);
-    const allowedIds = new Set([...freeIds, ...freemiumIds]);
-
-    return rawModels
-      .filter((m) => allowedIds.has(m.id))
+    return priced
+      .filter((m) => freeIds.has(m.alias) || m.free_for_paid === true)
       .map((m) => {
-        const isFree = freeIds.has(m.id);
-        const isFreeForPaid = !isFree && freemiumIds.has(m.id);
+        const isFree = freeIds.has(m.alias);
+        const isFreeForPaid = !isFree && m.free_for_paid === true;
         return {
-          ...m,
+          id: m.alias,
+          name: m.display_name || m.alias,
           isFree,
           isFreeForPaid,
           noPlans: false,
           groupName: getFreeGroupName(isFree ? 'free' : 'freemium'),
-          hasVision: !!m.vision,
+          hasVision: !!m.supports_vision,
           hasReasoning: !!m.reasoning,
-          contextLabel: formatContext(m.context_window),
+          context_window: m.max_context_tokens,
+          contextLabel: formatContext(m.max_context_tokens),
+          freeMinBalance: m.free_min_balance,
         };
       })
       .sort((a, b) => {
