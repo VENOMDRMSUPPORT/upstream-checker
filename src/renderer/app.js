@@ -111,8 +111,9 @@ function readCapabilities(m) {
 
 function capabilityIcons(model) {
   const caps = model.caps instanceof Set ? model.caps : new Set(model.caps || []);
+  const proven = model.probedCaps instanceof Set ? model.probedCaps : new Set();
   return CAPABILITIES.filter((c) => caps.has(c.id))
-    .map((c) => `<span class="cap-icon cap-${c.id}" title="${c.label} — ${c.desc}">
+    .map((c) => `<span class="cap-icon cap-${c.id} ${proven.has(c.id) ? 'cap-verified' : ''}" title="${c.label} — ${c.desc}. ${proven.has(c.id) ? 'Proven by probe.' : 'Declared by the provider.'}">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${CAP_ICONS[c.id]}</svg>
       </span>`)
     .join('');
@@ -1017,7 +1018,8 @@ $('#btn-fetch-models').addEventListener('click', async () => {
     }
 
     models.forEach((m) => {
-      m.caps = readCapabilities(m);
+      m.declaredCaps = readCapabilities(m);
+      applyProbedCaps(m, p.id);
       m.kind = classifyModel(p.id, m);
     });
 
@@ -3075,6 +3077,208 @@ $('#sidebar-restore').addEventListener('click', toggleSidebar);
 
 
 // ============================================
+// Capability probing
+// ============================================
+// Most providers describe their models poorly or not at all — NaraRouter reports
+// vision and reasoning and nothing about tool calling; Dark API and Mirai report
+// nothing whatsoever. Reading a capability off a model's name would be guessing,
+// and a bundled lookup table would be guessing with extra steps: a reseller's
+// "claude-opus-5" is whatever they routed it to.
+//
+// So capabilities are established the way everything else here is: by asking the
+// model to do the thing and seeing whether it does. A probe passes only on
+// evidence in the response — a returned tool call, parseable JSON, the colour of
+// an image it was shown. A gateway that quietly accepts and ignores an unknown
+// field does not pass.
+//
+// Probes cost real requests, so they are a deliberate action rather than part of
+// a run, and results are stored per provider and model.
+
+// 16x16 solid #dc2626. Small enough to be free, large enough that a vision model
+// will not reject it outright.
+const PROBE_IMAGE =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAFklEQVQoz2O4o6ZGEmIY1TCqYfhqAAATqigQUzU6ngAAAABJRU5ErkJggg==';
+
+const CAP_PROBES = [
+  {
+    id: 'tools',
+    // Asked for something it cannot answer without the tool, so a model that
+    // merely tolerates the field still fails: the proof is a returned call.
+    payload: (id) => ({
+      model: id,
+      messages: [{ role: 'user', content: 'What is the weather in Paris right now? Use the tool.' }],
+      tools: [{
+        type: 'function',
+        function: {
+          name: 'get_weather',
+          description: 'Get the current weather for a city',
+          parameters: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] },
+        },
+      }],
+      tool_choice: 'auto',
+      max_tokens: 128,
+    }),
+    verify: (data) => {
+      const calls = data.choices?.[0]?.message?.tool_calls;
+      return Array.isArray(calls) && calls.length > 0;
+    },
+  },
+  {
+    id: 'structured',
+    payload: (id) => ({
+      model: id,
+      messages: [{ role: 'user', content: 'Return the number four.' }],
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'answer',
+          strict: true,
+          schema: {
+            type: 'object',
+            properties: { value: { type: 'integer' } },
+            required: ['value'],
+            additionalProperties: false,
+          },
+        },
+      },
+      max_tokens: 64,
+    }),
+    // Some providers only implement the older json_object mode.
+    fallback: (id) => ({
+      model: id,
+      messages: [{ role: 'user', content: 'Reply with JSON: {"value": 4}' }],
+      response_format: { type: 'json_object' },
+      max_tokens: 64,
+    }),
+    verify: (data) => {
+      const text = data.choices?.[0]?.message?.content;
+      if (!text) return false;
+      try {
+        return typeof JSON.parse(text) === 'object';
+      } catch (_) {
+        return false;
+      }
+    },
+  },
+  {
+    id: 'vision',
+    payload: (id) => ({
+      model: id,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: 'What colour is this image? Answer in one word.' },
+          { type: 'image_url', image_url: { url: PROBE_IMAGE } },
+        ],
+      }],
+      max_tokens: 32,
+    }),
+    // It has to name the colour. A model that accepts the image part and then
+    // talks about something else has not demonstrated it saw anything.
+    verify: (data) => /\bred\b|\bcrimson\b/i.test(data.choices?.[0]?.message?.content || ''),
+  },
+];
+
+// providerId::modelId -> { caps: [...], at }
+let probedCaps = new Map();
+
+async function loadProbedCaps() {
+  probedCaps = new Map();
+  try {
+    const data = await window.electronAPI.readConfig();
+    Object.entries(data.probedCaps || {}).forEach(([k, v]) => probedCaps.set(k, v));
+  } catch (_) {}
+}
+
+async function saveProbedCaps() {
+  try {
+    const data = await window.electronAPI.readConfig();
+    data.probedCaps = Object.fromEntries(probedCaps);
+    await window.electronAPI.writeConfig(data);
+  } catch (err) {
+    console.warn('Failed to persist probed capabilities:', err);
+  }
+}
+
+async function runProbe(model, provider, probe, body) {
+  const key = pickKey(provider, model);
+  if (!key) return false;
+  await waitForSlot(provider, key);
+  if (abortTesting) return false;
+  try {
+    const res = await window.electronAPI.apiRequest({
+      url: `${provider.baseUrl}/chat/completions`,
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key.key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      requestId: nextRequestId(),
+      timeoutMs: settings.deadlineChatMs,
+      logLevel: settings.logLevel,
+    });
+    if (res.status !== 200) return false;
+    return probe.verify(JSON.parse(res.body));
+  } catch (_) {
+    return false;
+  }
+}
+
+async function probeModel(model, provider) {
+  const found = [];
+  for (const probe of CAP_PROBES) {
+    if (abortTesting) break;
+    let ok = await runProbe(model, provider, probe, probe.payload(model.id));
+    if (!ok && probe.fallback) ok = await runProbe(model, provider, probe, probe.fallback(model.id));
+    if (ok) found.push(probe.id);
+  }
+  probedCaps.set(historyKey(provider.id, model.id), { caps: found, at: Date.now() });
+  applyProbedCaps(model, provider.id);
+  return found;
+}
+
+// A probe result is merged with what the provider declared rather than replacing
+// it: a provider can know about audio or file support that no chat probe reaches.
+function applyProbedCaps(model, providerId) {
+  const entry = probedCaps.get(historyKey(providerId, model.id));
+  model.probed = !!entry;
+  model.probedCaps = new Set(entry ? entry.caps : []);
+  model.caps = new Set([...(model.declaredCaps || []), ...model.probedCaps]);
+}
+
+$('#btn-probe-caps').addEventListener('click', async () => {
+  if (isTesting) return;
+  const p = PROVIDERS[activeProvider];
+  const list = getSelectedModels().filter((m) => !isMedia(m));
+  if (list.length === 0 || usableKeys(p).length === 0) {
+    setStatus('error', 'Select some chat models first');
+    return;
+  }
+
+  isTesting = true;
+  abortTesting = false;
+  updateTestAllButton();
+  showProgress(0, list.length);
+
+  let probedCount = 0;
+  for (const model of list) {
+    if (abortTesting) break;
+    setStatus('running', `Probing ${model.id} (${probedCount + 1}/${list.length})`);
+    await probeModel(model, p);
+    probedCount += 1;
+    renderLegend();
+    if (tableRows.length > 0) renderResultsTable();
+    showProgress(probedCount, list.length);
+  }
+
+  await saveProbedCaps();
+  hideProgress();
+  const stopped = abortTesting;
+  isTesting = false;
+  updateTestAllButton();
+  renderModelsList();
+  setStatus('done', stopped ? `Probing stopped after ${probedCount}` : `Probed ${probedCount} models`);
+});
+
+// ============================================
 // Capability legend
 // ============================================
 // Counts come from the models actually loaded, so the legend doubles as an
@@ -3114,14 +3318,18 @@ function renderLegend() {
   el.style.display = '';
 }
 
-$('#legend-toggle').addEventListener('click', () => {
+function toggleLegend() {
   settings.legendOpen = !settings.legendOpen;
   $('#legend').classList.toggle('collapsed', !settings.legendOpen);
   queueSettingsSave();
-});
+}
+
+$('#legend-toggle').addEventListener('click', toggleLegend);
+$('#legend-chevron-btn').addEventListener('click', toggleLegend);
 
 async function init() {
   await loadSettings();
+  await loadProbedCaps();
   applyAppearance();
   applySidebarWidth(clampSidebar(settings.sidebarWidth));
   $('#legend').classList.toggle('collapsed', !settings.legendOpen);

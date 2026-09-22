@@ -227,13 +227,24 @@
 
       <!-- Capability legend -->
       <div class="legend" id="legend" style="display:none">
-        <button class="legend-head" id="legend-toggle">
-          <span class="legend-title">Model capabilities</span>
-          <span class="legend-note" id="legend-note"></span>
-          <svg class="legend-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-            <path d="M6 9l6 6 6-6"/>
-          </svg>
-        </button>
+        <div class="legend-head">
+          <button class="legend-toggle" id="legend-toggle">
+            <span class="legend-title">Model capabilities</span>
+            <span class="legend-note" id="legend-note"></span>
+          </button>
+          <button class="btn btn-ghost legend-probe" id="btn-probe-caps"
+                  title="Ask each selected model to call a tool, return JSON and read an image. Costs up to three requests per model.">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M12 2v4M12 18v4M4.9 4.9l2.9 2.9M16.2 16.2l2.9 2.9M2 12h4M18 12h4M4.9 19.1l2.9-2.9M16.2 7.8l2.9-2.9"/>
+            </svg>
+            Detect
+          </button>
+          <button class="legend-chevron-btn" id="legend-chevron-btn" title="Collapse">
+            <svg class="legend-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M6 9l6 6 6-6"/>
+            </svg>
+          </button>
+        </div>
         <div class="legend-grid" id="legend-grid"></div>
       </div>
 
