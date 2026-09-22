@@ -233,6 +233,11 @@ const DEFAULT_SETTINGS = {
 
   legendOpen: false,
 
+  // Ask each model, once, what it can actually do — the first time it passes a
+  // test. Providers describe their catalogues badly or not at all, so this is
+  // the only way the capability column reflects reality rather than paperwork.
+  detectCapabilities: true,
+
   // Sidebar width in px; 0 means hidden. Capped at the design width — the
   // sidebar can be narrowed or shut, never widened, because everything in it is
   // laid out against that measure.
@@ -1226,34 +1231,6 @@ $('#btn-select-all').addEventListener('click', () => setSelectionForVisible(true
 $('#btn-select-none').addEventListener('click', () => setSelectionForVisible(false));
 
 function buildModelItem(m) {
-  const badges = [];
-  // When a provider's keys unlock different catalogues, say which key reaches
-  // this model — otherwise the list looks like one pool and a model that only
-  // one key can serve is indistinguishable from one any key can.
-  const p = PROVIDERS[activeProvider];
-  const allKeys = p ? usableKeys(p) : [];
-  if (allKeys.length > 1 && Array.isArray(m.keyIds) && m.keyIds.length < allKeys.length) {
-    const names = allKeys.filter((k) => m.keyIds.includes(k.id)).map((k) => k.name);
-    if (names.length) {
-      const short = names[0].split(/\s+/)[0];
-      badges.push(
-        `<span class="model-badge badge-key" title="${escapeHtml('Served by: ' + names.join(', '))}">${escapeHtml(
-          names.length > 1 ? `${names.length} keys` : short
-        )}</span>`
-      );
-    }
-  }
-  if (m.aliasGroup) {
-    badges.push(
-      `<span class="model-badge badge-alias" title="${escapeHtml(m.aliasCount + ' routes expose ' + m.aliasGroup + '. Tested separately — one can be up while another is down.')}">×${m.aliasCount}</span>`
-    );
-  }
-  const kindLabel = KIND_LABELS[m.kind] || '';
-  if (kindLabel) badges.push(`<span class="model-badge badge-media">${kindLabel}</span>`);
-  if (m.hasVision) badges.push('<span class="model-badge badge-vision">Vision</span>');
-  if (m.hasReasoning) badges.push('<span class="model-badge badge-reasoning">Think</span>');
-  if (m.isFree) badges.push('<span class="model-badge badge-free">Free</span>');
-
   const id = escapeHtml(m.id);
   const selected = PROVIDERS[activeProvider]?.selected.has(m.id);
   return `
@@ -1263,7 +1240,6 @@ function buildModelItem(m) {
         <span class="model-name" title="${id}">${id}</span>
         ${m.contextLabel ? `<span class="model-context">${m.contextLabel}</span>` : ''}
       </div>
-      <div class="model-badges">${badges.join('')}</div>
     </div>`;
 }
 
@@ -1933,6 +1909,7 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
   const lanes = Math.max(1, Math.min(settings.concurrency, list.length));
   let next = 0;
   let done = 0;
+  let capsDirty = false;
 
   async function lane() {
     while (!abortTesting) {
@@ -1944,6 +1921,14 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
       if (abortTesting) return;
       recordResult(model, result, p.name);
       updateResultRow(model, result);
+
+      if (result.status === 'pass' && !result.isEmpty && needsProbing(model, p.id)) {
+        updateResultRow(model, { ...result, probing: true });
+        await probeModel(model, p);
+        capsDirty = true;
+        renderLegend();
+        updateResultRow(model, result);
+      }
       done += 1;
       updateStats();
       showProgress(done, list.length);
@@ -1951,6 +1936,10 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
   }
 
   await Promise.all(Array.from({ length: lanes }, lane));
+  if (capsDirty) {
+    await saveProbedCaps();
+    renderModelsList();
+  }
 
   // Anything the run never reached would otherwise sit on "Queued" forever. With
   // lanes the untested models aren't a contiguous tail, so the whole list is
@@ -2111,17 +2100,9 @@ function renderResultsTable() {
 // CONTEXT when no row in the table has anything to put in them.
 function syncColumnVisibility() {
   const table = $('#results-table');
-  const hasType = tableRows.some(
-    ({ model }) => (model.caps && model.caps.size > 0) || !model.noPlans
-  );
-  const hasContext = tableRows.some(({ model }) => !!model.contextLabel);
-  table.classList.toggle('hide-type', !hasType);
-  table.classList.toggle('hide-context', !hasContext);
-  // Answer checking is off when no expected answer is set — hide the column
-  // rather than fill it with placeholders.
+  // Answer checking is a setting, not a property of the provider, so this is the
+  // one column that hides — and it hides identically whichever provider is open.
   table.classList.toggle('hide-correct', expectedAnswer.trim() === '');
-  const hasUptime = tableRows.some(({ model }) => uptimeOf(model.id) != null);
-  table.classList.toggle('hide-uptime', !hasUptime);
 }
 
 $('#results-table thead').addEventListener('click', (e) => {
@@ -2287,6 +2268,10 @@ function buildRowHtml(model, result) {
       : correct
         ? `<span class="correct-mark yes" title="Matches the expected answer">✓</span>`
         : `<span class="correct-mark no" title="Does not contain the expected answer">✗</span>`;
+
+  if (result.probing) {
+    return buildRowHtml(model, { ...result, probing: false, response: 'Detecting capabilities…' });
+  }
 
   const full = result.response || '';
   const truncated = full.length > RESPONSE_PREVIEW;
@@ -2842,6 +2827,7 @@ const SETTING_INPUTS = [
   ['#set-density', 'density', 'text'],
   ['#set-log-level', 'logLevel', 'text'],
   ['#set-concurrency', 'concurrency', 'int'],
+  ['#set-detect-caps', 'detectCapabilities', 'bool'],
 ];
 
 function fillSettingsForm() {
@@ -2894,6 +2880,10 @@ function renderCostEstimate() {
   const high = models * perModelMax;
   let text = `${models} models · ${low} to ${high} requests per run`;
   if (settings.concurrency > 1) text += ` · ${settings.concurrency} at a time`;
+  const unprobed = settings.detectCapabilities
+    ? getSelectedModels().filter((m) => needsProbing(m, activeProvider)).length
+    : 0;
+  if (unprobed > 0) text += ` · plus ${unprobed * CAP_PROBES.length} one-off capability probes`;
   if (autoTestMinutes > 0) {
     const perDay = Math.round((24 * 60) / autoTestMinutes);
     text += ` · ${(low * perDay).toLocaleString()} to ${(high * perDay).toLocaleString()} per day on this schedule`;
@@ -2958,6 +2948,15 @@ function renderAbout() {
     `<div class="about-provider"><span class="about-provider-name">Models tracked</span><span class="about-provider-meta">${tracked}</span></div>` +
     `<div class="about-provider"><span class="about-provider-name">Results recorded</span><span class="about-provider-meta">${runs}</span></div>`;
 }
+
+$('#btn-forget-caps').addEventListener('click', async () => {
+  probedCaps.clear();
+  await saveProbedCaps();
+  models.forEach((m) => applyProbedCaps(m, activeProvider));
+  renderLegend();
+  if (tableRows.length > 0) renderResultsTable();
+  setStatus('done', 'Capabilities will be detected again on the next run');
+});
 
 $('#btn-open-log').addEventListener('click', () => window.electronAPI.openRequestLog());
 $('#btn-clear-log').addEventListener('click', async () => {
@@ -3161,6 +3160,47 @@ const CAP_PROBES = [
     },
   },
   {
+    id: 'reasoning',
+    // Reasoning leaves a trace the provider has to report: either a separate
+    // reasoning_content field or a reasoning token count in usage. Asking a hard
+    // question and judging the prose would only measure the answer, not whether
+    // the model thought before giving it.
+    payload: (id) => ({
+      model: id,
+      messages: [{ role: 'user', content: 'A bat and a ball cost $1.10. The bat costs $1.00 more than the ball. How much is the ball?' }],
+      max_tokens: 400,
+    }),
+    verify: (data) => {
+      const msg = data.choices?.[0]?.message || {};
+      if (typeof msg.reasoning_content === 'string' && msg.reasoning_content.trim()) return true;
+      if (typeof msg.reasoning === 'string' && msg.reasoning.trim()) return true;
+      const d = data.usage?.completion_tokens_details;
+      return Number(d?.reasoning_tokens) > 0;
+    },
+  },
+  {
+    id: 'files',
+    // A file the model can only answer from if it actually read it.
+    payload: (id) => ({
+      model: id,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: 'What is the secret word in the attached file? Answer with the word only.' },
+          {
+            type: 'file',
+            file: {
+              filename: 'note.txt',
+              file_data: 'data:text/plain;base64,VGhlIHNlY3JldCB3b3JkIGlzIG1hcm1hbGFkZS4gUmVtZW1iZXIgaXQu',
+            },
+          },
+        ],
+      }],
+      max_tokens: 32,
+    }),
+    verify: (data) => /marmalade/i.test(data.choices?.[0]?.message?.content || ''),
+  },
+  {
     id: 'vision',
     payload: (id) => ({
       model: id,
@@ -3244,39 +3284,15 @@ function applyProbedCaps(model, providerId) {
   model.caps = new Set([...(model.declaredCaps || []), ...model.probedCaps]);
 }
 
-$('#btn-probe-caps').addEventListener('click', async () => {
-  if (isTesting) return;
-  const p = PROVIDERS[activeProvider];
-  const list = getSelectedModels().filter((m) => !isMedia(m));
-  if (list.length === 0 || usableKeys(p).length === 0) {
-    setStatus('error', 'Select some chat models first');
-    return;
-  }
-
-  isTesting = true;
-  abortTesting = false;
-  updateTestAllButton();
-  showProgress(0, list.length);
-
-  let probedCount = 0;
-  for (const model of list) {
-    if (abortTesting) break;
-    setStatus('running', `Probing ${model.id} (${probedCount + 1}/${list.length})`);
-    await probeModel(model, p);
-    probedCount += 1;
-    renderLegend();
-    if (tableRows.length > 0) renderResultsTable();
-    showProgress(probedCount, list.length);
-  }
-
-  await saveProbedCaps();
-  hideProgress();
-  const stopped = abortTesting;
-  isTesting = false;
-  updateTestAllButton();
-  renderModelsList();
-  setStatus('done', stopped ? `Probing stopped after ${probedCount}` : `Probed ${probedCount} models`);
-});
+// Only a model that just answered gets characterised, and only once — a model
+// that failed its own test has nothing to say about what it supports, and
+// repeating five probes on every run would multiply the cost of routine testing
+// for an answer that does not change.
+function needsProbing(model, providerId) {
+  if (!settings.detectCapabilities) return false;
+  if (isMedia(model)) return false; // no chat probe reaches a generator
+  return !probedCaps.has(historyKey(providerId, model.id));
+}
 
 // ============================================
 // Capability legend

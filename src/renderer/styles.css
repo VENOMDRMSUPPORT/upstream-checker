@@ -958,15 +958,9 @@ html, body {
 
 .results-table.hide-correct .th-correct,
 .results-table.hide-correct .cell-correct { display: none; }
-.results-table.hide-uptime .th-uptime,
-.results-table.hide-uptime .cell-uptime { display: none; }
 
 /* Columns no provider in the table has data for are hidden rather than shown
    as a full column of placeholders. */
-.results-table.hide-type .th-type,
-.results-table.hide-type .cell-type,
-.results-table.hide-context .th-context,
-.results-table.hide-context .cell-context { display: none; }
 
 .th-sortable {
   cursor: pointer;
@@ -1747,11 +1741,6 @@ html, body {
 }
 
 /* Image / video generators — tested against a different standard than chat models */
-.badge-media {
-  background: rgba(139, 92, 246, 0.14);
-  color: var(--running);
-  border: 1px solid rgba(139, 92, 246, 0.3);
-}
 
 .icon-badge.type-media {
   color: var(--running);
@@ -1760,18 +1749,8 @@ html, body {
 }
 
 /* Same upstream model reachable under more than one route */
-.badge-alias {
-  background: rgba(100, 116, 139, 0.16);
-  color: var(--text-2);
-  border: 1px solid var(--border-2);
-}
 
 /* Which key reaches this model, when a provider's keys unlock different catalogues */
-.badge-key {
-  background: rgba(249, 115, 22, 0.14);
-  color: #fb923c;
-  border: 1px solid rgba(249, 115, 22, 0.3);
-}
 
 /* ============================================
    Settings
@@ -2216,8 +2195,6 @@ body.sidebar-hidden .sidebar {
 }
 
 .legend-toggle:hover { color: var(--text-1); }
-
-.legend-probe { padding: 4px 10px; font-size: 11px; flex-shrink: 0; }
 
 .legend-chevron-btn {
   display: flex;
