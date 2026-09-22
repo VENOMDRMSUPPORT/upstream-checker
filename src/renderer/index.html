@@ -225,6 +225,18 @@
         </div>
       </div>
 
+      <!-- Capability legend -->
+      <div class="legend" id="legend" style="display:none">
+        <button class="legend-head" id="legend-toggle">
+          <span class="legend-title">Model capabilities</span>
+          <span class="legend-note" id="legend-note"></span>
+          <svg class="legend-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M6 9l6 6 6-6"/>
+          </svg>
+        </button>
+        <div class="legend-grid" id="legend-grid"></div>
+      </div>
+
       <!-- Results Table -->
       <div class="results-container" id="results-container">
         <div class="results-empty" id="results-empty">
@@ -243,7 +255,7 @@
             <tr>
               <th class="th-status th-sortable" data-sort="status">STATUS</th>
               <th class="th-model th-sortable" data-sort="model">MODEL</th>
-              <th class="th-type">TYPE</th>
+              <th class="th-type">CAPS</th>
               <th class="th-context th-sortable" data-sort="context">CONTEXT</th>
               <th class="th-time th-sortable" data-sort="time">TIME</th>
               <th class="th-tokens th-sortable" data-sort="tokens">TOKENS</th>

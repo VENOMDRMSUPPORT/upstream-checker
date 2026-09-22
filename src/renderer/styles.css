@@ -942,7 +942,7 @@ html, body {
 
 .th-status { width: 56px; text-align: center; }
 .th-model { width: 210px; }
-.th-type { width: 96px; text-align: center; }
+.th-type { width: 132px; text-align: center; }
 .th-context { width: 80px; text-align: center; }
 .th-time { width: 88px; }
 .th-tokens { width: 76px; }
@@ -2158,4 +2158,107 @@ body.sidebar-hidden .sidebar {
   color: var(--accent);
   border-color: var(--accent-border);
   background: var(--accent-bg);
+}
+
+/* ============================================
+   Capabilities
+   ============================================ */
+.cap-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  border: 1px solid;
+  flex-shrink: 0;
+}
+
+/* One hue per capability, so a row is readable at a glance without labels */
+.cap-tools      { color: #f59e0b; background: rgba(245,158,11,0.10); border-color: rgba(245,158,11,0.28); }
+.cap-reasoning  { color: #a78bfa; background: rgba(167,139,250,0.10); border-color: rgba(167,139,250,0.28); }
+.cap-structured { color: #38bdf8; background: rgba(56,189,248,0.10);  border-color: rgba(56,189,248,0.28); }
+.cap-vision     { color: #34d399; background: rgba(52,211,153,0.10);  border-color: rgba(52,211,153,0.28); }
+.cap-image      { color: #f472b6; background: rgba(244,114,182,0.10); border-color: rgba(244,114,182,0.28); }
+.cap-audio      { color: #fb7185; background: rgba(251,113,133,0.10); border-color: rgba(251,113,133,0.28); }
+.cap-video      { color: #22d3ee; background: rgba(34,211,238,0.10);  border-color: rgba(34,211,238,0.28); }
+.cap-files      { color: #94a3b8; background: rgba(148,163,184,0.12); border-color: rgba(148,163,184,0.30); }
+
+.cell-type .cap-icon + .cap-icon,
+.cell-type .cap-icon + .icon-badge { margin-left: 4px; }
+
+/* Legend */
+.legend {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border-1);
+  background: var(--bg-1);
+}
+
+.legend-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 24px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-2);
+}
+
+.legend-head:hover { color: var(--text-1); }
+
+.legend-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+}
+
+.legend-note {
+  flex: 1;
+  text-align: left;
+  font-size: 11px;
+  color: var(--text-4);
+}
+
+.legend-chevron { transition: transform var(--transition-normal); flex-shrink: 0; }
+.legend.collapsed .legend-chevron { transform: rotate(-90deg); }
+.legend.collapsed .legend-grid { display: none; }
+
+.legend-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px;
+  padding: 0 24px 14px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-md);
+  background: var(--bg-2);
+}
+
+/* A capability no loaded model has is dimmed rather than hidden — the absence is
+   information too. */
+.legend-item-empty { opacity: 0.4; }
+
+.legend-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.legend-name { font-size: 12px; font-weight: 600; color: var(--text-1); }
+.legend-desc { font-size: 10.5px; color: var(--text-4); line-height: 1.4; }
+
+.legend-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-3);
+  background: var(--bg-3);
+  border: 1px solid var(--border-1);
+  border-radius: 10px;
+  padding: 1px 8px;
+  flex-shrink: 0;
 }

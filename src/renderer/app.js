@@ -19,6 +19,105 @@ const NA = '—';
 // Characters of a response shown inline; longer ones get a click-to-expand cell.
 const RESPONSE_PREVIEW = 160;
 
+
+// ============================================
+// Model capabilities
+// ============================================
+// Providers disagree about almost everything here. Checked against the live
+// endpoints of all five configured providers, the shapes actually in use are:
+//
+//   NaraRouter /api/pricing  supports_vision, supports_image_generation,
+//                            supports_video_generation, reasoning
+//   NaraRouter /v1/models    vision, reasoning
+//   Inception  /v1/models    input_modalities[], output_modalities[],
+//                            supported_features[] ("tools", "json_mode",
+//                            "structured_outputs")
+//   Nexum, Dark API, Mirai   nothing at all
+//
+// So two providers report capabilities and three report none. A model with no
+// declared capability is shown as having none — the table says what the provider
+// said, and stays silent where the provider was.
+const CAPABILITIES = [
+  { id: 'tools',     label: 'Tools',     desc: 'Function calling and external tool use' },
+  { id: 'reasoning', label: 'Reasoning', desc: 'Extended thinking before answering' },
+  { id: 'structured',label: 'Structured',desc: 'JSON schema and constrained output' },
+  { id: 'vision',    label: 'Vision',    desc: 'Accepts images as input' },
+  { id: 'image',     label: 'Image gen', desc: 'Produces images' },
+  { id: 'audio',     label: 'Audio',     desc: 'Accepts or produces audio' },
+  { id: 'video',     label: 'Video',     desc: 'Accepts or produces video' },
+  { id: 'files',     label: 'Files',     desc: 'Accepts documents or file uploads' },
+];
+
+const CAP_ICONS = {
+  tools: '<path d="M14.7 6.3a5 5 0 01-6.6 6.6L3 18l3 3 5.1-5.1a5 5 0 006.6-6.6l-2.8 2.8-2.1-2.1z"/>',
+  reasoning: '<path d="M9.5 3A5.5 5.5 0 004 8.5c0 1.6.7 3 1.8 4V15a2 2 0 002 2h.7v2a1 1 0 001 1h5a1 1 0 001-1v-2h.7a2 2 0 002-2v-2.5A5.4 5.4 0 0020 8.5 5.5 5.5 0 0014.5 3z"/>',
+  structured: '<path d="M8 3H7a2 2 0 00-2 2v4a2 2 0 01-2 2 2 2 0 012 2v4a2 2 0 002 2h1M16 3h1a2 2 0 012 2v4a2 2 0 002 2 2 2 0 00-2 2v4a2 2 0 01-2 2h-1"/>',
+  vision: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
+  image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>',
+  audio: '<path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v3"/>',
+  video: '<rect x="2" y="5" width="14" height="14" rx="2"/><path d="M22 8l-6 4 6 4V8z"/>',
+  files: '<path d="M21.4 11.05l-9.19 9.19a5 5 0 01-7.07-7.07l9.19-9.19a3.33 3.33 0 014.71 4.71l-9.2 9.19a1.67 1.67 0 01-2.36-2.36l8.49-8.48"/>',
+};
+
+const truthy = (v) => v === true || v === 'true' || v === 1;
+const listOf = (v) => (Array.isArray(v) ? v.map((x) => String(x).toLowerCase()) : []);
+
+// Reads every shape seen in the wild and returns the capabilities the provider
+// actually claimed. Nothing is inferred from a model's name: a name is evidence
+// about what someone called it, not about what it can do.
+function readCapabilities(m) {
+  const caps = new Set();
+
+  // Explicit booleans (NaraRouter, both of its endpoints)
+  if (truthy(m.vision) || truthy(m.supports_vision)) caps.add('vision');
+  if (truthy(m.reasoning) || truthy(m.supports_reasoning)) caps.add('reasoning');
+  if (truthy(m.supports_image_generation)) caps.add('image');
+  if (truthy(m.supports_video_generation)) caps.add('video');
+  if (truthy(m.tools) || truthy(m.supports_tools) || truthy(m.function_calling)) caps.add('tools');
+  if (truthy(m.structured_outputs) || truthy(m.json_mode)) caps.add('structured');
+  if (truthy(m.audio) || truthy(m.supports_audio)) caps.add('audio');
+
+  // Modality arrays (Inception, and the OpenRouter shape under architecture)
+  const inputs = [...listOf(m.input_modalities), ...listOf(m.architecture?.input_modalities)];
+  const outputs = [...listOf(m.output_modalities), ...listOf(m.architecture?.output_modalities)];
+  if (inputs.some((x) => x.includes('image'))) caps.add('vision');
+  if (inputs.some((x) => x.includes('audio'))) caps.add('audio');
+  if (inputs.some((x) => x.includes('video'))) caps.add('video');
+  if (inputs.some((x) => x.includes('file') || x.includes('document') || x.includes('pdf'))) caps.add('files');
+  if (outputs.some((x) => x.includes('image'))) caps.add('image');
+  if (outputs.some((x) => x.includes('audio'))) caps.add('audio');
+  if (outputs.some((x) => x.includes('video'))) caps.add('video');
+
+  // Feature lists (Inception's supported_features, OpenRouter's
+  // supported_parameters, and the generic capabilities array)
+  const feats = [
+    ...listOf(m.supported_features),
+    ...listOf(m.supported_parameters),
+    ...listOf(m.capabilities),
+    ...listOf(m.features),
+  ];
+  feats.forEach((f) => {
+    if (f.includes('tool') || f.includes('function')) caps.add('tools');
+    if (f.includes('json') || f.includes('structured') || f.includes('response_format')) caps.add('structured');
+    if (f.includes('vision') || f.includes('image_input')) caps.add('vision');
+    if (f.includes('reasoning') || f.includes('thinking')) caps.add('reasoning');
+    if (f.includes('audio')) caps.add('audio');
+    if (f.includes('video')) caps.add('video');
+    if (f.includes('file') || f.includes('document')) caps.add('files');
+  });
+
+  return caps;
+}
+
+function capabilityIcons(model) {
+  const caps = model.caps instanceof Set ? model.caps : new Set(model.caps || []);
+  return CAPABILITIES.filter((c) => caps.has(c.id))
+    .map((c) => `<span class="cap-icon cap-${c.id}" title="${c.label} — ${c.desc}">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${CAP_ICONS[c.id]}</svg>
+      </span>`)
+    .join('');
+}
+
 // ============================================
 // Model kinds
 // ============================================
@@ -44,6 +143,12 @@ function kindLimits(kind) {
 }
 
 function classifyModel(providerId, model) {
+  // A declared capability outranks every heuristic below it: NaraRouter states
+  // outright which models generate images or video, so there is nothing to infer.
+  const caps = model.caps instanceof Set ? model.caps : new Set(model.caps || []);
+  if (truthy(model.supports_video_generation)) return 'video';
+  if (truthy(model.supports_image_generation)) return 'image';
+
   const adapter = (window.INTEGRATED_PROVIDERS || {})[providerId];
   if (adapter && typeof adapter.classify === 'function') {
     const k = adapter.classify(model);
@@ -124,6 +229,8 @@ const DEFAULT_SETTINGS = {
   // off | errors | all. Off by default: the log is a file on disk holding the
   // traffic of an authenticated API, even with the key stripped out of it.
   logLevel: 'off',
+
+  legendOpen: false,
 
   // Sidebar width in px; 0 means hidden. Capped at the design width — the
   // sidebar can be narrowed or shut, never widened, because everything in it is
@@ -636,6 +743,7 @@ function switchProvider(providerId) {
   renderProviderTabs();
   renderKeysList();
   renderModelsList();
+  renderLegend();
   updateTestAllButton();
   updateStats();
 }
@@ -908,7 +1016,10 @@ $('#btn-fetch-models').addEventListener('click', async () => {
       models = models.filter((m) => !adapter.excludeModel(m));
     }
 
-    models.forEach((m) => { m.kind = classifyModel(p.id, m); });
+    models.forEach((m) => {
+      m.caps = readCapabilities(m);
+      m.kind = classifyModel(p.id, m);
+    });
 
     p.models = [...models];
     // Chat models start selected. Generators don't: each one costs a real image
@@ -917,6 +1028,7 @@ $('#btn-fetch-models').addEventListener('click', async () => {
     p.selected = new Set(models.filter((m) => !isMedia(m)).map((m) => m.id));
 
     renderModelsList();
+    renderLegend();
 
     const keyNote = activeKeys.length > 1 ? ` across ${activeKeys.length} keys` : '';
     if (p.plansUrl) {
@@ -981,6 +1093,7 @@ function readContextWindow(m) {
     m.max_context_tokens ??
     m.max_context_length ??
     m.top_provider?.context_length ??
+    m.limit?.context ??
     null
   );
 }
@@ -1997,7 +2110,7 @@ function renderResultsTable() {
 function syncColumnVisibility() {
   const table = $('#results-table');
   const hasType = tableRows.some(
-    ({ model }) => model.hasVision || model.hasReasoning || isMedia(model) || !model.noPlans
+    ({ model }) => (model.caps && model.caps.size > 0) || !model.noPlans
   );
   const hasContext = tableRows.some(({ model }) => !!model.contextLabel);
   table.classList.toggle('hide-type', !hasType);
@@ -2121,20 +2234,14 @@ function buildRowHtml(model, result) {
     else timeClass = 'time-slow';
   }
 
-  const typeIcons = [];
-  if (model.kind === 'image') typeIcons.push(iconSpan('image', 'Image generator', 'type-media'));
-  if (model.kind === 'video') typeIcons.push(iconSpan('video', 'Video generator', 'type-media'));
-  if (model.hasVision) typeIcons.push(iconSpan('vision', 'Vision', 'type-vision'));
-  if (model.hasReasoning) typeIcons.push(iconSpan('think', 'Reasoning', 'type-think'));
-  // Free tier icon: show on every row (tier comes from provider grouping, not free/paid anymore)
-  if (!model.noPlans) {
-    typeIcons.push(
-      model.isFree
-        ? iconSpan('free', 'Free', 'tier-free')
-        : iconSpan('free', 'Free for Paid', 'tier-freepaid')
-    );
-  }
-  const typeHtml = typeIcons.length ? typeIcons.join('') : NA;
+  const capsHtml = capabilityIcons(model);
+  const tierHtml = model.noPlans
+    ? ''
+    : model.isFree
+      ? iconSpan('free', 'Free', 'tier-free')
+      : iconSpan('free', 'Free for Paid', 'tier-freepaid');
+  const typeIcons = capsHtml || tierHtml ? [capsHtml, tierHtml] : [];
+  const typeHtml = typeIcons.length ? capsHtml + tierHtml : NA;
   const contextHtml = model.contextLabel || NA;
 
   // No tokens on a failed or in-flight request — '0' would read as a measurement.
@@ -2966,10 +3073,58 @@ function toggleSidebar() {
 $('#sidebar-resizer').addEventListener('dblclick', toggleSidebar);
 $('#sidebar-restore').addEventListener('click', toggleSidebar);
 
+
+// ============================================
+// Capability legend
+// ============================================
+// Counts come from the models actually loaded, so the legend doubles as an
+// answer to "how much does this provider even tell me" — a provider that reports
+// nothing shows zeros across the board, which is the honest picture.
+function renderLegend() {
+  const el = $('#legend');
+  if (!el) return;
+  if (models.length === 0) {
+    el.style.display = 'none';
+    return;
+  }
+
+  const counts = new Map(CAPABILITIES.map((c) => [c.id, 0]));
+  models.forEach((m) => {
+    const caps = m.caps instanceof Set ? m.caps : new Set(m.caps || []);
+    caps.forEach((c) => counts.set(c, (counts.get(c) || 0) + 1));
+  });
+
+  const declared = [...counts.values()].reduce((a, b) => a + b, 0);
+  $('#legend-note').textContent = declared === 0
+    ? `${PROVIDERS[activeProvider]?.name || 'This provider'} reports no capability data`
+    : `${models.length} models`;
+
+  $('#legend-grid').innerHTML = CAPABILITIES.map((c) => `
+    <div class="legend-item ${counts.get(c.id) ? '' : 'legend-item-empty'}">
+      <span class="cap-icon cap-${c.id}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${CAP_ICONS[c.id]}</svg>
+      </span>
+      <span class="legend-text">
+        <span class="legend-name">${c.label}</span>
+        <span class="legend-desc">${c.desc}</span>
+      </span>
+      <span class="legend-count">${counts.get(c.id)}</span>
+    </div>`).join('');
+
+  el.style.display = '';
+}
+
+$('#legend-toggle').addEventListener('click', () => {
+  settings.legendOpen = !settings.legendOpen;
+  $('#legend').classList.toggle('collapsed', !settings.legendOpen);
+  queueSettingsSave();
+});
+
 async function init() {
   await loadSettings();
   applyAppearance();
   applySidebarWidth(clampSidebar(settings.sidebarWidth));
+  $('#legend').classList.toggle('collapsed', !settings.legendOpen);
   bindSettingsForm();
   window.electronAPI.getDataPath().then((dir) => { $('#settings-path').textContent = dir; });
   await loadTestDefinition();

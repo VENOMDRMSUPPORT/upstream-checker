@@ -59,6 +59,13 @@ window.INTEGRATED_PROVIDERS.nara = {
           isFreeForPaid,
           noPlans: false,
           groupName: getFreeGroupName(isFree ? 'free' : 'freemium'),
+          // Kept as the provider reported them; app.js reads the capability set
+          // off these rather than guessing from the model's name. NaraRouter is
+          // one of the few that says outright which models generate media.
+          supports_vision: m.supports_vision,
+          supports_image_generation: m.supports_image_generation,
+          supports_video_generation: m.supports_video_generation,
+          reasoning: m.reasoning,
           hasVision: !!m.supports_vision,
           hasReasoning: !!m.reasoning,
           context_window: m.max_context_tokens,
