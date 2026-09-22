@@ -1699,3 +1699,16 @@ html, body {
   margin-top: 5px;
   min-height: 12px;
 }
+
+/* Image / video generators — tested against a different standard than chat models */
+.badge-media {
+  background: rgba(139, 92, 246, 0.14);
+  color: var(--running);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+}
+
+.icon-badge.type-media {
+  color: var(--running);
+  background: rgba(139, 92, 246, 0.1);
+  border: 1px solid rgba(139, 92, 246, 0.25);
+}

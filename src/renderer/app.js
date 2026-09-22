@@ -19,6 +19,52 @@ const NA = '—';
 // Characters of a response shown inline; longer ones get a click-to-expand cell.
 const RESPONSE_PREVIEW = 160;
 
+// ============================================
+// Model kinds
+// ============================================
+// A router can sit an image or video generator behind the same /chat/completions
+// endpoint as its chat models. Asking one of those "what is 2+2" is not a test of
+// anything: it spends real generation quota, takes a minute, and comes back with
+// a picture of the question — which then scores as a wrong answer. So each model
+// is tagged and judged by the standard that applies to it.
+//
+// A provider module can override this with its own classify(model); the fallback
+// below is name matching, which is a guess and is shown as a badge so it can be
+// seen and corrected.
+const MEDIA_PROMPT = 'A single red circle centred on a plain white background.';
+
+const KIND_SETTINGS = {
+  chat:  { deadline: 75000,  hedge: true,  label: '' },
+  image: { deadline: 240000, hedge: false, label: 'Image' },
+  video: { deadline: 600000, hedge: false, label: 'Video' },
+};
+
+function classifyModel(providerId, model) {
+  const adapter = (window.INTEGRATED_PROVIDERS || {})[providerId];
+  if (adapter && typeof adapter.classify === 'function') {
+    const k = adapter.classify(model);
+    if (KIND_SETTINGS[k]) return k;
+  }
+  const id = String(model.id || '').toLowerCase();
+  if (/\b(wan|veo|sora|kling|runway|luma|hailuo|pika)\b|video|t2v|i2v/.test(id)) return 'video';
+  if (/image|flux|dall-?e|stable-?diffusion|midjourney|seedream|imagen|ideogram|t2i/.test(id)) return 'image';
+  return 'chat';
+}
+
+const isMedia = (model) => model && (model.kind === 'image' || model.kind === 'video');
+
+// testResults rows carry only the model id; correctness needs the model itself
+// to know which standard applies.
+function modelById(id) {
+  return models.find((m) => m.id === id) || null;
+}
+
+// A generator's output is a link to an asset, not prose. Finding one is the whole
+// pass criterion — there is no "right answer" to compare against.
+function containsMediaUrl(text) {
+  return /https?:\/\/\S+|data:(image|video)\//i.test(text || '');
+}
+
 // Latency bands for the TIME column. Calibrated to what a chat completion
 // actually costs: under 5s was flagging most of a healthy run amber, which left
 // the colour saying nothing.
@@ -150,7 +196,7 @@ async function recordRun(providerId, providerName, results) {
       tokens: r.tokens ?? null,
       completionTokens: r.completionTokens ?? null,
       attempts: r.attempts ?? 1,
-      correct: isCorrect(r),
+      correct: isCorrect(r, modelById(r.model)),
     })),
   };
   try {
@@ -251,7 +297,15 @@ function escapeRegex(s) {
 
 // Returns true/false, or null when answer checking is switched off (no expected
 // answer) or there is no response to judge.
-function isCorrect(result) {
+function isCorrect(result, model) {
+  // A generator is right when it returned an asset. There is no expected word to
+  // compare against, and scoring its image link against "4, four" would mark
+  // every working generator wrong.
+  if (model && isMedia(model)) {
+    if (!result || result.status !== 'pass') return null;
+    return containsMediaUrl(result.response);
+  }
+
   const alts = expectedAnswer
     .split(',')
     .map((s) => s.trim().toLowerCase())
@@ -700,9 +754,13 @@ $('#btn-fetch-models').addEventListener('click', async () => {
     // Two entries sharing an id are the same model; keeping both would create two
     // table rows with the same key, and only the first would ever be updated.
     models = dedupeById(models);
+    models.forEach((m) => { m.kind = classifyModel(p.id, m); });
 
     p.models = [...models];
-    p.selected = new Set(models.map((m) => m.id)); // a fresh fetch starts fully selected
+    // Chat models start selected. Generators don't: each one costs a real image
+    // or video generation and a minute of wall clock, so including them in every
+    // run — especially a scheduled one — has to be a decision, not a default.
+    p.selected = new Set(models.filter((m) => !isMedia(m)).map((m) => m.id));
 
     renderModelsList();
     if (p.plansUrl) {
@@ -872,6 +930,8 @@ $('#btn-select-none').addEventListener('click', () => setSelectionForVisible(fal
 
 function buildModelItem(m) {
   const badges = [];
+  const kindLabel = (KIND_SETTINGS[m.kind] || {}).label;
+  if (kindLabel) badges.push(`<span class="model-badge badge-media">${kindLabel}</span>`);
   if (m.hasVision) badges.push('<span class="model-badge badge-vision">Vision</span>');
   if (m.hasReasoning) badges.push('<span class="model-badge badge-reasoning">Think</span>');
   if (m.isFree) badges.push('<span class="model-badge badge-free">Free</span>');
@@ -924,7 +984,8 @@ function updateTestAllButton() {
 // models cost one request; only slow ones fan out, so the result comes back ASAP.
 const HEDGE_MAX = 6;
 const HEDGE_STEP_MS = 2000;
-const MODEL_DEADLINE_MS = 75000; // hard cap per model so a stuck one can't block the run
+// Per-model hard cap now lives in KIND_SETTINGS — a video generator legitimately
+// needs minutes, a chat model that takes one is broken.
 const STREAM_HEDGE = 2;          // parallel streaming attempts during empty recovery
 const MAX_TEST_RETRIES = 2;
 // 429 is handled by the rate-limit path below, not here: it isn't a transient
@@ -1006,13 +1067,16 @@ async function attemptOnce(model, apiKey, baseUrl, stream, requestId) {
   // models and clamps safely, but it makes reasoning-heavy models think briefly
   // instead of burning time on a deep chain for a trivial prompt. ('minimal' is
   // NOT safe — some models return empty under it — so 'low' is the floor.)
+  const media = isMedia(model);
   const payload = {
     model: model.id,
-    messages: [{ role: 'user', content: testPrompt || DEFAULT_TEST_PROMPT }],
+    messages: [{ role: 'user', content: media ? MEDIA_PROMPT : testPrompt || DEFAULT_TEST_PROMPT }],
     max_tokens: 512,
-    reasoning_effort: 'low',
     stream: !!stream,
   };
+  // reasoning_effort steers a reasoning model away from a deep chain on a trivial
+  // prompt. It means nothing to a generator, so it isn't sent to one.
+  if (!media) payload.reasoning_effort = 'low';
 
   try {
     const result = await window.electronAPI.apiRequest({
@@ -1096,8 +1160,10 @@ function raceAttempts(model, apiKey, baseUrl, stream, count) {
 // another parallel attempt every HEDGE_STEP_MS (up to HEDGE_MAX). The first
 // non-empty answer wins (cancel the rest). An empty 200 is deterministic per
 // model, so we stop escalating once we see one and resolve with the best result.
-// A hard MODEL_DEADLINE_MS cap prevents a pathologically slow model from hanging.
+// A hard per-kind deadline prevents a pathologically slow model from hanging.
 function adaptiveNonStream(model, apiKey, baseUrl) {
+  const { deadline, hedge } = KIND_SETTINGS[model.kind] || KIND_SETTINGS.chat;
+  const maxAttempts = hedge ? HEDGE_MAX : 1;
   return new Promise((resolve) => {
     const ids = [];
     let settled = false;
@@ -1119,7 +1185,7 @@ function adaptiveNonStream(model, apiKey, baseUrl) {
     };
 
     const launch = () => {
-      if (settled || stop || abortTesting || launched >= HEDGE_MAX) return;
+      if (settled || stop || abortTesting || launched >= maxAttempts) return;
       launched += 1;
       inflight += 1;
       const id = nextRequestId();
@@ -1141,14 +1207,14 @@ function adaptiveNonStream(model, apiKey, baseUrl) {
           stop = true;
           clearTimeout(stepTimer);
         }
-        if (inflight === 0 && (stop || abortTesting || launched >= HEDGE_MAX)) finish(best);
+        if (inflight === 0 && (stop || abortTesting || launched >= maxAttempts)) finish(best);
       });
-      if (!stop && launched < HEDGE_MAX) stepTimer = setTimeout(launch, HEDGE_STEP_MS);
+      if (!stop && launched < maxAttempts) stepTimer = setTimeout(launch, HEDGE_STEP_MS);
     };
 
     deadlineTimer = setTimeout(
-      () => finish(best || { status: 'fail', response: 'Timed out', time: MODEL_DEADLINE_MS, tokens: 0, statusCode: 0, timedOut: true }),
-      MODEL_DEADLINE_MS
+      () => finish(best || { status: 'fail', response: 'Timed out', time: deadline, tokens: 0, statusCode: 0, timedOut: true }),
+      deadline
     );
 
     launch();
@@ -1184,6 +1250,9 @@ async function testModel(model, apiKey, baseUrl) {
     if (r.status === 'pass' && !r.isEmpty) return done(r);
 
     if (r.status === 'pass' && r.isEmpty) {
+      // Generators don't stream text, so the SSE recovery below would just buy a
+      // second generation for nothing.
+      if (isMedia(model)) return done(r);
       // Empty on the non-streaming endpoint: some models (byNara event-stream)
       // deliver content only over SSE — try streaming.
       if (abortTesting) return done(r);
@@ -1415,8 +1484,8 @@ function renderRunSummary() {
 
   // Answer quality is reported alongside the HTTP outcome, never folded into it:
   // "7 passed" and "6 of 7 correct" are two different things a user needs.
-  const judged = testResults.filter((r) => isCorrect(r) !== null);
-  const correct = judged.filter((r) => isCorrect(r)).length;
+  const judged = testResults.filter((r) => isCorrect(r, modelById(r.model)) !== null);
+  const correct = judged.filter((r) => isCorrect(r, modelById(r.model))).length;
   const answers = judged.length > 0 ? ` — ${correct}/${judged.length} correct` : '';
 
   // What moved since the previous run matters more than the absolute numbers —
@@ -1476,7 +1545,7 @@ const SORTERS = {
   tps: (e) => tokensPerSecond(e.result),
   uptime: (e) => uptimeOf(e.model.id),
   correct: (e) => {
-    const c = isCorrect(e.result);
+    const c = isCorrect(e.result, e.model);
     return c == null ? null : c ? 1 : 0;
   },
 };
@@ -1521,7 +1590,7 @@ function renderResultsTable() {
 function syncColumnVisibility() {
   const table = $('#results-table');
   const hasType = tableRows.some(
-    ({ model }) => model.hasVision || model.hasReasoning || !model.noPlans
+    ({ model }) => model.hasVision || model.hasReasoning || isMedia(model) || !model.noPlans
   );
   const hasContext = tableRows.some(({ model }) => !!model.contextLabel);
   table.classList.toggle('hide-type', !hasType);
@@ -1596,6 +1665,8 @@ const ICONS = {
   free: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12V8H6a2 2 0 01-2-2V6a2 2 0 012-2h12"/><circle cx="16" cy="16" r="4"/><path d="M16 14v4M14 16h4"/></svg>`,
   timeout: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
   tokens: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9 9h6M9 15h6"/><path d="M12 9v6"/></svg>`,
+  image: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>`,
+  video: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="14" height="14" rx="2"/><path d="M22 8l-6 4 6 4V8z"/></svg>`,
   retry: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="22 2 22 8 16 8"/></svg>`,
 };
 
@@ -1640,6 +1711,8 @@ function buildRowHtml(model, result) {
   }
 
   const typeIcons = [];
+  if (model.kind === 'image') typeIcons.push(iconSpan('image', 'Image generator', 'type-media'));
+  if (model.kind === 'video') typeIcons.push(iconSpan('video', 'Video generator', 'type-media'));
   if (model.hasVision) typeIcons.push(iconSpan('vision', 'Vision', 'type-vision'));
   if (model.hasReasoning) typeIcons.push(iconSpan('think', 'Reasoning', 'type-think'));
   // Free tier icon: show on every row (tier comes from provider grouping, not free/paid anymore)
@@ -1669,7 +1742,7 @@ function buildRowHtml(model, result) {
   const uptimeClass =
     uptime == null ? 'cell-na' : uptime >= 0.95 ? 'uptime-high' : uptime >= 0.8 ? 'uptime-mid' : 'uptime-low';
 
-  const correct = isCorrect(result);
+  const correct = isCorrect(result, model);
   const correctHtml =
     correct == null
       ? NA
@@ -1831,7 +1904,7 @@ $('#btn-export-csv').addEventListener('click', () => {
   const rows = testResults
     .map((r) => {
       const tps = tokensPerSecond(r);
-      const correct = isCorrect(r);
+      const correct = isCorrect(r, modelById(r.model));
       return [
         q(r.model), q(r.provider), q(r.group || ''), q(r.status),
         correct == null ? '' : correct ? 'yes' : 'no',
