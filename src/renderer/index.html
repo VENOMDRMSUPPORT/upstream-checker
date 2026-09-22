@@ -151,6 +151,9 @@
           Test Selected
         </button>
       </div>
+
+      <div class="sidebar-resizer" id="sidebar-resizer"
+           title="Drag to narrow · drag all the way to hide · double-click to toggle"></div>
     </aside>
 
     <!-- Main Content -->
@@ -158,6 +161,11 @@
       <!-- Status Bar -->
       <div class="status-bar" id="status-bar">
         <div class="status-left">
+          <button class="sidebar-restore" id="sidebar-restore" title="Show sidebar" style="display:none">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M9 18l6-6-6-6"/>
+            </svg>
+          </button>
           <div class="status-indicator" id="status-indicator">
             <span class="status-dot idle"></span>
             <span class="status-text" id="status-text">Ready</span>

@@ -85,19 +85,50 @@ html, body {
   user-select: none;
 }
 
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* The thumb is drawn inside a transparent border, which insets it from the edge
+   and rounds it properly — a bar flush against the panel edge reads as part of
+   the chrome rather than as a control. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-2) transparent;
 }
-::-webkit-scrollbar-track {
+
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
-  background: var(--border-2);
-  border-radius: 3px;
+  background-color: var(--border-2);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+  border-radius: 10px;
+  min-height: 34px;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: var(--border-3);
+
+::-webkit-scrollbar-thumb:hover { background-color: var(--border-3); }
+::-webkit-scrollbar-thumb:active { background-color: var(--text-4); }
+
+/* In the sidebar lists the thumb stays out of the way until the list is in use */
+.models-list::-webkit-scrollbar-thumb,
+.keys-list::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  transition: background-color var(--transition-normal);
+}
+
+.models-list:hover::-webkit-scrollbar-thumb,
+.keys-list:hover::-webkit-scrollbar-thumb {
+  background-color: var(--border-2);
+}
+
+.models-list:hover::-webkit-scrollbar-thumb:hover,
+.keys-list:hover::-webkit-scrollbar-thumb:hover {
+  background-color: var(--border-3);
 }
 
 /* ============================================
@@ -237,8 +268,10 @@ html, body {
    Sidebar
    ============================================ */
 .sidebar {
+  position: relative;
   width: var(--sidebar-width);
   min-width: var(--sidebar-width);
+  transition: width var(--transition-normal), min-width var(--transition-normal);
   background: var(--bg-1);
   border-right: 1px solid var(--border-1);
   display: flex;
@@ -2061,3 +2094,54 @@ html, body {
 
 .row-pending .cell-model,
 .row-pending .response-placeholder { opacity: 0.55; }
+
+/* ============================================
+   Sidebar resizing
+   ============================================ */
+.sidebar-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: col-resize;
+  z-index: 30;
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+
+.sidebar-resizer:hover,
+body.resizing .sidebar-resizer { background: var(--accent); }
+
+/* While dragging, the cursor and selection must not follow the pointer into
+   whatever it happens to pass over. */
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing .sidebar { transition: none; }
+
+body.sidebar-hidden .sidebar {
+  border-right: none;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.sidebar-restore {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 12px;
+  flex-shrink: 0;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-md);
+  color: var(--text-3);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.sidebar-restore:hover {
+  color: var(--accent);
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+}

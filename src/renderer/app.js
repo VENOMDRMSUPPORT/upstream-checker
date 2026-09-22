@@ -125,6 +125,11 @@ const DEFAULT_SETTINGS = {
   // traffic of an authenticated API, even with the key stripped out of it.
   logLevel: 'off',
 
+  // Sidebar width in px; 0 means hidden. Capped at the design width — the
+  // sidebar can be narrowed or shut, never widened, because everything in it is
+  // laid out against that measure.
+  sidebarWidth: 320,
+
   // Models tested at the same time. 1 is the original behaviour. Raising it is
   // the only thing that actually shortens a run — widening the hedge spends more
   // requests on one model without lowering that model's own latency.
@@ -2901,6 +2906,7 @@ $('#btn-open-data').addEventListener('click', () => window.electronAPI.openDataF
 $('#btn-reset-settings').addEventListener('click', () => {
   settings = { ...DEFAULT_SETTINGS };
   applyAppearance();
+  applySidebarWidth(settings.sidebarWidth);
   queueSettingsSave();
   fillSettingsForm();
   renderAppearancePickers();
@@ -2908,9 +2914,62 @@ $('#btn-reset-settings').addEventListener('click', () => {
   setStatus('done', 'Settings reset to defaults');
 });
 
+
+// ============================================
+// Sidebar sizing
+// ============================================
+const SIDEBAR_FULL = 320;  // the width everything in the sidebar is laid out for
+const SIDEBAR_MIN = 190;   // below this the model rows stop being readable
+const SIDEBAR_SHUT = 120;  // dragged past this, it closes rather than cramping
+
+function applySidebarWidth(px) {
+  const hidden = px <= 0;
+  document.documentElement.style.setProperty('--sidebar-width', `${hidden ? 0 : px}px`);
+  document.body.classList.toggle('sidebar-hidden', hidden);
+  $('#sidebar-restore').style.display = hidden ? '' : 'none';
+}
+
+// Snapping happens here rather than in the drag handler so the same rules apply
+// to a restored width read back from settings.
+function clampSidebar(px) {
+  if (px < SIDEBAR_SHUT) return 0;
+  return Math.min(SIDEBAR_FULL, Math.max(SIDEBAR_MIN, px));
+}
+
+let sidebarDragging = false;
+
+$('#sidebar-resizer').addEventListener('mousedown', (e) => {
+  sidebarDragging = true;
+  document.body.classList.add('resizing');
+  e.preventDefault(); // otherwise the drag selects text across the window
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!sidebarDragging) return;
+  settings.sidebarWidth = clampSidebar(e.clientX);
+  applySidebarWidth(settings.sidebarWidth);
+});
+
+window.addEventListener('mouseup', () => {
+  if (!sidebarDragging) return;
+  sidebarDragging = false;
+  document.body.classList.remove('resizing');
+  queueSettingsSave();
+});
+
+function toggleSidebar() {
+  settings.sidebarWidth = settings.sidebarWidth > 0 ? 0 : SIDEBAR_FULL;
+  applySidebarWidth(settings.sidebarWidth);
+  queueSettingsSave();
+}
+
+$('#sidebar-resizer').addEventListener('dblclick', toggleSidebar);
+$('#sidebar-restore').addEventListener('click', toggleSidebar);
+
 async function init() {
   await loadSettings();
   applyAppearance();
+  applySidebarWidth(clampSidebar(settings.sidebarWidth));
   bindSettingsForm();
   window.electronAPI.getDataPath().then((dir) => { $('#settings-path').textContent = dir; });
   await loadTestDefinition();
