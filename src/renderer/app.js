@@ -358,25 +358,31 @@ function renderKeysList() {
     .map(
       (k) => `
     <div class="key-item ${k.active ? 'active' : ''}" data-key-id="${k.id}">
-      <div class="key-info">
+      <div class="key-header">
         <div class="key-name">${escapeHtml(k.name)}</div>
-        <div class="key-value">
-          <span class="key-masked">${maskKey(k.key)}</span>
-          <button class="key-reveal-btn" data-key-id="${k.id}" title="Reveal">
+        <div class="key-actions">
+          <button class="key-toggle-btn ${k.active ? 'active' : ''}" data-key-id="${k.id}" title="${k.active ? 'Deactivate' : 'Activate'}">
+            <div class="key-toggle-track"><div class="key-toggle-thumb"></div></div>
+          </button>
+          <button class="key-delete-btn" data-key-id="${k.id}" title="Remove">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-              <circle cx="12" cy="12" r="3"/>
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
             </svg>
           </button>
         </div>
       </div>
-      <div class="key-actions">
-        <button class="key-toggle-btn ${k.active ? 'active' : ''}" data-key-id="${k.id}" title="${k.active ? 'Deactivate' : 'Activate'}">
-          <div class="key-toggle-track"><div class="key-toggle-thumb"></div></div>
-        </button>
-        <button class="key-delete-btn" data-key-id="${k.id}" title="Remove">
+      <div class="key-value">
+        <span class="key-masked">${maskKey(k.key)}</span>
+        <button class="key-icon-btn key-reveal-btn" data-key-id="${k.id}" title="Reveal">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
+        <button class="key-icon-btn key-copy-btn" data-key-id="${k.id}" title="Copy key">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2"/>
+            <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
           </svg>
         </button>
       </div>
@@ -408,12 +414,37 @@ function renderKeysList() {
       removeKey(keyId);
     });
   });
+
+  $$('.key-copy-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      copyKey(btn.dataset.keyId, btn);
+    });
+  });
 }
 
+// The masked form stays one line, so revealing a long key can't reflow the card.
+// The copy button is how the full key actually leaves the app.
 function maskKey(key) {
   if (!key) return '';
-  if (key.length <= 12) return key.slice(0, 6) + '...' + key.slice(-4);
-  return key.slice(0, 10) + '...' + key.slice(-4);
+  const head = key.length <= 12 ? 6 : 10;
+  return key.slice(0, head) + '********' + key.slice(-4);
+}
+
+async function copyKey(keyId, btn) {
+  const key = PROVIDERS[activeProvider].keys.find((k) => k.id === keyId);
+  if (!key) return;
+  try {
+    await navigator.clipboard.writeText(key.key);
+    btn.classList.add('copied');
+    btn.title = 'Copied';
+    setTimeout(() => {
+      btn.classList.remove('copied');
+      btn.title = 'Copy key';
+    }, 1200);
+  } catch (err) {
+    setStatus('error', 'Could not copy the key to the clipboard');
+  }
 }
 
 function toggleKeyReveal(keyId) {

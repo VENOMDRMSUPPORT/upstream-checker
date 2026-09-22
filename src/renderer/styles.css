@@ -1286,11 +1286,12 @@ html, body {
   overflow-y: auto;
 }
 
+/* Two stacked rows: name + on/off + delete, then the key itself + eye + copy. */
 .key-item {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 7px 10px;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
   background: var(--bg-2);
   border: 1px solid var(--border-2);
   border-radius: var(--radius-md);
@@ -1301,44 +1302,60 @@ html, body {
   background: var(--accent-bg);
 }
 
-.key-info {
+.key-header {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  overflow: hidden;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .key-name {
   font-size: 11px;
   font-weight: 600;
   color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .key-value {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  background: var(--bg-1);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-sm);
+  padding: 4px 4px 4px 8px;
 }
 
+/* One line, always. A revealed key is long enough to wrap the card otherwise —
+   that is what the copy button is for. */
 .key-masked {
+  flex: 1;
+  min-width: 0;
   font-family: 'JetBrains Mono', monospace;
   font-size: 10.5px;
   color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.key-reveal-btn {
+.key-icon-btn {
   background: transparent;
   border: none;
   color: var(--text-4);
   cursor: pointer;
-  padding: 2px;
+  padding: 3px;
   display: flex;
   align-items: center;
+  flex-shrink: 0;
   border-radius: var(--radius-sm);
   transition: color var(--transition-fast);
 }
 
-.key-reveal-btn:hover { color: var(--text-1); }
+.key-icon-btn:hover { color: var(--text-1); }
+.key-icon-btn.copied { color: var(--pass); }
 
 .key-actions {
   display: flex;
@@ -1395,6 +1412,20 @@ html, body {
 }
 
 .key-delete-btn:hover { color: var(--fail); }
+
+.key-buttons {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.key-buttons .btn {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 6px;
+  font-size: 11px;
+  white-space: nowrap;
+}
 
 .model-group-label {
   font-family: 'JetBrains Mono', monospace;
