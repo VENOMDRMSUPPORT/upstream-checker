@@ -314,6 +314,26 @@ html, body {
   justify-content: space-between;
 }
 
+.section-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-md);
+  color: var(--accent);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.section-add-btn:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg-0);
+}
+
 .model-count {
   background: var(--accent-bg);
   color: var(--accent);
@@ -1344,87 +1364,36 @@ html, body {
 .key-icon-btn {
   background: transparent;
   border: none;
-  color: var(--text-4);
+  color: var(--text-3);
   cursor: pointer;
-  padding: 3px;
+  width: 26px;
+  height: 26px;
   display: flex;
   align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  border-radius: var(--radius-sm);
-  transition: color var(--transition-fast);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
 }
 
-.key-icon-btn:hover { color: var(--text-1); }
+.key-icon-btn:hover {
+  color: var(--text-0);
+  background: var(--bg-hover);
+}
+
 .key-icon-btn.copied { color: var(--pass); }
+.key-delete-btn:hover { color: var(--fail); background: var(--fail-bg); }
+
+/* Open padlock = key is in use, closed = held back */
+.key-toggle-btn { color: var(--text-4); }
+.key-toggle-btn.active { color: var(--accent); }
+.key-toggle-btn.active:hover { color: var(--accent); background: var(--accent-bg); }
 
 .key-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   flex-shrink: 0;
-}
-
-.key-toggle-btn {
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  padding: 0;
-}
-
-.key-toggle-track {
-  width: 30px;
-  height: 18px;
-  background: var(--bg-3);
-  border: 1px solid var(--border-2);
-  border-radius: 9px;
-  position: relative;
-  transition: background var(--transition-fast);
-}
-
-.key-toggle-btn.active .key-toggle-track {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-.key-toggle-thumb {
-  width: 12px;
-  height: 12px;
-  background: white;
-  border-radius: 50%;
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  transition: left var(--transition-fast);
-}
-
-.key-toggle-btn.active .key-toggle-thumb { left: 14px; }
-
-.key-delete-btn {
-  background: transparent;
-  border: none;
-  color: var(--text-4);
-  cursor: pointer;
-  padding: 4px;
-  display: flex;
-  align-items: center;
-  border-radius: var(--radius-sm);
-  transition: color var(--transition-fast);
-}
-
-.key-delete-btn:hover { color: var(--fail); }
-
-.key-buttons {
-  display: flex;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.key-buttons .btn {
-  flex: 1;
-  min-width: 0;
-  padding: 8px 6px;
-  font-size: 11px;
-  white-space: nowrap;
 }
 
 .model-group-label {

@@ -337,11 +337,20 @@ function switchProvider(providerId) {
 // ============================================
 // API Keys management
 // ============================================
+// Open padlock = the key is in use for runs; closed = held back. The icon shows
+// the current state, and the tooltip spells out what clicking it will do.
+const ICON_UNLOCKED = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3" y="11" width="18" height="11" rx="2"/>
+  <path d="M7 11V7a5 5 0 019.9-1"/>
+</svg>`;
+const ICON_LOCKED = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3" y="11" width="18" height="11" rx="2"/>
+  <path d="M7 11V7a5 5 0 0110 0v4"/>
+</svg>`;
+
 function renderKeysList() {
   const p = PROVIDERS[activeProvider];
   const container = $('#keys-list');
-  const countEl = $('#key-count');
-  countEl.textContent = p.keys.length;
 
   if (p.keys.length === 0) {
     container.innerHTML = `
@@ -361,12 +370,14 @@ function renderKeysList() {
       <div class="key-header">
         <div class="key-name">${escapeHtml(k.name)}</div>
         <div class="key-actions">
-          <button class="key-toggle-btn ${k.active ? 'active' : ''}" data-key-id="${k.id}" title="${k.active ? 'Deactivate' : 'Activate'}">
-            <div class="key-toggle-track"><div class="key-toggle-thumb"></div></div>
+          <button class="key-icon-btn key-toggle-btn ${k.active ? 'active' : ''}" data-key-id="${k.id}"
+                  title="${k.active ? 'In use — click to disable' : 'Disabled — click to enable'}">
+            ${k.active ? ICON_UNLOCKED : ICON_LOCKED}
           </button>
-          <button class="key-delete-btn" data-key-id="${k.id}" title="Remove">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          <button class="key-icon-btn key-delete-btn" data-key-id="${k.id}" title="Remove key">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/>
+              <path d="M10 11v6M14 11v6"/>
             </svg>
           </button>
         </div>
@@ -374,14 +385,14 @@ function renderKeysList() {
       <div class="key-value">
         <span class="key-masked">${maskKey(k.key)}</span>
         <button class="key-icon-btn key-reveal-btn" data-key-id="${k.id}" title="Reveal">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
             <circle cx="12" cy="12" r="3"/>
           </svg>
         </button>
         <button class="key-icon-btn key-copy-btn" data-key-id="${k.id}" title="Copy key">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="9" y="9" width="13" height="13" rx="2"/>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="12" height="12" rx="2"/>
             <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
           </svg>
         </button>
@@ -814,7 +825,47 @@ const HEDGE_STEP_MS = 2000;
 const MODEL_DEADLINE_MS = 75000; // hard cap per model so a stuck one can't block the run
 const STREAM_HEDGE = 2;          // parallel streaming attempts during empty recovery
 const MAX_TEST_RETRIES = 2;
-const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
+// 429 is handled by the rate-limit path below, not here: it isn't a transient
+// glitch to back off from, it's the provider telling us to wait out its window.
+const RETRYABLE_STATUS = new Set([502, 503, 504]);
+
+// Hitting a per-minute cap is not a property of the model — it's a property of
+// how fast we were going. Waiting the window out and continuing gives the model
+// a real verdict instead of recording our own pacing as its failure.
+const RATE_LIMIT_WAIT_MS = 60000; // a full window, when the provider doesn't say
+const MAX_RATE_LIMIT_WAITS = 3;   // stop after ~3 windows rather than hang forever
+const RATE_LIMIT_PATTERN =
+  /rate.?limit|too many requests|per[- ]minute|requests? per (minute|min)|\brpm\b|concurrency limit/i;
+
+// Run-level: once one model is capped every other model would be too, so a single
+// wait covers the rest of the queue instead of each model rediscovering the cap.
+let rateLimitUntil = 0;
+let runStatusText = '';
+
+function isRateLimit(r) {
+  if (r.statusCode === 429) return true;
+  return typeof r.response === 'string' && RATE_LIMIT_PATTERN.test(r.response);
+}
+
+// Blocks until the provider's window should have rolled over. The clock runs
+// outside any request, so this pause is never charged to a model's reported time
+// — neither the one that was capped nor the ones tested after it.
+async function waitForRateLimitWindow() {
+  let waited = false;
+  while (!abortTesting) {
+    const remaining = rateLimitUntil - Date.now();
+    if (remaining <= 0) break;
+    waited = true;
+    setStatus('running', `Rate limited — resuming in ${Math.ceil(remaining / 1000)}s`);
+    await sleep(Math.min(1000, remaining));
+  }
+  if (waited && !abortTesting) setStatus('running', runStatusText);
+}
+
+function scheduleRateLimitWait(result) {
+  const ms = result.retryAfter > 0 ? result.retryAfter * 1000 : RATE_LIMIT_WAIT_MS;
+  rateLimitUntil = Math.max(rateLimitUntil, Date.now() + ms);
+}
 
 let requestSeq = 0;
 // Every id handed out during a run, so Stop can kill sockets that are already in
@@ -840,11 +891,9 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Backoff before retrying a hedge round; honors Retry-After (seconds) for 429.
-function retryDelay(attempt, result) {
-  if (result && result.statusCode === 429 && result.retryAfter) {
-    return Math.min(result.retryAfter * 1000, 10000);
-  }
+// Backoff before retrying a transient failure. Rate limits don't come here —
+// they get a full window wait instead of a few hundred milliseconds.
+function retryDelay(attempt) {
   return 600 * Math.pow(2, attempt) + Math.floor(Math.random() * 300);
 }
 
@@ -1010,6 +1059,7 @@ function adaptiveNonStream(model, apiKey, baseUrl) {
 async function testModel(model, apiKey, baseUrl) {
   let transientRetries = 0;
   let emptyRetried = false;
+  let rateLimitWaits = 0;
   let rounds = 0;
 
   // `time` is only the winning attempt, so a 502 retried twice still reports
@@ -1018,6 +1068,12 @@ async function testModel(model, apiKey, baseUrl) {
   const done = (r) => ({ ...r, attempts: rounds });
 
   while (true) {
+    // An earlier model may have parked the whole run behind a rate-limit window.
+    if (rateLimitUntil > Date.now()) {
+      updateResultRow(model, { status: 'running', waiting: true, time: null, tokens: null });
+      await waitForRateLimitWindow();
+      updateResultRow(model, RUNNING_RESULT);
+    }
     if (abortTesting) return done({ status: 'fail', response: 'Aborted', time: 0, tokens: 0 });
     rounds += 1;
 
@@ -1040,11 +1096,24 @@ async function testModel(model, apiKey, baseUrl) {
       return done(r);
     }
 
-    // A failure. Retry on transient errors (429/5xx/network), honoring Retry-After
-    // so we back off the per-minute limit instead of failing outright.
+    // Rate limited. Park the whole run until the window rolls over and try this
+    // model again — it never gets recorded as a failure for being throttled.
+    if (isRateLimit(r) && rateLimitWaits < MAX_RATE_LIMIT_WAITS && !abortTesting) {
+      rateLimitWaits += 1;
+      scheduleRateLimitWait(r);
+      continue;
+    }
+    if (isRateLimit(r)) {
+      return done({
+        ...r,
+        response: `Still rate limited after ${rateLimitWaits} window${rateLimitWaits === 1 ? '' : 's'} — ${r.response}`,
+      });
+    }
+
+    // A failure. Retry on transient errors (5xx/network) with backoff.
     const retryable = (r.statusCode && RETRYABLE_STATUS.has(r.statusCode)) || r.networkError;
     if (retryable && transientRetries < MAX_TEST_RETRIES && !abortTesting) {
-      await sleep(retryDelay(transientRetries, r));
+      await sleep(retryDelay(transientRetries));
       transientRetries++;
       continue;
     }
@@ -1167,6 +1236,7 @@ async function runTests(list, { reset = true } = {}) {
   isTesting = true;
   abortTesting = false;
   inflightIds.clear();
+  rateLimitUntil = 0;
 
   if (reset) {
     testResults = [];
@@ -1180,7 +1250,8 @@ async function runTests(list, { reset = true } = {}) {
 
   updateStats();
   updateTestAllButton();
-  setStatus('running', `Testing ${list.length} model${list.length === 1 ? '' : 's'}...`);
+  runStatusText = `Testing ${list.length} model${list.length === 1 ? '' : 's'}...`;
+  setStatus('running', runStatusText);
   showProgress(0, list.length);
 
   // Sequential, in order: each model is fully resolved before the next starts, so
@@ -1475,7 +1546,7 @@ function buildRowHtml(model, result) {
   const truncated = full.length > RESPONSE_PREVIEW;
   const preview = escapeHtml(full.slice(0, RESPONSE_PREVIEW)) + (truncated ? '…' : '');
   const responseHtml = isRunning
-    ? `<span class="response-placeholder">Testing...</span>`
+    ? `<span class="response-placeholder">${result.waiting ? 'Waiting out rate limit…' : 'Testing...'}</span>`
     : result.isEmpty
       ? `<span class="response-empty">${preview}</span>`
       : preview;

@@ -90,28 +90,24 @@
       <div class="sidebar-section">
         <div class="section-label">
           API KEYS
-          <span class="model-count" id="key-count">0</span>
+          <button class="section-add-btn" id="btn-add-key" title="Add API key">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </button>
         </div>
         <div class="keys-list" id="keys-list">
           <div class="models-empty">
             <span>No keys added</span>
           </div>
         </div>
-        <div class="key-buttons">
-          <button class="btn btn-primary" id="btn-add-key">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-            </svg>
-            Add Key
-          </button>
-          <button class="btn btn-primary" id="btn-fetch-models">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 12a9 9 0 11-6.219-8.56"/>
-              <polyline points="22 2 22 8 16 8"/>
-            </svg>
-            Fetch Models
-          </button>
-        </div>
+        <button class="btn btn-primary btn-full" id="btn-fetch-models" style="margin-top:10px">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 12a9 9 0 11-6.219-8.56"/>
+            <polyline points="22 2 22 8 16 8"/>
+          </svg>
+          Fetch Models
+        </button>
       </div>
 
       <!-- Test definition -->
