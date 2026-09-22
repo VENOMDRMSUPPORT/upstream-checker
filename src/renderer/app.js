@@ -121,7 +121,7 @@ async function saveProviderConfig(providerId) {
   if (!p) return;
   const data = await window.electronAPI.readConfig();
   if (!data.providers) data.providers = {};
-  const entry = { name: p.name, baseUrl: p.baseUrl, keys: p.keys };
+  const entry = { name: p.name, baseUrl: p.baseUrl, keys: p.keys, rpm: p.rpm ?? null };
   if (p.custom) {
     entry.custom = true;
     entry.color = p.color;
@@ -346,9 +346,10 @@ async function loadAllProviders() {
     if (s) {
       if (s.name) p.name = s.name;
       if (s.baseUrl) p.baseUrl = s.baseUrl;
+      if (s.rpm !== undefined) p.rpm = s.rpm;
       p.keys = s.keys || [];
     } else {
-      stored[def.id] = { name: p.name, baseUrl: p.baseUrl, keys: p.keys };
+      stored[def.id] = { name: p.name, baseUrl: p.baseUrl, keys: p.keys, rpm: p.rpm ?? null };
       dirty = true;
     }
     PROVIDERS[def.id] = p;
@@ -372,7 +373,7 @@ async function loadAllProviders() {
         }
       });
       delete stored[id];
-      stored[builtin.id] = { name: builtin.name, baseUrl: builtin.baseUrl, keys: builtin.keys };
+      stored[builtin.id] = { name: builtin.name, baseUrl: builtin.baseUrl, keys: builtin.keys, rpm: builtin.rpm ?? null };
       dirty = true;
       return;
     }
@@ -383,6 +384,7 @@ async function loadAllProviders() {
       color: s.color || CUSTOM_COLORS[0],
       custom: true,
     });
+    p.rpm = s.rpm ?? null;
     p.keys = s.keys || [];
     PROVIDERS[id] = p;
   });
@@ -465,7 +467,7 @@ function renderProviderTabs() {
   });
 }
 
-async function addProvider({ name, baseUrl }) {
+async function addProvider({ name, baseUrl, rpm }) {
   name = (name || '').trim();
   baseUrl = (baseUrl || '').trim().replace(/\/+$/, '');
 
@@ -490,6 +492,7 @@ async function addProvider({ name, baseUrl }) {
   const id = `prov_${Date.now()}`;
   const color = CUSTOM_COLORS[Object.keys(PROVIDERS).length % CUSTOM_COLORS.length];
   PROVIDERS[id] = makeRuntimeProvider({ id, name, baseUrl, color, custom: true });
+  PROVIDERS[id].rpm = Number.isFinite(rpm) && rpm > 0 ? rpm : null;
   await saveProviderConfig(id);
   switchProvider(id);
   setStatus('done', `Provider "${name}" added`);
@@ -703,7 +706,9 @@ $('#btn-fetch-models').addEventListener('click', async () => {
     return;
   }
 
-  const apiKey = activeKeys[0].key;
+  // Discovery is a single request, so it just takes the next key in rotation
+  // rather than pacing — the catalogue is the same whichever key asks for it.
+  const apiKey = (pickKey(p) || activeKeys[0]).key;
   const btn = $('#btn-fetch-models');
   const originalText = btn.innerHTML;
   btn.disabled = true;
@@ -1000,9 +1005,6 @@ const MAX_RATE_LIMIT_WAITS = 3;   // stop after ~3 windows rather than hang fore
 const RATE_LIMIT_PATTERN =
   /rate.?limit|too many requests|per[- ]minute|requests? per (minute|min)|\brpm\b|concurrency limit/i;
 
-// Run-level: once one model is capped every other model would be too, so a single
-// wait covers the rest of the queue instead of each model rediscovering the cap.
-let rateLimitUntil = 0;
 let runStatusText = '';
 
 function isRateLimit(r) {
@@ -1010,14 +1012,70 @@ function isRateLimit(r) {
   return typeof r.response === 'string' && RATE_LIMIT_PATTERN.test(r.response);
 }
 
-// Blocks until the provider's window should have rolled over. The clock runs
-// outside any request, so this pause is never charged to a model's reported time
-// — neither the one that was capped nor the ones tested after it.
-async function waitForRateLimitWindow() {
+// ============================================
+// Keys and pacing
+// ============================================
+// The per-minute cap belongs to the key, not to the app: it is a property of the
+// plan that key is on. Both the budget and the cooldown are therefore tracked per
+// key, which is also what makes a second key worth having — the run moves onto it
+// instead of sitting out a whole minute.
+const keyCooldownUntil = new Map(); // keyId -> timestamp
+const keyRequestTimes = new Map();  // keyId -> recent request timestamps
+let keyCursor = 0;
+
+function rpmOf(provider) {
+  const n = Number(provider.rpm);
+  return Number.isFinite(n) && n > 0 ? n : 0; // 0 = unknown, so don't pace
+}
+
+// Round-robin over the keys that aren't cooling off; null when all of them are.
+function pickKey(provider) {
+  const keys = usableKeys(provider);
+  if (keys.length === 0) return null;
+  const now = Date.now();
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[(keyCursor + i) % keys.length];
+    if ((keyCooldownUntil.get(k.id) || 0) <= now) {
+      keyCursor = (keyCursor + i + 1) % keys.length;
+      return k;
+    }
+  }
+  return null;
+}
+
+function soonestKeyAvailable(provider) {
+  const keys = usableKeys(provider);
+  if (keys.length === 0) return Infinity;
+  return Math.min(...keys.map((k) => keyCooldownUntil.get(k.id) || 0));
+}
+
+// Holds a request back until its key has a slot in its own minute. Staying under
+// the cap costs a few seconds; going over it costs a full window — so pacing is
+// strictly cheaper than recovering from a 429.
+async function waitForSlot(provider, key) {
+  const rpm = rpmOf(provider);
+  if (!rpm) return;
+  while (!abortTesting) {
+    const now = Date.now();
+    const recent = (keyRequestTimes.get(key.id) || []).filter((t) => now - t < 60000);
+    if (recent.length < rpm) {
+      recent.push(now);
+      keyRequestTimes.set(key.id, recent);
+      return;
+    }
+    const waitMs = 60000 - (now - recent[0]) + 100;
+    keyRequestTimes.set(key.id, recent);
+    setStatus('running', `Pacing ${provider.name} — next slot in ${Math.ceil(waitMs / 1000)}s`);
+    await sleep(Math.min(1000, waitMs));
+  }
+}
+
+// Every key is cooling off; wait for whichever frees up first.
+async function waitForAnyKey(provider) {
   let waited = false;
   while (!abortTesting) {
-    const remaining = rateLimitUntil - Date.now();
-    if (remaining <= 0) break;
+    const remaining = soonestKeyAvailable(provider) - Date.now();
+    if (remaining <= 0 || !Number.isFinite(remaining)) break;
     waited = true;
     setStatus('running', `Rate limited — resuming in ${Math.ceil(remaining / 1000)}s`);
     await sleep(Math.min(1000, remaining));
@@ -1025,9 +1083,9 @@ async function waitForRateLimitWindow() {
   if (waited && !abortTesting) setStatus('running', runStatusText);
 }
 
-function scheduleRateLimitWait(result) {
+function coolKeyDown(keyId, result) {
   const ms = result.retryAfter > 0 ? result.retryAfter * 1000 : RATE_LIMIT_WAIT_MS;
-  rateLimitUntil = Math.max(rateLimitUntil, Date.now() + ms);
+  keyCooldownUntil.set(keyId, Math.max(keyCooldownUntil.get(keyId) || 0, Date.now() + ms));
 }
 
 let requestSeq = 0;
@@ -1062,7 +1120,13 @@ function retryDelay(attempt) {
 
 // One single request. Returns a pass (content), an empty pass, or a fail carrying
 // statusCode/retryAfter so the caller can decide whether to retry.
-async function attemptOnce(model, apiKey, baseUrl, stream, requestId) {
+async function attemptOnce(model, provider, stream, requestId) {
+  const key = pickKey(provider);
+  if (!key) return { status: 'fail', response: 'All keys are rate limited', time: 0, tokens: 0, allKeysCooling: true };
+  await waitForSlot(provider, key);
+  if (abortTesting) return { status: 'fail', response: 'Aborted', time: 0, tokens: 0, cancelled: true };
+  const apiKey = key.key;
+  const baseUrl = provider.baseUrl;
   // reasoning_effort:'low' is sent to every model — it is a no-op on non-reasoning
   // models and clamps safely, but it makes reasoning-heavy models think briefly
   // instead of burning time on a deep chain for a trivial prompt. ('minimal' is
@@ -1090,20 +1154,21 @@ async function attemptOnce(model, apiKey, baseUrl, stream, requestId) {
     });
 
     // Cancelled hedge loser — ignore it (raceAttempts skips cancelled results).
-    if (result.cancelled) return { status: 'fail', response: 'cancelled', time: result.elapsed || 0, tokens: 0, cancelled: true };
+    if (result.cancelled) return { status: 'fail', response: 'cancelled', time: result.elapsed || 0, tokens: 0, cancelled: true, keyId: key.id };
 
     // Transport-level failure; the handler resolves these so the message and the
     // elapsed time survive the trip across IPC.
     if (result.networkError) {
       return { status: 'fail', response: result.error || 'Request failed', time: result.elapsed || 0,
-               tokens: 0, networkError: true, timedOut: !!result.timedOut };
+               tokens: 0, networkError: true, timedOut: !!result.timedOut, keyId: key.id };
     }
 
     if (result.status === 200) {
       const parsed = stream ? parseStreamedCompletion(result.body) : parseChatCompletion(result.body);
       const usage = parsed.usage || {};
-      if (!parsed.content) return buildEmptyResult(usage, result.elapsed);
+      if (!parsed.content) return { ...buildEmptyResult(usage, result.elapsed), keyId: key.id };
       return {
+        keyId: key.id,
         status: 'pass',
         response: parsed.content,
         isEmpty: false,
@@ -1120,9 +1185,9 @@ async function attemptOnce(model, apiKey, baseUrl, stream, requestId) {
       errMsg = errData.error?.message || errMsg;
     } catch (_) {}
     const ra = parseInt(result.headers?.['retry-after'], 10);
-    return { status: 'fail', response: errMsg, time: result.elapsed, tokens: 0, statusCode: result.status, retryAfter: isNaN(ra) ? 0 : ra };
+    return { status: 'fail', response: errMsg, time: result.elapsed, tokens: 0, statusCode: result.status, retryAfter: isNaN(ra) ? 0 : ra, keyId: key.id };
   } catch (err) {
-    return { status: 'fail', response: err.error || err.message || 'Request failed', time: err.elapsed || 0, tokens: 0, cancelled: !!err.cancelled, networkError: !err.cancelled };
+    return { status: 'fail', response: err.error || err.message || 'Request failed', time: err.elapsed || 0, tokens: 0, cancelled: !!err.cancelled, networkError: !err.cancelled, keyId: key.id };
   }
 }
 
@@ -1135,7 +1200,7 @@ function resultRank(r) {
 
 // Fire `count` parallel attempts; resolve as soon as one returns a non-empty pass
 // (cancelling the rest). If none do, wait for all and resolve with the best result.
-function raceAttempts(model, apiKey, baseUrl, stream, count) {
+function raceAttempts(model, provider, stream, count) {
   return new Promise((resolve) => {
     const ids = [];
     let pending = count;
@@ -1146,7 +1211,7 @@ function raceAttempts(model, apiKey, baseUrl, stream, count) {
     for (let i = 0; i < count; i++) {
       const id = nextRequestId();
       ids.push(id);
-      attemptOnce(model, apiKey, baseUrl, stream, id).then((r) => {
+      attemptOnce(model, provider, stream, id).then((r) => {
         pending -= 1;
         if (settled) return;
         if (r.status === 'pass' && !r.isEmpty) {
@@ -1170,7 +1235,7 @@ function raceAttempts(model, apiKey, baseUrl, stream, count) {
 // non-empty answer wins (cancel the rest). An empty 200 is deterministic per
 // model, so we stop escalating once we see one and resolve with the best result.
 // A hard per-kind deadline prevents a pathologically slow model from hanging.
-function adaptiveNonStream(model, apiKey, baseUrl) {
+function adaptiveNonStream(model, provider) {
   const { deadline, hedge } = KIND_SETTINGS[model.kind] || KIND_SETTINGS.chat;
   const maxAttempts = hedge ? HEDGE_MAX : 1;
   return new Promise((resolve) => {
@@ -1199,7 +1264,7 @@ function adaptiveNonStream(model, apiKey, baseUrl) {
       inflight += 1;
       const id = nextRequestId();
       ids.push(id);
-      attemptOnce(model, apiKey, baseUrl, false, id).then((r) => {
+      attemptOnce(model, provider, false, id).then((r) => {
         inflight -= 1;
         if (settled) return;
         // Stop was pressed. Every attempt comes back `cancelled`, which sets
@@ -1233,7 +1298,7 @@ function adaptiveNonStream(model, apiKey, baseUrl) {
 // ============================================
 // Test a single model — adaptive hedge, handles reasoning, empty, rate limits
 // ============================================
-async function testModel(model, apiKey, baseUrl) {
+async function testModel(model, provider) {
   let transientRetries = 0;
   let emptyRetried = false;
   let rateLimitWaits = 0;
@@ -1245,16 +1310,16 @@ async function testModel(model, apiKey, baseUrl) {
   const done = (r) => ({ ...r, attempts: rounds });
 
   while (true) {
-    // An earlier model may have parked the whole run behind a rate-limit window.
-    if (rateLimitUntil > Date.now()) {
+    // Every key may still be cooling from an earlier model's 429.
+    if (soonestKeyAvailable(provider) > Date.now()) {
       updateResultRow(model, { status: 'running', waiting: true, time: null, tokens: null });
-      await waitForRateLimitWindow();
+      await waitForAnyKey(provider);
       updateResultRow(model, RUNNING_RESULT);
     }
     if (abortTesting) return done({ status: 'fail', response: 'Aborted', time: 0, tokens: 0 });
     rounds += 1;
 
-    const r = await adaptiveNonStream(model, apiKey, baseUrl);
+    const r = await adaptiveNonStream(model, provider);
 
     if (r.status === 'pass' && !r.isEmpty) return done(r);
 
@@ -1265,7 +1330,7 @@ async function testModel(model, apiKey, baseUrl) {
       // Empty on the non-streaming endpoint: some models (byNara event-stream)
       // deliver content only over SSE — try streaming.
       if (abortTesting) return done(r);
-      const streamed = await raceAttempts(model, apiKey, baseUrl, true, STREAM_HEDGE);
+      const streamed = await raceAttempts(model, provider, true, STREAM_HEDGE);
       if (streamed.status === 'pass' && !streamed.isEmpty) return done(streamed);
       // Both empty. Empty can be flaky, so retry the whole model once.
       if (!emptyRetried && !abortTesting) {
@@ -1276,11 +1341,12 @@ async function testModel(model, apiKey, baseUrl) {
       return done(r);
     }
 
-    // Rate limited. Park the whole run until the window rolls over and try this
-    // model again — it never gets recorded as a failure for being throttled.
-    if (isRateLimit(r) && rateLimitWaits < MAX_RATE_LIMIT_WAITS && !abortTesting) {
+    // Rate limited. Cool that key down and try again — with a second key the run
+    // simply moves onto it, and only waits when every key is capped. Being
+    // throttled never gets recorded as the model's failure.
+    if ((isRateLimit(r) || r.allKeysCooling) && rateLimitWaits < MAX_RATE_LIMIT_WAITS && !abortTesting) {
       rateLimitWaits += 1;
-      scheduleRateLimitWait(r);
+      if (r.keyId) coolKeyDown(r.keyId, r);
       continue;
     }
     if (isRateLimit(r)) {
@@ -1404,19 +1470,15 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
   if (list.length === 0 || isTesting) return;
 
   const p = PROVIDERS[activeProvider];
-  const activeKeys = usableKeys(p);
-  if (activeKeys.length === 0) {
+  if (usableKeys(p).length === 0) {
     setStatus('error', 'No active API keys');
     return;
   }
 
-  const apiKey = activeKeys[0].key;
-  const baseUrl = p.baseUrl;
-
   isTesting = true;
   abortTesting = false;
   inflightIds.clear();
-  rateLimitUntil = 0;
+  keyCooldownUntil.clear();
 
   if (reset) {
     testResults = [];
@@ -1440,7 +1502,7 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
   let done = 0;
   for (const model of list) {
     if (abortTesting) break;
-    const result = await testModel(model, apiKey, baseUrl);
+    const result = await testModel(model, p);
     if (abortTesting) break;
     recordResult(model, result, p.name);
     updateResultRow(model, result);
@@ -2167,17 +2229,19 @@ function openProviderModal(id) {
     submitBtn.textContent = 'Save Changes';
     $('#provider-name-input').value = p.name;
     $('#provider-url-input').value = p.baseUrl;
+    $('#provider-rpm-input').value = p.rpm ?? '';
   } else {
     title.textContent = 'Add Provider';
     submitBtn.textContent = 'Add Provider';
     $('#provider-name-input').value = '';
     $('#provider-url-input').value = '';
+    $('#provider-rpm-input').value = '';
   }
   $('#add-provider-modal').style.display = 'flex';
   setTimeout(() => $('#provider-name-input').focus(), 100);
 }
 
-async function updateProvider(id, { name, baseUrl }) {
+async function updateProvider(id, { name, baseUrl, rpm }) {
   const p = PROVIDERS[id];
   if (!p) return false;
   name = (name || '').trim();
@@ -2201,6 +2265,7 @@ async function updateProvider(id, { name, baseUrl }) {
   }
   p.name = name;
   p.baseUrl = baseUrl;
+  p.rpm = Number.isFinite(rpm) && rpm > 0 ? rpm : null;
   await saveProviderConfig(id);
   renderProviderTabs();
   setStatus('done', `Provider "${name}" updated`);
@@ -2211,6 +2276,7 @@ function closeAddProviderModal() {
   $('#add-provider-modal').style.display = 'none';
   $('#provider-name-input').value = '';
   $('#provider-url-input').value = '';
+  $('#provider-rpm-input').value = '';
   editingProviderId = null;
 }
 
@@ -2218,9 +2284,11 @@ $('#btn-add-provider').addEventListener('click', () => openProviderModal(null));
 $('#provider-modal-close').addEventListener('click', closeAddProviderModal);
 $('#provider-modal-cancel').addEventListener('click', closeAddProviderModal);
 $('#provider-modal-add').addEventListener('click', async () => {
+  const rpmRaw = $('#provider-rpm-input').value.trim();
   const payload = {
     name: $('#provider-name-input').value,
     baseUrl: $('#provider-url-input').value,
+    rpm: rpmRaw === '' ? null : Number(rpmRaw),
   };
   const ok = editingProviderId
     ? await updateProvider(editingProviderId, payload)

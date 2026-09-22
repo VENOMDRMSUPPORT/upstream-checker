@@ -12,6 +12,10 @@ window.INTEGRATED_PROVIDERS.nara = {
     baseUrl: 'https://router.bynara.id/v1',
     plansUrl: 'https://router.bynara.id/api/plans',
     pricingUrl: 'https://router.bynara.id/api/pricing',
+    // NaraRouter's documented default for pay-as-you-go. Editable per provider,
+    // since a paid plan raises it — the app paces against this rather than
+    // discovering the cap by being refused.
+    rpm: 30,
     color: '#00d4ff',
     logo: '../assets/providers/nara.svg',
     modelsEndpoint: '/models',

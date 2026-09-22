@@ -353,6 +353,13 @@
           <label class="config-label">Base URL (OpenAI-compatible)</label>
           <input type="text" class="config-input" id="provider-url-input" placeholder="https://api.example.com/v1">
         </div>
+        <div class="config-group">
+          <label class="config-label">
+            Requests per minute
+            <span class="hint" title="The cap your plan allows. Requests are paced to stay under it, which is cheaper than being refused and waiting out a full window. Leave empty if the provider publishes no limit.">?</span>
+          </label>
+          <input type="number" min="0" step="1" class="config-input" id="provider-rpm-input" placeholder="e.g. 30 — leave empty if uncapped">
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-ghost" id="provider-modal-cancel">Cancel</button>
