@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, safeStorage } = require('electron');
 const path = require('path');
 const https = require('https');
 const http = require('http');
@@ -13,6 +13,60 @@ const CONFIG_VERSION = 1;
 
 function getDefaultConfig() {
   return { version: CONFIG_VERSION, providers: {} };
+}
+
+// ============================================
+// API keys at rest
+// ============================================
+// Keys are encrypted in config.json with the OS keystore (DPAPI on Windows), so
+// the file is useless to anything reading it off disk — another local process, a
+// cloud-synced copy of the folder, a backup. The renderer still receives and
+// works with plaintext: it has to build the Authorization header, so the key is
+// in its memory either way. This protects the file, not the process.
+//
+// The ciphertext is bound to this OS user on this machine. A config copied
+// elsewhere will not decrypt — that is the point, and it is handled below rather
+// than silently losing the key.
+const ENC_PREFIX = 'enc:v1:';
+
+function decryptKeyEntry(k) {
+  const stored = k.key;
+  if (typeof stored !== 'string' || !stored.startsWith(ENC_PREFIX)) return; // not yet migrated
+  try {
+    if (!safeStorage.isEncryptionAvailable()) throw new Error('OS encryption unavailable');
+    k.key = safeStorage.decryptString(Buffer.from(stored.slice(ENC_PREFIX.length), 'base64'));
+  } catch (err) {
+    // Wrong machine or wrong user. Hold on to the ciphertext so the next save
+    // can't overwrite it with an empty value, and flag it so the UI can say so.
+    log.warn(`Could not decrypt key "${k.name}": ${err.message}`);
+    k.key = '';
+    k.cipher = stored;
+    k.locked = true;
+  }
+}
+
+function encryptKeyEntry(k) {
+  if (k.locked && k.cipher) {
+    k.key = k.cipher; // never decrypted this session — put it back untouched
+    delete k.cipher;
+    delete k.locked;
+    return;
+  }
+  delete k.cipher;
+  delete k.locked;
+  if (typeof k.key !== 'string' || k.key === '' || k.key.startsWith(ENC_PREFIX)) return;
+  if (!safeStorage.isEncryptionAvailable()) {
+    log.warn('OS encryption unavailable — storing the API key as plaintext');
+    return; // leave it readable rather than write something we can't get back
+  }
+  k.key = ENC_PREFIX + safeStorage.encryptString(k.key).toString('base64');
+}
+
+function eachStoredKey(data, fn) {
+  Object.values(data?.providers || {}).forEach((p) => {
+    if (Array.isArray(p.keys)) p.keys.forEach(fn);
+  });
+  return data;
 }
 
 // Config file helpers
@@ -33,7 +87,7 @@ function readConfig() {
     const parsed = JSON.parse(fs.readFileSync(cp, 'utf-8'));
     if (typeof parsed.version !== 'number') parsed.version = CONFIG_VERSION;
     if (!parsed.providers || typeof parsed.providers !== 'object') parsed.providers = {};
-    return parsed;
+    return eachStoredKey(parsed, decryptKeyEntry);
   } catch (err) {
     log.error('Failed to read config:', err);
     return getDefaultConfig();
@@ -45,6 +99,25 @@ function ensureConfig() {
   if (!fs.existsSync(cp)) writeConfig(getDefaultConfig());
 }
 
+// Encrypt keys written by an older build. Without this, existing keys would stay
+// readable on disk until the user happened to save something.
+function migrateConfigSecrets() {
+  try {
+    const cp = getConfigPath();
+    if (!fs.existsSync(cp)) return;
+    const raw = JSON.parse(fs.readFileSync(cp, 'utf-8'));
+    let plaintext = 0;
+    eachStoredKey(raw, (k) => {
+      if (typeof k.key === 'string' && k.key !== '' && !k.key.startsWith(ENC_PREFIX)) plaintext += 1;
+    });
+    if (plaintext === 0) return;
+    log.info(`Encrypting ${plaintext} API key(s) previously stored as plaintext`);
+    writeConfig(readConfig());
+  } catch (err) {
+    log.error('Failed to migrate stored keys:', err);
+  }
+}
+
 function writeConfig(data) {
   try {
     const cp = getConfigPath();
@@ -52,7 +125,9 @@ function writeConfig(data) {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    fs.writeFileSync(cp, JSON.stringify(data, null, 2), 'utf-8');
+    // Encrypt a copy — the caller keeps working with the plaintext it passed in.
+    const onDisk = eachStoredKey(structuredClone(data), encryptKeyEntry);
+    fs.writeFileSync(cp, JSON.stringify(onDisk, null, 2), 'utf-8');
     return { success: true };
   } catch (err) {
     log.error('Failed to write config:', err);
@@ -184,6 +259,7 @@ function stopUpdateChecks() {
 
 app.whenReady().then(() => {
   ensureConfig();
+  migrateConfigSecrets();
   initAutoUpdater();
   createWindow();
   startUpdateChecks();

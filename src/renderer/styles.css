@@ -1331,6 +1331,24 @@ html, body {
   background: var(--accent-bg);
 }
 
+/* Stored ciphertext this machine's keystore can't open */
+.key-item.unreadable {
+  border-color: rgba(245, 158, 11, 0.3);
+  background: var(--warn-bg);
+}
+
+.key-masked.unreadable {
+  color: var(--warn);
+  font-family: 'Inter', sans-serif;
+  font-size: 10.5px;
+}
+
+.key-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+  background: transparent;
+}
+
 .key-header {
   display: flex;
   align-items: center;

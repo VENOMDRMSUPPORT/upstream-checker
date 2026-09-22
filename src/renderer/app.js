@@ -372,13 +372,14 @@ function renderKeysList() {
   container.innerHTML = p.keys
     .map(
       (k) => `
-    <div class="key-item ${k.active ? 'active' : ''}" data-key-id="${k.id}">
+    <div class="key-item ${k.locked ? 'unreadable' : k.active ? 'active' : ''}" data-key-id="${k.id}">
       <div class="key-header">
         <div class="key-name">${escapeHtml(k.name)}</div>
         <div class="key-actions">
-          <button class="key-icon-btn key-toggle-btn ${k.active ? 'active' : ''}" data-key-id="${k.id}"
-                  title="${k.active ? 'In use — click to disable' : 'Disabled — click to enable'}">
-            ${k.active ? ICON_UNLOCKED : ICON_LOCKED}
+          <button class="key-icon-btn key-toggle-btn ${k.active && !k.locked ? 'active' : ''}" data-key-id="${k.id}"
+                  ${k.locked ? 'disabled' : ''}
+                  title="${k.locked ? 'Unreadable on this machine' : k.active ? 'In use — click to disable' : 'Disabled — click to enable'}">
+            ${k.active && !k.locked ? ICON_UNLOCKED : ICON_LOCKED}
           </button>
           <button class="key-icon-btn key-delete-btn" data-key-id="${k.id}" title="Remove key">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -389,8 +390,10 @@ function renderKeysList() {
         </div>
       </div>
       <div class="key-value">
-        <span class="key-masked">${maskKey(k.key)}</span>
-        <button class="key-icon-btn key-copy-btn" data-key-id="${k.id}" title="Copy key">
+        <span class="key-masked ${k.locked ? 'unreadable' : ''}">${
+          k.locked ? 'Encrypted for another machine — re-add it' : maskKey(k.key)
+        }</span>
+        <button class="key-icon-btn key-copy-btn" data-key-id="${k.id}" title="Copy key" ${k.locked ? 'disabled' : ''}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <rect x="9" y="9" width="12" height="12" rx="2"/>
             <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
@@ -428,6 +431,12 @@ function renderKeysList() {
 
 // The key is only ever shown masked. Copy is the one way the full value leaves
 // the app, so it can't be shoulder-surfed off the screen.
+// A key flagged `locked` came out of config.json as ciphertext this machine
+// can't open, so there is nothing to send — it is excluded from every run.
+function usableKeys(p) {
+  return p.keys.filter((k) => k.active && !k.locked);
+}
+
 function maskKey(key) {
   if (!key) return '';
   const head = key.length <= 12 ? 6 : 10;
@@ -506,7 +515,7 @@ function getFreeGroupName(code) {
 
 $('#btn-fetch-models').addEventListener('click', async () => {
   const p = PROVIDERS[activeProvider];
-  const activeKeys = p.keys.filter((k) => k.active);
+  const activeKeys = usableKeys(p);
   if (activeKeys.length === 0) {
     setStatus('error', 'No active API keys. Add and activate a key first.');
     return;
@@ -771,7 +780,7 @@ function updateTestAllButton() {
     return;
   }
   const count = getSelectedModels().length;
-  const activeKeys = PROVIDERS[activeProvider].keys.filter((k) => k.active);
+  const activeKeys = usableKeys(PROVIDERS[activeProvider]);
   btn.innerHTML = `${TEST_ICON} Test Selected${count > 0 ? ` (${count})` : ''}`;
   btn.classList.remove('btn-stop');
   btn.disabled = count === 0 || activeKeys.length === 0;
@@ -1189,7 +1198,7 @@ async function runTests(list, { reset = true } = {}) {
   if (list.length === 0 || isTesting) return;
 
   const p = PROVIDERS[activeProvider];
-  const activeKeys = p.keys.filter((k) => k.active);
+  const activeKeys = usableKeys(p);
   if (activeKeys.length === 0) {
     setStatus('error', 'No active API keys');
     return;
