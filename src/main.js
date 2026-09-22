@@ -209,8 +209,11 @@ ipcMain.on('window-maximize', () => {
 });
 ipcMain.on('window-close', () => mainWindow?.close());
 
+// In-flight API requests by id, so the renderer can cancel hedged losers.
+const activeApiRequests = new Map();
+
 // API request handler
-ipcMain.handle('api-request', async (event, { url, method, headers, body }) => {
+ipcMain.handle('api-request', async (event, { url, method, headers, body, requestId }) => {
   return new Promise((resolve, reject) => {
     const startTime = Date.now();
     const urlObj = new URL(url);
@@ -226,10 +229,15 @@ ipcMain.handle('api-request', async (event, { url, method, headers, body }) => {
       timeout: 60000,
     };
 
+    const cleanup = () => {
+      if (requestId) activeApiRequests.delete(requestId);
+    };
+
     const req = client.request(options, (res) => {
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
+        cleanup();
         const elapsed = Date.now() - startTime;
         resolve({
           status: res.statusCode,
@@ -240,12 +248,22 @@ ipcMain.handle('api-request', async (event, { url, method, headers, body }) => {
       });
     });
 
+    if (requestId) activeApiRequests.set(requestId, req);
+
     req.on('error', (err) => {
+      cleanup();
       const elapsed = Date.now() - startTime;
+      // A cancelled hedge loser is expected — resolve quietly so it isn't logged
+      // as an unhandled handler error.
+      if (req.__cancelled) {
+        resolve({ status: 0, body: '', elapsed, headers: {}, cancelled: true });
+        return;
+      }
       reject({ error: err.message, elapsed });
     });
 
     req.on('timeout', () => {
+      cleanup();
       req.destroy();
       reject({ error: 'Request timed out', elapsed: Date.now() - startTime });
     });
@@ -253,6 +271,16 @@ ipcMain.handle('api-request', async (event, { url, method, headers, body }) => {
     if (body) req.write(typeof body === 'string' ? body : JSON.stringify(body));
     req.end();
   });
+});
+
+// Cancel an in-flight request (hedged loser) by id.
+ipcMain.on('cancel-api-request', (event, requestId) => {
+  const req = activeApiRequests.get(requestId);
+  if (req) {
+    activeApiRequests.delete(requestId);
+    req.__cancelled = true;
+    req.destroy();
+  }
 });
 
 // Open external links

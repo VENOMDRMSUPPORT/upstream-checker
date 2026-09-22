@@ -3,7 +3,6 @@
 // ============================================
 
 const DEFAULT_TEST_PROMPT = 'What is 2+2? Answer in one word.';
-const DEFAULT_MAX_TOKENS = 50;
 
 // Set app version from main process
 window.electronAPI.onAppVersion((version) => {
@@ -11,19 +10,12 @@ window.electronAPI.onAppVersion((version) => {
   if (versionEl) versionEl.textContent = `v${version}`;
 });
 
-// Built-in provider templates — code-defined, never mutated
-const BUILTIN_PROVIDERS = {
-  nara: {
-    id: 'nara',
-    name: 'NARA Router',
-    baseUrl: 'https://router.bynara.id/v1',
-    plansUrl: 'https://router.bynara.id/api/plans',
-    color: '#00d4ff',
-    modelsEndpoint: '/models',
-    plansEndpoint: '/api/plans',
-    chatEndpoint: '/chat/completions',
-  },
-};
+// Built-in providers register their metadata into window.INTEGRATED_PROVIDERS
+// (see src/renderer/providers/*.js, loaded before this file).
+const BUILTIN_PROVIDERS = {};
+Object.values(window.INTEGRATED_PROVIDERS || {}).forEach((entry) => {
+  BUILTIN_PROVIDERS[entry.meta.id] = { ...entry.meta };
+});
 
 const CUSTOM_COLORS = ['#7b2ff7', '#00e0a4', '#ff6b6b', '#ffb020', '#4dabf7', '#e64980'];
 
@@ -400,57 +392,17 @@ $('#btn-fetch-models').addEventListener('click', async () => {
   setStatus('running', 'Fetching models for this key...');
 
   try {
-    if (p.plansUrl) {
-      // Plan-aware provider (e.g. nara): fetch models + plans, keep only free tiers
-      const [modelsResult, plansResult] = await Promise.all([
-        window.electronAPI.apiRequest({
-          url: `${p.baseUrl}/models`,
-          method: 'GET',
-          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        }),
-        window.electronAPI.apiRequest({
-          url: p.plansUrl,
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
-        }),
-      ]);
-
-      if (modelsResult.status !== 200) throw new Error(`HTTP ${modelsResult.status}`);
-      const rawModels = JSON.parse(modelsResult.body).data || [];
-
-      let planModels = {};
-      if (plansResult.status === 200) {
-        JSON.parse(plansResult.body).data?.forEach((plan) => {
-          planModels[plan.code] = { name: plan.name, models: plan.models || [] };
-        });
-      }
-
-      const freeIds = new Set(planModels['free']?.models || []);
-      const freemiumIds = new Set(planModels['freemium']?.models || []);
-      const allowedIds = new Set([...freeIds, ...freemiumIds]);
-
-      models = rawModels
-        .filter((m) => allowedIds.has(m.id))
-        .map((m) => {
-          const isFree = freeIds.has(m.id);
-          const isFreeForPaid = !isFree && freemiumIds.has(m.id);
-          return {
-            ...m,
-            isFree,
-            isFreeForPaid,
-            noPlans: false,
-            groupName: getFreeGroupName(isFree ? 'free' : 'freemium'),
-            hasVision: !!m.vision,
-            hasReasoning: !!m.reasoning,
-            contextLabel: formatContext(m.context_window),
-          };
-        })
-        .sort((a, b) => {
-          if (a.isFree !== b.isFree) return a.isFree ? -1 : 1;
-          return a.id.localeCompare(b.id);
-        });
-
-      p.planModels = planModels;
+    const adapter = (window.INTEGRATED_PROVIDERS || {})[p.id];
+    if (adapter && adapter.fetchModels) {
+      // Integrated provider: delegate discovery to its module
+      models = await adapter.fetchModels({
+        apiKey,
+        baseUrl: p.baseUrl,
+        plansUrl: p.plansUrl,
+        apiRequest: window.electronAPI.apiRequest,
+        formatContext,
+        getFreeGroupName,
+      });
     } else {
       // Plain OpenAI-compatible provider: show all models, no plan filtering
       const modelsResult = await window.electronAPI.apiRequest({
@@ -473,8 +425,6 @@ $('#btn-fetch-models').addEventListener('click', async () => {
           contextLabel: formatContext(m.context_window),
         }))
         .sort((a, b) => a.id.localeCompare(b.id));
-
-      p.planModels = {};
     }
 
     p.models = [...models];
@@ -586,23 +536,52 @@ function updateTestAllButton() {
 }
 
 // ============================================
-// Test a single model — robust, handles reasoning
+// Test reliability settings
 // ============================================
-async function testModel(model, apiKey, baseUrl) {
-  // Reasoning models need higher max_tokens + reasoning_effort
-  const isReasoning = model.hasReasoning;
-  const maxTokens = isReasoning ? 256 : DEFAULT_MAX_TOKENS;
+// Models are tested one at a time, in order. Each model starts with a SINGLE
+// request (cheap, stays within the per-minute limit). If it is slow, we escalate
+// automatically — firing another parallel attempt every HEDGE_STEP_MS up to
+// HEDGE_MAX — and the fastest correct answer wins, cancelling the rest. Fast
+// models cost one request; only slow ones fan out, so the result comes back ASAP.
+const HEDGE_MAX = 6;
+const HEDGE_STEP_MS = 2000;
+const MODEL_DEADLINE_MS = 75000; // hard cap per model so a stuck one can't block the run
+const STREAM_HEDGE = 2;          // parallel streaming attempts during empty recovery
+const MAX_TEST_RETRIES = 2;
+const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
 
+let requestSeq = 0;
+function nextRequestId() {
+  requestSeq += 1;
+  return `req_${Date.now()}_${requestSeq}`;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Backoff before retrying a hedge round; honors Retry-After (seconds) for 429.
+function retryDelay(attempt, result) {
+  if (result && result.statusCode === 429 && result.retryAfter) {
+    return Math.min(result.retryAfter * 1000, 10000);
+  }
+  return 600 * Math.pow(2, attempt) + Math.floor(Math.random() * 300);
+}
+
+// One single request. Returns a pass (content), an empty pass, or a fail carrying
+// statusCode/retryAfter so the caller can decide whether to retry.
+async function attemptOnce(model, apiKey, baseUrl, stream, requestId) {
+  // reasoning_effort:'low' is sent to every model — it is a no-op on non-reasoning
+  // models and clamps safely, but it makes reasoning-heavy models think briefly
+  // instead of burning time on a deep chain for a trivial prompt. ('minimal' is
+  // NOT safe — some models return empty under it — so 'low' is the floor.)
   const payload = {
     model: model.id,
     messages: [{ role: 'user', content: DEFAULT_TEST_PROMPT }],
-    max_tokens: maxTokens,
-    stream: false,
+    max_tokens: 512,
+    reasoning_effort: 'low',
+    stream: !!stream,
   };
-  // reasoning_effort: 'low' keeps thinking cheap while still giving an answer
-  if (isReasoning) {
-    payload.reasoning_effort = 'low';
-  }
 
   try {
     const result = await window.electronAPI.apiRequest({
@@ -610,43 +589,224 @@ async function testModel(model, apiKey, baseUrl) {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      requestId,
     });
 
+    // Cancelled hedge loser — ignore it (raceAttempts skips cancelled results).
+    if (result.cancelled) return { status: 'fail', response: 'cancelled', time: result.elapsed || 0, tokens: 0, cancelled: true };
+
     if (result.status === 200) {
-      const data = JSON.parse(result.body);
-      const choice = data.choices?.[0];
-      const usage = data.usage || {};
-
-      // Some reasoning models hide content but still succeed
-      let content = choice?.message?.content?.trim() || '';
-
-      // Also check reasoning_content (some providers use this field)
-      if (!content && choice?.message?.reasoning_content) {
-        content = choice.message.reasoning_content.trim();
-      }
-
-      // Empty content on reasoning model is still a valid pass
-      const isEmpty = !content;
+      const parsed = stream ? parseStreamedCompletion(result.body) : parseChatCompletion(result.body);
+      const usage = parsed.usage || {};
+      if (!parsed.content) return buildEmptyResult(usage, result.elapsed);
       return {
         status: 'pass',
-        response: isEmpty ? '(reasoning only — no visible output)' : content,
-        isEmpty,
+        response: parsed.content,
+        isEmpty: false,
         time: result.elapsed,
         tokens: (usage.prompt_tokens || 0) + (usage.completion_tokens || 0),
         promptTokens: usage.prompt_tokens || 0,
         completionTokens: usage.completion_tokens || 0,
       };
-    } else {
-      let errMsg = `HTTP ${result.status}`;
-      try {
-        const errData = JSON.parse(result.body);
-        errMsg = errData.error?.message || errMsg;
-      } catch (_) {}
-      return { status: 'fail', response: errMsg, time: result.elapsed, tokens: 0, statusCode: result.status };
     }
+
+    let errMsg = `HTTP ${result.status}`;
+    try {
+      const errData = JSON.parse(result.body);
+      errMsg = errData.error?.message || errMsg;
+    } catch (_) {}
+    const ra = parseInt(result.headers?.['retry-after'], 10);
+    return { status: 'fail', response: errMsg, time: result.elapsed, tokens: 0, statusCode: result.status, retryAfter: isNaN(ra) ? 0 : ra };
   } catch (err) {
-    return { status: 'fail', response: err.error || err.message || 'Request failed', time: err.elapsed || 0, tokens: 0 };
+    return { status: 'fail', response: err.error || err.message || 'Request failed', time: err.elapsed || 0, tokens: 0, cancelled: !!err.cancelled, networkError: !err.cancelled };
   }
+}
+
+// non-empty pass > empty pass > fail
+function resultRank(r) {
+  if (r.status === 'pass' && !r.isEmpty) return 3;
+  if (r.status === 'pass' && r.isEmpty) return 2;
+  return 1;
+}
+
+// Fire `count` parallel attempts; resolve as soon as one returns a non-empty pass
+// (cancelling the rest). If none do, wait for all and resolve with the best result.
+function raceAttempts(model, apiKey, baseUrl, stream, count) {
+  return new Promise((resolve) => {
+    const ids = [];
+    let pending = count;
+    let best = null;
+    let settled = false;
+    const cancelRest = () => ids.forEach((id) => window.electronAPI.cancelApiRequest(id));
+
+    for (let i = 0; i < count; i++) {
+      const id = nextRequestId();
+      ids.push(id);
+      attemptOnce(model, apiKey, baseUrl, stream, id).then((r) => {
+        pending -= 1;
+        if (settled) return;
+        if (r.status === 'pass' && !r.isEmpty) {
+          settled = true;
+          cancelRest();
+          resolve(r);
+          return;
+        }
+        if (!r.cancelled && (!best || resultRank(r) > resultRank(best))) best = r;
+        if (pending === 0) {
+          settled = true;
+          resolve(best || r);
+        }
+      });
+    }
+  });
+}
+
+// Adaptive non-streaming hedge: start with one request; if it is slow, fire
+// another parallel attempt every HEDGE_STEP_MS (up to HEDGE_MAX). The first
+// non-empty answer wins (cancel the rest). An empty 200 is deterministic per
+// model, so we stop escalating once we see one and resolve with the best result.
+// A hard MODEL_DEADLINE_MS cap prevents a pathologically slow model from hanging.
+function adaptiveNonStream(model, apiKey, baseUrl) {
+  return new Promise((resolve) => {
+    const ids = [];
+    let settled = false;
+    let best = null;
+    let inflight = 0;
+    let launched = 0;
+    let stop = false; // stop launching new attempts (saw an empty, or aborted)
+    let stepTimer = null;
+    let deadlineTimer = null;
+
+    const cancelAll = () => ids.forEach((id) => window.electronAPI.cancelApiRequest(id));
+    const finish = (r) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(stepTimer);
+      clearTimeout(deadlineTimer);
+      cancelAll();
+      resolve(r);
+    };
+
+    const launch = () => {
+      if (settled || stop || abortTesting || launched >= HEDGE_MAX) return;
+      launched += 1;
+      inflight += 1;
+      const id = nextRequestId();
+      ids.push(id);
+      attemptOnce(model, apiKey, baseUrl, false, id).then((r) => {
+        inflight -= 1;
+        if (settled) return;
+        if (r.status === 'pass' && !r.isEmpty) return finish(r); // fastest correct wins
+        if (!r.cancelled && (!best || resultRank(r) > resultRank(best))) best = r;
+        // A completed non-win result (empty or failure) means the model isn't just
+        // slow — stop fanning out. Escalation is only for slowness (pending attempts);
+        // an empty goes to streaming and a failure (e.g. 429) is retried with backoff
+        // by testModel, so we must not keep firing requests at it here.
+        if (!r.cancelled) {
+          stop = true;
+          clearTimeout(stepTimer);
+        }
+        if (inflight === 0 && (stop || launched >= HEDGE_MAX)) finish(best);
+      });
+      if (!stop && launched < HEDGE_MAX) stepTimer = setTimeout(launch, HEDGE_STEP_MS);
+    };
+
+    deadlineTimer = setTimeout(
+      () => finish(best || { status: 'fail', response: 'Timed out', time: MODEL_DEADLINE_MS, tokens: 0, statusCode: 0, timedOut: true }),
+      MODEL_DEADLINE_MS
+    );
+
+    launch();
+  });
+}
+
+// ============================================
+// Test a single model — adaptive hedge, handles reasoning, empty, rate limits
+// ============================================
+async function testModel(model, apiKey, baseUrl) {
+  let transientRetries = 0;
+  let emptyRetried = false;
+
+  while (true) {
+    if (abortTesting) return { status: 'fail', response: 'Aborted', time: 0, tokens: 0 };
+
+    const r = await adaptiveNonStream(model, apiKey, baseUrl);
+
+    if (r.status === 'pass' && !r.isEmpty) return r;
+
+    if (r.status === 'pass' && r.isEmpty) {
+      // Empty on the non-streaming endpoint: some models (byNara event-stream)
+      // deliver content only over SSE — try streaming.
+      if (abortTesting) return r;
+      const streamed = await raceAttempts(model, apiKey, baseUrl, true, STREAM_HEDGE);
+      if (streamed.status === 'pass' && !streamed.isEmpty) return streamed;
+      // Both empty. Empty can be flaky, so retry the whole model once.
+      if (!emptyRetried && !abortTesting) {
+        emptyRetried = true;
+        await sleep(500);
+        continue;
+      }
+      return r;
+    }
+
+    // A failure. Retry on transient errors (429/5xx/network), honoring Retry-After
+    // so we back off the per-minute limit instead of failing outright.
+    const retryable = (r.statusCode && RETRYABLE_STATUS.has(r.statusCode)) || r.networkError;
+    if (retryable && transientRetries < MAX_TEST_RETRIES && !abortTesting) {
+      await sleep(retryDelay(transientRetries, r));
+      transientRetries++;
+      continue;
+    }
+    return r;
+  }
+}
+
+// Parse a non-streaming chat completion body into { content, usage }.
+function parseChatCompletion(body) {
+  const data = JSON.parse(body);
+  const choice = data.choices?.[0];
+  let content = choice?.message?.content?.trim() || '';
+  if (!content && choice?.message?.reasoning_content) {
+    content = choice.message.reasoning_content.trim();
+  }
+  return { content, usage: data.usage || {} };
+}
+
+// Parse an SSE (stream:true) chat completion body: concatenate delta.content
+// across chunks and read usage from the final chunk.
+function parseStreamedCompletion(body) {
+  let content = '';
+  let usage = null;
+  for (const line of (body || '').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('data:')) continue;
+    const payload = trimmed.slice(5).trim();
+    if (!payload || payload === '[DONE]') continue;
+    let chunk;
+    try {
+      chunk = JSON.parse(payload);
+    } catch (_) {
+      continue;
+    }
+    const delta = chunk.choices?.[0]?.delta;
+    if (delta?.content) content += delta.content;
+    if (chunk.usage) usage = chunk.usage;
+  }
+  return { content: content.trim(), usage: usage || {} };
+}
+
+// An empty 200 (no content even after streaming recovery) is a real outcome:
+// the provider returned no text. Report it honestly rather than as a plain pass.
+function buildEmptyResult(usage, elapsed) {
+  return {
+    status: 'pass',
+    response: 'No content returned by provider',
+    isEmpty: true,
+    time: elapsed,
+    tokens: (usage.prompt_tokens || 0) + (usage.completion_tokens || 0),
+    promptTokens: usage.prompt_tokens || 0,
+    completionTokens: usage.completion_tokens || 0,
+  };
 }
 
 // ============================================
@@ -675,15 +835,19 @@ $('#btn-test-all').addEventListener('click', async () => {
   initResultsTable();
   $('#btn-test-all').innerHTML = '<span class="spinner"></span> Testing...';
 
+  // Pre-create rows in selection order; each is filled in turn, top to bottom.
+  selected.forEach((model) =>
+    addResultRow(model, { status: 'running', time: 0, response: 'Testing...', tokens: '-' })
+  );
+
+  // Sequential, in order: each model is fully resolved before the next starts, so
+  // results appear top-to-bottom (never out of order) and only one request is in
+  // flight at a time — well within the provider's per-minute request limit.
   for (let i = 0; i < selected.length; i++) {
     if (abortTesting) break;
-
     const model = selected[i];
-    addResultRow(model, { status: 'running', time: 0, response: 'Testing...', tokens: '-' });
-
     const result = await testModel(model, apiKey, baseUrl);
     if (abortTesting) break;
-
     testResults.push({ model: model.id, ...result, provider: p.name, group: model.groupName || '' });
     updateResultRow(model, result);
     updateStats();
@@ -785,7 +949,7 @@ function buildRowHtml(model, result) {
   const responseHtml = isRunning
     ? `<span class="response-placeholder">Testing...</span>`
     : result.isEmpty
-      ? `<span class="response-empty">Empty</span>`
+      ? `<span class="response-empty">${escapeHtml((result.response || 'Empty').slice(0, 120))}</span>`
       : escapeHtml(result.response.slice(0, 120));
   const responseTitle = escapeHtml(result.response || '');
 

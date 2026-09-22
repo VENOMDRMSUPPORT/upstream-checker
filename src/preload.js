@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // API requests
   apiRequest: (opts) => ipcRenderer.invoke('api-request', opts),
+  cancelApiRequest: (requestId) => ipcRenderer.send('cancel-api-request', requestId),
   openExternal: (url) => ipcRenderer.send('open-external', url),
 
   // App info
