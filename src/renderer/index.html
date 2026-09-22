@@ -3,12 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline';">
+  <!-- script-src has no 'unsafe-inline': the app carries no inline script, so a
+       string that reached innerHTML still could not execute. Fonts are bundled,
+       so nothing is fetched from the network to render the UI. 'unsafe-inline'
+       stays on style-src only — element .style properties and a few style
+       attributes rely on it. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'none'; script-src 'self';">
   <title>Upstream Checker</title>
   <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="fonts.css">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -35,6 +38,12 @@
       </button>
     </div>
     <div class="titlebar-controls">
+      <button class="titlebar-btn" id="btn-settings" title="Settings">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+        </svg>
+      </button>
       <button class="titlebar-btn" id="btn-minimize" title="Minimize">
         <svg width="12" height="12" viewBox="0 0 12 12"><rect y="5" width="12" height="1.5" fill="currentColor"/></svg>
       </button>
@@ -90,24 +99,18 @@
       <div class="sidebar-section">
         <div class="section-label">
           API KEYS
-          <span class="model-count" id="key-count">0</span>
+          <button class="section-action-btn" id="btn-add-key" title="Add API key">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </button>
         </div>
         <div class="keys-list" id="keys-list">
           <div class="models-empty">
             <span>No keys added</span>
           </div>
         </div>
-        <button class="btn btn-primary btn-full" id="btn-add-key" style="margin-top:8px">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
-          Add API Key
-        </button>
-      </div>
-
-      <!-- Fetch Models -->
-      <div class="sidebar-section">
-        <button class="btn btn-primary btn-full" id="btn-fetch-models">
+        <button class="btn btn-primary btn-full" id="btn-fetch-models" style="margin-top:10px">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 12a9 9 0 11-6.219-8.56"/>
             <polyline points="22 2 22 8 16 8"/>
@@ -121,6 +124,11 @@
         <div class="section-label">
           MODELS
           <span class="model-count" id="model-count">0</span>
+        </div>
+        <div class="models-toolbar">
+          <input type="text" class="models-search" id="models-search" placeholder="Filter…" autocomplete="off" spellcheck="false">
+          <button class="btn-mini" id="btn-select-all" title="Select all matching models">All</button>
+          <button class="btn-mini" id="btn-select-none" title="Deselect all matching models">None</button>
         </div>
         <div class="models-list" id="models-list">
           <div class="models-empty">
@@ -140,30 +148,12 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polygon points="5 3 19 12 5 21 5 3"/>
           </svg>
-          Test All Models
+          Test Selected
         </button>
-        <div class="footer-actions">
-          <button class="btn btn-ghost" id="btn-export-csv" title="Export CSV">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-              <polyline points="7 10 12 15 17 10"/>
-              <line x1="12" y1="15" x2="12" y2="3"/>
-            </svg>
-          </button>
-          <button class="btn btn-ghost" id="btn-export-json" title="Export JSON">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-            </svg>
-          </button>
-          <button class="btn btn-ghost" id="btn-clear-results" title="Clear Results">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="3 6 5 6 21 6"/>
-              <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
-            </svg>
-          </button>
-        </div>
       </div>
+
+      <div class="sidebar-resizer" id="sidebar-resizer"
+           title="Drag to narrow · drag all the way to hide · double-click to toggle"></div>
     </aside>
 
     <!-- Main Content -->
@@ -171,6 +161,11 @@
       <!-- Status Bar -->
       <div class="status-bar" id="status-bar">
         <div class="status-left">
+          <button class="sidebar-restore" id="sidebar-restore" title="Show sidebar" style="display:none">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M9 18l6-6-6-6"/>
+            </svg>
+          </button>
           <div class="status-indicator" id="status-indicator">
             <span class="status-dot idle"></span>
             <span class="status-text" id="status-text">Ready</span>
@@ -187,7 +182,8 @@
             <span class="stat-value stat-pass" id="stat-pass">0</span>
           </div>
           <div class="stat-divider"></div>
-          <div class="stat-item">
+          <!-- Clickable: filters the table down to failures and back. -->
+          <div class="stat-item stat-item-toggle" id="filter-failed" title="Show only failed / empty responses">
             <span class="stat-label">Failed</span>
             <span class="stat-value stat-fail" id="stat-fail">0</span>
           </div>
@@ -195,6 +191,36 @@
           <div class="stat-item">
             <span class="stat-label">Avg Time</span>
             <span class="stat-value" id="stat-avg-time">-</span>
+          </div>
+          <div class="stat-divider"></div>
+          <!-- These act on the results table, so they live next to it rather than
+               at the bottom of the models sidebar. -->
+          <div class="results-actions">
+            <button class="btn btn-ghost" id="btn-retry-failed" title="Retry failed / not-tested models" disabled>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 12a9 9 0 11-6.219-8.56"/>
+                <polyline points="22 2 22 8 16 8"/>
+              </svg>
+            </button>
+            <button class="btn btn-ghost" id="btn-export-csv" title="Export CSV">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+            </button>
+            <button class="btn btn-ghost" id="btn-export-json" title="Export JSON">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+              </svg>
+            </button>
+            <button class="btn btn-ghost" id="btn-clear-results" title="Clear Results">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+              </svg>
+            </button>
           </div>
         </div>
       </div>
@@ -215,13 +241,17 @@
         <table class="results-table" id="results-table" style="display: none;">
           <thead>
             <tr>
-              <th class="th-status">STATUS</th>
-              <th class="th-model">MODEL</th>
+              <th class="th-status th-sortable" data-sort="status">STATUS</th>
+              <th class="th-model th-sortable" data-sort="model">MODEL</th>
               <th class="th-type">TYPE</th>
-              <th class="th-context">CONTEXT</th>
-              <th class="th-time">TIME</th>
-              <th class="th-tokens">TOKENS</th>
+              <th class="th-context th-sortable" data-sort="context">CONTEXT</th>
+              <th class="th-time th-sortable" data-sort="time">TIME</th>
+              <th class="th-tokens th-sortable" data-sort="tokens">TOKENS</th>
+              <th class="th-tps th-sortable" data-sort="tps" title="Completion tokens per second of total response time">TPS</th>
+              <th class="th-correct th-sortable" data-sort="correct" title="Whether the response contains the expected answer">OK?</th>
+              <th class="th-uptime th-sortable" data-sort="uptime" title="Share of recorded runs this model passed, newest run on the right">UPTIME</th>
               <th class="th-response">RESPONSE</th>
+              <th class="th-actions"></th>
             </tr>
           </thead>
           <tbody id="results-body"></tbody>
@@ -239,6 +269,291 @@
         </div>
       </div>
     </main>
+  </div>
+
+  <!-- Settings -->
+  <div class="settings-overlay" id="settings-overlay" style="display:none">
+    <div class="settings-panel">
+      <div class="settings-header">
+        <h2>Settings</h2>
+        <button class="modal-close" id="settings-close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="settings-body">
+        <nav class="settings-nav" id="settings-nav">
+          <button class="settings-nav-item active" data-section="sec-test">Test</button>
+          <button class="settings-nav-item" data-section="sec-schedule">Schedule</button>
+          <button class="settings-nav-item" data-section="sec-speed">Speed &amp; timeouts</button>
+          <button class="settings-nav-item" data-section="sec-reliability">Reliability</button>
+          <button class="settings-nav-item" data-section="sec-history">History</button>
+          <button class="settings-nav-item" data-section="sec-appearance">Appearance</button>
+          <button class="settings-nav-item" data-section="sec-logs">Diagnostics</button>
+          <button class="settings-nav-item" data-section="sec-data">Data</button>
+          <button class="settings-nav-item" data-section="sec-about">About</button>
+        </nav>
+
+        <div class="settings-content">
+          <!-- What the current configuration actually costs per run -->
+          <div class="settings-estimate" id="settings-estimate"></div>
+
+          <section class="settings-section" id="sec-test">
+            <h3>Test</h3>
+            <p class="settings-note">One prompt for every provider — that is what makes their results comparable.</p>
+
+            <div class="setting">
+              <label class="setting-label" for="prompt-input">Prompt</label>
+              <textarea class="prompt-input" id="prompt-input" rows="3" spellcheck="false"></textarea>
+            </div>
+
+            <div class="setting">
+              <label class="setting-label" for="expected-input">Expected answer</label>
+              <input type="text" class="prompt-input" id="expected-input" spellcheck="false">
+              <p class="setting-hint">Comma-separated alternatives, case-insensitive. Empty turns answer checking off.</p>
+            </div>
+
+            <div class="setting">
+              <label class="setting-label" for="media-prompt-input">Prompt for image and video generators</label>
+              <input type="text" class="prompt-input" id="media-prompt-input" spellcheck="false">
+              <p class="setting-hint">Generators pass by returning an asset, so there is no expected answer to match.</p>
+            </div>
+
+            <div class="setting">
+              <label class="setting-label" for="set-max-tokens">Output token limit</label>
+              <input type="number" min="1" step="1" class="prompt-input narrow" id="set-max-tokens">
+              <p class="setting-hint">A reasoning model can spend this whole budget thinking and return no content, which shows up as an empty response. Raise it if that happens.</p>
+            </div>
+
+            <button class="btn btn-ghost" id="btn-reset-prompt">Restore default prompt and answer</button>
+          </section>
+
+          <section class="settings-section" id="sec-schedule" hidden>
+            <h3>Schedule</h3>
+            <p class="settings-note">Unattended re-testing. Every run spends real API quota.</p>
+
+            <div class="setting">
+              <label class="setting-label" for="auto-test-select">Re-test the selected models</label>
+              <select class="prompt-input narrow" id="auto-test-select">
+                <option value="0">Off</option>
+                <option value="15">Every 15 minutes</option>
+                <option value="60">Every hour</option>
+                <option value="360">Every 6 hours</option>
+                <option value="1440">Every 24 hours</option>
+              </select>
+              <p class="setting-hint" id="auto-test-note"></p>
+            </div>
+
+            <label class="setting-check">
+              <input type="checkbox" id="set-skip-media">
+              <span>Leave image and video generators out of scheduled runs</span>
+            </label>
+            <p class="setting-hint">Without this, ticking a generator once means generating images on a timer, unattended.</p>
+
+            <label class="setting-check">
+              <input type="checkbox" id="set-notify-regression">
+              <span>Notify me when a model that was working stops</span>
+            </label>
+            <label class="setting-check">
+              <input type="checkbox" id="set-notify-complete">
+              <span>Notify me whenever a scheduled run finishes</span>
+            </label>
+          </section>
+
+          <section class="settings-section" id="sec-speed" hidden>
+            <h3>Speed and timeouts</h3>
+
+            <div class="setting">
+              <label class="setting-label">Latency colours</label>
+              <div class="setting-row">
+                <span class="swatch pass"></span> Green under
+                <input type="number" min="1" step="1" class="prompt-input tiny" id="set-time-good"> s
+                <span class="swatch warn"></span> Amber up to
+                <input type="number" min="1" step="1" class="prompt-input tiny" id="set-time-ok"> s
+                <span class="swatch fail"></span> Red beyond
+              </div>
+            </div>
+
+            <div class="setting">
+              <label class="setting-label">How long one model may take</label>
+              <div class="setting-row">
+                Chat <input type="number" min="5" step="5" class="prompt-input tiny" id="set-deadline-chat"> s
+                Image <input type="number" min="10" step="10" class="prompt-input tiny" id="set-deadline-image"> s
+                Video <input type="number" min="10" step="10" class="prompt-input tiny" id="set-deadline-video"> s
+              </div>
+              <p class="setting-hint">A generator legitimately needs minutes; a chat model that takes minutes is broken.</p>
+            </div>
+          </section>
+
+          <section class="settings-section" id="sec-reliability" hidden>
+            <h3>Reliability</h3>
+
+            <label class="setting-check">
+              <input type="checkbox" id="set-hedge-enabled">
+              <span>Race extra attempts at models that are being slow</span>
+            </label>
+            <p class="setting-hint">Rescues a model that is merely slow, and is the single biggest multiplier on what a run costs. Never applied to generators — they are supposed to be slow.</p>
+
+            <div class="setting-row indent">
+              At most <input type="number" min="1" max="20" step="1" class="prompt-input tiny" id="set-hedge-max"> attempts,
+              a new one every <input type="number" min="200" step="100" class="prompt-input tiny" id="set-hedge-step"> ms
+            </div>
+
+            <div class="setting">
+              <label class="setting-label" for="set-concurrency">Models tested at once</label>
+              <input type="number" min="1" max="6" step="1" class="prompt-input tiny" id="set-concurrency">
+              <p class="setting-hint">The only setting that shortens a run. Widening the hedge below spends more requests on one model without lowering that model&rsquo;s own latency; this works through the list faster. Each lane draws from the same per-key minute budget, so raising it past the number of keys mostly means more pacing.</p>
+            </div>
+
+            <div class="setting">
+              <label class="setting-label">Retries</label>
+              <div class="setting-row">
+                Transient errors (5xx, network)
+                <input type="number" min="0" max="10" step="1" class="prompt-input tiny" id="set-retries"> times
+              </div>
+              <div class="setting-row">
+                Rate limits — wait out up to
+                <input type="number" min="0" max="10" step="1" class="prompt-input tiny" id="set-rl-waits"> windows
+              </div>
+              <p class="setting-hint">Being rate limited is never recorded as the model failing; the run waits, or moves to another key.</p>
+            </div>
+          </section>
+
+          <section class="settings-section" id="sec-history" hidden>
+            <h3>History</h3>
+            <p class="settings-note">Uptime is computed from stored runs. Only verdicts are kept, never response text.</p>
+
+            <div class="setting-row">
+              Keep the last <input type="number" min="10" max="5000" step="10" class="prompt-input tiny" id="set-history-max"> runs
+            </div>
+            <div class="setting-row">
+              Show <input type="number" min="4" max="40" step="1" class="prompt-input tiny" id="set-spark-runs"> runs in the uptime bars
+            </div>
+
+            <div class="settings-actions">
+              <button class="btn btn-ghost" id="btn-export-history">Export history</button>
+              <button class="btn btn-ghost danger" id="btn-clear-history">Clear history</button>
+            </div>
+          </section>
+
+          <section class="settings-section" id="sec-appearance" hidden>
+            <h3>Appearance</h3>
+
+            <div class="setting">
+              <label class="setting-label">Theme</label>
+              <div class="theme-grid" id="theme-grid"></div>
+            </div>
+
+            <div class="setting">
+              <label class="setting-label">Accent</label>
+              <div class="swatch-row" id="accent-row"></div>
+            </div>
+
+            <div class="setting">
+              <label class="setting-label" for="set-density">Row density</label>
+              <select class="prompt-input narrow" id="set-density">
+                <option value="compact">Compact</option>
+                <option value="normal">Normal</option>
+                <option value="roomy">Roomy</option>
+              </select>
+              <p class="setting-hint">How much of the results table fits on screen at once.</p>
+            </div>
+          </section>
+
+          <section class="settings-section" id="sec-logs" hidden>
+            <h3>Diagnostics</h3>
+            <p class="settings-note">Records what was sent and what came back, so a failed test can be explained after the fact.</p>
+
+            <div class="setting">
+              <label class="setting-label" for="set-log-level">Log requests</label>
+              <select class="prompt-input narrow" id="set-log-level">
+                <option value="off">Off</option>
+                <option value="errors">Failures only</option>
+                <option value="all">Every request</option>
+              </select>
+              <p class="setting-hint">API keys are never written to the log — the Authorization header is replaced before anything reaches disk. Bodies are clipped at 4,000 characters and the file rotates at 5 MB.</p>
+            </div>
+
+            <div class="setting-row"><code class="settings-path" id="log-path">...</code></div>
+            <div class="settings-actions">
+              <button class="btn btn-ghost" id="btn-open-log">Show log file</button>
+              <button class="btn btn-ghost danger" id="btn-clear-log">Clear log</button>
+            </div>
+          </section>
+
+          <section class="settings-section" id="sec-about" hidden>
+            <h3>About</h3>
+
+            <div class="about-head">
+              <div class="about-mark">
+                <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                  <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                  <path d="M2 17l10 5 10-5"/>
+                  <path d="M2 12l10 5 10-5"/>
+                </svg>
+              </div>
+              <div>
+                <div class="about-name">Upstream Checker</div>
+                <div class="about-version">Version <span id="about-version">-</span></div>
+              </div>
+            </div>
+
+            <p class="settings-note">
+              Tests every model a provider offers against one prompt, and keeps the results
+              so the question stops being &ldquo;does this model work right now&rdquo; and becomes
+              &ldquo;is this model reliable&rdquo;.
+            </p>
+
+            <div class="setting">
+              <label class="setting-label">Providers</label>
+              <div class="about-providers" id="about-providers"></div>
+            </div>
+
+            <div class="setting">
+              <label class="setting-label">This install</label>
+              <div class="about-stats" id="about-stats"></div>
+            </div>
+
+            <div class="settings-actions">
+              <button class="btn btn-ghost" id="btn-check-updates">Check for updates</button>
+            </div>
+            <p class="setting-hint" id="about-update-note"></p>
+          </section>
+          <section class="settings-section" id="sec-data" hidden>
+            <h3>Data</h3>
+            <p class="settings-note">Settings, providers and encrypted keys live in one folder; history sits beside them.</p>
+            <div class="setting-row"><code class="settings-path" id="settings-path">...</code></div>
+            <div class="settings-actions">
+              <button class="btn btn-ghost" id="btn-open-data">Open folder</button>
+              <button class="btn btn-ghost danger" id="btn-reset-settings">Reset all settings</button>
+            </div>
+            <p class="setting-hint">Resetting settings leaves your providers, keys and history untouched.</p>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Full Response Modal -->
+  <div class="modal-overlay" id="response-modal" style="display:none">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h3 id="response-modal-title">Response</h3>
+        <button class="modal-close" id="response-modal-close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <pre class="response-full" id="response-modal-body"></pre>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="response-modal-copy">Copy</button>
+      </div>
+    </div>
   </div>
 
   <!-- Add Key Modal -->
@@ -288,6 +603,13 @@
         <div class="config-group">
           <label class="config-label">Base URL (OpenAI-compatible)</label>
           <input type="text" class="config-input" id="provider-url-input" placeholder="https://api.example.com/v1">
+        </div>
+        <div class="config-group">
+          <label class="config-label">
+            Requests per minute
+            <span class="hint" title="The cap your plan allows. Requests are paced to stay under it, which is cheaper than being refused and waiting out a full window. Leave empty if the provider publishes no limit.">?</span>
+          </label>
+          <input type="number" min="0" step="1" class="config-input" id="provider-rpm-input" placeholder="e.g. 30 — leave empty if uncapped">
         </div>
       </div>
       <div class="modal-footer">
@@ -351,6 +673,9 @@
 
   <script src="providers/nara.js"></script>
   <script src="providers/darkapi.js"></script>
+  <script src="providers/nexum.js"></script>
+  <script src="providers/mirai.js"></script>
+  <script src="providers/inception.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

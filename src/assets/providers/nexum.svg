@@ -1,0 +1,23 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="logoFrame" x1="4" y1="4" x2="60" y2="60" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#06b6d4" />
+      <stop offset="0.55" stop-color="#10b981" />
+      <stop offset="1" stop-color="#f59e0b" />
+    </linearGradient>
+    <linearGradient id="logoCore" x1="12" y1="12" x2="52" y2="52" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0f172a" />
+      <stop offset="1" stop-color="#020617" />
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="url(#logoFrame)" />
+  <rect x="8" y="8" width="48" height="48" rx="12" fill="url(#logoCore)" />
+  <path
+    d="M22 18h12c8.3 0 15 6.7 15 15s-6.7 15-15 15H22V18zm11 8h-1.5v12H33c4.6 0 7.5-2.8 7.5-6s-2.9-6-7.5-6z"
+    fill="#e2f7ff"
+  />
+  <circle cx="22" cy="22" r="3" fill="#06b6d4" />
+  <circle cx="46" cy="22" r="3" fill="#10b981" />
+  <circle cx="34" cy="46" r="3" fill="#f59e0b" />
+  <path d="M25 22h18M24 25l8 17M44 25l-8 17" stroke="rgba(226,247,255,0.6)" stroke-width="1.5" stroke-linecap="round" />
+</svg>

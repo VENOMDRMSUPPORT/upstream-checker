@@ -12,6 +12,10 @@ window.INTEGRATED_PROVIDERS.nara = {
     baseUrl: 'https://router.bynara.id/v1',
     plansUrl: 'https://router.bynara.id/api/plans',
     pricingUrl: 'https://router.bynara.id/api/pricing',
+    // NaraRouter's documented default for pay-as-you-go. Editable per provider,
+    // since a paid plan raises it — the app paces against this rather than
+    // discovering the cap by being refused.
+    rpm: 30,
     color: '#00d4ff',
     logo: '../assets/providers/nara.svg',
     modelsEndpoint: '/models',
@@ -55,6 +59,13 @@ window.INTEGRATED_PROVIDERS.nara = {
           isFreeForPaid,
           noPlans: false,
           groupName: getFreeGroupName(isFree ? 'free' : 'freemium'),
+          // Kept as the provider reported them; app.js reads the capability set
+          // off these rather than guessing from the model's name. NaraRouter is
+          // one of the few that says outright which models generate media.
+          supports_vision: m.supports_vision,
+          supports_image_generation: m.supports_image_generation,
+          supports_video_generation: m.supports_video_generation,
+          reasoning: m.reasoning,
           hasVision: !!m.supports_vision,
           hasReasoning: !!m.reasoning,
           context_window: m.max_context_tokens,

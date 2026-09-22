@@ -9,7 +9,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // API requests
   apiRequest: (opts) => ipcRenderer.invoke('api-request', opts),
   cancelApiRequest: (requestId) => ipcRenderer.send('cancel-api-request', requestId),
-  openExternal: (url) => ipcRenderer.send('open-external', url),
 
   // App info
   onAppVersion: (callback) => {
@@ -19,6 +18,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Config file operations
   readConfig: () => ipcRenderer.invoke('read-config'),
   writeConfig: (data) => ipcRenderer.invoke('write-config', data),
+
+  // Run history
+  readHistory: () => ipcRenderer.invoke('read-history'),
+  appendRun: (run, maxRuns) => ipcRenderer.invoke('append-run', run, maxRuns),
+  clearHistory: () => ipcRenderer.invoke('clear-history'),
+  getDataPath: () => ipcRenderer.invoke('get-data-path'),
+  openDataFolder: () => ipcRenderer.send('open-data-folder'),
+  readLogInfo: () => ipcRenderer.invoke('read-log-info'),
+  openRequestLog: () => ipcRenderer.send('open-request-log'),
+  clearRequestLog: () => ipcRenderer.invoke('clear-request-log'),
+  notifyRegression: (payload) => ipcRenderer.send('notify-regression', payload),
 
   // Update API
   updateAPI: {
