@@ -8,7 +8,8 @@
     "build": "electron-builder --win --x64",
     "build:portable": "electron-builder --win portable",
     "publish": "electron-builder --win --x64 --publish always",
-    "release": "node scripts/release.mjs"
+    "release": "node scripts/release.mjs",
+    "check:keystore": "electron scripts/keystore-check.js"
   },
   "build": {
     "publish": {

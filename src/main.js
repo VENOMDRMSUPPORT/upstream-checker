@@ -1,9 +1,16 @@
-const { app, BrowserWindow, ipcMain, shell, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const https = require('https');
 const http = require('http');
 const fs = require('fs');
 const log = require('electron-log');
+const {
+  ENC_PREFIX,
+  decryptKeyEntry,
+  encryptKeyEntry,
+  eachStoredKey,
+  countPlaintextKeys,
+} = require('./keystore');
 
 let autoUpdater; // Lazy load after app ready
 let updateCheckInterval;
@@ -15,59 +22,6 @@ function getDefaultConfig() {
   return { version: CONFIG_VERSION, providers: {} };
 }
 
-// ============================================
-// API keys at rest
-// ============================================
-// Keys are encrypted in config.json with the OS keystore (DPAPI on Windows), so
-// the file is useless to anything reading it off disk — another local process, a
-// cloud-synced copy of the folder, a backup. The renderer still receives and
-// works with plaintext: it has to build the Authorization header, so the key is
-// in its memory either way. This protects the file, not the process.
-//
-// The ciphertext is bound to this OS user on this machine. A config copied
-// elsewhere will not decrypt — that is the point, and it is handled below rather
-// than silently losing the key.
-const ENC_PREFIX = 'enc:v1:';
-
-function decryptKeyEntry(k) {
-  const stored = k.key;
-  if (typeof stored !== 'string' || !stored.startsWith(ENC_PREFIX)) return; // not yet migrated
-  try {
-    if (!safeStorage.isEncryptionAvailable()) throw new Error('OS encryption unavailable');
-    k.key = safeStorage.decryptString(Buffer.from(stored.slice(ENC_PREFIX.length), 'base64'));
-  } catch (err) {
-    // Wrong machine or wrong user. Hold on to the ciphertext so the next save
-    // can't overwrite it with an empty value, and flag it so the UI can say so.
-    log.warn(`Could not decrypt key "${k.name}": ${err.message}`);
-    k.key = '';
-    k.cipher = stored;
-    k.locked = true;
-  }
-}
-
-function encryptKeyEntry(k) {
-  if (k.locked && k.cipher) {
-    k.key = k.cipher; // never decrypted this session — put it back untouched
-    delete k.cipher;
-    delete k.locked;
-    return;
-  }
-  delete k.cipher;
-  delete k.locked;
-  if (typeof k.key !== 'string' || k.key === '' || k.key.startsWith(ENC_PREFIX)) return;
-  if (!safeStorage.isEncryptionAvailable()) {
-    log.warn('OS encryption unavailable — storing the API key as plaintext');
-    return; // leave it readable rather than write something we can't get back
-  }
-  k.key = ENC_PREFIX + safeStorage.encryptString(k.key).toString('base64');
-}
-
-function eachStoredKey(data, fn) {
-  Object.values(data?.providers || {}).forEach((p) => {
-    if (Array.isArray(p.keys)) p.keys.forEach(fn);
-  });
-  return data;
-}
 
 // Config file helpers
 function getConfigPath() {
@@ -87,7 +41,7 @@ function readConfig() {
     const parsed = JSON.parse(fs.readFileSync(cp, 'utf-8'));
     if (typeof parsed.version !== 'number') parsed.version = CONFIG_VERSION;
     if (!parsed.providers || typeof parsed.providers !== 'object') parsed.providers = {};
-    return eachStoredKey(parsed, decryptKeyEntry);
+    return eachStoredKey(parsed, (k) => decryptKeyEntry(k, log));
   } catch (err) {
     log.error('Failed to read config:', err);
     return getDefaultConfig();
@@ -106,10 +60,7 @@ function migrateConfigSecrets() {
     const cp = getConfigPath();
     if (!fs.existsSync(cp)) return;
     const raw = JSON.parse(fs.readFileSync(cp, 'utf-8'));
-    let plaintext = 0;
-    eachStoredKey(raw, (k) => {
-      if (typeof k.key === 'string' && k.key !== '' && !k.key.startsWith(ENC_PREFIX)) plaintext += 1;
-    });
+    const plaintext = countPlaintextKeys(raw);
     if (plaintext === 0) return;
     log.info(`Encrypting ${plaintext} API key(s) previously stored as plaintext`);
     writeConfig(readConfig());
@@ -126,8 +77,14 @@ function writeConfig(data) {
       fs.mkdirSync(dir, { recursive: true });
     }
     // Encrypt a copy — the caller keeps working with the plaintext it passed in.
-    const onDisk = eachStoredKey(structuredClone(data), encryptKeyEntry);
-    fs.writeFileSync(cp, JSON.stringify(onDisk, null, 2), 'utf-8');
+    const onDisk = eachStoredKey(structuredClone(data), (k) => encryptKeyEntry(k, log));
+    // Written to a temp file and renamed over the real one. A crash partway
+    // through an in-place write would truncate config.json, and now that the keys
+    // are encrypted there is no readable copy left to recover them from — the
+    // rename is atomic, so the file is either the old config or the new one.
+    const tmp = `${cp}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(onDisk, null, 2), 'utf-8');
+    fs.renameSync(tmp, cp);
     return { success: true };
   } catch (err) {
     log.error('Failed to write config:', err);

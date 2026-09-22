@@ -110,14 +110,22 @@ async function saveTestDefinition() {
   }
 }
 
+// Typing fires per keystroke, and a save now costs an OS keystore round trip for
+// every stored key plus a full config rewrite. Coalesce the writes.
+let saveTestTimer = null;
+function queueTestDefinitionSave() {
+  clearTimeout(saveTestTimer);
+  saveTestTimer = setTimeout(saveTestDefinition, 400);
+}
+
 $('#prompt-input').addEventListener('input', (e) => {
   testPrompt = e.target.value;
-  saveTestDefinition();
+  queueTestDefinitionSave();
 });
 
 $('#expected-input').addEventListener('input', (e) => {
   expectedAnswer = e.target.value;
-  saveTestDefinition();
+  queueTestDefinitionSave();
   // Existing rows are re-judged against the new answer without re-running them.
   if (tableRows.length > 0) renderResultsTable();
   updateStats();
@@ -129,6 +137,7 @@ $('#btn-reset-prompt').addEventListener('click', () => {
   expectedAnswer = DEFAULT_EXPECTED;
   $('#prompt-input').value = testPrompt;
   $('#expected-input').value = expectedAnswer;
+  clearTimeout(saveTestTimer);
   saveTestDefinition();
   if (tableRows.length > 0) renderResultsTable();
   updateStats();
@@ -197,11 +206,14 @@ async function loadAllProviders() {
     if (!s.custom || PROVIDERS[id]) return;
     const builtin = Object.values(PROVIDERS).find((p) => !p.custom && norm(p.baseUrl) === norm(s.baseUrl));
     if (builtin) {
-      const have = new Set(builtin.keys.map((k) => k.key));
+      // Undecryptable keys all read as '', so identify by ciphertext when present
+      // — otherwise merging would silently drop all but the first of them.
+      const identity = (k) => k.cipher || k.key;
+      const have = new Set(builtin.keys.map(identity));
       (s.keys || []).forEach((k) => {
-        if (!have.has(k.key)) {
+        if (!have.has(identity(k))) {
           builtin.keys.push(k);
-          have.add(k.key);
+          have.add(identity(k));
         }
       });
       delete stored[id];
