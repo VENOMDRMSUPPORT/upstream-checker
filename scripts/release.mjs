@@ -9,7 +9,7 @@
 // The GitHub token is taken from $GH_TOKEN / $GITHUB_TOKEN, or from the `gh` CLI
 // (`gh auth token`) if you are logged in. The token is never printed.
 import { execSync } from 'node:child_process';
-import { readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 
 const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 const tag = `v${version}`;
@@ -57,25 +57,44 @@ try {
 // 5. Build the installers and publish the release + assets to GitHub.
 run('electron-builder --win --x64 --publish always');
 
-// 6. Set the release notes from this version's CHANGELOG section (best-effort).
-//    The in-app update modal reads these as "What's New".
+// 6. Finalize the GitHub release (best-effort). electron-builder publishes each
+//    build target (nsis + portable) separately and can create a DUPLICATE release
+//    for the same tag, so keep the one with the most assets and delete the rest,
+//    then set the notes from the CHANGELOG (the in-app update modal shows these as
+//    "What's New"). Notes are sent as JSON on stdin to avoid quoting/CLI quirks.
+const REPO = 'VENOMDRMSUPPORT/upstream-checker';
 try {
-  const changelog = readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8');
-  const esc = version.replace(/\./g, '\\.');
-  const m = changelog.match(new RegExp('## \\[' + esc + '\\][^\\n]*\\n([\\s\\S]*?)(?=\\n## \\[)'));
-  const notes = m
-    ? m[1].split('\n').filter((l) => !l.startsWith('[' + version + ']:')).join('\n').trim()
-    : '';
-  if (notes) {
-    writeFileSync('.release-notes.tmp', notes);
-    run(`gh release edit ${tag} --notes-file .release-notes.tmp`);
-    rmSync('.release-notes.tmp', { force: true });
-    console.log('Release notes set from CHANGELOG.');
+  const releases = JSON.parse(capture(`gh api "repos/${REPO}/releases?per_page=100"`))
+    .filter((r) => r.tag_name === tag)
+    .sort((a, b) => (b.assets?.length || 0) - (a.assets?.length || 0));
+
+  if (releases.length === 0) {
+    console.log(`No GitHub release found for ${tag}; skipping notes.`);
   } else {
-    console.log(`No CHANGELOG section for ${version}; skipping release notes.`);
+    const keep = releases[0];
+    for (const dup of releases.slice(1)) {
+      console.log(`Deleting duplicate release ${dup.id} (${dup.assets?.length || 0} assets).`);
+      execSync(`gh api -X DELETE "repos/${REPO}/releases/${dup.id}"`, { stdio: 'ignore' });
+    }
+
+    const changelog = readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8');
+    const esc = version.replace(/\./g, '\\.');
+    const m = changelog.match(new RegExp('## \\[' + esc + '\\][^\\n]*\\n([\\s\\S]*?)(?=\\n## \\[)'));
+    const notes = m
+      ? m[1].split('\n').filter((l) => !l.startsWith('[' + version + ']:')).join('\n').trim()
+      : '';
+    if (notes) {
+      execSync(`gh api -X PATCH "repos/${REPO}/releases/${keep.id}" --input -`, {
+        input: JSON.stringify({ body: notes }),
+        stdio: ['pipe', 'ignore', 'ignore'],
+      });
+      console.log('Release notes set from CHANGELOG.');
+    } else {
+      console.log(`No CHANGELOG section for ${version}; skipping release notes.`);
+    }
   }
 } catch (err) {
-  console.warn('Could not set release notes (non-fatal):', err.message);
+  console.warn('Could not finalize release (non-fatal):', err.message);
 }
 
 console.log(`\nDone. Release: https://github.com/VENOMDRMSUPPORT/upstream-checker/releases/tag/${tag}`);
