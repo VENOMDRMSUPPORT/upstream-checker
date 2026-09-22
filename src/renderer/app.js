@@ -20,104 +20,7 @@ const NA = '—';
 const RESPONSE_PREVIEW = 160;
 
 
-// ============================================
-// Model capabilities
-// ============================================
-// Providers disagree about almost everything here. Checked against the live
-// endpoints of all five configured providers, the shapes actually in use are:
-//
-//   NaraRouter /api/pricing  supports_vision, supports_image_generation,
-//                            supports_video_generation, reasoning
-//   NaraRouter /v1/models    vision, reasoning
-//   Inception  /v1/models    input_modalities[], output_modalities[],
-//                            supported_features[] ("tools", "json_mode",
-//                            "structured_outputs")
-//   Nexum, Dark API, Mirai   nothing at all
-//
-// So two providers report capabilities and three report none. A model with no
-// declared capability is shown as having none — the table says what the provider
-// said, and stays silent where the provider was.
-const CAPABILITIES = [
-  { id: 'tools',     label: 'Tools',     desc: 'Function calling and external tool use' },
-  { id: 'reasoning', label: 'Reasoning', desc: 'Extended thinking before answering' },
-  { id: 'structured',label: 'Structured',desc: 'JSON schema and constrained output' },
-  { id: 'vision',    label: 'Vision',    desc: 'Accepts images as input' },
-  { id: 'image',     label: 'Image gen', desc: 'Produces images' },
-  { id: 'audio',     label: 'Audio',     desc: 'Accepts or produces audio' },
-  { id: 'video',     label: 'Video',     desc: 'Accepts or produces video' },
-  { id: 'files',     label: 'Files',     desc: 'Accepts documents or file uploads' },
-];
-
-const CAP_ICONS = {
-  tools: '<path d="M14.7 6.3a5 5 0 01-6.6 6.6L3 18l3 3 5.1-5.1a5 5 0 006.6-6.6l-2.8 2.8-2.1-2.1z"/>',
-  reasoning: '<path d="M9.5 3A5.5 5.5 0 004 8.5c0 1.6.7 3 1.8 4V15a2 2 0 002 2h.7v2a1 1 0 001 1h5a1 1 0 001-1v-2h.7a2 2 0 002-2v-2.5A5.4 5.4 0 0020 8.5 5.5 5.5 0 0014.5 3z"/>',
-  structured: '<path d="M8 3H7a2 2 0 00-2 2v4a2 2 0 01-2 2 2 2 0 012 2v4a2 2 0 002 2h1M16 3h1a2 2 0 012 2v4a2 2 0 002 2 2 2 0 00-2 2v4a2 2 0 01-2 2h-1"/>',
-  vision: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
-  image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>',
-  audio: '<path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v3"/>',
-  video: '<rect x="2" y="5" width="14" height="14" rx="2"/><path d="M22 8l-6 4 6 4V8z"/>',
-  files: '<path d="M21.4 11.05l-9.19 9.19a5 5 0 01-7.07-7.07l9.19-9.19a3.33 3.33 0 014.71 4.71l-9.2 9.19a1.67 1.67 0 01-2.36-2.36l8.49-8.48"/>',
-};
-
 const truthy = (v) => v === true || v === 'true' || v === 1;
-const listOf = (v) => (Array.isArray(v) ? v.map((x) => String(x).toLowerCase()) : []);
-
-// Reads every shape seen in the wild and returns the capabilities the provider
-// actually claimed. Nothing is inferred from a model's name: a name is evidence
-// about what someone called it, not about what it can do.
-function readCapabilities(m) {
-  const caps = new Set();
-
-  // Explicit booleans (NaraRouter, both of its endpoints)
-  if (truthy(m.vision) || truthy(m.supports_vision)) caps.add('vision');
-  if (truthy(m.reasoning) || truthy(m.supports_reasoning)) caps.add('reasoning');
-  if (truthy(m.supports_image_generation)) caps.add('image');
-  if (truthy(m.supports_video_generation)) caps.add('video');
-  if (truthy(m.tools) || truthy(m.supports_tools) || truthy(m.function_calling)) caps.add('tools');
-  if (truthy(m.structured_outputs) || truthy(m.json_mode)) caps.add('structured');
-  if (truthy(m.audio) || truthy(m.supports_audio)) caps.add('audio');
-
-  // Modality arrays (Inception, and the OpenRouter shape under architecture)
-  const inputs = [...listOf(m.input_modalities), ...listOf(m.architecture?.input_modalities)];
-  const outputs = [...listOf(m.output_modalities), ...listOf(m.architecture?.output_modalities)];
-  if (inputs.some((x) => x.includes('image'))) caps.add('vision');
-  if (inputs.some((x) => x.includes('audio'))) caps.add('audio');
-  if (inputs.some((x) => x.includes('video'))) caps.add('video');
-  if (inputs.some((x) => x.includes('file') || x.includes('document') || x.includes('pdf'))) caps.add('files');
-  if (outputs.some((x) => x.includes('image'))) caps.add('image');
-  if (outputs.some((x) => x.includes('audio'))) caps.add('audio');
-  if (outputs.some((x) => x.includes('video'))) caps.add('video');
-
-  // Feature lists (Inception's supported_features, OpenRouter's
-  // supported_parameters, and the generic capabilities array)
-  const feats = [
-    ...listOf(m.supported_features),
-    ...listOf(m.supported_parameters),
-    ...listOf(m.capabilities),
-    ...listOf(m.features),
-  ];
-  feats.forEach((f) => {
-    if (f.includes('tool') || f.includes('function')) caps.add('tools');
-    if (f.includes('json') || f.includes('structured') || f.includes('response_format')) caps.add('structured');
-    if (f.includes('vision') || f.includes('image_input')) caps.add('vision');
-    if (f.includes('reasoning') || f.includes('thinking')) caps.add('reasoning');
-    if (f.includes('audio')) caps.add('audio');
-    if (f.includes('video')) caps.add('video');
-    if (f.includes('file') || f.includes('document')) caps.add('files');
-  });
-
-  return caps;
-}
-
-function capabilityIcons(model) {
-  const caps = model.caps instanceof Set ? model.caps : new Set(model.caps || []);
-  const proven = model.probedCaps instanceof Set ? model.probedCaps : new Set();
-  return CAPABILITIES.filter((c) => caps.has(c.id))
-    .map((c) => `<span class="cap-icon cap-${c.id} ${proven.has(c.id) ? 'cap-verified' : ''}" title="${c.label} — ${c.desc}. ${proven.has(c.id) ? 'Proven by probe.' : 'Declared by the provider.'}">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${CAP_ICONS[c.id]}</svg>
-      </span>`)
-    .join('');
-}
 
 // ============================================
 // Model kinds
@@ -129,8 +32,8 @@ function capabilityIcons(model) {
 // is tagged and judged by the standard that applies to it.
 //
 // A provider module can override this with its own classify(model); the fallback
-// below is name matching, which is a guess and is shown as a badge so it can be
-// seen and corrected.
+// below is name matching, which is a guess — a provider that declares the fact
+// outright is believed over it.
 
 const KIND_LABELS = { chat: '', image: 'Image', video: 'Video' };
 
@@ -146,7 +49,6 @@ function kindLimits(kind) {
 function classifyModel(providerId, model) {
   // A declared capability outranks every heuristic below it: NaraRouter states
   // outright which models generate images or video, so there is nothing to infer.
-  const caps = model.caps instanceof Set ? model.caps : new Set(model.caps || []);
   if (truthy(model.supports_video_generation)) return 'video';
   if (truthy(model.supports_image_generation)) return 'image';
 
@@ -231,12 +133,6 @@ const DEFAULT_SETTINGS = {
   // traffic of an authenticated API, even with the key stripped out of it.
   logLevel: 'off',
 
-  legendOpen: false,
-
-  // Ask each model, once, what it can actually do — the first time it passes a
-  // test. Providers describe their catalogues badly or not at all, so this is
-  // the only way the capability column reflects reality rather than paperwork.
-  detectCapabilities: true,
 
   // Sidebar width in px; 0 means hidden. Capped at the design width — the
   // sidebar can be narrowed or shut, never widened, because everything in it is
@@ -749,7 +645,6 @@ function switchProvider(providerId) {
   renderProviderTabs();
   renderKeysList();
   renderModelsList();
-  renderLegend();
   updateTestAllButton();
   updateStats();
 }
@@ -1022,11 +917,7 @@ $('#btn-fetch-models').addEventListener('click', async () => {
       models = models.filter((m) => !adapter.excludeModel(m));
     }
 
-    models.forEach((m) => {
-      m.declaredCaps = readCapabilities(m);
-      applyProbedCaps(m, p.id);
-      m.kind = classifyModel(p.id, m);
-    });
+    models.forEach((m) => { m.kind = classifyModel(p.id, m); });
 
     p.models = [...models];
     // Chat models start selected. Generators don't: each one costs a real image
@@ -1035,7 +926,6 @@ $('#btn-fetch-models').addEventListener('click', async () => {
     p.selected = new Set(models.filter((m) => !isMedia(m)).map((m) => m.id));
 
     renderModelsList();
-    renderLegend();
 
     const keyNote = activeKeys.length > 1 ? ` across ${activeKeys.length} keys` : '';
     if (p.plansUrl) {
@@ -1909,7 +1799,6 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
   const lanes = Math.max(1, Math.min(settings.concurrency, list.length));
   let next = 0;
   let done = 0;
-  let capsDirty = false;
 
   async function lane() {
     while (!abortTesting) {
@@ -1921,14 +1810,6 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
       if (abortTesting) return;
       recordResult(model, result, p.name);
       updateResultRow(model, result);
-
-      if (result.status === 'pass' && !result.isEmpty && needsProbing(model, p.id)) {
-        updateResultRow(model, { ...result, probing: true });
-        await probeModel(model, p);
-        capsDirty = true;
-        renderLegend();
-        updateResultRow(model, result);
-      }
       done += 1;
       updateStats();
       showProgress(done, list.length);
@@ -1936,10 +1817,6 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
   }
 
   await Promise.all(Array.from({ length: lanes }, lane));
-  if (capsDirty) {
-    await saveProbedCaps();
-    renderModelsList();
-  }
 
   // Anything the run never reached would otherwise sit on "Queued" forever. With
   // lanes the untested models aren't a contiguous tail, so the whole list is
@@ -2217,14 +2094,19 @@ function buildRowHtml(model, result) {
     else timeClass = 'time-slow';
   }
 
-  const capsHtml = capabilityIcons(model);
-  const tierHtml = model.noPlans
-    ? ''
-    : model.isFree
-      ? iconSpan('free', 'Free', 'tier-free')
-      : iconSpan('free', 'Free for Paid', 'tier-freepaid');
-  const typeIcons = capsHtml || tierHtml ? [capsHtml, tierHtml] : [];
-  const typeHtml = typeIcons.length ? capsHtml + tierHtml : NA;
+  const typeIcons = [];
+  if (model.kind === 'image') typeIcons.push(iconSpan('image', 'Image generator', 'type-media'));
+  if (model.kind === 'video') typeIcons.push(iconSpan('video', 'Video generator', 'type-media'));
+  if (model.hasVision) typeIcons.push(iconSpan('vision', 'Vision', 'type-vision'));
+  if (model.hasReasoning) typeIcons.push(iconSpan('think', 'Reasoning', 'type-think'));
+  if (!model.noPlans) {
+    typeIcons.push(
+      model.isFree
+        ? iconSpan('free', 'Free', 'tier-free')
+        : iconSpan('free', 'Free for Paid', 'tier-freepaid')
+    );
+  }
+  const typeHtml = typeIcons.length ? typeIcons.join('') : NA;
   const contextHtml = model.contextLabel || NA;
 
   // No tokens on a failed or in-flight request — '0' would read as a measurement.
@@ -2268,10 +2150,6 @@ function buildRowHtml(model, result) {
       : correct
         ? `<span class="correct-mark yes" title="Matches the expected answer">✓</span>`
         : `<span class="correct-mark no" title="Does not contain the expected answer">✗</span>`;
-
-  if (result.probing) {
-    return buildRowHtml(model, { ...result, probing: false, response: 'Detecting capabilities…' });
-  }
 
   const full = result.response || '';
   const truncated = full.length > RESPONSE_PREVIEW;
@@ -2827,7 +2705,6 @@ const SETTING_INPUTS = [
   ['#set-density', 'density', 'text'],
   ['#set-log-level', 'logLevel', 'text'],
   ['#set-concurrency', 'concurrency', 'int'],
-  ['#set-detect-caps', 'detectCapabilities', 'bool'],
 ];
 
 function fillSettingsForm() {
@@ -2880,10 +2757,6 @@ function renderCostEstimate() {
   const high = models * perModelMax;
   let text = `${models} models · ${low} to ${high} requests per run`;
   if (settings.concurrency > 1) text += ` · ${settings.concurrency} at a time`;
-  const unprobed = settings.detectCapabilities
-    ? getSelectedModels().filter((m) => needsProbing(m, activeProvider)).length
-    : 0;
-  if (unprobed > 0) text += ` · plus ${unprobed * CAP_PROBES.length} one-off capability probes`;
   if (autoTestMinutes > 0) {
     const perDay = Math.round((24 * 60) / autoTestMinutes);
     text += ` · ${(low * perDay).toLocaleString()} to ${(high * perDay).toLocaleString()} per day on this schedule`;
@@ -2948,15 +2821,6 @@ function renderAbout() {
     `<div class="about-provider"><span class="about-provider-name">Models tracked</span><span class="about-provider-meta">${tracked}</span></div>` +
     `<div class="about-provider"><span class="about-provider-name">Results recorded</span><span class="about-provider-meta">${runs}</span></div>`;
 }
-
-$('#btn-forget-caps').addEventListener('click', async () => {
-  probedCaps.clear();
-  await saveProbedCaps();
-  models.forEach((m) => applyProbedCaps(m, activeProvider));
-  renderLegend();
-  if (tableRows.length > 0) renderResultsTable();
-  setStatus('done', 'Capabilities will be detected again on the next run');
-});
 
 $('#btn-open-log').addEventListener('click', () => window.electronAPI.openRequestLog());
 $('#btn-clear-log').addEventListener('click', async () => {
@@ -3075,280 +2939,10 @@ $('#sidebar-resizer').addEventListener('dblclick', toggleSidebar);
 $('#sidebar-restore').addEventListener('click', toggleSidebar);
 
 
-// ============================================
-// Capability probing
-// ============================================
-// Most providers describe their models poorly or not at all — NaraRouter reports
-// vision and reasoning and nothing about tool calling; Dark API and Mirai report
-// nothing whatsoever. Reading a capability off a model's name would be guessing,
-// and a bundled lookup table would be guessing with extra steps: a reseller's
-// "claude-opus-5" is whatever they routed it to.
-//
-// So capabilities are established the way everything else here is: by asking the
-// model to do the thing and seeing whether it does. A probe passes only on
-// evidence in the response — a returned tool call, parseable JSON, the colour of
-// an image it was shown. A gateway that quietly accepts and ignores an unknown
-// field does not pass.
-//
-// Probes cost real requests, so they are a deliberate action rather than part of
-// a run, and results are stored per provider and model.
-
-// 16x16 solid #dc2626. Small enough to be free, large enough that a vision model
-// will not reject it outright.
-const PROBE_IMAGE =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAFklEQVQoz2O4o6ZGEmIY1TCqYfhqAAATqigQUzU6ngAAAABJRU5ErkJggg==';
-
-const CAP_PROBES = [
-  {
-    id: 'tools',
-    // Asked for something it cannot answer without the tool, so a model that
-    // merely tolerates the field still fails: the proof is a returned call.
-    payload: (id) => ({
-      model: id,
-      messages: [{ role: 'user', content: 'What is the weather in Paris right now? Use the tool.' }],
-      tools: [{
-        type: 'function',
-        function: {
-          name: 'get_weather',
-          description: 'Get the current weather for a city',
-          parameters: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] },
-        },
-      }],
-      tool_choice: 'auto',
-      max_tokens: 128,
-    }),
-    verify: (data) => {
-      const calls = data.choices?.[0]?.message?.tool_calls;
-      return Array.isArray(calls) && calls.length > 0;
-    },
-  },
-  {
-    id: 'structured',
-    payload: (id) => ({
-      model: id,
-      messages: [{ role: 'user', content: 'Return the number four.' }],
-      response_format: {
-        type: 'json_schema',
-        json_schema: {
-          name: 'answer',
-          strict: true,
-          schema: {
-            type: 'object',
-            properties: { value: { type: 'integer' } },
-            required: ['value'],
-            additionalProperties: false,
-          },
-        },
-      },
-      max_tokens: 64,
-    }),
-    // Some providers only implement the older json_object mode.
-    fallback: (id) => ({
-      model: id,
-      messages: [{ role: 'user', content: 'Reply with JSON: {"value": 4}' }],
-      response_format: { type: 'json_object' },
-      max_tokens: 64,
-    }),
-    verify: (data) => {
-      const text = data.choices?.[0]?.message?.content;
-      if (!text) return false;
-      try {
-        return typeof JSON.parse(text) === 'object';
-      } catch (_) {
-        return false;
-      }
-    },
-  },
-  {
-    id: 'reasoning',
-    // Reasoning leaves a trace the provider has to report: either a separate
-    // reasoning_content field or a reasoning token count in usage. Asking a hard
-    // question and judging the prose would only measure the answer, not whether
-    // the model thought before giving it.
-    payload: (id) => ({
-      model: id,
-      messages: [{ role: 'user', content: 'A bat and a ball cost $1.10. The bat costs $1.00 more than the ball. How much is the ball?' }],
-      max_tokens: 400,
-    }),
-    verify: (data) => {
-      const msg = data.choices?.[0]?.message || {};
-      if (typeof msg.reasoning_content === 'string' && msg.reasoning_content.trim()) return true;
-      if (typeof msg.reasoning === 'string' && msg.reasoning.trim()) return true;
-      const d = data.usage?.completion_tokens_details;
-      return Number(d?.reasoning_tokens) > 0;
-    },
-  },
-  {
-    id: 'files',
-    // A file the model can only answer from if it actually read it.
-    payload: (id) => ({
-      model: id,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'text', text: 'What is the secret word in the attached file? Answer with the word only.' },
-          {
-            type: 'file',
-            file: {
-              filename: 'note.txt',
-              file_data: 'data:text/plain;base64,VGhlIHNlY3JldCB3b3JkIGlzIG1hcm1hbGFkZS4gUmVtZW1iZXIgaXQu',
-            },
-          },
-        ],
-      }],
-      max_tokens: 32,
-    }),
-    verify: (data) => /marmalade/i.test(data.choices?.[0]?.message?.content || ''),
-  },
-  {
-    id: 'vision',
-    payload: (id) => ({
-      model: id,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'text', text: 'What colour is this image? Answer in one word.' },
-          { type: 'image_url', image_url: { url: PROBE_IMAGE } },
-        ],
-      }],
-      max_tokens: 32,
-    }),
-    // It has to name the colour. A model that accepts the image part and then
-    // talks about something else has not demonstrated it saw anything.
-    verify: (data) => /\bred\b|\bcrimson\b/i.test(data.choices?.[0]?.message?.content || ''),
-  },
-];
-
-// providerId::modelId -> { caps: [...], at }
-let probedCaps = new Map();
-
-async function loadProbedCaps() {
-  probedCaps = new Map();
-  try {
-    const data = await window.electronAPI.readConfig();
-    Object.entries(data.probedCaps || {}).forEach(([k, v]) => probedCaps.set(k, v));
-  } catch (_) {}
-}
-
-async function saveProbedCaps() {
-  try {
-    const data = await window.electronAPI.readConfig();
-    data.probedCaps = Object.fromEntries(probedCaps);
-    await window.electronAPI.writeConfig(data);
-  } catch (err) {
-    console.warn('Failed to persist probed capabilities:', err);
-  }
-}
-
-async function runProbe(model, provider, probe, body) {
-  const key = pickKey(provider, model);
-  if (!key) return false;
-  await waitForSlot(provider, key);
-  if (abortTesting) return false;
-  try {
-    const res = await window.electronAPI.apiRequest({
-      url: `${provider.baseUrl}/chat/completions`,
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key.key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      requestId: nextRequestId(),
-      timeoutMs: settings.deadlineChatMs,
-      logLevel: settings.logLevel,
-    });
-    if (res.status !== 200) return false;
-    return probe.verify(JSON.parse(res.body));
-  } catch (_) {
-    return false;
-  }
-}
-
-async function probeModel(model, provider) {
-  const found = [];
-  for (const probe of CAP_PROBES) {
-    if (abortTesting) break;
-    let ok = await runProbe(model, provider, probe, probe.payload(model.id));
-    if (!ok && probe.fallback) ok = await runProbe(model, provider, probe, probe.fallback(model.id));
-    if (ok) found.push(probe.id);
-  }
-  probedCaps.set(historyKey(provider.id, model.id), { caps: found, at: Date.now() });
-  applyProbedCaps(model, provider.id);
-  return found;
-}
-
-// A probe result is merged with what the provider declared rather than replacing
-// it: a provider can know about audio or file support that no chat probe reaches.
-function applyProbedCaps(model, providerId) {
-  const entry = probedCaps.get(historyKey(providerId, model.id));
-  model.probed = !!entry;
-  model.probedCaps = new Set(entry ? entry.caps : []);
-  model.caps = new Set([...(model.declaredCaps || []), ...model.probedCaps]);
-}
-
-// Only a model that just answered gets characterised, and only once — a model
-// that failed its own test has nothing to say about what it supports, and
-// repeating five probes on every run would multiply the cost of routine testing
-// for an answer that does not change.
-function needsProbing(model, providerId) {
-  if (!settings.detectCapabilities) return false;
-  if (isMedia(model)) return false; // no chat probe reaches a generator
-  return !probedCaps.has(historyKey(providerId, model.id));
-}
-
-// ============================================
-// Capability legend
-// ============================================
-// Counts come from the models actually loaded, so the legend doubles as an
-// answer to "how much does this provider even tell me" — a provider that reports
-// nothing shows zeros across the board, which is the honest picture.
-function renderLegend() {
-  const el = $('#legend');
-  if (!el) return;
-  if (models.length === 0) {
-    el.style.display = 'none';
-    return;
-  }
-
-  const counts = new Map(CAPABILITIES.map((c) => [c.id, 0]));
-  models.forEach((m) => {
-    const caps = m.caps instanceof Set ? m.caps : new Set(m.caps || []);
-    caps.forEach((c) => counts.set(c, (counts.get(c) || 0) + 1));
-  });
-
-  const declared = [...counts.values()].reduce((a, b) => a + b, 0);
-  $('#legend-note').textContent = declared === 0
-    ? `${PROVIDERS[activeProvider]?.name || 'This provider'} reports no capability data`
-    : `${models.length} models`;
-
-  $('#legend-grid').innerHTML = CAPABILITIES.map((c) => `
-    <div class="legend-item ${counts.get(c.id) ? '' : 'legend-item-empty'}">
-      <span class="cap-icon cap-${c.id}">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${CAP_ICONS[c.id]}</svg>
-      </span>
-      <span class="legend-text">
-        <span class="legend-name">${c.label}</span>
-        <span class="legend-desc">${c.desc}</span>
-      </span>
-      <span class="legend-count">${counts.get(c.id)}</span>
-    </div>`).join('');
-
-  el.style.display = '';
-}
-
-function toggleLegend() {
-  settings.legendOpen = !settings.legendOpen;
-  $('#legend').classList.toggle('collapsed', !settings.legendOpen);
-  queueSettingsSave();
-}
-
-$('#legend-toggle').addEventListener('click', toggleLegend);
-$('#legend-chevron-btn').addEventListener('click', toggleLegend);
-
 async function init() {
   await loadSettings();
-  await loadProbedCaps();
   applyAppearance();
   applySidebarWidth(clampSidebar(settings.sidebarWidth));
-  $('#legend').classList.toggle('collapsed', !settings.legendOpen);
   bindSettingsForm();
   window.electronAPI.getDataPath().then((dir) => { $('#settings-path').textContent = dir; });
   await loadTestDefinition();

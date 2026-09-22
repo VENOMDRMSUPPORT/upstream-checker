@@ -225,22 +225,6 @@
         </div>
       </div>
 
-      <!-- Capability legend -->
-      <div class="legend" id="legend" style="display:none">
-        <div class="legend-head">
-          <button class="legend-toggle" id="legend-toggle">
-            <span class="legend-title">Model capabilities</span>
-            <span class="legend-note" id="legend-note"></span>
-          </button>
-          <button class="legend-chevron-btn" id="legend-chevron-btn" title="Collapse">
-            <svg class="legend-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-              <path d="M6 9l6 6 6-6"/>
-            </svg>
-          </button>
-        </div>
-        <div class="legend-grid" id="legend-grid"></div>
-      </div>
-
       <!-- Results Table -->
       <div class="results-container" id="results-container">
         <div class="results-empty" id="results-empty">
@@ -259,7 +243,7 @@
             <tr>
               <th class="th-status th-sortable" data-sort="status">STATUS</th>
               <th class="th-model th-sortable" data-sort="model">MODEL</th>
-              <th class="th-type">CAPS</th>
+              <th class="th-type">TYPE</th>
               <th class="th-context th-sortable" data-sort="context">CONTEXT</th>
               <th class="th-time th-sortable" data-sort="time">TIME</th>
               <th class="th-tokens th-sortable" data-sort="tokens">TOKENS</th>
@@ -421,17 +405,6 @@
               <label class="setting-label" for="set-concurrency">Models tested at once</label>
               <input type="number" min="1" max="6" step="1" class="prompt-input tiny" id="set-concurrency">
               <p class="setting-hint">The only setting that shortens a run. Widening the hedge below spends more requests on one model without lowering that model&rsquo;s own latency; this works through the list faster. Each lane draws from the same per-key minute budget, so raising it past the number of keys mostly means more pacing.</p>
-            </div>
-
-            <div class="setting">
-              <label class="setting-check" for="set-detect-caps">
-                <input type="checkbox" id="set-detect-caps">
-                <span>Detect what each model supports the first time it passes</span>
-              </label>
-              <p class="setting-hint">Asks the model to call a tool, return JSON against a schema, read an image, read an attached file, and checks whether it reported any reasoning. Five extra requests, once per model, then never again — providers describe their catalogues badly or not at all, so this is the only way the capability column reflects what the models actually do.</p>
-              <div class="settings-actions">
-                <button class="btn btn-ghost" id="btn-forget-caps">Detect again for every model</button>
-              </div>
             </div>
 
             <div class="setting">
