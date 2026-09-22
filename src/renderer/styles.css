@@ -366,6 +366,14 @@ html, body {
   flex-shrink: 0;
 }
 
+.provider-logo {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  object-fit: contain;
+  display: block;
+}
+
 /* Config inputs */
 .config-group {
   margin-bottom: 10px;
