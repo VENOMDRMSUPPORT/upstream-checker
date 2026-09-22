@@ -1285,6 +1285,32 @@ function slotsUsed(keyId, now) {
   return (keyRequestTimes.get(keyId) || []).filter((t) => now - t < 60000).length;
 }
 
+// The configured RPM is a starting guess — it comes from a provider's published
+// figure, and a particular key's plan may allow less. Being refused is the only
+// reliable measurement of what a key is really permitted, so a refusal narrows
+// the budget for that key to below what it had just spent.
+const learnedRpm = new Map(); // keyId -> the ceiling this key actually enforces
+
+function budgetFor(provider, keyId) {
+  const configured = rpmOf(provider);
+  const learned = learnedRpm.get(keyId);
+  if (!configured) return learned || 0;
+  return learned ? Math.min(configured, learned) : configured;
+}
+
+// Called when the provider says the per-minute limit was reached. Whatever we
+// managed to send in the preceding minute was over the line, so the new ceiling
+// sits below it — and never below one, or the key would be unusable.
+function learnRateLimit(keyId) {
+  const sent = slotsUsed(keyId, Date.now());
+  const next = Math.max(1, Math.floor((sent || 1) * 0.75));
+  const prev = learnedRpm.get(keyId);
+  if (!prev || next < prev) {
+    learnedRpm.set(keyId, next);
+    console.info(`Rate limit learned for key ${keyId}: ${next}/min (was sending ${sent})`);
+  }
+}
+
 // Round-robin over the eligible keys, but a key with a free slot in its own
 // minute beats one that is merely not cooling off. Without that preference the
 // rotation would stop on a key that has spent its budget and wait there while a
@@ -1293,7 +1319,6 @@ function pickKey(provider, model) {
   const keys = keysFor(provider, model);
   if (keys.length === 0) return null;
   const now = Date.now();
-  const rpm = rpmOf(provider);
 
   let free = null;  // usable right now
   let ready = null; // not cooling, but at its per-minute cap
@@ -1301,7 +1326,8 @@ function pickKey(provider, model) {
   for (let i = 0; i < keys.length; i++) {
     const k = keys[(keyCursor + i) % keys.length];
     if ((keyCooldownUntil.get(k.id) || 0) > now) continue;
-    if (!rpm || slotsUsed(k.id, now) < rpm) { free = k; break; }
+    const budget = budgetFor(provider, k.id);
+    if (!budget || slotsUsed(k.id, now) < budget) { free = k; break; }
     if (!ready) ready = k;
   }
 
@@ -1320,7 +1346,7 @@ function soonestKeyAvailable(provider, model) {
 // the cap costs a few seconds; going over it costs a full window — so pacing is
 // strictly cheaper than recovering from a 429.
 async function waitForSlot(provider, key) {
-  const rpm = rpmOf(provider);
+  const rpm = budgetFor(provider, key.id);
   if (!rpm) return;
   while (!abortTesting) {
     const now = Date.now();
@@ -1536,8 +1562,22 @@ function adaptiveNonStream(model, provider) {
       resolve(r);
     };
 
-    const launch = () => {
+    // An extra attempt is only worth firing if a key can take it right now.
+    // Hedging exists to get an answer sooner; queueing behind a per-minute cap to
+    // send one does the opposite, and spends a slot the models still waiting need.
+    const budgetFree = () =>
+      keysFor(provider, model).some((k) => {
+        const budget = budgetFor(provider, k.id);
+        return !budget || slotsUsed(k.id, Date.now()) < budget;
+      });
+
+    const launch = (escalation = false) => {
       if (settled || stop || abortTesting || launched >= maxAttempts) return;
+      if (escalation && !budgetFree()) {
+        // No room to widen; check again after the usual interval.
+        stepTimer = setTimeout(() => launch(true), settings.hedgeStepMs);
+        return;
+      }
       launched += 1;
       inflight += 1;
       const id = nextRequestId();
@@ -1561,7 +1601,7 @@ function adaptiveNonStream(model, provider) {
         }
         if (inflight === 0 && (stop || abortTesting || launched >= maxAttempts)) finish(best);
       });
-      if (!stop && launched < maxAttempts) stepTimer = setTimeout(launch, settings.hedgeStepMs);
+      if (!stop && launched < maxAttempts) stepTimer = setTimeout(() => launch(true), settings.hedgeStepMs);
     };
 
     deadlineTimer = setTimeout(
@@ -1637,7 +1677,10 @@ async function testModel(model, provider) {
     // throttled never gets recorded as the model's failure.
     if ((isRateLimit(r) || r.allKeysCooling) && rateLimitWaits < settings.maxRateLimitWaits && !abortTesting) {
       rateLimitWaits += 1;
-      if (r.keyId) coolKeyDown(r.keyId, r);
+      if (r.keyId) {
+        if (isRateLimit(r)) learnRateLimit(r.keyId);
+        coolKeyDown(r.keyId, r);
+      }
       continue;
     }
     if (isRateLimit(r)) {
@@ -1771,6 +1814,7 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
   abortTesting = false;
   inflightIds.clear();
   keyCooldownUntil.clear();
+  if (reset) learnedRpm.clear();
   if (reset) deniedPairs.clear();
 
   if (reset) {
