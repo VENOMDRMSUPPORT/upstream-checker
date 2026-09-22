@@ -869,8 +869,12 @@ html, body {
   box-shadow: 0 0 10px rgba(139,92,246,0.12);
 }
 
-/* Icon badges for type column */
-.cell-type { display: flex; gap: 5px; align-items: center; justify-content: center; }
+/* Icon badges for type column.
+   NOTE: this stays a real table-cell — `display:flex` on a <td> drops it out of
+   the table layout, so the column loses its width and the cell's bottom border
+   renders as a short floating line. Badges are spaced with a margin instead. */
+.cell-type { text-align: center; white-space: nowrap; }
+.cell-type .icon-badge + .icon-badge { margin-left: 5px; }
 
 .icon-badge {
   display: inline-flex;
@@ -984,6 +988,12 @@ html, body {
 .time-fast { color: var(--pass); }
 .time-medium { color: var(--warn); }
 .time-slow { color: var(--fail); }
+/* A failed request's elapsed time says nothing about speed — a 502 comes back in
+   0.3s. Never paint it with the "fast" green. */
+.time-dead { color: var(--text-4); }
+
+/* Not-applicable cell (no data for this column / this row) */
+.cell-na { color: var(--text-4); }
 
 /* Tokens cell */
 .cell-tokens {

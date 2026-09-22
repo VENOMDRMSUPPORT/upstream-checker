@@ -4,6 +4,10 @@
 
 const DEFAULT_TEST_PROMPT = 'What is 2+2? Answer in one word.';
 
+// Single placeholder for "no value applies here", so an empty cell never reads as
+// a real measurement (a failed request has no token count — it is not zero).
+const NA = '—';
+
 // Set app version from main process
 window.electronAPI.onAppVersion((version) => {
   const versionEl = document.getElementById('app-version');
@@ -30,6 +34,7 @@ function makeRuntimeProvider(def) {
 let activeProvider = null; // resolved to the first available provider in init()
 let models = [];
 let testResults = [];
+let runTotal = null; // models covered by the current/last run; null = no run yet
 let isTesting = false;
 let abortTesting = false;
 let updateInfo = null;
@@ -230,6 +235,7 @@ function switchProvider(providerId) {
   renderKeysList();
   renderModelsList();
   updateTestAllButton();
+  updateStats();
 }
 
 // ============================================
@@ -467,8 +473,11 @@ $('#btn-fetch-models').addEventListener('click', async () => {
   }
 });
 
+// Returns '' when the provider doesn't report a context window, so callers can
+// decide how to render "unknown" (the table shows NA, the sidebar shows nothing
+// rather than a stray dash under every model name).
 function formatContext(ctx) {
-  if (!ctx) return '—';
+  if (!ctx) return '';
   if (ctx >= 1000000) return `${Math.round(ctx / 1000000)}M`;
   if (ctx >= 1000) return `${Math.round(ctx / 1000)}K`;
   return String(ctx);
@@ -499,7 +508,7 @@ function renderModelsList() {
   const noPlans = models.length > 0 && models[0].noPlans;
 
   if (noPlans) {
-    html += `<div class="model-group-label">MODELS (${models.length})</div>`;
+    // No group label here — the sidebar section header already reads "MODELS <n>".
     html += models.map((m) => buildModelItem(m)).join('');
   } else {
     const free = models.filter((m) => m.isFree);
@@ -516,9 +525,14 @@ function renderModelsList() {
 
   container.innerHTML = html;
 
-  // Bind selection
+  // Bind selection. Toggling must refresh the Test button (it disables at zero
+  // selected) and the Total stat (which counts the models this run will cover).
   $$('.model-item').forEach((item) => {
-    item.addEventListener('click', () => item.classList.toggle('selected'));
+    item.addEventListener('click', () => {
+      item.classList.toggle('selected');
+      updateTestAllButton();
+      updateStats();
+    });
   });
 
   updateTestAllButton();
@@ -849,6 +863,8 @@ $('#btn-test-all').addEventListener('click', async () => {
   isTesting = true;
   abortTesting = false;
   testResults = [];
+  runTotal = selected.length;
+  updateStats();
   updateTestAllButton();
   setStatus('running', `Testing ${selected.length} models...`);
   showProgress(0, selected.length);
@@ -943,14 +959,19 @@ function statusIconBadge(status, isEmpty) {
 
 function buildRowHtml(model, result) {
   const isRunning = result.status === 'running';
+  const isFailed = result.status === 'fail';
   const badge = statusIconBadge(result.status, result.isEmpty);
 
-  let timeStr = '-';
-  let timeClass = '';
-  if (result.time != null) {
-    const sec = (result.time / 1000).toFixed(1);
-    timeStr = `${sec}s`;
-    if (result.time < 5000) timeClass = 'time-fast';
+  // A failed request's elapsed time is how fast the error came back, not how fast
+  // the model is — it gets the muted "dead" colour, never the fast/slow scale.
+  let timeStr = NA;
+  let timeClass = 'cell-na';
+  if (isRunning) {
+    timeClass = 'cell-na';
+  } else if (result.time != null) {
+    timeStr = `${(result.time / 1000).toFixed(1)}s`;
+    if (isFailed) timeClass = 'time-dead';
+    else if (result.time < 5000) timeClass = 'time-fast';
     else if (result.time > 15000) timeClass = 'time-slow';
     else timeClass = 'time-medium';
   }
@@ -959,13 +980,18 @@ function buildRowHtml(model, result) {
   if (model.hasVision) typeIcons.push(iconSpan('vision', 'Vision', 'type-vision'));
   if (model.hasReasoning) typeIcons.push(iconSpan('think', 'Reasoning', 'type-think'));
   // Free tier icon: show on every row (tier comes from provider grouping, not free/paid anymore)
-  const planIcon = model.noPlans
-    ? ''
-    : model.isFree
-      ? iconSpan('free', 'Free', 'tier-free')
-      : iconSpan('free', 'Free for Paid', 'tier-freepaid');
+  if (!model.noPlans) {
+    typeIcons.push(
+      model.isFree
+        ? iconSpan('free', 'Free', 'tier-free')
+        : iconSpan('free', 'Free for Paid', 'tier-freepaid')
+    );
+  }
+  const typeHtml = typeIcons.length ? typeIcons.join('') : NA;
+  const contextHtml = model.contextLabel || NA;
 
-  const tokens = result.tokens != null ? String(result.tokens) : '-';
+  // No tokens on a failed or in-flight request — '0' would read as a measurement.
+  const tokens = isRunning || isFailed || result.tokens == null ? NA : String(result.tokens);
   const responseHtml = isRunning
     ? `<span class="response-placeholder">Testing...</span>`
     : result.isEmpty
@@ -976,10 +1002,10 @@ function buildRowHtml(model, result) {
   return `
     <td class="cell-status">${badge}</td>
     <td class="cell-model">${escapeHtml(model.id)}</td>
-    <td class="cell-type">${typeIcons.join('')} ${planIcon}</td>
-    <td class="cell-context">${model.contextLabel || '—'}</td>
+    <td class="cell-type ${typeIcons.length ? '' : 'cell-na'}">${typeHtml}</td>
+    <td class="cell-context ${model.contextLabel ? '' : 'cell-na'}">${contextHtml}</td>
     <td class="cell-time ${timeClass}">${timeStr}</td>
-    <td class="cell-tokens">${tokens}</td>
+    <td class="cell-tokens ${tokens === NA ? 'cell-na' : ''}">${tokens}</td>
     <td class="cell-response" title="${responseTitle}">${responseHtml}</td>
   `;
 }
@@ -999,20 +1025,24 @@ function setStatus(state, text) {
 }
 
 function updateStats() {
-  $('#stat-total').textContent = String(models.length);
+  // Total = the models this run covers, not every model fetched — otherwise
+  // testing 3 of 9 shows "Total 9 / Passed 2 / Failed 1". Before a run it
+  // previews the current selection, so Passed + Failed can never exceed it.
+  $('#stat-total').textContent = String(runTotal ?? getSelectedModels().length);
   const passed = testResults.filter((r) => r.status === 'pass').length;
   const failed = testResults.filter((r) => r.status === 'fail').length;
   $('#stat-pass').textContent = String(passed);
   $('#stat-fail').textContent = String(failed);
 
-  if (testResults.length > 0) {
-    const times = testResults.filter((r) => r.time).map((r) => r.time);
-    if (times.length > 0) {
-      const avg = times.reduce((a, b) => a + b, 0) / times.length;
-      $('#stat-avg-time').textContent = `${(avg / 1000).toFixed(1)}s`;
-    }
+  // Average latency measures speed, so only completed calls count. A 502 comes
+  // back in ~0.3s and would otherwise drag the average down and make the
+  // provider look faster than it actually is.
+  const times = testResults.filter((r) => r.status === 'pass' && r.time).map((r) => r.time);
+  if (times.length > 0) {
+    const avg = times.reduce((a, b) => a + b, 0) / times.length;
+    $('#stat-avg-time').textContent = `${(avg / 1000).toFixed(1)}s`;
   } else {
-    $('#stat-avg-time').textContent = '-';
+    $('#stat-avg-time').textContent = NA;
   }
 }
 
@@ -1047,6 +1077,7 @@ $('#btn-export-json').addEventListener('click', () => {
 
 $('#btn-clear-results').addEventListener('click', () => {
   testResults = [];
+  runTotal = null;
   $('#results-empty').style.display = '';
   $('#results-table').style.display = 'none';
   $('#results-body').innerHTML = '';
