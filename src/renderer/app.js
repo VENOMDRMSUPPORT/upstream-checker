@@ -998,7 +998,7 @@ function buildModelItem(m) {
   if (allKeys.length > 1 && Array.isArray(m.keyIds) && m.keyIds.length < allKeys.length) {
     const names = allKeys.filter((k) => m.keyIds.includes(k.id)).map((k) => k.name);
     if (names.length) {
-      const short = names[0].length > 12 ? names[0].slice(0, 11) + '…' : names[0];
+      const short = names[0].split(/\s+/)[0];
       badges.push(
         `<span class="model-badge badge-key" title="${escapeHtml('Served by: ' + names.join(', '))}">${escapeHtml(
           names.length > 1 ? `${names.length} keys` : short
@@ -1110,6 +1110,12 @@ function isRateLimit(r) {
 const keyCooldownUntil = new Map(); // keyId -> timestamp
 const keyRequestTimes = new Map();  // keyId -> recent request timestamps
 let keyCursor = 0;
+
+function keyNameById(keyId) {
+  const p = PROVIDERS[activeProvider];
+  const k = p && p.keys.find((x) => x.id === keyId);
+  return k ? k.name : '';
+}
 
 function rpmOf(provider) {
   const n = Number(provider.rpm);
@@ -1918,6 +1924,24 @@ function buildRowHtml(model, result) {
   // fast and wrong is a different problem from one that 502s.
   // Reliability over time, next to this run's result: a model that passed now
   // but fails a third of the time is a different proposition from a steady one.
+  // Which key served this test. Only shown when the provider has more than one,
+  // and it names the key the request actually went out on rather than the ones
+  // that could have — with tiered keys, that is the difference between reading
+  // the result and guessing at it.
+  const provider = PROVIDERS[activeProvider];
+  let keyLine = '';
+  if (provider && usableKeys(provider).length > 1) {
+    const used = result.keyId ? keyNameById(result.keyId) : '';
+    const eligible = Array.isArray(model.keyIds)
+      ? provider.keys.filter((k) => model.keyIds.includes(k.id)).map((k) => k.name)
+      : [];
+    const name = used || (eligible.length === 1 ? eligible[0] : '');
+    if (name) {
+      const why = used ? 'Tested with this key' : 'Only this key serves the model';
+      keyLine = `<span class="cell-model-key" title="${escapeHtml(why)}">${escapeHtml(name)}</span>`;
+    }
+  }
+
   const uptime = uptimeOf(model.id);
   const uptimeHtml = uptime == null ? NA : `${Math.round(uptime * 100)}%`;
   const uptimeClass =
@@ -1957,7 +1981,7 @@ function buildRowHtml(model, result) {
 
   return `
     <td class="cell-status">${badge}</td>
-    <td class="cell-model">${escapeHtml(model.id)}</td>
+    <td class="cell-model">${escapeHtml(model.id)}${keyLine}</td>
     <td class="cell-type ${typeIcons.length ? '' : 'cell-na'}">${typeHtml}</td>
     <td class="cell-context ${model.contextLabel ? '' : 'cell-na'}">${contextHtml}</td>
     <td class="cell-time ${timeClass}">${timeStr}${retriesHtml}</td>

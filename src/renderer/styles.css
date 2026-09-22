@@ -1194,6 +1194,16 @@ html, body {
   color: var(--text-1);
 }
 
+/* The key this row's test went out on — only rendered for multi-key providers */
+.cell-model-key {
+  display: block;
+  margin-top: 3px;
+  font-size: 9.5px;
+  font-weight: 400;
+  letter-spacing: 0.3px;
+  color: var(--text-4);
+}
+
 /* Time cell */
 .cell-time {
   font-family: 'JetBrains Mono', monospace;
