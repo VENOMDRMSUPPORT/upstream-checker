@@ -5,6 +5,24 @@ All notable changes to Upstream Checker will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-09-22
+
+### Added
+- Dark API as a second integrated provider, with its models fetched dynamically.
+- Provider logos shown next to each provider's name.
+
+### Fixed
+- NARA model discovery now uses the pricing endpoint's per-model `free_for_paid`
+  flag (and the price-0 plan for the free tier), so every free and free-for-paid
+  model appears — including ones the plans list omitted (e.g. mimo-v2.6-flash-free).
+
+### Changed
+- The app is fully provider-agnostic: provider-specific logic lives only in each
+  provider's module, and a provider added from the UI is migrated automatically
+  when it later ships as a built-in (its key is preserved).
+
+[1.1.1]: https://github.com/VENOMDRMSUPPORT/upstream-checker/releases/tag/v1.1.1
+
 ## [1.1.0] - 2026-09-22
 
 ### Added
