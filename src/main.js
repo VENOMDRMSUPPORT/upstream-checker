@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const https = require('https');
 const http = require('http');
@@ -317,11 +317,6 @@ ipcMain.on('cancel-api-request', (event, requestId) => {
     req.__cancelled = true;
     req.destroy();
   }
-});
-
-// Open external links
-ipcMain.on('open-external', (event, url) => {
-  shell.openExternal(url);
 });
 
 // Config IPC handlers

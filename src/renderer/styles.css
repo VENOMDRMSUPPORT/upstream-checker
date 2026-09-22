@@ -1656,3 +1656,8 @@ html, body {
 .provider-delete:hover {
   color: var(--fail, #ff6b6b);
 }
+
+/* Release notes (built as DOM, styled by class instead of inline attributes) */
+.notes-heading { list-style: none; margin-left: -18px; margin-top: 6px; }
+.notes-version { color: var(--text-0); font-size: 12px; }
+.notes-section { color: var(--accent); font-size: 11px; }

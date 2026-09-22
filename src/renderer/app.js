@@ -270,13 +270,28 @@ function renderProviderTabs() {
     }
     // An integrated provider can ship a logo (meta.logo); otherwise fall back to a
     // colored dot (used by custom, user-added providers).
-    const badge = p.logo
-      ? `<img class="provider-logo" src="${escapeHtml(p.logo)}" alt="" onerror="this.style.display='none'">`
-      : `<span class="provider-dot" style="background:${p.color}"></span>`;
     btn.innerHTML =
-      badge +
       `<span class="provider-name">${escapeHtml(p.name)}</span>` +
       `<span class="provider-actions">${actions}</span>`;
+
+    // Built as a node rather than markup: the onerror attribute this used to
+    // carry was the only inline script in the app and the sole reason the CSP
+    // had to allow 'unsafe-inline'. Setting the dot colour as a property instead
+    // of interpolating it into a style attribute closes the same hole for CSS.
+    let badge;
+    if (p.logo) {
+      badge = document.createElement('img');
+      badge.className = 'provider-logo';
+      badge.alt = '';
+      badge.addEventListener('error', () => { badge.style.display = 'none'; });
+      badge.src = p.logo;
+    } else {
+      badge = document.createElement('span');
+      badge.className = 'provider-dot';
+      badge.style.background = p.color;
+    }
+    btn.prepend(badge);
+
     btn.addEventListener('click', () => switchProvider(p.id));
     container.appendChild(btn);
   });
@@ -1718,7 +1733,7 @@ function showUpdateModal(info) {
   const notesEl = $('#update-modal-notes');
   if (info.releaseNotes) {
     const notes = Array.isArray(info.releaseNotes) ? info.releaseNotes.join('\n') : info.releaseNotes;
-    notesEl.innerHTML = formatReleaseNotes(notes);
+    notesEl.replaceChildren(buildReleaseNotes(notes));
   } else {
     notesEl.textContent = 'No release notes available.';
   }
@@ -1738,35 +1753,37 @@ function hideUpdateModal() {
   updateInfo = null;
 }
 
-function formatReleaseNotes(notes) {
-  // Strip markdown/HTML tags and format cleanly
-  const lines = notes.split('\n');
-  let html = '<ul>';
-  lines.forEach(line => {
-    line = line.trim();
-    if (!line || line.startsWith('#') || line.startsWith('[') || line === '---') return;
-    if (line.startsWith('<')) {
-      // Strip HTML tags
-      line = line.replace(/<[^>]*>/g, '').trim();
-    }
-    if (line.startsWith('### ')) {
-      // Section header
-      line = line.replace(/^###\s*/, '<strong style="color:var(--accent);font-size:11px;">');
-      line += '</strong>';
-    } else if (line.startsWith('- ')) {
-      // List item
-      line = line.replace(/^-\s*/, '');
-    } else if (line.startsWith('## ')) {
-      // Version header
-      line = line.replace(/^##\s*/, '<strong style="color:var(--text-0);font-size:12px;">');
-      line += '</strong>';
+// Release notes come from GitHub, so they are remote text rendered inside the
+// app. Built as DOM nodes with textContent rather than an HTML string: markup in
+// a release body can only ever be read as characters, never parsed.
+//
+// The previous version also never rendered its headings — it bailed on any line
+// starting with '#', which made both heading branches below it unreachable.
+function buildReleaseNotes(notes) {
+  const list = document.createElement('ul');
+
+  notes.split('\n').forEach((raw) => {
+    const line = raw.trim().replace(/<[^>]*>/g, '').trim();
+    if (!line || line === '---' || line.startsWith('[')) return;
+
+    const heading = /^(#{2,3})\s+(.*)$/.exec(line);
+    const bullet = /^[-*]\s+(.*)$/.exec(line);
+    if (!heading && !bullet) return;
+
+    const li = document.createElement('li');
+    if (heading) {
+      const strong = document.createElement('strong');
+      strong.className = heading[1] === '##' ? 'notes-version' : 'notes-section';
+      strong.textContent = heading[2];
+      li.className = 'notes-heading';
+      li.appendChild(strong);
     } else {
-      return; // Skip non-list lines
+      li.textContent = bullet[1];
     }
-    if (line.length > 0) html += `<li>${escapeHtml(line)}</li>`;
+    if (li.textContent) list.appendChild(li);
   });
-  html += '</ul>';
-  return html;
+
+  return list;
 }
 
 function showDownloadProgress(percent) {
