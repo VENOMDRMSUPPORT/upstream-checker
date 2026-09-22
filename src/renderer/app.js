@@ -8,6 +8,9 @@ const DEFAULT_TEST_PROMPT = 'What is 2+2? Answer in one word.';
 // a real measurement (a failed request has no token count — it is not zero).
 const NA = '—';
 
+// Characters of a response shown inline; longer ones get a click-to-expand cell.
+const RESPONSE_PREVIEW = 160;
+
 // Set app version from main process
 window.electronAPI.onAppVersion((version) => {
   const versionEl = document.getElementById('app-version');
@@ -447,18 +450,26 @@ $('#btn-fetch-models').addEventListener('click', async () => {
       const rawModels = JSON.parse(modelsResult.body).data || [];
 
       models = rawModels
-        .map((m) => ({
-          ...m,
-          isFree: false,
-          isFreeForPaid: false,
-          noPlans: true,
-          groupName: 'MODELS',
-          hasVision: !!m.vision,
-          hasReasoning: !!m.reasoning,
-          contextLabel: formatContext(m.context_window),
-        }))
+        .map((m) => {
+          const ctx = readContextWindow(m);
+          return {
+            ...m,
+            isFree: false,
+            isFreeForPaid: false,
+            noPlans: true,
+            groupName: 'MODELS',
+            hasVision: readsVision(m),
+            hasReasoning: readsReasoning(m),
+            context_window: ctx,
+            contextLabel: formatContext(ctx),
+          };
+        })
         .sort((a, b) => a.id.localeCompare(b.id));
     }
+
+    // Two entries sharing an id are the same model; keeping both would create two
+    // table rows with the same key, and only the first would ever be updated.
+    models = dedupeById(models);
 
     p.models = [...models];
     p.selected = new Set(models.map((m) => m.id)); // a fresh fetch starts fully selected
@@ -480,6 +491,45 @@ $('#btn-fetch-models').addEventListener('click', async () => {
     btn.innerHTML = originalText;
   }
 });
+
+function dedupeById(list) {
+  const seen = new Set();
+  return list.filter((m) => {
+    if (seen.has(m.id)) return false;
+    seen.add(m.id);
+    return true;
+  });
+}
+
+// "OpenAI-compatible" only pins down the chat endpoint — providers disagree on
+// where capability metadata lives in /models, so probe the shapes seen in the
+// wild before giving up. Without this the TYPE and CONTEXT columns are empty for
+// every plain provider, which is what made them look like dead columns.
+function readContextWindow(m) {
+  return (
+    m.context_window ??
+    m.context_length ??
+    m.max_context_tokens ??
+    m.max_context_length ??
+    m.top_provider?.context_length ??
+    null
+  );
+}
+
+function readsVision(m) {
+  if (m.vision != null) return !!m.vision;
+  if (m.supports_vision != null) return !!m.supports_vision;
+  const modality = m.architecture?.input_modalities ?? m.architecture?.modality;
+  if (Array.isArray(modality)) return modality.includes('image');
+  if (typeof modality === 'string') return modality.includes('image');
+  return Array.isArray(m.capabilities) && m.capabilities.includes('vision');
+}
+
+function readsReasoning(m) {
+  if (m.reasoning != null) return !!m.reasoning;
+  if (m.supports_reasoning != null) return !!m.supports_reasoning;
+  return Array.isArray(m.capabilities) && m.capabilities.includes('reasoning');
+}
 
 // Returns '' when the provider doesn't report a context window, so callers can
 // decide how to render "unknown" (the table shows NA, the sidebar shows nothing
@@ -843,27 +893,34 @@ function adaptiveNonStream(model, apiKey, baseUrl) {
 async function testModel(model, apiKey, baseUrl) {
   let transientRetries = 0;
   let emptyRetried = false;
+  let rounds = 0;
+
+  // `time` is only the winning attempt, so a 502 retried twice still reports
+  // ~0.3s. Carrying the round count lets the table show that it took more than
+  // one go instead of presenting the last attempt as the whole story.
+  const done = (r) => ({ ...r, attempts: rounds });
 
   while (true) {
-    if (abortTesting) return { status: 'fail', response: 'Aborted', time: 0, tokens: 0 };
+    if (abortTesting) return done({ status: 'fail', response: 'Aborted', time: 0, tokens: 0 });
+    rounds += 1;
 
     const r = await adaptiveNonStream(model, apiKey, baseUrl);
 
-    if (r.status === 'pass' && !r.isEmpty) return r;
+    if (r.status === 'pass' && !r.isEmpty) return done(r);
 
     if (r.status === 'pass' && r.isEmpty) {
       // Empty on the non-streaming endpoint: some models (byNara event-stream)
       // deliver content only over SSE — try streaming.
-      if (abortTesting) return r;
+      if (abortTesting) return done(r);
       const streamed = await raceAttempts(model, apiKey, baseUrl, true, STREAM_HEDGE);
-      if (streamed.status === 'pass' && !streamed.isEmpty) return streamed;
+      if (streamed.status === 'pass' && !streamed.isEmpty) return done(streamed);
       // Both empty. Empty can be flaky, so retry the whole model once.
       if (!emptyRetried && !abortTesting) {
         emptyRetried = true;
         await sleep(500);
         continue;
       }
-      return r;
+      return done(r);
     }
 
     // A failure. Retry on transient errors (429/5xx/network), honoring Retry-After
@@ -874,7 +931,7 @@ async function testModel(model, apiKey, baseUrl) {
       transientRetries++;
       continue;
     }
-    return r;
+    return done(r);
   }
 }
 
@@ -961,7 +1018,11 @@ $('#results-body').addEventListener('click', (e) => {
 // in testResults at all, so they're read back off the table).
 function retryableModels() {
   const ids = new Set(testResults.filter((r) => r.status === 'fail').map((r) => r.model));
-  $$('#results-body tr.row-skipped').forEach((tr) => ids.add(tr.dataset.modelId));
+  // Read off the backing data, not the DOM — a "failed only" filter or a sort
+  // can leave skipped rows out of the table entirely.
+  tableRows.forEach((e) => {
+    if (e.result.status === 'skipped') ids.add(e.model.id);
+  });
   return models.filter((m) => ids.has(m.id));
 }
 
@@ -1045,20 +1106,114 @@ async function runTests(list, { reset = true } = {}) {
 // ============================================
 // Results table
 // ============================================
+// The table's backing data, in the order rows were created. Sorting and
+// filtering are views over this — the underlying run order never changes, so
+// clearing a sort restores the original sequence.
+let tableRows = [];
+let sortKey = null;
+let sortDir = 1;
+let showFailedOnly = false;
+
 function initResultsTable() {
+  tableRows = [];
+  sortKey = null;
+  sortDir = 1;
+  showFailedOnly = false;
+  $('#filter-failed').classList.remove('active');
   $('#results-empty').style.display = 'none';
   $('#results-table').style.display = '';
   $('#results-body').innerHTML = '';
 }
 
 function addResultRow(model, result) {
+  tableRows.push({ model, result });
   const tbody = $('#results-body');
   const tr = document.createElement('tr');
   tr.dataset.modelId = model.id;
   tr.className = rowClassFor(result);
   tr.innerHTML = buildRowHtml(model, result);
   tbody.appendChild(tr);
+  syncColumnVisibility();
 }
+
+const SORTERS = {
+  status: (e) => ({ fail: 0, skipped: 1, running: 2, pass: e.result.isEmpty ? 3 : 4 })[e.result.status] ?? 5,
+  model: (e) => e.model.id.toLowerCase(),
+  context: (e) => e.model.context_window ?? -1,
+  time: (e) => (e.result.status === 'pass' ? e.result.time : null),
+  tokens: (e) => (e.result.status === 'pass' ? e.result.tokens : null),
+  tps: (e) => tokensPerSecond(e.result),
+};
+
+// Rows with no value for the sort column always sink to the bottom, whichever
+// direction is active — a failed model has no "slowest time", it has no time.
+function sortedRows(rows) {
+  if (!sortKey) return rows;
+  const read = SORTERS[sortKey];
+  return [...rows].sort((a, b) => {
+    const x = read(a);
+    const y = read(b);
+    const xNull = x == null || x === '';
+    const yNull = y == null || y === '';
+    if (xNull && yNull) return 0;
+    if (xNull) return 1;
+    if (yNull) return -1;
+    if (typeof x === 'string') return x.localeCompare(y) * sortDir;
+    return (x - y) * sortDir;
+  });
+}
+
+function visibleRows() {
+  const rows = showFailedOnly
+    ? tableRows.filter((e) => e.result.status === 'fail' || e.result.isEmpty)
+    : tableRows;
+  return sortedRows(rows);
+}
+
+function renderResultsTable() {
+  $('#results-body').innerHTML = visibleRows()
+    .map(
+      ({ model, result }) =>
+        `<tr class="${rowClassFor(result)}" data-model-id="${escapeHtml(model.id)}">${buildRowHtml(model, result)}</tr>`
+    )
+    .join('');
+  syncColumnVisibility();
+}
+
+// A column every provider leaves blank is noise, not information. Hide TYPE and
+// CONTEXT when no row in the table has anything to put in them.
+function syncColumnVisibility() {
+  const table = $('#results-table');
+  const hasType = tableRows.some(
+    ({ model }) => model.hasVision || model.hasReasoning || !model.noPlans
+  );
+  const hasContext = tableRows.some(({ model }) => !!model.contextLabel);
+  table.classList.toggle('hide-type', !hasType);
+  table.classList.toggle('hide-context', !hasContext);
+}
+
+$('#results-table thead').addEventListener('click', (e) => {
+  const th = e.target.closest('.th-sortable');
+  if (!th) return;
+  const key = th.dataset.sort;
+  if (sortKey === key) {
+    // third click clears the sort and restores run order
+    if (sortDir === -1) sortKey = null;
+    else sortDir = -1;
+  } else {
+    sortKey = key;
+    sortDir = 1;
+  }
+  $$('#results-table th').forEach((el) => el.classList.remove('sort-asc', 'sort-desc'));
+  if (sortKey) th.classList.add(sortDir === 1 ? 'sort-asc' : 'sort-desc');
+  renderResultsTable();
+});
+
+$('#filter-failed').addEventListener('click', () => {
+  showFailedOnly = !showFailedOnly;
+  $('#filter-failed').classList.toggle('active', showFailedOnly);
+  renderResultsTable();
+});
 
 // Matched on the dataset value rather than an attribute selector, because model
 // ids carry '/', '.' and ':' and would need escaping to be used as a selector.
@@ -1078,6 +1233,15 @@ function rowClassFor(result) {
 }
 
 function updateResultRow(model, result) {
+  const entry = tableRows.find((e) => e.model.id === model.id);
+  if (entry) entry.result = result;
+
+  // With a sort or filter active the row may need to move (or vanish), so the
+  // whole view is rebuilt. Otherwise patch the one row in place.
+  if (sortKey || showFailedOnly) {
+    renderResultsTable();
+    return;
+  }
   const tr = findResultRow(model.id);
   if (!tr) return;
   tr.className = rowClassFor(result);
@@ -1150,15 +1314,29 @@ function buildRowHtml(model, result) {
 
   // No tokens on a failed or in-flight request — '0' would read as a measurement.
   const tokens = isRunning || isFailed || result.tokens == null ? NA : String(result.tokens);
+
+  const tps = tokensPerSecond(result);
+  const tpsHtml = tps == null ? NA : tps >= 100 ? String(Math.round(tps)) : tps.toFixed(1);
+
+  const full = result.response || '';
+  const truncated = full.length > RESPONSE_PREVIEW;
+  const preview = escapeHtml(full.slice(0, RESPONSE_PREVIEW)) + (truncated ? '…' : '');
   const responseHtml = isRunning
     ? `<span class="response-placeholder">Testing...</span>`
     : result.isEmpty
-      ? `<span class="response-empty">${escapeHtml((result.response || 'Empty').slice(0, 120))}</span>`
-      : escapeHtml(result.response.slice(0, 120));
-  const responseTitle = escapeHtml(result.response || '');
+      ? `<span class="response-empty">${preview}</span>`
+      : preview;
+  const responseTitle = escapeHtml(truncated ? 'Click to see the full response' : full);
 
   // A row worth re-running gets its own retry button, so one bad model doesn't
   // cost a full re-test of the whole list.
+  // The reported time covers only the winning attempt, so say when there were more.
+  const extraRounds = (result.attempts || 1) - 1;
+  const retriesHtml =
+    extraRounds > 0
+      ? ` <span class="retry-count" title="Retried ${extraRounds} time${extraRounds === 1 ? '' : 's'}; the time shown is the last attempt">↻${extraRounds}</span>`
+      : '';
+
   const canRetry = !isRunning && (isFailed || result.status === 'skipped' || result.isEmpty);
   const actionsHtml = canRetry
     ? `<button class="row-retry-btn" data-model-id="${escapeHtml(model.id)}" title="Retry this model">${ICONS.retry}</button>`
@@ -1169,12 +1347,47 @@ function buildRowHtml(model, result) {
     <td class="cell-model">${escapeHtml(model.id)}</td>
     <td class="cell-type ${typeIcons.length ? '' : 'cell-na'}">${typeHtml}</td>
     <td class="cell-context ${model.contextLabel ? '' : 'cell-na'}">${contextHtml}</td>
-    <td class="cell-time ${timeClass}">${timeStr}</td>
+    <td class="cell-time ${timeClass}">${timeStr}${retriesHtml}</td>
     <td class="cell-tokens ${tokens === NA ? 'cell-na' : ''}">${tokens}</td>
-    <td class="cell-response" title="${responseTitle}">${responseHtml}</td>
+    <td class="cell-tps ${tps == null ? 'cell-na' : ''}">${tpsHtml}</td>
+    <td class="cell-response ${truncated ? 'response-expandable' : ''}" title="${responseTitle}">${responseHtml}</td>
     <td class="cell-actions">${actionsHtml}</td>
   `;
 }
+
+// Generation speed. Only completion tokens count — prompt tokens aren't
+// generated, so including them inflates the rate on a long prompt. This is
+// end-to-end (the elapsed time includes connection and queueing), so treat it as
+// a comparison between models on equal terms, not a raw decode rate.
+function tokensPerSecond(result) {
+  if (!result || result.status !== 'pass' || result.isEmpty) return null;
+  if (!result.completionTokens || !result.time) return null;
+  return result.completionTokens / (result.time / 1000);
+}
+
+// ============================================
+// Full response modal
+// ============================================
+$('#results-body').addEventListener('click', (e) => {
+  const cell = e.target.closest('.response-expandable');
+  if (!cell) return;
+  const tr = cell.closest('tr');
+  const entry = tableRows.find((r) => r.model.id === tr?.dataset.modelId);
+  if (!entry) return;
+  $('#response-modal-title').textContent = entry.model.id;
+  $('#response-modal-body').textContent = entry.result.response || '';
+  $('#response-modal').style.display = 'flex';
+});
+
+$('#response-modal-close').addEventListener('click', () => {
+  $('#response-modal').style.display = 'none';
+});
+$('#response-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'response-modal') $('#response-modal').style.display = 'none';
+});
+$('#response-modal-copy').addEventListener('click', () => {
+  navigator.clipboard.writeText($('#response-modal-body').textContent || '');
+});
 
 function escapeHtml(str) {
   if (!str) return '';
@@ -1232,9 +1445,18 @@ function hideProgress() {
 // ============================================
 $('#btn-export-csv').addEventListener('click', () => {
   if (testResults.length === 0) return;
-  const header = 'Model,Provider,Plan,Status,Time (ms),Tokens,Response\n';
+  const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const header = 'Model,Provider,Plan,Status,Time (ms),Tokens,Completion Tokens,TPS,Attempts,Response\n';
   const rows = testResults
-    .map((r) => `"${r.model}","${r.provider}","${r.group || ''}","${r.status}",${r.time},${r.tokens},"${(r.response || '').replace(/"/g, '""')}"`)
+    .map((r) => {
+      const tps = tokensPerSecond(r);
+      return [
+        q(r.model), q(r.provider), q(r.group || ''), q(r.status),
+        r.time ?? '', r.tokens ?? '', r.completionTokens ?? '',
+        tps == null ? '' : tps.toFixed(2), r.attempts ?? 1,
+        q(r.response),
+      ].join(',');
+    })
     .join('\n');
   downloadFile(header + rows, 'upstream-checker-results.csv', 'text/csv');
 });
@@ -1247,6 +1469,12 @@ $('#btn-export-json').addEventListener('click', () => {
 $('#btn-clear-results').addEventListener('click', () => {
   testResults = [];
   runTotal = null;
+  tableRows = [];
+  sortKey = null;
+  sortDir = 1;
+  showFailedOnly = false;
+  $('#filter-failed').classList.remove('active');
+  $$('#results-table th').forEach((el) => el.classList.remove('sort-asc', 'sort-desc'));
   $('#results-empty').style.display = '';
   $('#results-table').style.display = 'none';
   $('#results-body').innerHTML = '';

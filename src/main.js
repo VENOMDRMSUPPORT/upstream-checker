@@ -123,9 +123,9 @@ function initAutoUpdater() {
         const url = `https://api.github.com/repos/VENOMDRMSUPPORT/upstream-checker/releases/tags/v${info.version}`;
         const response = await new Promise((resolve, reject) => {
           https.get(url, { headers: { 'User-Agent': 'Upstream-Checker' } }, (res) => {
-            let data = '';
-            res.on('data', chunk => data += chunk);
-            res.on('end', () => resolve({ status: res.statusCode, body: data }));
+            const chunks = [];
+            res.on('data', (chunk) => chunks.push(chunk));
+            res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
           }).on('error', reject);
         });
 
@@ -234,14 +234,17 @@ ipcMain.handle('api-request', async (event, { url, method, headers, body, reques
     };
 
     const req = client.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
+      // Collected as Buffers and decoded once at the end. `data += chunk` decodes
+      // each chunk on its own, so any UTF-8 character split across a chunk
+      // boundary comes out mangled — a model answering "Bốn" renders as "Bón".
+      const chunks = [];
+      res.on('data', (chunk) => { chunks.push(chunk); });
       res.on('end', () => {
         cleanup();
         const elapsed = Date.now() - startTime;
         resolve({
           status: res.statusCode,
-          body: data,
+          body: Buffer.concat(chunks).toString('utf8'),
           elapsed,
           headers: res.headers,
         });

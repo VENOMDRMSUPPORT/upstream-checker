@@ -171,7 +171,8 @@
             <span class="stat-value stat-pass" id="stat-pass">0</span>
           </div>
           <div class="stat-divider"></div>
-          <div class="stat-item">
+          <!-- Clickable: filters the table down to failures and back. -->
+          <div class="stat-item stat-item-toggle" id="filter-failed" title="Show only failed / empty responses">
             <span class="stat-label">Failed</span>
             <span class="stat-value stat-fail" id="stat-fail">0</span>
           </div>
@@ -229,12 +230,13 @@
         <table class="results-table" id="results-table" style="display: none;">
           <thead>
             <tr>
-              <th class="th-status">STATUS</th>
-              <th class="th-model">MODEL</th>
+              <th class="th-status th-sortable" data-sort="status">STATUS</th>
+              <th class="th-model th-sortable" data-sort="model">MODEL</th>
               <th class="th-type">TYPE</th>
-              <th class="th-context">CONTEXT</th>
-              <th class="th-time">TIME</th>
-              <th class="th-tokens">TOKENS</th>
+              <th class="th-context th-sortable" data-sort="context">CONTEXT</th>
+              <th class="th-time th-sortable" data-sort="time">TIME</th>
+              <th class="th-tokens th-sortable" data-sort="tokens">TOKENS</th>
+              <th class="th-tps th-sortable" data-sort="tps" title="Completion tokens per second of total response time">TPS</th>
               <th class="th-response">RESPONSE</th>
               <th class="th-actions"></th>
             </tr>
@@ -254,6 +256,26 @@
         </div>
       </div>
     </main>
+  </div>
+
+  <!-- Full Response Modal -->
+  <div class="modal-overlay" id="response-modal" style="display:none">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h3 id="response-modal-title">Response</h3>
+        <button class="modal-close" id="response-modal-close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <pre class="response-full" id="response-modal-body"></pre>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="response-modal-copy">Copy</button>
+      </div>
+    </div>
   </div>
 
   <!-- Add Key Modal -->
