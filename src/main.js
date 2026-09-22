@@ -297,8 +297,12 @@ ipcMain.on('window-close', () => mainWindow?.close());
 const activeApiRequests = new Map();
 
 // API request handler
-ipcMain.handle('api-request', async (event, { url, method, headers, body, requestId }) => {
-  return new Promise((resolve, reject) => {
+// Failures resolve rather than reject. A rejected ipcMain.handle reaches the
+// renderer as "Error invoking remote method 'api-request': ..." with the real
+// message buried and every other field — notably the elapsed time — gone, so a
+// failed model showed a meaningless error and 0.0s.
+ipcMain.handle('api-request', async (event, { url, method, headers, body, requestId, timeoutMs }) => {
+  return new Promise((resolve) => {
     const startTime = Date.now();
     const urlObj = new URL(url);
     const isHttps = urlObj.protocol === 'https:';
@@ -310,7 +314,10 @@ ipcMain.handle('api-request', async (event, { url, method, headers, body, reques
       path: urlObj.pathname + urlObj.search,
       method: method || 'GET',
       headers: headers || {},
-      timeout: 60000,
+      // Socket inactivity timeout. A video generator sends nothing for minutes
+      // while it works, so a fixed 60s here would kill it regardless of the
+      // deadline the caller set for that kind of model.
+      timeout: Number(timeoutMs) > 0 ? Number(timeoutMs) : 60000,
     };
 
     const cleanup = () => {
@@ -346,13 +353,15 @@ ipcMain.handle('api-request', async (event, { url, method, headers, body, reques
         resolve({ status: 0, body: '', elapsed, headers: {}, cancelled: true });
         return;
       }
-      reject({ error: err.message, elapsed });
+      resolve({ status: 0, body: '', elapsed, headers: {}, networkError: true, error: err.message });
     });
 
     req.on('timeout', () => {
       cleanup();
       req.destroy();
-      reject({ error: 'Request timed out', elapsed: Date.now() - startTime });
+      const elapsed = Date.now() - startTime;
+      resolve({ status: 0, body: '', elapsed, headers: {}, networkError: true, timedOut: true,
+                error: `No response for ${Math.round(options.timeout / 1000)}s` });
     });
 
     if (body) req.write(typeof body === 'string' ? body : JSON.stringify(body));

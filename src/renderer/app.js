@@ -45,7 +45,7 @@ function classifyModel(providerId, model) {
     const k = adapter.classify(model);
     if (KIND_SETTINGS[k]) return k;
   }
-  const id = String(model.id || '').toLowerCase();
+  const id = `${model.id || ''} ${model.display_name || model.name || ''}`.toLowerCase();
   if (/\b(wan|veo|sora|kling|runway|luma|hailuo|pika)\b|video|t2v|i2v/.test(id)) return 'video';
   if (/image|flux|dall-?e|stable-?diffusion|midjourney|seedream|imagen|ideogram|t2i/.test(id)) return 'image';
   return 'chat';
@@ -1079,16 +1079,25 @@ async function attemptOnce(model, apiKey, baseUrl, stream, requestId) {
   if (!media) payload.reasoning_effort = 'low';
 
   try {
+    const { deadline } = KIND_SETTINGS[model.kind] || KIND_SETTINGS.chat;
     const result = await window.electronAPI.apiRequest({
       url: `${baseUrl}/chat/completions`,
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
       requestId,
+      timeoutMs: deadline,
     });
 
     // Cancelled hedge loser — ignore it (raceAttempts skips cancelled results).
     if (result.cancelled) return { status: 'fail', response: 'cancelled', time: result.elapsed || 0, tokens: 0, cancelled: true };
+
+    // Transport-level failure; the handler resolves these so the message and the
+    // elapsed time survive the trip across IPC.
+    if (result.networkError) {
+      return { status: 'fail', response: result.error || 'Request failed', time: result.elapsed || 0,
+               tokens: 0, networkError: true, timedOut: !!result.timedOut };
+    }
 
     if (result.status === 200) {
       const parsed = stream ? parseStreamedCompletion(result.body) : parseChatCompletion(result.body);
