@@ -3100,16 +3100,11 @@ function showUpdateModal(info) {
 
   if (raw.trim()) {
     const list = buildReleaseNotes(raw);
-    if (list.childElementCount > 0) {
-      notesEl.replaceChildren(list);
-    } else {
-      // Notes in a shape the parser does not recognise are shown verbatim rather
-      // than swallowed.
-      const pre = document.createElement('pre');
-      pre.className = 'response-full';
-      pre.textContent = raw.trim();
-      notesEl.replaceChildren(pre);
-    }
+    // Both shapes the notes can arrive in reduce to a list. If even that comes
+    // out empty, the text itself goes straight into the panel: never a second
+    // framed, scrolling box inside the first.
+    if (list.childElementCount > 0) notesEl.replaceChildren(list);
+    else notesEl.textContent = raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
   } else {
     notesEl.textContent = 'Release notes were not published yet — see the release page on GitHub.';
   }
@@ -3130,36 +3125,105 @@ function hideUpdateModal() {
 }
 
 // Release notes come from GitHub, so they are remote text rendered inside the
-// app. Built as DOM nodes with textContent rather than an HTML string: markup in
-// a release body can only ever be read as characters, never parsed.
-//
-// The previous version also never rendered its headings — it bailed on any line
-// starting with '#', which made both heading branches below it unreachable.
+// app. They arrive in one of two shapes: the release body in Markdown (what
+// main.js fetches from the API), or GitHub's own HTML rendering of it (what
+// electron-updater reads from the releases feed, used when the API is out of
+// reach). Both are reduced to the same items, a heading or an entry, and every
+// item is built as DOM nodes with textContent: markup in a release can only
+// ever be read as characters, never run.
 function buildReleaseNotes(notes) {
+  const items = /<(h[1-6]|ul|ol|li|p)\b[^>]*>/i.test(notes) ? notesFromHtml(notes) : notesFromMarkdown(notes);
   const list = document.createElement('ul');
-
-  notes.split('\n').forEach((raw) => {
-    const line = raw.trim().replace(/<[^>]*>/g, '').trim();
-    if (!line || line === '---' || line.startsWith('[')) return;
-
-    const heading = /^(#{2,3})\s+(.*)$/.exec(line);
-    const bullet = /^[-*]\s+(.*)$/.exec(line);
-    if (!heading && !bullet) return;
-
+  items.forEach((item) => {
     const li = document.createElement('li');
-    if (heading) {
-      const strong = document.createElement('strong');
-      strong.className = heading[1] === '##' ? 'notes-version' : 'notes-section';
-      strong.textContent = heading[2];
-      li.className = 'notes-heading';
-      li.appendChild(strong);
+    if (item.heading) {
+      li.className = `notes-heading ${item.level <= 2 ? 'notes-version' : 'notes-section'}`;
+      li.textContent = item.text;
     } else {
-      li.textContent = bullet[1];
+      appendInlineMarkdown(li, item.text);
     }
-    if (li.textContent) list.appendChild(li);
+    if (li.textContent.trim()) list.appendChild(li);
   });
-
   return list;
+}
+
+// Markdown: headings and bullets, with a bullet's wrapped lines joined back to
+// it (the CHANGELOG wraps at 80 columns, and a line-by-line reading used to
+// keep only the first line of every entry).
+function notesFromMarkdown(md) {
+  const items = [];
+  let open = null;
+  md.split(/\r?\n/).forEach((raw) => {
+    const line = raw.trim();
+    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+    const bullet = /^[-*+]\s+(.*)$/.exec(line);
+    if (heading) {
+      open = null;
+      items.push({ heading: true, level: heading[1].length, text: heading[2].replace(/[*_`]/g, '') });
+    } else if (bullet) {
+      open = { text: bullet[1] };
+      items.push(open);
+    } else if (!line || line === '---' || /^\[[^\]]+\]:\s/.test(line)) {
+      open = null;
+    } else if (open) {
+      open.text += ` ${line}`;
+    } else {
+      // A plain paragraph still says something; keep it as an entry.
+      open = { text: line };
+      items.push(open);
+    }
+  });
+  return items;
+}
+
+// HTML: parsed into an inert document (DOMParser runs no scripts and loads
+// nothing), then only headings and list items are read, as text, in order.
+function notesFromHtml(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const items = [];
+  doc.body.querySelectorAll('h1, h2, h3, h4, h5, h6, li, p').forEach((el) => {
+    // A paragraph inside a list item is part of that item.
+    if (el.tagName === 'P' && el.closest('li')) return;
+    const text = el.tagName === 'LI' ? inlineMarkdownOf(el) : el.textContent;
+    const clean = text.replace(/\s+/g, ' ').trim();
+    if (!clean) return;
+    if (/^H[1-6]$/.test(el.tagName)) items.push({ heading: true, level: Number(el.tagName[1]), text: clean });
+    else items.push({ text: clean });
+  });
+  return items;
+}
+
+// An HTML list item back to the small Markdown subset rendered below, so both
+// shapes show bold and code the same way.
+function inlineMarkdownOf(el) {
+  let out = '';
+  el.childNodes.forEach((n) => {
+    if (n.nodeType === Node.TEXT_NODE) out += n.textContent;
+    else if (n.nodeType === Node.ELEMENT_NODE) {
+      if (/^(UL|OL)$/.test(n.tagName)) return; // nested lists are their own items
+      const inner = inlineMarkdownOf(n);
+      if (n.tagName === 'STRONG' || n.tagName === 'B') out += `**${inner}**`;
+      else if (n.tagName === 'CODE') out += `\`${n.textContent}\``;
+      else if (n.tagName === 'BR') out += ' ';
+      else out += inner;
+    }
+  });
+  return out;
+}
+
+// **bold**, *em* and `code` as elements; everything else as plain text.
+function appendInlineMarkdown(parent, text) {
+  const re = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*\s][^*]*\*)/g;
+  let last = 0;
+  for (const m of text.matchAll(re)) {
+    if (m.index > last) parent.append(text.slice(last, m.index));
+    const tok = m[0];
+    const el = document.createElement(tok.startsWith('**') ? 'strong' : tok.startsWith('`') ? 'code' : 'em');
+    el.textContent = tok.startsWith('**') ? tok.slice(2, -2) : tok.slice(1, -1);
+    parent.append(el);
+    last = m.index + tok.length;
+  }
+  if (last < text.length) parent.append(text.slice(last));
 }
 
 function showDownloadProgress(percent) {

@@ -263,27 +263,30 @@ function initAutoUpdater() {
 
   autoUpdater.on('update-available', async (info) => {
     log.info('Update available:', info.version);
+    // electron-updater takes the notes from GitHub's releases.atom feed, which
+    // carries them as GitHub-rendered HTML. The release body itself is the
+    // CHANGELOG section in Markdown, so it is fetched first and the feed's HTML
+    // is only the fallback. The renderer reads either shape.
     let releaseNotes = info.releaseNotes;
-
-    // Fetch release notes from GitHub if not available
-    if (!releaseNotes || (Array.isArray(releaseNotes) && releaseNotes.length === 0)) {
-      try {
-        const url = `https://api.github.com/repos/VENOMDRMSUPPORT/upstream-checker/releases/tags/v${info.version}`;
-        const response = await new Promise((resolve, reject) => {
-          https.get(url, { headers: { 'User-Agent': 'Upstream-Checker' } }, (res) => {
-            const chunks = [];
-            res.on('data', (chunk) => chunks.push(chunk));
-            res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
-          }).on('error', reject);
+    try {
+      const url = `https://api.github.com/repos/VENOMDRMSUPPORT/upstream-checker/releases/tags/v${info.version}`;
+      const response = await new Promise((resolve, reject) => {
+        const req = https.get(url, { headers: { 'User-Agent': 'Upstream-Checker', Accept: 'application/vnd.github+json' } }, (res) => {
+          const chunks = [];
+          res.on('data', (chunk) => chunks.push(chunk));
+          res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
         });
-
-        if (response.status === 200) {
-          const release = JSON.parse(response.body);
-          releaseNotes = release.body || 'No release notes available';
-        }
-      } catch (err) {
-        log.warn('Failed to fetch release notes:', err);
+        req.setTimeout(8000, () => req.destroy(new Error('timed out')));
+        req.on('error', reject);
+      });
+      if (response.status === 200) {
+        const body = JSON.parse(response.body).body;
+        if (typeof body === 'string' && body.trim()) releaseNotes = body;
+      } else {
+        log.warn(`Release notes: GitHub API answered ${response.status}; using the feed's notes`);
       }
+    } catch (err) {
+      log.warn('Release notes: GitHub API unreachable; using the feed\'s notes:', err.message);
     }
 
     mainWindow?.webContents.send('update-available', {

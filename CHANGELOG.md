@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-09-26
+
+### Fixed
+- The update dialog showed its notes as raw HTML (`<h3>`, `<li>`…) in a
+  second framed, scrolling box inside the notes panel. electron-updater reads
+  the notes from GitHub's releases feed, which carries them as rendered HTML,
+  and the dialog only understood Markdown. The app now fetches the release's
+  Markdown body from the GitHub API first (feed HTML as the fallback) and the
+  dialog reads both shapes, still building every line as text nodes. Wrapped
+  entries are no longer cut to their first line, bold and code show as such,
+  and the notes panel is taller.
+
+[1.3.1]: https://github.com/VENOMDRMSUPPORT/upstream-checker/releases/tag/v1.3.1
+
 ## [1.3.0] - 2026-09-25
 
 ### Added
