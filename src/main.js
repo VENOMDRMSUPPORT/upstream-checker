@@ -144,6 +144,54 @@ function appendRun(run, maxRuns) {
   }
 }
 
+// ============================================
+// Model catalog — catalog.json
+// ============================================
+// Every model each connected provider has ever listed, with when it was first
+// and last seen, whether it has since disappeared, and its benchmark results.
+// Kept apart from history.json (per-run verdicts) and config.json (keys), so a
+// growing catalogue never slows either of those down.
+const CATALOG_VERSION = 1;
+
+let catalogPath;
+function getCatalogPath() {
+  if (!catalogPath) catalogPath = path.join(app.getPath('userData'), 'catalog.json');
+  return catalogPath;
+}
+
+function emptyCatalog() {
+  return { version: CATALOG_VERSION, models: {}, lastSync: {}, leaderboard: null };
+}
+
+function readCatalog() {
+  try {
+    const cp = getCatalogPath();
+    if (!fs.existsSync(cp)) return emptyCatalog();
+    const parsed = JSON.parse(fs.readFileSync(cp, 'utf-8'));
+    if (!parsed || typeof parsed !== 'object') return emptyCatalog();
+    if (!parsed.models || typeof parsed.models !== 'object') parsed.models = {};
+    if (!parsed.lastSync || typeof parsed.lastSync !== 'object') parsed.lastSync = {};
+    return parsed;
+  } catch (err) {
+    log.error('Failed to read catalog:', err);
+    return emptyCatalog();
+  }
+}
+
+function writeCatalog(data) {
+  try {
+    const cp = getCatalogPath();
+    const tmp = `${cp}.tmp`;
+    data.version = CATALOG_VERSION;
+    fs.writeFileSync(tmp, JSON.stringify(data), 'utf-8');
+    fs.renameSync(tmp, cp);
+    return { success: true };
+  } catch (err) {
+    log.error('Failed to write catalog:', err);
+    return { success: false, error: err.message };
+  }
+}
+
 let mainWindow;
 
 function saveWindowState() {
@@ -168,7 +216,7 @@ function createWindow() {
     minHeight: 700,
     frame: false,
     titleBarStyle: 'hidden',
-    backgroundColor: '#0a0e1a',
+    backgroundColor: '#000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -313,6 +361,10 @@ ipcMain.on('window-close', () => mainWindow?.close());
 // In-flight API requests by id, so the renderer can cancel hedged losers.
 const activeApiRequests = new Map();
 
+// A chunk that carries model text: a non-empty content/text/reasoning field.
+// Matches both a streamed delta and a whole non-streamed body.
+const CONTENT_TOKEN = /"(?:content|text|reasoning_content|reasoning)"\s*:\s*"[^"\\]/;
+
 // API request handler
 // Failures resolve rather than reject. A rejected ipcMain.handle reaches the
 // renderer as "Error invoking remote method 'api-request': ..." with the real
@@ -346,7 +398,22 @@ ipcMain.handle('api-request', async (event, { url, method, headers, body, reques
       // each chunk on its own, so any UTF-8 character split across a chunk
       // boundary comes out mangled — a model answering "Bốn" renders as "Bón".
       const chunks = [];
-      res.on('data', (chunk) => { chunks.push(chunk); });
+      // Time to first byte of the body. For a streamed completion this is the
+      // time to first token, which the benchmark reports separately from the
+      // total: a model that starts answering in 300ms and streams for 4s feels
+      // very different from one that is silent for 4s.
+      let firstByteMs = null;
+      // Time to the first chunk that carries model text. A proxy can answer
+      // with headers, a keep-alive comment or an empty role delta within a few
+      // milliseconds, which says nothing about the model; the first non-empty
+      // content field does.
+      let firstTokenMs = null;
+      res.on('data', (chunk) => {
+        const now = Date.now() - startTime;
+        if (firstByteMs === null) firstByteMs = now;
+        if (firstTokenMs === null && CONTENT_TOKEN.test(chunk.toString('utf8'))) firstTokenMs = now;
+        chunks.push(chunk);
+      });
       res.on('end', () => {
         cleanup();
         const elapsed = Date.now() - startTime;
@@ -363,7 +430,7 @@ ipcMain.handle('api-request', async (event, { url, method, headers, body, reques
             responseBody: clip(text),
           });
         }
-        resolve({ status: res.statusCode, body: text, elapsed, headers: res.headers });
+        resolve({ status: res.statusCode, body: text, elapsed, firstByteMs, firstTokenMs, headers: res.headers });
       });
     });
 
@@ -499,6 +566,10 @@ ipcMain.handle('clear-history', () => {
   }
 });
 
+// Catalog IPC handlers
+ipcMain.handle('read-catalog', () => readCatalog());
+ipcMain.handle('write-catalog', (event, data) => writeCatalog(data));
+
 // Fired when a scheduled run finds a model that used to pass and no longer does.
 ipcMain.on('notify-regression', (event, { title, body }) => {
   if (!Notification.isSupported()) return;
@@ -507,6 +578,19 @@ ipcMain.on('notify-regression', (event, { title, body }) => {
 
 ipcMain.handle('get-data-path', () => app.getPath('userData'));
 ipcMain.on('open-data-folder', () => shell.openPath(app.getPath('userData')));
+
+// Provider websites and similar links open in the user's browser. Only http(s)
+// is accepted, so a crafted string can't launch a file or another protocol.
+ipcMain.handle('open-external', async (_e, url) => {
+  try {
+    const u = new URL(String(url));
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
+    await shell.openExternal(u.toString());
+    return true;
+  } catch (_) {
+    return false;
+  }
+});
 
 // Config IPC handlers
 ipcMain.handle('read-config', () => {

@@ -5,6 +5,118 @@ All notable changes to Upstream Checker will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.3.0] - 2026-09-25
+
+### Added
+- **Model Catalog** page. Every model each connected provider lists, kept
+  live: the catalogue re-reads `/models` on every key every 5 minutes (setting),
+  on focus, and whenever a key is added or removed. A model the provider adds
+  is flagged NEW and, with the option on, benchmarked automatically (the first
+  sync of a provider is a baseline and runs nothing); a model the provider
+  drops disappears at once; a disconnected provider takes its models with it.
+  Stored in `catalog.json` next to the config and history.
+- **Quick benchmark** (`benchmark.js`): 21 short, machine-graded tasks in three
+  categories — reasoning & math, coding, instruction following — in easy, hard
+  and expert tiers worth 1, 2 and 3 points, plus a streamed latency probe and
+  a streamed throughput probe. 23 requests, three at a time, under a minute per
+  model. Produces a composite score (70% intelligence, 20% speed, 10%
+  reliability), an S/A/B/C/D tier, a rank among benchmarked models, median
+  latency, time to first *content* token and tokens per second measured on
+  generation alone, with every reply kept for inspection. A provider error,
+  timeout or empty stream is retried twice and then excluded from intelligence
+  and charged to reliability — it says nothing about what the model knows.
+  Too many failures mark the run incomplete instead of scoring it low.
+- **Global reference.** Each model is matched to the Artificial Analysis
+  leaderboard (bundled snapshot, or the live API when a free key is set in
+  Settings) and shown next to its Intelligence Index, global rank, TTFT and
+  speed, with a verdict on whether our tier agrees. Once three or more
+  benchmarked models are on the global board, a Spearman rank correlation
+  ("Validity vs global") says whether this benchmark ranks models the way the
+  world does.
+- **Venom Profiles** page (`profiles.js`): three virtual models — `venom-lite`,
+  `venom-pro`, `venom-max` — filled automatically from the catalogue. Each
+  profile has an editable policy (intelligence floor, first-token and
+  throughput limits, reliability floor, context, price cap, required
+  capabilities) and weights that rank the sources that pass it. Traffic is
+  spread over the top N by score with a cap per provider; the same model on
+  several providers is one family with several sources and shares its
+  measured intelligence; a source with too little evidence is a candidate,
+  three failures in a row put it in cooldown; every exclusion carries its
+  reason. Export as `profiles.json` for the router, or copy.
+- Catalogue data for routing: price per 1M tokens (where the provider
+  publishes it), capability probes (tool calling, strict JSON mode, a
+  5.5k-token needle-in-haystack with its latency) run once per model after
+  the benchmark and cached two weeks, an Arabic category in the benchmark,
+  per-model reliability from every recorded verdict, run-to-run stability,
+  and a "Router readiness" panel on each model.
+- Settings › Model Catalog: sync cadence, auto-benchmark toggle, Artificial
+  Analysis API key, leaderboard refresh, clear results, reset catalogue.
+- `api-request` now reports `firstByteMs` and `firstTokenMs` — the time to the
+  first byte, and the time to the first chunk carrying model text, which is the
+  time to first token on a streamed completion even behind a proxy that flushes
+  headers or an empty role delta early.
+- Routes in the URL hash (`#/providers`, `#/check/<provider>`,
+  `#/settings/<section>`), so a reload stays on the current page.
+- **Live** switch in every breadcrumb: pauses or resumes background provider
+  health checks. Settings › Schedule sets their cadence (1–30 minutes).
+- Model Catalog and Profiles show each provider's health beside its name and
+  update the moment a provider goes up or down.
+
+### Changed
+- The background health check probes every active key, in parallel, and
+  records each key's own result, so key rows no longer sit at "Not tested"
+  and a failing key is visible even when another key of the provider works.
+- Provider logos follow the theme. A module's `meta.logoTone` (`mono` for a
+  light single-colour mark, `bright` for light brand colours) re-inks the logo
+  on the light theme, where logo tiles are now white instead of a dark box.
+  This replaces the per-provider watermark CSS and the dark chip behind
+  sidebar logos.
+- Recheck (provider) and Test (key) answer the click: a spinner while the
+  probe runs (held at least 650 ms so an instant answer still reads), then the
+  verdict's icon in its colour for 2.6 s. Background checks stay silent.
+- Providers table: an open provider's keys are real table rows on the
+  provider's own columns (the key's check under Status, its state under Keys,
+  its model count under Models, when it was checked under Last run, its
+  buttons under Actions). One accent bar runs down the provider row and
+  through its keys, the keys sit in a recessed well, and a tree line grows
+  from under the provider's logo and branches into each key. Cards keep the
+  stacked key panel.
+- Each key row shows how many models that key sees and when it was last
+  checked ("14 models · Checked 2m ago"). The count comes from the catalogue
+  sync, which discovers every key on its own through the provider's discovery
+  and filters, and is kept in `catalog.json` as `keyModels`. A key that sees
+  fewer models than its provider's keys together reads "18 of 21 models".
+- Settings speaks one design language on every tab: each setting is a row
+  with an icon, a title and a plain description, its control on the right
+  (or full width under the text for prompts and keys); numbers carry their
+  unit inside the field ("300 | runs"); a tab opens with a short note and
+  keeps anything destructive in a separate zone at its foot. Both cards'
+  headers carry an icon and a description under the title, the settings card
+  taking the active tab's icon.
+- Sidebar: Overview, Providers and Model catalog lead the General group, with
+  new icons.
+- Settings scrolls as one page instead of inside its card. The breadcrumb
+  scrolls away and the categories card sticks to the top, so every tab stays
+  one click away; a tab picked while scrolled down opens at its own top.
+- Bundled provider logo SVGs are cropped to their artwork, so every mark fills
+  its tile evenly and reads larger.
+- Providers page: rounded-square logo tiles (the redundant "connected" tick is
+  gone) with the provider-type dots on a rail under the logo, a status pill
+  that separates the verdict from its measurement ("Reachable | 351 ms",
+  "Key rejected | HTTP 401"), and key rows numbered `#1`, `#2`… with the
+  index chip carrying the key's state.
+
+### Fixed
+- On most launches the Model Catalog and Profiles never started: no sync
+  timer, no auto-benchmark, no page bindings. `catalog.js` and `profiles.js`
+  load after `app.js`, and startup could reach the point where it hands them
+  the providers before the page had run them. Startup now waits for
+  `DOMContentLoaded`, and a startup failure is logged instead of vanishing.
+
+[1.3.0]: https://github.com/VENOMDRMSUPPORT/upstream-checker/releases/tag/v1.3.0
+
 ## [1.2.1] - 2026-09-22
 
 ### Fixed

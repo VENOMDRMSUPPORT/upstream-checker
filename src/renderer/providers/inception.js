@@ -11,6 +11,8 @@ window.INTEGRATED_PROVIDERS.inception = {
     baseUrl: 'https://api.inceptionlabs.ai/v1',
     color: '#f9f6ef',
     logo: '../assets/providers/inception.svg',
+    // A light mark drawn for dark surfaces; re-inked dark on the light theme.
+    logoTone: 'mono',
     modelsEndpoint: '/models',
     chatEndpoint: '/chat/completions',
 
@@ -18,6 +20,9 @@ window.INTEGRATED_PROVIDERS.inception = {
     // above anything a test run does, but stating it means a large catalogue
     // still gets paced correctly rather than relying on the cap being distant.
     rpm: 1000,
+
+    // A Free plan exists (drives the Free Tier legend colour).
+    freeTier: true,
 
     // Inception's own examples use max_completion_tokens. Declaring it here
     // skips the one rejected request the app would otherwise spend learning it.

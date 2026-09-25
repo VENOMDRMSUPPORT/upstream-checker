@@ -1,0 +1,595 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Upstream Checker — Sidebar Variations</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --font: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+
+    /* SINGLE brand accent — violet/purple used across all 4 variants */
+    --a: #a855f7;         /* purple-500 */
+    --a2: #c084fc;        /* purple-400 */
+    --a-deep: #7c3aed;    /* violet-600 */
+    --a-glow: rgba(168,85,247,.55);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family: var(--font);
+    background:#05060a;
+    color:#e6edf3;
+    min-height:100vh;
+    padding:56px 40px 80px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page-title{
+    font-size:11px; letter-spacing:.34em; text-transform:uppercase;
+    color:#6a6f80; font-weight:600; margin:0 0 8px;
+  }
+  .page-heading{
+    font-size:30px; font-weight:600; margin:0 0 6px;
+    letter-spacing:-.02em; color:#f2f6fb;
+  }
+  .page-sub{
+    color:#8b91a8; font-size:14px; margin:0 0 44px;
+    max-width:640px; line-height:1.55;
+  }
+  .page-sub b{ color:var(--a2); font-weight:600; }
+
+  .grid{
+    display:grid;
+    grid-template-columns: repeat(4, 240px);
+    gap:32px;
+    justify-content:start;
+  }
+  .col{ width:240px; }
+
+  /* ============ SIDEBAR SHELL ============ */
+  .sb{
+    width:240px;
+    height:640px;
+    border-radius:20px;
+    padding:20px 16px 16px;
+    display:flex;
+    flex-direction:column;
+    position:relative;
+    overflow:hidden;
+    isolation:isolate;
+    color:#e6edf3;
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.05) inset,
+      0 30px 60px -20px rgba(0,0,0,.7),
+      0 8px 24px -12px rgba(0,0,0,.5);
+    margin-bottom:20px;
+  }
+  .sb::before, .sb::after{ content:""; position:absolute; inset:0; pointer-events:none; }
+
+  /* Logo row */
+  .logo{
+    display:flex; align-items:center; gap:10px;
+    padding:2px 4px 14px;
+    border-bottom:1px solid rgba(255,255,255,.06);
+    margin-bottom:12px;
+    position:relative; z-index:3;
+  }
+  .logo-mark{
+    width:32px; height:32px; border-radius:8px;
+    display:grid; place-items:center; flex-shrink:0;
+    background: linear-gradient(135deg, var(--a2) 0%, var(--a-deep) 100%);
+    box-shadow:
+      0 6px 18px -6px var(--a-glow),
+      inset 0 1px 0 rgba(255,255,255,.35);
+  }
+  .logo-mark svg{ width:18px; height:18px; color:#1a0035; }
+  .logo-text{ display:flex; flex-direction:column; line-height:1; }
+  .logo-text .t1{ font-size:13px; font-weight:700; letter-spacing:.02em; color:#fff; }
+  .logo-text .t2{ font-size:9.5px; font-weight:700; letter-spacing:.24em; margin-top:4px; color:#c9d3df; }
+  .ver{
+    margin-left:auto;
+    font-family:var(--mono);
+    font-size:9px;
+    padding:3px 7px;
+    border-radius:5px;
+    border:1px solid rgba(255,255,255,.1);
+    color:#c9d3df;
+    background: rgba(255,255,255,.03);
+    font-weight:500;
+  }
+  .close-x{
+    margin-left:auto;
+    width:22px; height:22px; border-radius:50%;
+    display:grid; place-items:center;
+    background: rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.08);
+    color:#8b91a8;
+  }
+  .close-x svg{ width:11px; height:11px; }
+
+  /* Nav */
+  .nav{
+    display:flex; flex-direction:column; gap:1px;
+    position:relative; z-index:3;
+  }
+  .nav a{
+    display:flex; align-items:center; gap:12px;
+    padding:10px 12px;
+    border-radius:9px;
+    color:#8b91a8;
+    font-size:13px; font-weight:500;
+    text-decoration:none;
+    letter-spacing:-.005em;
+    position:relative;
+    border:1px solid transparent;
+  }
+  .nav a svg.i{ width:16px; height:16px; flex-shrink:0; opacity:.9; }
+  .nav a .chev{
+    width:14px; height:14px; margin-left:auto; opacity:.35;
+  }
+  .nav a:hover{ color:#e6edf3; }
+
+  /* Active state — will be styled per variant */
+
+  /* Quick stats card */
+  .stats{
+    margin-top:auto;
+    border-radius:12px;
+    padding:12px 12px 6px;
+    position:relative; z-index:3;
+    background: linear-gradient(180deg, rgba(255,255,255,.04) 0%, rgba(255,255,255,.015) 100%);
+    border:1px solid rgba(255,255,255,.07);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+  .stats-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding-bottom:9px;
+    border-bottom:1px solid rgba(255,255,255,.06);
+    margin-bottom:2px;
+  }
+  .stats-head .st-title{
+    display:flex; align-items:center; gap:8px;
+    font-size:12.5px; font-weight:600; color:#f2f6fb; letter-spacing:-.01em;
+  }
+  .stats-head .st-title svg{ width:14px; height:14px; color:var(--a2); }
+  .kebab{
+    color:#8b91a8; font-weight:700; letter-spacing:2px;
+    font-size:14px; line-height:1;
+  }
+  .stat-row{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:7px 2px;
+    color:#9aa0b8;
+    font-size:12px;
+    font-weight:500;
+  }
+  .stat-row + .stat-row{ border-top:1px solid rgba(255,255,255,.04); }
+  .stat-row .left{ display:flex; align-items:center; gap:9px; }
+  .stat-row svg{ width:13px; height:13px; opacity:.85; color:var(--a2); }
+  .stat-row .val{
+    font-family:var(--mono);
+    font-weight:600;
+    color:#f2f6fb;
+    font-size:12px;
+    letter-spacing:-.01em;
+  }
+
+  /* Bottom "All Systems Operational" strip */
+  .status-strip{
+    display:flex; align-items:center; gap:10px;
+    padding:12px 4px 4px;
+    margin-top:10px;
+    border-top:1px solid rgba(255,255,255,.06);
+    color:#c9d3df;
+    font-size:12px; font-weight:500;
+    position:relative; z-index:3;
+  }
+  .status-strip .pulse{
+    width:9px; height:9px; border-radius:50%;
+    background: var(--a2);
+    box-shadow: 0 0 0 3px rgba(192,132,252,.15), 0 0 12px var(--a-glow);
+    flex-shrink:0;
+  }
+  .status-strip .chev-r{
+    width:14px; height:14px; margin-left:auto; opacity:.6; color:#8b91a8;
+  }
+
+  /* Brand footer variants (v2 + v4) */
+  .brand-footer{
+    margin-top:12px;
+    padding:12px 4px 2px;
+    border-top:1px solid rgba(255,255,255,.06);
+    position:relative; z-index:3;
+    text-align:right;
+  }
+  .brand-footer .bf-name{
+    font-size:10.5px; font-weight:700; letter-spacing:.22em; color:#fff;
+  }
+  .brand-footer .bf-tag{
+    font-size:9.5px; color:#8b91a8; margin-top:4px;
+    letter-spacing:.02em;
+  }
+
+  /* ================= LABEL BLOCK ================= */
+  .label{
+    display:flex; align-items:baseline; gap:14px; margin-top:4px;
+  }
+  .label .num{
+    font-family:var(--mono);
+    font-size:22px; font-weight:600;
+    color:#4a4d5e; letter-spacing:0;
+    line-height:1;
+  }
+  .label .name{
+    font-size:15px; font-weight:600; color:#f2f6fb;
+    letter-spacing:-.01em;
+  }
+  .label .desc{
+    display:block; font-size:11.5px; color:#7a7f95;
+    margin-top:4px; line-height:1.5; font-weight:400;
+  }
+
+  /* ============================================================
+     VARIANT 1 — GLASSMORPHIC NEON
+     ============================================================ */
+  .sb--glass{
+    background:
+      radial-gradient(320px 260px at 20% 8%, rgba(168,85,247,.22), transparent 60%),
+      radial-gradient(280px 240px at 90% 95%, rgba(168,85,247,.18), transparent 65%),
+      linear-gradient(180deg, #0d0a18 0%, #06040e 100%);
+    border:1px solid rgba(168,85,247,.35);
+    box-shadow:
+      0 0 0 1px rgba(168,85,247,.1),
+      0 0 40px -10px rgba(168,85,247,.4),
+      0 30px 60px -20px rgba(0,0,0,.7);
+  }
+  .sb--glass::before{
+    /* corner neon glows */
+    background:
+      radial-gradient(180px 180px at 0% 100%, rgba(168,85,247,.5), transparent 65%),
+      radial-gradient(150px 150px at 100% 0%, rgba(192,132,252,.35), transparent 65%);
+    filter: blur(6px);
+    opacity:.7;
+  }
+  .sb--glass::after{
+    /* inner glass sheen */
+    background: linear-gradient(180deg, rgba(255,255,255,.06) 0%, transparent 25%);
+  }
+  .sb--glass .nav a.active{
+    background:
+      linear-gradient(180deg, rgba(168,85,247,.55) 0%, rgba(124,58,237,.35) 100%);
+    border:1px solid rgba(216,180,254,.5);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.2),
+      0 8px 24px -8px rgba(168,85,247,.7),
+      0 0 20px -4px rgba(168,85,247,.5);
+    color:#fff;
+    font-weight:600;
+  }
+  .sb--glass .nav a.active svg.i{ color:#fff; opacity:1; }
+
+  /* ============================================================
+     VARIANT 2 — ANGULAR PROFESSIONAL
+     ============================================================ */
+  .sb--angular{
+    background:
+      linear-gradient(180deg, #14121c 0%, #0a0812 100%);
+    border:1px solid rgba(255,255,255,.06);
+  }
+  .sb--angular::before{
+    /* angular diagonal shapes at bottom */
+    background:
+      linear-gradient(135deg, transparent 60%, rgba(168,85,247,.18) 62%, rgba(168,85,247,.28) 68%, transparent 70%),
+      linear-gradient(135deg, transparent 74%, rgba(168,85,247,.14) 76%, rgba(168,85,247,.22) 80%, transparent 82%),
+      linear-gradient(135deg, transparent 86%, rgba(168,85,247,.08) 88%, rgba(168,85,247,.14) 92%, transparent 94%);
+    opacity:1;
+  }
+  .sb--angular::after{
+    /* top-right subtle glow */
+    background: radial-gradient(220px 160px at 100% 0%, rgba(168,85,247,.15), transparent 65%);
+  }
+  .sb--angular .nav a{
+    border-radius:8px;
+  }
+  .sb--angular .nav a.active{
+    background:
+      linear-gradient(90deg, rgba(168,85,247,.22) 0%, rgba(168,85,247,.06) 100%);
+    border:1px solid rgba(168,85,247,.35);
+    color:#fff;
+    font-weight:600;
+  }
+  .sb--angular .nav a.active svg.i{ color:var(--a2); opacity:1; }
+  .sb--angular .nav a.active .chev{ opacity:.9; color:var(--a2); }
+  .sb--angular .nav a .chev{ opacity:.35; }
+
+  /* ============================================================
+     VARIANT 3 — MINIMAL ICON RAIL
+     ============================================================ */
+  .sb--rail{
+    background: linear-gradient(180deg, #0d0d15 0%, #07070d 100%);
+    border:1px solid rgba(255,255,255,.06);
+    padding-left:0;
+  }
+  .sb--rail::before{
+    /* left icon rail column with subtle purple wash */
+    background:
+      linear-gradient(90deg, rgba(168,85,247,.06) 0%, rgba(168,85,247,.02) 44px, transparent 44px),
+      linear-gradient(90deg, transparent 43px, rgba(168,85,247,.18) 43px, rgba(168,85,247,.18) 44px, transparent 44px);
+  }
+  .sb--rail .logo{ padding-left:16px; padding-right:14px; }
+  .sb--rail .nav{ padding:0 12px 0 0; }
+  .sb--rail .nav a{
+    padding:10px 12px 10px 14px;
+    gap:16px;
+    border-radius:0 9px 9px 0;
+  }
+  .sb--rail .nav a svg.i{
+    width:22px; height:22px;
+    padding:3px;
+    border-radius:6px;
+    background: rgba(255,255,255,.03);
+    border:1px solid rgba(255,255,255,.06);
+    box-sizing:border-box;
+    color:#c9d3df;
+    opacity:1;
+  }
+  .sb--rail .nav a.active{
+    background:
+      linear-gradient(90deg, rgba(168,85,247,.14) 0%, transparent 100%);
+    color:#fff; font-weight:600;
+  }
+  .sb--rail .nav a.active svg.i{
+    background: linear-gradient(135deg, rgba(168,85,247,.35), rgba(168,85,247,.15));
+    border-color: rgba(216,180,254,.4);
+    color:#fff;
+  }
+  .sb--rail .stats{
+    margin-left:14px;
+  }
+  .sb--rail .status-strip{ padding-left:16px; }
+  .sb--rail .status-strip .pulse{
+    background:#fff;
+    box-shadow: 0 0 0 3px rgba(255,255,255,.08);
+  }
+
+  /* ============================================================
+     VARIANT 4 — PREMIUM ABSTRACT
+     ============================================================ */
+  .sb--abstract{
+    background:
+      radial-gradient(260px 320px at 100% 40%, rgba(168,85,247,.28), transparent 60%),
+      radial-gradient(200px 240px at 100% 90%, rgba(124,58,237,.22), transparent 65%),
+      radial-gradient(180px 220px at 0% 60%, rgba(168,85,247,.10), transparent 65%),
+      linear-gradient(180deg, #0e0a18 0%, #06040e 100%);
+    border:1px solid rgba(255,255,255,.06);
+  }
+  .sb--abstract::before{
+    /* organic curved shape overlay via layered radial gradients */
+    background:
+      radial-gradient(400px 280px at 110% 30%, rgba(216,180,254,.18), transparent 55%),
+      radial-gradient(320px 220px at 90% 75%, rgba(168,85,247,.22), transparent 60%);
+    filter: blur(8px);
+    opacity:.9;
+  }
+  .sb--abstract::after{
+    /* thin curved highlight arc */
+    background:
+      radial-gradient(600px 600px at 130% 50%,
+        transparent 40%,
+        rgba(216,180,254,.14) 41%,
+        transparent 43%);
+    opacity:.9;
+  }
+  .sb--abstract .nav a.active{
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.10) 0%, rgba(255,255,255,.03) 100%);
+    border:1px solid rgba(255,255,255,.18);
+    color:#fff; font-weight:600;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.15),
+      0 8px 24px -12px rgba(168,85,247,.5);
+    backdrop-filter: blur(4px);
+  }
+  .sb--abstract .nav a.active svg.i{ color:#fff; opacity:1; }
+</style>
+</head>
+<body>
+
+  <p class="page-title">Upstream Checker · Sidebar Direction Study</p>
+  <h1 class="page-heading">Four dark treatments, one violet accent</h1>
+  <p class="page-sub">Enterprise-grade sidebar variations built on a single <b>violet accent</b>. The only variable is the background texture and how light is used — active states, brand mark, and stats card all share one visual language.</p>
+
+  <div class="grid">
+
+    <!-- ================= VARIANT 1 — GLASSMORPHIC NEON ================= -->
+    <div class="col">
+      <aside class="sb sb--glass">
+        <div class="logo">
+          <div class="logo-mark">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          </div>
+          <div class="logo-text"><span class="t1">UPSTREAM</span><span class="t2">CHECKER</span></div>
+          <span class="ver">v1.2.1</span>
+        </div>
+        <nav class="nav">
+          <a href="#" class="active"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12 12 3l9 9"/><path d="M5 10v10h14V10"/></svg>Overview</a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="9" r="3"/><circle cx="17" cy="9" r="3"/><path d="M2 20c0-3 3-5 6-5s6 2 6 5"/><path d="M14 20c0-2 2-4 5-4s5 2 5 4"/></svg>Providers</a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>Model Catalog</a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4"/></svg>Upstream Check</a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>Test History</a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="20" x2="6" y2="12"/><line x1="12" y1="20" x2="12" y2="6"/><line x1="18" y1="20" x2="18" y2="14"/></svg>Monitoring</a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</a>
+        </nav>
+        <div class="stats">
+          <div class="stats-head">
+            <span class="st-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-6 4 3 5-8"/></svg>
+              Quick Stats
+            </span>
+            <span class="kebab">···</span>
+          </div>
+          <div class="stat-row"><span class="left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>Providers</span><span class="val">7</span></div>
+          <div class="stat-row"><span class="left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>Models</span><span class="val">127</span></div>
+          <div class="stat-row"><span class="left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Last Check</span><span class="val">34m ago</span></div>
+        </div>
+        <div class="status-strip">
+          <span class="pulse"></span>
+          <span>All Systems Operational</span>
+          <svg class="chev-r" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </div>
+      </aside>
+      <div class="label">
+        <span class="num">01</span>
+        <div>
+          <span class="name">Glassmorphic Neon</span>
+          <span class="desc">Modern glass look with elegant purple glow and depth.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= VARIANT 2 — ANGULAR PROFESSIONAL ================= -->
+    <div class="col">
+      <aside class="sb sb--angular">
+        <div class="logo">
+          <div class="logo-mark">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          </div>
+          <div class="logo-text"><span class="t1">UPSTREAM</span><span class="t2">CHECKER</span></div>
+          <span class="ver">v1.2.1</span>
+        </div>
+        <nav class="nav">
+          <a href="#" class="active"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12 12 3l9 9"/><path d="M5 10v10h14V10"/></svg>Overview<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="9" r="3"/><circle cx="17" cy="9" r="3"/><path d="M2 20c0-3 3-5 6-5s6 2 6 5"/><path d="M14 20c0-2 2-4 5-4s5 2 5 4"/></svg>Providers<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>Model Catalog<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4"/></svg>Upstream Check<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>Test History<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="20" x2="6" y2="12"/><line x1="12" y1="20" x2="12" y2="6"/><line x1="18" y1="20" x2="18" y2="14"/></svg>Monitoring<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</a>
+        </nav>
+        <div class="stats">
+          <div class="stats-head">
+            <span class="st-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-6 4 3 5-8"/></svg>
+              Quick Stats
+            </span>
+          </div>
+          <div class="stat-row"><span class="left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>Providers</span><span class="val">7</span></div>
+          <div class="stat-row"><span class="left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>Models</span><span class="val">127</span></div>
+          <div class="stat-row"><span class="left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Last Check</span><span class="val">34m ago</span></div>
+        </div>
+        <div class="brand-footer">
+          <div class="bf-name">UPSTREAM CHECKER</div>
+          <div class="bf-tag">Built for a more connected tomorrow.</div>
+        </div>
+      </aside>
+      <div class="label">
+        <span class="num">02</span>
+        <div>
+          <span class="name">Angular Professional</span>
+          <span class="desc">Clean, structured and professional with geometric accents.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= VARIANT 3 — MINIMAL ICON RAIL ================= -->
+    <div class="col">
+      <aside class="sb sb--rail">
+        <div class="logo">
+          <div class="logo-mark">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          </div>
+          <div class="logo-text"><span class="t1">UPSTREAM</span><span class="t2">CHECKER</span></div>
+          <span class="close-x"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>
+        </div>
+        <div style="padding: 4px 16px 10px;">
+          <span class="ver">v1.2.1</span>
+        </div>
+        <nav class="nav">
+          <a href="#" class="active"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12 12 3l9 9"/><path d="M5 10v10h14V10"/></svg>Overview</a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="9" r="3"/><circle cx="17" cy="9" r="3"/><path d="M2 20c0-3 3-5 6-5s6 2 6 5"/><path d="M14 20c0-2 2-4 5-4s5 2 5 4"/></svg>Providers</a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>Model Catalog</a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4"/></svg>Upstream Check</a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>Test History</a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="20" x2="6" y2="12"/><line x1="12" y1="20" x2="12" y2="6"/><line x1="18" y1="20" x2="18" y2="14"/></svg>Monitoring</a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</a>
+        </nav>
+        <div class="stats">
+          <div class="stats-head">
+            <span class="st-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-6 4 3 5-8"/></svg>
+              Quick Stats
+            </span>
+            <span class="kebab">···</span>
+          </div>
+          <div class="stat-row"><span class="left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>Providers</span><span class="val">7</span></div>
+          <div class="stat-row"><span class="left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>Models</span><span class="val">127</span></div>
+          <div class="stat-row"><span class="left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Last Check</span><span class="val">34m ago</span></div>
+        </div>
+        <div class="status-strip">
+          <span class="pulse" style="background: rgba(255,255,255,.15); box-shadow: 0 0 0 3px rgba(255,255,255,.04); display:grid; place-items:center; width:18px; height:18px;">
+            <span style="width:6px; height:6px; border-radius:50%; background:var(--a2); box-shadow: 0 0 8px var(--a-glow);"></span>
+          </span>
+          <span>All Systems Operational</span>
+        </div>
+      </aside>
+      <div class="label">
+        <span class="num">03</span>
+        <div>
+          <span class="name">Minimal Icon Rail</span>
+          <span class="desc">Modern minimal sidebar with icon focus and clean spacing.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= VARIANT 4 — PREMIUM ABSTRACT ================= -->
+    <div class="col">
+      <aside class="sb sb--abstract">
+        <div class="logo">
+          <div class="logo-mark">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          </div>
+          <div class="logo-text"><span class="t1">UPSTREAM</span><span class="t2">CHECKER</span></div>
+          <span class="ver">v1.2.1</span>
+        </div>
+        <nav class="nav">
+          <a href="#" class="active"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12 12 3l9 9"/><path d="M5 10v10h14V10"/></svg>Overview</a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="9" r="3"/><circle cx="17" cy="9" r="3"/><path d="M2 20c0-3 3-5 6-5s6 2 6 5"/><path d="M14 20c0-2 2-4 5-4s5 2 5 4"/></svg>Providers</a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>Model Catalog</a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4"/></svg>Upstream Check</a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>Test History</a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="20" x2="6" y2="12"/><line x1="12" y1="20" x2="12" y2="6"/><line x1="18" y1="20" x2="18" y2="14"/></svg>Monitoring</a>
+          <a href="#"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</a>
+        </nav>
+        <div class="stats">
+          <div class="stats-head">
+            <span class="st-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-6 4 3 5-8"/></svg>
+              Quick Stats
+            </span>
+          </div>
+          <div class="stat-row"><span class="left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>Providers</span><span class="val">7</span></div>
+          <div class="stat-row"><span class="left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>Models</span><span class="val">127</span></div>
+          <div class="stat-row"><span class="left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Last Check</span><span class="val">34m ago</span></div>
+        </div>
+        <div class="brand-footer" style="text-align:center;">
+          <div class="bf-name">UPSTREAM CHECKER</div>
+          <div class="bf-tag">Monitor. Analyze. Stay Ahead.</div>
+        </div>
+      </aside>
+      <div class="label">
+        <span class="num">04</span>
+        <div>
+          <span class="name">Premium Abstract</span>
+          <span class="desc">Elegant and futuristic with subtle abstract background.</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</body>
+</html>

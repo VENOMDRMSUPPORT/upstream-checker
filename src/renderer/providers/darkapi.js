@@ -11,6 +11,8 @@ window.INTEGRATED_PROVIDERS.darkapi = {
     baseUrl: 'https://darkapi.dev/v1',
     color: '#00e0a4',
     logo: '../assets/providers/darkapi.svg',
+    // Light brand colours; deepened on the light theme to hold contrast.
+    logoTone: 'bright',
     modelsEndpoint: '/models',
     chatEndpoint: '/chat/completions',
   },

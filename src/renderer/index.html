@@ -26,18 +26,20 @@
         </svg>
       </div>
       <span class="titlebar-text">UPSTREAM CHECKER</span>
-      <span class="titlebar-version" id="app-version">v0.0.0</span>
-      <button class="update-badge" id="update-badge" style="display:none" title="Update available">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-          <polyline points="7 10 12 15 17 10"/>
-          <line x1="12" y1="15" x2="12" y2="3"/>
-        </svg>
-        <span class="update-badge-text">Update v<span id="update-badge-version">-</span></span>
-        <span class="update-badge-progress" id="update-badge-progress" style="display:none">0%</span>
-      </button>
     </div>
     <div class="titlebar-controls">
+      <!-- Update indicator: hidden until an update exists. The ring fills while
+           it downloads; the icon turns green once it is ready to install. -->
+      <button class="titlebar-btn update-badge" id="update-badge" type="button" hidden>
+        <svg class="update-ring" viewBox="0 0 36 36" aria-hidden="true">
+          <circle class="update-ring-track" cx="18" cy="18" r="15"/>
+          <circle class="update-ring-bar" cx="18" cy="18" r="15" pathLength="100"/>
+        </svg>
+        <svg class="update-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <g class="update-arrow"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/></g>
+          <path d="M5 21h14"/>
+        </svg>
+      </button>
       <button class="titlebar-btn" id="btn-settings" title="Settings">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="3"/>
@@ -56,484 +58,1146 @@
     </div>
   </div>
 
-  <!-- Main Layout -->
-  <div class="app-layout">
-    <!-- Sidebar -->
-    <aside class="sidebar" id="sidebar">
-      <div class="sidebar-header">
-        <div class="logo">
-          <div class="logo-icon">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-              <path d="M12 2L2 7l10 5 10-5-10-5z" stroke="url(#grad1)" stroke-width="2" fill="none"/>
-              <path d="M2 17l10 5 10-5" stroke="url(#grad1)" stroke-width="2" fill="none"/>
-              <path d="M2 12l10 5 10-5" stroke="url(#grad1)" stroke-width="2" fill="none"/>
-              <defs>
-                <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" style="stop-color:#00d4ff"/>
-                  <stop offset="100%" style="stop-color:#7b2ff7"/>
-                </linearGradient>
-              </defs>
-            </svg>
+  <!-- App shell: the nav rail and the page area. Every section of the app is a
+       page inside it; only the one matching the active nav item is shown. -->
+  <div class="shell" id="shell">
+    <nav class="shell-nav" id="shell-nav" aria-label="Main">
+      <div class="shell-nav-head">
+        <div class="shell-brand">
+          <div class="shell-brand-mark">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
           </div>
-          <div class="logo-text">
-            <span class="logo-title">UPSTREAM</span>
-            <span class="logo-subtitle">CHECKER</span>
+          <div class="shell-brand-text">
+            <span class="shell-brand-top">UPSTREAM</span>
+            <span class="shell-brand-bottom">CHECKER</span>
           </div>
+          <span class="shell-version" data-app-version>v0.0.0</span>
+          <button class="shell-nav-close" id="shell-nav-close" type="button" title="Close menu" aria-label="Close menu">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
         </div>
       </div>
 
-      <!-- Provider Tabs (dynamic) -->
-      <div class="sidebar-section">
-        <div class="section-label">
-          PROVIDER
-          <button class="section-action-btn" id="btn-add-provider" title="Add provider">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-            </svg>
-          </button>
-        </div>
-        <div class="provider-selector" id="provider-tabs"></div>
-      </div>
+      <div class="shell-nav-list">
+        <span class="shell-nav-group-label">General</span>
+        <button class="shell-nav-item active" type="button" data-page="overview" aria-current="page">
+          <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+          <span>Overview</span>
+        </button>
+        <button class="shell-nav-item" type="button" data-page="providers">
+          <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg>
+          <span>Providers</span>
+        </button>
+        <button class="shell-nav-item" type="button" data-page="catalog">
+          <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>
+          <span>Model catalog</span>
+        </button>
 
-      <!-- API Keys -->
-      <div class="sidebar-section">
-        <div class="section-label">
-          API KEYS
-          <button class="section-action-btn" id="btn-add-key" title="Add API key">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-            </svg>
-          </button>
-        </div>
-        <div class="keys-list" id="keys-list">
-          <div class="models-empty">
-            <span>No keys added</span>
-          </div>
-        </div>
-        <button class="btn btn-primary btn-full" id="btn-fetch-models" style="margin-top:10px">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 12a9 9 0 11-6.219-8.56"/>
-            <polyline points="22 2 22 8 16 8"/>
-          </svg>
-          Fetch Models
+        <span class="shell-nav-group-label">Testing</span>
+        <button class="shell-nav-item" type="button" data-page="check">
+          <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+          <span>Upstream Check</span>
+        </button>
+        <button class="shell-nav-item" type="button" data-page="profiles">
+          <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h10M4 18h6"/><circle cx="18" cy="16" r="3"/><path d="M20.5 18.5 22 20"/></svg>
+          <span>Venom Profiles</span>
+        </button>
+        <button class="shell-nav-item" type="button" disabled title="Coming soon">
+          <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>
+          <span>Test History</span>
+        </button>
+        <button class="shell-nav-item" type="button" disabled title="Coming soon">
+          <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="20" x2="6" y2="12"/><line x1="12" y1="20" x2="12" y2="6"/><line x1="18" y1="20" x2="18" y2="14"/></svg>
+          <span>Monitoring</span>
+        </button>
+
+        <span class="shell-nav-group-label">System</span>
+        <button class="shell-nav-item" type="button" data-page="settings">
+          <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+          <span>Settings</span>
         </button>
       </div>
 
-      <!-- Models List -->
-      <div class="sidebar-section sidebar-section-grow">
-        <div class="section-label">
-          MODELS
-          <span class="model-count" id="model-count">0</span>
-        </div>
-        <div class="models-toolbar">
-          <input type="text" class="models-search" id="models-search" placeholder="Filter…" autocomplete="off" spellcheck="false">
-          <button class="btn-mini" id="btn-select-all" title="Select all matching models">All</button>
-          <button class="btn-mini" id="btn-select-none" title="Deselect all matching models">None</button>
-        </div>
-        <div class="models-list" id="models-list">
-          <div class="models-empty">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3">
-              <rect x="2" y="3" width="20" height="14" rx="2"/>
-              <path d="M8 21h8M12 17v4"/>
-            </svg>
-            <span>No models loaded</span>
-            <span class="models-empty-hint">Add API key and fetch models</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Actions -->
-      <div class="sidebar-footer">
-        <button class="btn btn-accent btn-full" id="btn-test-all" disabled>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polygon points="5 3 19 12 5 21 5 3"/>
-          </svg>
-          Test Selected
-        </button>
-      </div>
-
-      <div class="sidebar-resizer" id="sidebar-resizer"
-           title="Drag to narrow · drag all the way to hide · double-click to toggle"></div>
-    </aside>
-
-    <!-- Main Content -->
-    <main class="main-content">
-      <!-- Status Bar -->
-      <div class="status-bar" id="status-bar">
-        <div class="status-left">
-          <button class="sidebar-restore" id="sidebar-restore" title="Show sidebar" style="display:none">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-              <path d="M9 18l6-6-6-6"/>
-            </svg>
+      <div class="shell-stats">
+        <div class="shell-stats-head">
+          <span class="shell-stats-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-6 4 3 5-8"/></svg>
+            Quick Stats
+          </span>
+          <!-- System status: summarises the provider health checks (detail in the
+               tooltip); opens Upstream Check. -->
+          <button class="shell-status" id="shell-status" type="button" data-state="pending"
+                  title="Checking providers…" aria-label="Checking providers…">
+            <span class="shell-status-dot"></span>
           </button>
-          <div class="status-indicator" id="status-indicator">
-            <span class="status-dot idle"></span>
-            <span class="status-text" id="status-text">Ready</span>
-          </div>
         </div>
-        <div class="status-right">
-          <div class="stat-item">
-            <span class="stat-label">Total</span>
-            <span class="stat-value" id="stat-total">0</span>
-          </div>
-          <div class="stat-divider"></div>
-          <div class="stat-item">
-            <span class="stat-label">Passed</span>
-            <span class="stat-value stat-pass" id="stat-pass">0</span>
-          </div>
-          <div class="stat-divider"></div>
-          <!-- Clickable: filters the table down to failures and back. -->
-          <div class="stat-item stat-item-toggle" id="filter-failed" title="Show only failed / empty responses">
-            <span class="stat-label">Failed</span>
-            <span class="stat-value stat-fail" id="stat-fail">0</span>
-          </div>
-          <div class="stat-divider"></div>
-          <div class="stat-item">
-            <span class="stat-label">Avg Time</span>
-            <span class="stat-value" id="stat-avg-time">-</span>
-          </div>
-          <div class="stat-divider"></div>
-          <!-- These act on the results table, so they live next to it rather than
-               at the bottom of the models sidebar. -->
-          <div class="results-actions">
-            <button class="btn btn-ghost" id="btn-retry-failed" title="Retry failed / not-tested models" disabled>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 12a9 9 0 11-6.219-8.56"/>
-                <polyline points="22 2 22 8 16 8"/>
-              </svg>
-            </button>
-            <button class="btn btn-ghost" id="btn-export-csv" title="Export CSV">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-                <polyline points="7 10 12 15 17 10"/>
-                <line x1="12" y1="15" x2="12" y2="3"/>
-              </svg>
-            </button>
-            <button class="btn btn-ghost" id="btn-export-json" title="Export JSON">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
-              </svg>
-            </button>
-            <button class="btn btn-ghost" id="btn-clear-results" title="Clear Results">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="3 6 5 6 21 6"/>
-                <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
-              </svg>
-            </button>
-          </div>
+        <div class="shell-stat">
+          <span class="shell-stat-label">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+            Providers
+          </span>
+          <span class="shell-stat-value" id="stat-providers">—</span>
+        </div>
+        <div class="shell-stat" title="Distinct models with at least one recorded test run">
+          <span class="shell-stat-label">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
+            Models
+          </span>
+          <span class="shell-stat-value" id="stat-models">—</span>
+        </div>
+        <div class="shell-stat">
+          <span class="shell-stat-label">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            Last Check
+          </span>
+          <span class="shell-stat-value" id="stat-last-check">—</span>
         </div>
       </div>
 
-      <!-- Results Table -->
-      <div class="results-container" id="results-container">
-        <div class="results-empty" id="results-empty">
-          <div class="results-empty-icon">
-            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="0.5" opacity="0.15">
-              <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-              <path d="M2 17l10 5 10-5"/>
-              <path d="M2 12l10 5 10-5"/>
-            </svg>
-          </div>
-          <h2>No test results yet</h2>
-          <p>Add an API key, fetch models, and run tests</p>
-        </div>
-        <table class="results-table" id="results-table" style="display: none;">
-          <thead>
-            <tr>
-              <th class="th-status th-sortable" data-sort="status">STATUS</th>
-              <th class="th-model th-sortable" data-sort="model">MODEL</th>
-              <th class="th-type">TYPE</th>
-              <th class="th-context th-sortable" data-sort="context">CONTEXT</th>
-              <th class="th-time th-sortable" data-sort="time">TIME</th>
-              <th class="th-tokens th-sortable" data-sort="tokens">TOKENS</th>
-              <th class="th-tps th-sortable" data-sort="tps" title="Completion tokens per second of total response time">TPS</th>
-              <th class="th-correct th-sortable" data-sort="correct" title="Whether the response contains the expected answer">OK?</th>
-              <th class="th-uptime th-sortable" data-sort="uptime" title="Share of recorded runs this model passed, newest run on the right">UPTIME</th>
-              <th class="th-response">RESPONSE</th>
-              <th class="th-actions"></th>
-            </tr>
-          </thead>
-          <tbody id="results-body"></tbody>
-        </table>
+      <div class="shell-nav-foot">
+        Crafted with
+        <svg class="shell-heart" width="13" height="13" viewBox="0 0 24 24" aria-label="love" role="img"><path d="M12 21s-7.5-4.6-10-9.3C.3 8.4 2.1 4.5 5.9 4.1c2.3-.2 4.3 1 5.4 2.9h1.4c1.1-1.9 3.1-3.1 5.4-2.9 3.8.4 5.6 4.3 3.9 7.6C19.5 16.4 12 21 12 21z"/></svg>
+        <span class="shell-nav-foot-by">by VENOM</span>
       </div>
+    </nav>
 
-      <!-- Progress Bar -->
-      <div class="progress-bar-container" id="progress-container" style="display: none;">
-        <div class="progress-info">
-          <span class="progress-label" id="progress-label">Testing...</span>
-          <span class="progress-count" id="progress-count">0/0</span>
+    <div class="shell-backdrop" id="shell-backdrop"></div>
+
+    <main class="shell-main">
+      <!-- Page header: fixed above every page. Left: the page's identity.
+           Right: notifications, theme and profile. -->
+      <header class="shell-header">
+        <button class="shell-menu-btn" id="shell-menu-btn" type="button"
+                aria-label="Open menu" aria-controls="shell-nav" aria-expanded="false">
+          <span></span><span></span><span></span>
+        </button>
+
+        <div class="shell-page-info">
+          <div class="shell-page-icon" id="shell-page-icon" aria-hidden="true"></div>
+          <div class="shell-page-text">
+            <h1 class="shell-page-title" id="shell-page-title">Overview</h1>
+            <p class="shell-page-desc" id="shell-page-desc"></p>
+          </div>
         </div>
-        <div class="progress-track">
-          <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+
+        <div class="shell-header-actions">
+          <button class="hdr-btn" id="btn-notifications" type="button" aria-disabled="true"
+                  title="Notifications — coming soon" aria-label="Notifications (coming soon)">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>
+          </button>
+
+          <div class="hdr-accent">
+            <button class="hdr-btn" id="btn-accent" type="button" title="Accent color"
+                    aria-label="Accent color" aria-haspopup="true" aria-expanded="false" aria-controls="accent-pop">
+              <span class="hdr-accent-swatch"></span>
+            </button>
+            <div class="hdr-pop" id="accent-pop" role="menu" aria-label="Accent color" hidden>
+              <div class="hdr-pop-title">Accent color</div>
+              <div class="hdr-pop-swatches" id="accent-pop-swatches"></div>
+            </div>
+          </div>
+
+          <button class="hdr-btn hdr-theme" id="btn-theme-toggle" type="button">
+            <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+            <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
+          </button>
+
+          <span class="hdr-sep" aria-hidden="true"></span>
+
+          <button class="hdr-profile" type="button" aria-disabled="true"
+                  title="Profile — coming soon" aria-label="Profile (coming soon)">
+            <span class="hdr-avatar">
+              <span class="hdr-avatar-initials">G</span>
+            </span>
+            <span class="hdr-profile-text">
+              <span class="hdr-profile-name">Guest</span>
+              <span class="hdr-profile-role">Local workspace</span>
+            </span>
+          </button>
         </div>
+      </header>
+
+      <div class="shell-pages">
+        <section class="shell-page page-overview" data-page="overview">
+<div class="ov-kpis">
+            <div class="ov-kpi">
+              <span class="ov-kpi-label">Providers</span>
+              <span class="ov-kpi-value" id="ov-providers">—</span>
+              <span class="ov-kpi-foot">configured</span>
+            </div>
+            <div class="ov-kpi">
+              <span class="ov-kpi-label">Reachable now</span>
+              <span class="ov-kpi-value" id="ov-online">—</span>
+              <span class="ov-kpi-foot">answered the health check</span>
+            </div>
+            <div class="ov-kpi">
+              <span class="ov-kpi-label">Models tested</span>
+              <span class="ov-kpi-value" id="ov-models">—</span>
+              <span class="ov-kpi-foot">with recorded runs</span>
+            </div>
+            <div class="ov-kpi">
+              <span class="ov-kpi-label">Last check</span>
+              <span class="ov-kpi-value" id="ov-last">—</span>
+              <span class="ov-kpi-foot">most recent test run</span>
+            </div>
+          </div>
+
+          <div class="ov-panels">
+            <div class="ov-panel ov-panel-wide">
+              <div class="ov-panel-head">
+                <span>Pass rate · last 14 days</span>
+                <span class="ov-panel-meta" id="ov-trend-meta"></span>
+              </div>
+              <div class="ov-trend" id="ov-trend"></div>
+            </div>
+            <div class="ov-panel">
+              <div class="ov-panel-head">
+                <span>Recent runs</span>
+                <span class="ov-panel-meta" id="ov-activity-meta"></span>
+              </div>
+              <div class="ov-activity" id="ov-activity"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="shell-page page-providers" data-page="providers" hidden>
+          <div class="pv-toolbar">
+            <nav class="crumbs" id="pv-crumbs" aria-label="Breadcrumb"></nav>
+            <div class="pv-tabs" role="tablist" aria-label="Provider views">
+              <button class="pv-tab active" type="button" role="tab" aria-selected="true" data-tab="connected">
+                Connected Providers <span class="pv-tab-count" id="pv-count-connected">0</span>
+              </button>
+              <button class="pv-tab" type="button" role="tab" aria-selected="false" data-tab="integrated">
+                Integrated Providers <span class="pv-tab-count" id="pv-count-integrated">0</span>
+              </button>
+            </div>
+          </div>
+          <div class="pv-body" id="pv-body" role="tabpanel"></div>
+        </section>
+
+        <section class="shell-page page-catalog" data-page="catalog" hidden>
+          <div class="pv-toolbar mc-toolbar">
+            <nav class="crumbs" id="mc-crumbs" aria-label="Breadcrumb"></nav>
+            <p class="mc-toolbar-note">Synced live from every connected provider · benchmark = 21 graded tasks (easy ×1, hard ×2, expert ×3) + latency &amp; throughput probes per model</p>
+          </div>
+          <div class="pv-body" id="mc-body"></div>
+        </section>
+
+        <section class="shell-page page-profiles" data-page="profiles" hidden>
+          <div class="pv-toolbar mc-toolbar">
+            <nav class="crumbs" id="pf-crumbs" aria-label="Breadcrumb"></nav>
+            <p class="mc-toolbar-note">venom-lite · venom-pro · venom-max — eligibility by measured facts, traffic spread across the best sources</p>
+          </div>
+          <div class="pv-body" id="pf-body"></div>
+        </section>
+
+        <section class="shell-page page-check" data-page="check" hidden>
+            <div class="app-layout">
+              <!-- Sidebar -->
+              <aside class="sidebar" id="sidebar">
+                <div class="sidebar-header sidebar-context">
+                  <span class="sidebar-context-title">
+                    Providers <span class="sidebar-context-count" id="provider-count">0</span>
+                  </span>
+                  <button class="section-action-btn" id="btn-add-provider" title="Add provider" aria-label="Add provider">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                  </button>
+                </div>
+
+                <!-- Provider Tabs (dynamic) -->
+                <div class="sidebar-section sidebar-section-first">
+                  <div class="provider-selector" id="provider-tabs"></div>
+                </div>
+
+                <!-- API Keys -->
+                <div class="sidebar-section">
+                  <div class="section-label">
+                    API KEYS
+                    <button class="section-action-btn" id="btn-add-key" title="Add API key">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                      </svg>
+                    </button>
+                  </div>
+                  <div class="keys-list" id="keys-list">
+                    <div class="models-empty">
+                      <span>No keys added</span>
+                    </div>
+                  </div>
+                  <button class="btn btn-primary btn-full" id="btn-fetch-models" style="margin-top:10px">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M21 12a9 9 0 11-6.219-8.56"/>
+                      <polyline points="22 2 22 8 16 8"/>
+                    </svg>
+                    Fetch Models
+                  </button>
+                </div>
+
+                <!-- Models List -->
+                <div class="sidebar-section sidebar-section-grow">
+                  <div class="section-label">
+                    MODELS
+                    <span class="model-count" id="model-count">0</span>
+                  </div>
+                  <div class="models-toolbar">
+                    <input type="text" class="models-search" id="models-search" placeholder="Filter…" autocomplete="off" spellcheck="false">
+                    <button class="btn-mini" id="btn-select-all" title="Select all matching models">All</button>
+                    <button class="btn-mini" id="btn-select-none" title="Deselect all matching models">None</button>
+                  </div>
+                  <div class="models-list" id="models-list">
+                    <div class="models-empty">
+                      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3">
+                        <rect x="2" y="3" width="20" height="14" rx="2"/>
+                        <path d="M8 21h8M12 17v4"/>
+                      </svg>
+                      <span>No models loaded</span>
+                      <span class="models-empty-hint">Add API key and fetch models</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Actions -->
+                <div class="sidebar-footer">
+                  <button class="btn btn-accent btn-full" id="btn-test-all" disabled>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polygon points="5 3 19 12 5 21 5 3"/>
+                    </svg>
+                    Test Selected
+                  </button>
+                </div>
+
+                <div class="sidebar-resizer" id="sidebar-resizer"
+                     title="Drag to narrow · drag all the way to hide · double-click to toggle"></div>
+              </aside>
+
+              <!-- Main Content -->
+              <main class="main-content">
+                <!-- Status Bar -->
+                <div class="status-bar" id="status-bar">
+                  <div class="status-left">
+                    <button class="sidebar-restore" id="sidebar-restore" title="Show sidebar" style="display:none">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <path d="M9 18l6-6-6-6"/>
+                      </svg>
+                    </button>
+                    <div class="status-indicator" id="status-indicator">
+                      <span class="status-dot idle"></span>
+                      <span class="status-text" id="status-text">Ready</span>
+                    </div>
+                  </div>
+                  <div class="status-right">
+                    <div class="stat-item">
+                      <span class="stat-label">Total</span>
+                      <span class="stat-value" id="stat-total">0</span>
+                    </div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-item">
+                      <span class="stat-label">Passed</span>
+                      <span class="stat-value stat-pass" id="stat-pass">0</span>
+                    </div>
+                    <div class="stat-divider"></div>
+                    <!-- Clickable: filters the table down to failures and back. -->
+                    <div class="stat-item stat-item-toggle" id="filter-failed" title="Show only failed / empty responses">
+                      <span class="stat-label">Failed</span>
+                      <span class="stat-value stat-fail" id="stat-fail">0</span>
+                    </div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-item">
+                      <span class="stat-label">Avg Time</span>
+                      <span class="stat-value" id="stat-avg-time">-</span>
+                    </div>
+                    <div class="stat-divider"></div>
+                    <!-- These act on the results table, so they live next to it rather than
+                         at the bottom of the models sidebar. -->
+                    <div class="results-actions">
+                      <button class="btn btn-ghost" id="btn-retry-failed" title="Retry failed / not-tested models" disabled>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M21 12a9 9 0 11-6.219-8.56"/>
+                          <polyline points="22 2 22 8 16 8"/>
+                        </svg>
+                      </button>
+                      <button class="btn btn-ghost" id="btn-export-csv" title="Export CSV">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                          <polyline points="7 10 12 15 17 10"/>
+                          <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                      </button>
+                      <button class="btn btn-ghost" id="btn-export-json" title="Export JSON">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                          <polyline points="14 2 14 8 20 8"/>
+                        </svg>
+                      </button>
+                      <button class="btn btn-ghost" id="btn-clear-results" title="Clear Results">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <polyline points="3 6 5 6 21 6"/>
+                          <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Results Table -->
+                <div class="results-container" id="results-container">
+                  <div class="results-empty" id="results-empty">
+                    <div class="results-empty-icon">
+                      <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="0.5" opacity="0.15">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                        <path d="M2 17l10 5 10-5"/>
+                        <path d="M2 12l10 5 10-5"/>
+                      </svg>
+                    </div>
+                    <h2>No test results yet</h2>
+                    <p>Add an API key, fetch models, and run tests</p>
+                  </div>
+                  <table class="results-table" id="results-table" style="display: none;">
+                    <thead>
+                      <tr>
+                        <th class="th-status th-sortable" data-sort="status">STATUS</th>
+                        <th class="th-model th-sortable" data-sort="model">MODEL</th>
+                        <th class="th-type">TYPE</th>
+                        <th class="th-context th-sortable" data-sort="context">CONTEXT</th>
+                        <th class="th-time th-sortable" data-sort="time">TIME</th>
+                        <th class="th-tokens th-sortable" data-sort="tokens">TOKENS</th>
+                        <th class="th-tps th-sortable" data-sort="tps" title="Completion tokens per second of total response time">TPS</th>
+                        <th class="th-correct th-sortable" data-sort="correct" title="Whether the response contains the expected answer">OK?</th>
+                        <th class="th-uptime th-sortable" data-sort="uptime" title="Share of recorded runs this model passed, newest run on the right">UPTIME</th>
+                        <th class="th-response">RESPONSE</th>
+                        <th class="th-actions"></th>
+                      </tr>
+                    </thead>
+                    <tbody id="results-body"></tbody>
+                  </table>
+                </div>
+
+                <!-- Progress Bar -->
+                <div class="progress-bar-container" id="progress-container" style="display: none;">
+                  <div class="progress-info">
+                    <span class="progress-label" id="progress-label">Testing...</span>
+                    <span class="progress-count" id="progress-count">0/0</span>
+                  </div>
+                  <div class="progress-track">
+                    <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+                  </div>
+                </div>
+              </main>
+            </div>
+        </section>
+
+        <section class="shell-page page-settings" data-page="settings" hidden>
+          <!-- Distinctive Top Toolbar with Unified Breadcrumbs -->
+          <div class="settings-toolbar">
+            <nav class="crumbs" id="settings-crumbs" aria-label="Breadcrumb"></nav>
+          </div>
+
+          <div class="settings-layout-grid">
+            <!-- Left Column: Unified Categories Card -->
+            <aside class="settings-panel-card settings-categories-panel">
+              <div class="settings-panel-head">
+                <span class="settings-head-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" x2="4" y1="21" y2="14"/><line x1="4" x2="4" y1="10" y2="3"/><line x1="12" x2="12" y1="21" y2="12"/><line x1="12" x2="12" y1="8" y2="3"/><line x1="20" x2="20" y1="21" y2="16"/><line x1="20" x2="20" y1="12" y2="3"/><line x1="2" x2="6" y1="14" y2="14"/><line x1="10" x2="14" y1="8" y2="8"/><line x1="18" x2="22" y1="16" y2="16"/></svg></span>
+                <div class="settings-head-text">
+                  <span class="settings-head-title">Categories</span>
+                  <span class="settings-head-meta">Settings &amp; configuration</span>
+                </div>
+              </div>
+              <div class="settings-panel-body">
+                <nav class="settings-side-nav" id="settings-nav" role="tablist" aria-label="Settings categories">
+                  <button class="settings-nav-item active" data-section="sec-appearance" role="tab" aria-selected="true">
+                    <svg class="settings-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 0 0 0 20c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.4A5.6 5.6 0 0 0 22 9.8C22 5.5 17.5 2 12 2z"/></svg>
+                    <span>Appearance</span>
+                  </button>
+                  <button class="settings-nav-item" data-section="sec-test" role="tab" aria-selected="false">
+                    <svg class="settings-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3h6M10 3v6L4.5 18.5A2 2 0 0 0 6.2 21h11.6a2 2 0 0 0 1.7-2.5L14 9V3"/><path d="M7 15h10"/></svg>
+                    <span>Test &amp; Prompts</span>
+                  </button>
+                  <button class="settings-nav-item" data-section="sec-schedule" role="tab" aria-selected="false">
+                    <svg class="settings-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg>
+                    <span>Schedule</span>
+                  </button>
+                  <button class="settings-nav-item" data-section="sec-speed" role="tab" aria-selected="false">
+                    <svg class="settings-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/></svg>
+                    <span>Speed &amp; Timeouts</span>
+                  </button>
+                  <button class="settings-nav-item" data-section="sec-reliability" role="tab" aria-selected="false">
+                    <svg class="settings-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 4 5v6c0 5 3.5 9.5 8 11 4.5-1.5 8-6 8-11V5z"/><path d="m9 12 2 2 4-4"/></svg>
+                    <span>Reliability</span>
+                  </button>
+                  <button class="settings-nav-item" data-section="sec-catalog" role="tab" aria-selected="false">
+                    <svg class="settings-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+                    <span>Model Catalog</span>
+                  </button>
+                  <button class="settings-nav-item" data-section="sec-history" role="tab" aria-selected="false">
+                    <svg class="settings-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+                    <span>History</span>
+                  </button>
+                  <button class="settings-nav-item" data-section="sec-logs" role="tab" aria-selected="false">
+                    <svg class="settings-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 2 1.88 1.88M14.12 3.88 16 2M9 7.13v-1a3.003 3.003 0 1 1 6 0v1M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6M12 20v-9M6.53 9C4.6 8.8 3 7.1 3 5M6 13H2M3 21c0-2.1 1.7-3.9 3.8-4M20.97 5c0 2.1-1.6 3.8-3.5 4M18 13h4M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>
+                    <span>Diagnostics &amp; Logs</span>
+                  </button>
+                  <button class="settings-nav-item" data-section="sec-data" role="tab" aria-selected="false">
+                    <svg class="settings-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
+                    <span>Data Directory</span>
+                  </button>
+                  <button class="settings-nav-item" data-section="sec-about" role="tab" aria-selected="false">
+                    <svg class="settings-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>
+                    <span>About Upstream</span>
+                  </button>
+                </nav>
+              </div>
+            </aside>
+
+            <!-- Right Column: Unified Main Settings Card -->
+            <main class="settings-panel-card settings-main-panel">
+              <div class="settings-panel-head">
+                <span class="settings-head-icon" id="settings-main-head-icon"></span>
+                <div class="settings-head-text">
+                  <span class="settings-head-title" id="settings-main-head-title">Appearance</span>
+                  <span class="settings-head-meta" id="settings-main-head-desc"></span>
+                </div>
+              </div>
+              <div class="settings-panel-body">
+                <div class="settings-estimate" id="settings-estimate" hidden></div>
+
+                <!-- Appearance -->
+                <section class="settings-section" id="sec-appearance">
+                  <div class="theme-cards-grid" id="mode-grid" role="radiogroup" aria-label="Mode">
+                    <button class="mode-card theme-card-option" type="button" role="radio" data-theme-id="vercel">
+                      <div class="theme-preview-box preview-dark" aria-hidden="true">
+                        <div class="tp-topbar"></div>
+                        <div class="tp-content-row">
+                          <div class="tp-sidebar"></div>
+                          <div class="tp-main-block"></div>
+                        </div>
+                      </div>
+                      <div class="theme-card-info">
+                        <div class="theme-card-label">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+                          <span>Dark mode</span>
+                        </div>
+                        <span class="theme-radio-circle"></span>
+                      </div>
+                      <div class="theme-card-desc">High-contrast dark surface for low-light environments</div>
+                    </button>
+
+                    <button class="mode-card theme-card-option" type="button" role="radio" data-theme-id="daylight">
+                      <div class="theme-preview-box preview-light" aria-hidden="true">
+                        <div class="tp-topbar"></div>
+                        <div class="tp-content-row">
+                          <div class="tp-sidebar"></div>
+                          <div class="tp-main-block"></div>
+                        </div>
+                      </div>
+                      <div class="theme-card-info">
+                        <div class="theme-card-label">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+                          <span>Light mode</span>
+                        </div>
+                        <span class="theme-radio-circle"></span>
+                      </div>
+                      <div class="theme-card-desc">Clean, high-readability light canvas with sharp borders</div>
+                    </button>
+                  </div>
+
+                  <div class="settings-rows">
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg></div>
+                      <div class="settings-row-info">
+                      <label class="settings-row-title" for="set-follow-system">Match system theme</label>
+                      <div class="settings-row-desc">Switch between light and dark with the Windows setting.</div>
+                    </div>
+                      <div class="settings-row-control"><label class="switch-toggle" for="set-follow-system">
+                      <input type="checkbox" id="set-follow-system">
+                      <span class="switch-slider"></span>
+                    </label></div>
+                    </div>
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 2 1.88 1.88M14.12 3.88 16 2M9 7.13v-1a3.003 3.003 0 1 1 6 0v1M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6M12 20v-9M6.53 9C4.6 8.8 3 7.1 3 5M6 13H2M3 21c0-2.1 1.7-3.9 3.8-4M20.97 5c0 2.1-1.6 3.8-3.5 4M18 13h4M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg></div>
+                      <div class="settings-row-info">
+                      <label class="settings-row-title" for="set-debug-header">Debug panel in header</label>
+                      <div class="settings-row-desc">A diagnostics button in the top bar.</div>
+                    </div>
+                      <div class="settings-row-control"><label class="switch-toggle" for="set-debug-header">
+                      <input type="checkbox" id="set-debug-header" checked>
+                      <span class="switch-slider"></span>
+                    </label></div>
+                    </div>
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
+                      <div class="settings-row-info">
+                      <label class="settings-row-title" for="set-reduce-motion">Reduce motion</label>
+                      <div class="settings-row-desc">Turn off transitions and animated flourishes.</div>
+                    </div>
+                      <div class="settings-row-control"><label class="switch-toggle" for="set-reduce-motion">
+                      <input type="checkbox" id="set-reduce-motion">
+                      <span class="switch-slider"></span>
+                    </label></div>
+                    </div>
+                    <div class="settings-row-item vertical">
+                      <div class="settings-row-header-inline">
+                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24M14.83 14.83l4.24 4.24M14.83 9.17l4.24-4.24M4.93 19.07l4.24-4.24"/></svg></div>
+                        <div class="settings-row-info">
+                      <div class="settings-row-title">Accent color <span class="setting-label-value" id="accent-name"></span></div>
+                      <div class="settings-row-desc">Highlights and primary actions. The last swatch opens a picker for any colour.</div>
+                    </div>
+                      </div>
+                      <div class="settings-row-field"><div class="accent-grid" id="accent-row"></div></div>
+                    </div>
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h18v18H3zM3 9h18M3 15h18M9 3v18M15 3v18"/></svg></div>
+                      <div class="settings-row-info">
+                      <div class="settings-row-title">Results density</div>
+                      <div class="settings-row-desc">How much of the results table fits on screen at once.</div>
+                    </div>
+                      <div class="settings-row-control"><div class="segmented" id="density-seg" role="radiogroup" aria-label="Results density">
+                      <button type="button" role="radio" data-value="compact">Compact</button>
+                      <button type="button" role="radio" data-value="normal">Normal</button>
+                      <button type="button" role="radio" data-value="roomy">Roomy</button>
+                    </div></div>
+                    </div>
+                  </div>
+
+                  <div class="settings-zone">
+                    <div class="settings-zone-info">
+                      <div class="settings-zone-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>Reset appearance</div>
+                      <div class="settings-zone-desc">Theme, accent and density go back to their defaults.</div>
+                    </div>
+                    <div class="settings-actions"><button class="btn btn-ghost" id="btn-reset-appearance" type="button">Reset appearance</button></div>
+                  </div>
+                </section>
+
+                <!-- Test -->
+                <section class="settings-section" id="sec-test" hidden>
+                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>Each kind of model is tested on its own route and judged by its own standard. One probe per kind for every provider is what makes their results comparable.</p></div>
+
+                  <div class="segmented test-kind-seg" id="test-kind-seg" role="tablist" aria-label="Model kind">
+                    <button type="button" role="tab" class="active" data-kind="chat" aria-selected="true">Chat</button>
+                    <button type="button" role="tab" data-kind="image" aria-selected="false">Image</button>
+                    <button type="button" role="tab" data-kind="video" aria-selected="false">Video</button>
+                    <button type="button" role="tab" data-kind="decision" aria-selected="false">Decision</button>
+                  </div>
+
+                  <div class="test-pane" data-kind="chat" role="tabpanel">
+                    <p class="test-route"><code>POST /chat/completions</code> Passes when the reply contains the expected answer.</p>
+                    <div class="settings-rows">
+                      <div class="settings-row-item vertical">
+                        <div class="settings-row-header-inline">
+                          <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+                          <div class="settings-row-info">
+                        <label class="settings-row-title" for="prompt-input">Prompt</label>
+                        <div class="settings-row-desc">Sent to every chat model on each run.</div>
+                      </div>
+                        </div>
+                        <div class="settings-row-field"><textarea class="prompt-input" id="prompt-input" rows="3" spellcheck="false"></textarea></div>
+                      </div>
+                      <div class="settings-row-item vertical">
+                        <div class="settings-row-header-inline">
+                          <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
+                          <div class="settings-row-info">
+                        <label class="settings-row-title" for="expected-input">Expected answer</label>
+                        <div class="settings-row-desc">Comma-separated alternatives, case-insensitive. Leave it empty to turn answer checking off.</div>
+                      </div>
+                        </div>
+                        <div class="settings-row-field"><input type="text" class="prompt-input" id="expected-input" spellcheck="false"></div>
+                      </div>
+                      <div class="settings-row-item">
+                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/></svg></div>
+                        <div class="settings-row-info">
+                        <label class="settings-row-title" for="set-max-tokens">Output token limit</label>
+                        <div class="settings-row-desc">A reasoning model can spend the whole budget thinking and return nothing, which shows up as an empty response. Raise it if that happens.</div>
+                      </div>
+                        <div class="settings-row-control"><span class="input-unit"><input type="number" class="prompt-input tiny" min="1" step="1" id="set-max-tokens"><span class="input-unit-label">tokens</span></span></div>
+                      </div>
+                    </div>
+                    <div class="settings-pane-actions"><button class="btn btn-ghost" id="btn-reset-prompt">Restore default prompt and answer</button></div>
+                  </div>
+
+                  <div class="test-pane" data-kind="image" role="tabpanel" hidden>
+                    <p class="test-route"><code>POST /images/generations</code> Falls back to chat on a provider without that route. Passes when a real image comes back.</p>
+                    <div class="settings-rows">
+                      <div class="settings-row-item vertical">
+                        <div class="settings-row-header-inline">
+                          <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg></div>
+                          <div class="settings-row-info">
+                        <label class="settings-row-title" for="set-image-prompt">Prompt</label>
+                        <div class="settings-row-desc">Keep it trivial: every test is a real, billed generation.</div>
+                      </div>
+                        </div>
+                        <div class="settings-row-field"><input type="text" class="prompt-input" id="set-image-prompt" spellcheck="false"></div>
+                      </div>
+                      <div class="settings-row-item">
+                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></div>
+                        <div class="settings-row-info">
+                        <label class="settings-row-title" for="set-verify-assets">Verify returned links</label>
+                        <div class="settings-row-desc">Reads each link's headers without downloading it. A dead link, or one serving something else, is marked wrong. Applies to video too.</div>
+                      </div>
+                        <div class="settings-row-control"><label class="switch-toggle" for="set-verify-assets">
+                        <input type="checkbox" id="set-verify-assets">
+                        <span class="switch-slider"></span>
+                      </label></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="test-pane" data-kind="video" role="tabpanel" hidden>
+                    <p class="test-route"><code>POST /videos</code> then polls the job until it finishes. Falls back to chat on a provider without that route.</p>
+                    <div class="settings-rows">
+                      <div class="settings-row-item vertical">
+                        <div class="settings-row-header-inline">
+                          <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2"/></svg></div>
+                          <div class="settings-row-info">
+                        <label class="settings-row-title" for="set-video-prompt">Prompt</label>
+                        <div class="settings-row-desc">Every test is a real, billed generation.</div>
+                      </div>
+                        </div>
+                        <div class="settings-row-field"><input type="text" class="prompt-input" id="set-video-prompt" spellcheck="false"></div>
+                      </div>
+                      <div class="settings-row-item">
+                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></div>
+                        <div class="settings-row-info">
+                        <label class="settings-row-title" for="set-video-poll">Check the job every</label>
+                        <div class="settings-row-desc">The whole wait is capped by the video deadline under Speed &amp; Timeouts.</div>
+                      </div>
+                        <div class="settings-row-control"><span class="input-unit"><input type="number" class="prompt-input tiny" min="1" step="1" id="set-video-poll"><span class="input-unit-label">s</span></span></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="test-pane" data-kind="decision" role="tabpanel" hidden>
+                    <p class="test-route"><code>POST</code> to the provider's decision endpoint. Asks one yes/no question about a known state; passes when the model rates it as likely.</p>
+                    <div class="settings-rows">
+                      <div class="settings-row-item vertical">
+                        <div class="settings-row-header-inline">
+                          <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/></svg></div>
+                          <div class="settings-row-info">
+                        <label class="settings-row-title" for="set-decision-state">State</label>
+                        <div class="settings-row-desc">What the model reasons about. Make the answer beyond doubt, so a wrong score means a broken model.</div>
+                      </div>
+                        </div>
+                        <div class="settings-row-field"><textarea class="prompt-input" id="set-decision-state" rows="2" spellcheck="false"></textarea></div>
+                      </div>
+                      <div class="settings-row-item vertical">
+                        <div class="settings-row-header-inline">
+                          <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg></div>
+                          <div class="settings-row-info">
+                        <label class="settings-row-title" for="set-decision-question">Question</label>
+                        <div class="settings-row-desc">Asked about the state above.</div>
+                      </div>
+                        </div>
+                        <div class="settings-row-field"><input type="text" class="prompt-input" id="set-decision-question" spellcheck="false"></div>
+                      </div>
+                      <div class="settings-row-item vertical">
+                        <div class="settings-row-header-inline">
+                          <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg></div>
+                          <div class="settings-row-info">
+                        <label class="settings-row-title" for="set-decision-threshold">Pass threshold <span class="setting-label-value" id="decision-threshold-value"></span></label>
+                        <div class="settings-row-desc">The lowest probability that still counts as a pass.</div>
+                      </div>
+                        </div>
+                        <div class="settings-row-field"><input type="range" min="0.05" max="0.99" step="0.01" class="setting-range" id="set-decision-threshold"></div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <!-- Schedule -->
+                <section class="settings-section" id="sec-schedule" hidden>
+                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>Unattended re-testing. Every run spends real API quota.</p></div>
+
+                  <div class="settings-rows">
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg></div>
+                      <div class="settings-row-info">
+                      <label class="settings-row-title" for="auto-test-select">Re-test the selected models</label>
+                      <div class="settings-row-desc">Runs the current selection on a timer.</div>
+                      <div class="settings-row-status" id="auto-test-note"></div>
+                    </div>
+                      <div class="settings-row-control"><select class="prompt-input narrow" id="auto-test-select">
+                      <option value="0">Off</option>
+                      <option value="15">Every 15 minutes</option>
+                      <option value="60">Every hour</option>
+                      <option value="360">Every 6 hours</option>
+                      <option value="1440">Every 24 hours</option>
+                    </select></div>
+                    </div>
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
+                      <div class="settings-row-info">
+                      <label class="settings-row-title" for="set-health-interval">Check provider health</label>
+                      <div class="settings-row-desc">One <code>GET /models</code> per key. Pages update the moment a provider goes up or down; the Live switch in the breadcrumb pauses it.</div>
+                    </div>
+                      <div class="settings-row-control"><select class="prompt-input narrow" id="set-health-interval">
+                      <option value="1">Every minute</option>
+                      <option value="2">Every 2 minutes</option>
+                      <option value="5">Every 5 minutes</option>
+                      <option value="10">Every 10 minutes</option>
+                      <option value="30">Every 30 minutes</option>
+                    </select></div>
+                    </div>
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="m10 8 6 4-6 4z"/></svg></div>
+                      <div class="settings-row-info">
+                      <label class="settings-row-title" for="set-skip-media">Leave generators out</label>
+                      <div class="settings-row-desc">Skip image and video generators in scheduled runs.</div>
+                    </div>
+                      <div class="settings-row-control"><label class="switch-toggle" for="set-skip-media">
+                      <input type="checkbox" id="set-skip-media">
+                      <span class="switch-slider"></span>
+                    </label></div>
+                    </div>
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></div>
+                      <div class="settings-row-info">
+                      <label class="settings-row-title" for="set-notify-regression">Notify on regression</label>
+                      <div class="settings-row-desc">Alert when a model that was passing starts failing.</div>
+                    </div>
+                      <div class="settings-row-control"><label class="switch-toggle" for="set-notify-regression">
+                      <input type="checkbox" id="set-notify-regression">
+                      <span class="switch-slider"></span>
+                    </label></div>
+                    </div>
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></svg></div>
+                      <div class="settings-row-info">
+                      <label class="settings-row-title" for="set-notify-complete">Notify on run completion</label>
+                      <div class="settings-row-desc">Alert whenever a scheduled run finishes.</div>
+                    </div>
+                      <div class="settings-row-control"><label class="switch-toggle" for="set-notify-complete">
+                      <input type="checkbox" id="set-notify-complete">
+                      <span class="switch-slider"></span>
+                    </label></div>
+                    </div>
+                  </div>
+                </section>
+
+                <!-- Speed & timeouts -->
+                <section class="settings-section" id="sec-speed" hidden>
+                  <div class="settings-rows">
+                    <div class="settings-row-item vertical">
+                      <div class="settings-row-header-inline">
+                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div>
+                        <div class="settings-row-info">
+                      <div class="settings-row-title">Latency colours</div>
+                      <div class="settings-row-desc">Where the TIME column turns amber, then red.</div>
+                    </div>
+                      </div>
+                      <div class="settings-row-field"><div class="mini-grid">
+                      <label class="mini-field">
+                      <span class="mini-field-label"><span class="swatch pass"></span>Green under</span>
+                      <span class="input-unit"><input type="number" class="prompt-input tiny" min="1" step="1" id="set-time-good"><span class="input-unit-label">s</span></span>
+                    </label>
+                      <label class="mini-field">
+                      <span class="mini-field-label"><span class="swatch warn"></span>Amber up to</span>
+                      <span class="input-unit"><input type="number" class="prompt-input tiny" min="1" step="1" id="set-time-ok"><span class="input-unit-label">s</span></span>
+                    </label>
+                      <div class="mini-field static"><span class="mini-field-label"><span class="swatch fail"></span>Red</span><span class="mini-field-value">beyond amber</span></div>
+                    </div></div>
+                    </div>
+                    <div class="settings-row-item vertical">
+                      <div class="settings-row-header-inline">
+                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></svg></div>
+                        <div class="settings-row-info">
+                      <div class="settings-row-title">How long one model may take</div>
+                      <div class="settings-row-desc">A generator legitimately needs minutes; a chat model that takes minutes is broken.</div>
+                    </div>
+                      </div>
+                      <div class="settings-row-field"><div class="mini-grid">
+                      <label class="mini-field">
+                      <span class="mini-field-label">Chat</span>
+                      <span class="input-unit"><input type="number" class="prompt-input tiny" min="5" step="5" id="set-deadline-chat"><span class="input-unit-label">s</span></span>
+                    </label>
+                      <label class="mini-field">
+                      <span class="mini-field-label">Image</span>
+                      <span class="input-unit"><input type="number" class="prompt-input tiny" min="10" step="10" id="set-deadline-image"><span class="input-unit-label">s</span></span>
+                    </label>
+                      <label class="mini-field">
+                      <span class="mini-field-label">Video</span>
+                      <span class="input-unit"><input type="number" class="prompt-input tiny" min="10" step="10" id="set-deadline-video"><span class="input-unit-label">s</span></span>
+                    </label>
+                      <label class="mini-field">
+                      <span class="mini-field-label">Decision</span>
+                      <span class="input-unit"><input type="number" class="prompt-input tiny" min="5" step="5" id="set-deadline-decision"><span class="input-unit-label">s</span></span>
+                    </label>
+                    </div></div>
+                    </div>
+                  </div>
+                </section>
+
+                <!-- Reliability -->
+                <section class="settings-section" id="sec-reliability" hidden>
+                  <div class="settings-rows">
+                    <div class="settings-row-item vertical">
+                      <div class="settings-row-header-inline">
+                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
+                        <div class="settings-row-info">
+                      <label class="settings-row-title" for="set-hedge-enabled">Hedge slow requests</label>
+                      <div class="settings-row-desc">Race extra attempts at a model that is being slow, to ride out transient network delays. The biggest multiplier on how many requests a run costs.</div>
+                    </div>
+                        <div class="settings-row-control"><label class="switch-toggle" for="set-hedge-enabled">
+                      <input type="checkbox" id="set-hedge-enabled">
+                      <span class="switch-slider"></span>
+                    </label></div>
+                      </div>
+                      <div class="settings-row-field"><div class="mini-grid">
+                      <label class="mini-field">
+                      <span class="mini-field-label">At most</span>
+                      <span class="input-unit"><input type="number" class="prompt-input tiny" min="1" max="20" step="1" id="set-hedge-max"><span class="input-unit-label">attempts</span></span>
+                    </label>
+                      <label class="mini-field">
+                      <span class="mini-field-label">A new one every</span>
+                      <span class="input-unit"><input type="number" class="prompt-input tiny" min="200" step="100" id="set-hedge-step"><span class="input-unit-label">ms</span></span>
+                    </label>
+                    </div></div>
+                    </div>
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 2 10 5-10 5L2 7l10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg></div>
+                      <div class="settings-row-info">
+                      <label class="settings-row-title" for="set-concurrency">Models tested at once</label>
+                      <div class="settings-row-desc">The only setting that shortens a run: it works through the list faster, where a wider hedge only spends more on one model.</div>
+                    </div>
+                      <div class="settings-row-control"><span class="input-unit"><input type="number" class="prompt-input tiny" min="1" max="6" step="1" id="set-concurrency"><span class="input-unit-label">at once</span></span></div>
+                    </div>
+                    <div class="settings-row-item vertical">
+                      <div class="settings-row-header-inline">
+                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></div>
+                        <div class="settings-row-info">
+                      <div class="settings-row-title">Retries</div>
+                      <div class="settings-row-desc">Being rate limited is never recorded as the model failing; the run waits, or moves to another key.</div>
+                    </div>
+                      </div>
+                      <div class="settings-row-field"><div class="mini-grid">
+                      <label class="mini-field">
+                      <span class="mini-field-label">Transient errors (5xx, network)</span>
+                      <span class="input-unit"><input type="number" class="prompt-input tiny" min="0" max="10" step="1" id="set-retries"><span class="input-unit-label">times</span></span>
+                    </label>
+                      <label class="mini-field">
+                      <span class="mini-field-label">Rate limits, wait out up to</span>
+                      <span class="input-unit"><input type="number" class="prompt-input tiny" min="0" max="10" step="1" id="set-rl-waits"><span class="input-unit-label">windows</span></span>
+                    </label>
+                    </div></div>
+                    </div>
+                  </div>
+                </section>
+
+                <!-- Model Catalog -->
+                <section class="settings-section" id="sec-catalog" hidden>
+                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>The catalogue re-reads each connected provider&rsquo;s model list on a timer (one <code>GET /models</code> per key), on focus, and whenever a key is added or removed. New models are flagged; removed models disappear at once.</p></div>
+
+                  <div class="settings-rows">
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></div>
+                      <div class="settings-row-info">
+                      <label class="settings-row-title" for="set-catalog-sync">Re-sync every</label>
+                      <div class="settings-row-desc">How often every key's model list is read again.</div>
+                    </div>
+                      <div class="settings-row-control"><span class="input-unit"><input type="number" class="prompt-input tiny" min="1" max="120" step="1" id="set-catalog-sync"><span class="input-unit-label">min</span></span></div>
+                    </div>
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/></svg></div>
+                      <div class="settings-row-info">
+                      <label class="settings-row-title" for="set-catalog-autobench">Benchmark new models automatically</label>
+                      <div class="settings-row-desc">A model that appears after the first sync is queued for the benchmark as soon as it is seen. The first sync of a provider is a baseline and runs nothing.</div>
+                    </div>
+                      <div class="settings-row-control"><label class="switch-toggle" for="set-catalog-autobench">
+                      <input type="checkbox" id="set-catalog-autobench">
+                      <span class="switch-slider"></span>
+                    </label></div>
+                    </div>
+                    <div class="settings-row-item vertical">
+                      <div class="settings-row-header-inline">
+                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg></div>
+                        <div class="settings-row-info">
+                      <label class="settings-row-title" for="set-aa-key">Artificial Analysis API key <span class="setting-label-value">optional</span></label>
+                      <div class="settings-row-desc">With a key, the global reference column uses the live leaderboard (refreshed daily, well within the free 1,000 requests/day). Without one, a bundled snapshot is used. Data &copy; <button class="pv-link" type="button" data-site="https://artificialanalysis.ai/">Artificial Analysis</button>, attribution required.</div>
+                    </div>
+                      </div>
+                      <div class="settings-row-field"><input type="password" class="prompt-input" id="set-aa-key" spellcheck="false" autocomplete="off" placeholder="aa_… (free key from artificialanalysis.ai)">
+                    <div class="settings-actions">
+                      <button class="btn btn-ghost" id="btn-aa-refresh" type="button">Refresh global leaderboard</button>
+                      <span class="settings-row-status" id="aa-status"></span>
+                    </div></div>
+                    </div>
+                  </div>
+
+                  <div class="settings-zone">
+                    <div class="settings-zone-info">
+                      <div class="settings-zone-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>Clear catalogue data</div>
+                      <div class="settings-zone-desc">Benchmark results, or the whole catalogue, are removed from this machine.</div>
+                    </div>
+                    <div class="settings-actions"><button class="btn btn-ghost" id="btn-catalog-clear-bench" type="button">Clear benchmark results</button>
+                    <button class="btn btn-ghost danger" id="btn-catalog-reset" type="button">Reset catalogue</button></div>
+                  </div>
+                </section>
+
+                <!-- History -->
+                <section class="settings-section" id="sec-history" hidden>
+                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>Uptime is computed from stored runs. Only verdicts are kept, never response text.</p></div>
+
+                  <div class="settings-rows">
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg></div>
+                      <div class="settings-row-info">
+                      <label class="settings-row-title" for="set-history-max">Keep the last</label>
+                      <div class="settings-row-desc">Older runs are dropped as new ones arrive.</div>
+                    </div>
+                      <div class="settings-row-control"><span class="input-unit"><input type="number" class="prompt-input tiny" min="10" max="5000" step="10" id="set-history-max"><span class="input-unit-label">runs</span></span></div>
+                    </div>
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M8 17V9"/><path d="M13 17V5"/><path d="M18 17v-3"/></svg></div>
+                      <div class="settings-row-info">
+                      <label class="settings-row-title" for="set-spark-runs">Uptime bars show</label>
+                      <div class="settings-row-desc">How many recent runs each model's bar covers.</div>
+                    </div>
+                      <div class="settings-row-control"><span class="input-unit"><input type="number" class="prompt-input tiny" min="4" max="40" step="1" id="set-spark-runs"><span class="input-unit-label">runs</span></span></div>
+                    </div>
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg></div>
+                      <div class="settings-row-info">
+                      <div class="settings-row-title">Export history</div>
+                      <div class="settings-row-desc">Every stored run as a JSON file.</div>
+                    </div>
+                      <div class="settings-row-control"><button class="btn btn-ghost" id="btn-export-history">Export history</button></div>
+                    </div>
+                  </div>
+
+                  <div class="settings-zone">
+                    <div class="settings-zone-info">
+                      <div class="settings-zone-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>Clear history</div>
+                      <div class="settings-zone-desc">Every stored run is deleted, and uptime starts again from nothing.</div>
+                    </div>
+                    <div class="settings-actions"><button class="btn btn-ghost danger" id="btn-clear-history">Clear history</button></div>
+                  </div>
+                </section>
+
+                <!-- Diagnostics & Logs -->
+                <section class="settings-section" id="sec-logs" hidden>
+                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>Records what was sent and what came back, so a failed test can be explained after the fact.</p></div>
+
+                  <div class="settings-rows">
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/></svg></div>
+                      <div class="settings-row-info">
+                      <label class="settings-row-title" for="set-log-level">Log requests</label>
+                      <div class="settings-row-desc">API keys are never written: the Authorization header is replaced before anything reaches disk. Bodies are clipped at 4,000 characters and the file rotates at 5 MB.</div>
+                    </div>
+                      <div class="settings-row-control"><select class="prompt-input narrow" id="set-log-level">
+                      <option value="off">Off</option>
+                      <option value="errors">Failures only</option>
+                      <option value="all">Every request</option>
+                    </select></div>
+                    </div>
+                    <div class="settings-row-item vertical">
+                      <div class="settings-row-header-inline">
+                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></div>
+                        <div class="settings-row-info">
+                      <div class="settings-row-title">Log file</div>
+                      <div class="settings-row-desc">Where the log is written on this machine.</div>
+                    </div>
+                      </div>
+                      <div class="settings-row-field"><code class="settings-path" id="log-path">...</code>
+                    <div class="settings-actions">
+                      <button class="btn btn-ghost" id="btn-open-log">Show log file</button>
+                    </div></div>
+                    </div>
+                  </div>
+
+                  <div class="settings-zone">
+                    <div class="settings-zone-info">
+                      <div class="settings-zone-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>Clear log</div>
+                      <div class="settings-zone-desc">The log file is emptied.</div>
+                    </div>
+                    <div class="settings-actions"><button class="btn btn-ghost danger" id="btn-clear-log">Clear log</button></div>
+                  </div>
+                </section>
+
+                <!-- Data Directory -->
+                <section class="settings-section" id="sec-data" hidden>
+                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>Settings, providers and encrypted keys live in one folder; history sits beside them.</p></div>
+
+                  <div class="settings-rows">
+                    <div class="settings-row-item vertical">
+                      <div class="settings-row-header-inline">
+                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></div>
+                        <div class="settings-row-info">
+                      <div class="settings-row-title">Data folder</div>
+                      <div class="settings-row-desc">Everything the app stores on this machine.</div>
+                    </div>
+                      </div>
+                      <div class="settings-row-field"><code class="settings-path" id="settings-path">...</code>
+                    <div class="settings-actions">
+                      <button class="btn btn-ghost" id="btn-open-data">Open folder</button>
+                    </div></div>
+                    </div>
+                  </div>
+
+                  <div class="settings-zone">
+                    <div class="settings-zone-info">
+                      <div class="settings-zone-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>Reset all settings</div>
+                      <div class="settings-zone-desc">Every setting goes back to its default. Providers, keys and history are left untouched.</div>
+                    </div>
+                    <div class="settings-actions"><button class="btn btn-ghost danger" id="btn-reset-settings">Reset all settings</button></div>
+                  </div>
+                </section>
+
+                <!-- About -->
+                <section class="settings-section" id="sec-about" hidden>
+                  <div class="about-head">
+                    <div class="about-mark">
+                      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                        <path d="M2 17l10 5 10-5"/>
+                        <path d="M2 12l10 5 10-5"/>
+                      </svg>
+                    </div>
+                    <div>
+                      <div class="about-name">Upstream Checker</div>
+                      <div class="about-version">Version <span id="about-version">-</span></div>
+                    </div>
+                  </div>
+
+                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>Tests every model a provider offers against one prompt, and keeps the results, so the question stops being &ldquo;does this model work right now&rdquo; and becomes &ldquo;is this model reliable&rdquo;.</p></div>
+
+                  <div class="settings-rows">
+                    <div class="settings-row-item vertical">
+                      <div class="settings-row-header-inline">
+                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></svg></div>
+                        <div class="settings-row-info">
+                      <div class="settings-row-title">Providers</div>
+                      <div class="settings-row-desc">Built in, and added by you.</div>
+                    </div>
+                      </div>
+                      <div class="settings-row-field"><div class="about-providers" id="about-providers"></div></div>
+                    </div>
+                    <div class="settings-row-item vertical">
+                      <div class="settings-row-header-inline">
+                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M8 17V9"/><path d="M13 17V5"/><path d="M18 17v-3"/></svg></div>
+                        <div class="settings-row-info">
+                      <div class="settings-row-title">This install</div>
+                      <div class="settings-row-desc">What is stored on this machine.</div>
+                    </div>
+                      </div>
+                      <div class="settings-row-field"><div class="about-stats" id="about-stats"></div></div>
+                    </div>
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 13v8"/><path d="m8 17 4 4 4-4"/><path d="M4.4 15.5A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2"/></svg></div>
+                      <div class="settings-row-info">
+                      <div class="settings-row-title">Updates</div>
+                      <div class="settings-row-desc">New versions download in the background and install on restart.</div>
+                      <div class="settings-row-status" id="about-update-note"></div>
+                    </div>
+                      <div class="settings-row-control"><button class="btn btn-ghost" id="btn-check-updates">Check for updates</button></div>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </main>
+          </div>
+        </section>
       </div>
     </main>
-  </div>
-
-  <!-- Settings -->
-  <div class="settings-overlay" id="settings-overlay" style="display:none">
-    <div class="settings-panel">
-      <div class="settings-header">
-        <h2>Settings</h2>
-        <button class="modal-close" id="settings-close">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-          </svg>
-        </button>
-      </div>
-
-      <div class="settings-body">
-        <nav class="settings-nav" id="settings-nav">
-          <button class="settings-nav-item active" data-section="sec-test">Test</button>
-          <button class="settings-nav-item" data-section="sec-schedule">Schedule</button>
-          <button class="settings-nav-item" data-section="sec-speed">Speed &amp; timeouts</button>
-          <button class="settings-nav-item" data-section="sec-reliability">Reliability</button>
-          <button class="settings-nav-item" data-section="sec-history">History</button>
-          <button class="settings-nav-item" data-section="sec-appearance">Appearance</button>
-          <button class="settings-nav-item" data-section="sec-logs">Diagnostics</button>
-          <button class="settings-nav-item" data-section="sec-data">Data</button>
-          <button class="settings-nav-item" data-section="sec-about">About</button>
-        </nav>
-
-        <div class="settings-content">
-          <!-- What the current configuration actually costs per run -->
-          <div class="settings-estimate" id="settings-estimate"></div>
-
-          <section class="settings-section" id="sec-test">
-            <h3>Test</h3>
-            <p class="settings-note">One prompt for every provider — that is what makes their results comparable.</p>
-
-            <div class="setting">
-              <label class="setting-label" for="prompt-input">Prompt</label>
-              <textarea class="prompt-input" id="prompt-input" rows="3" spellcheck="false"></textarea>
-            </div>
-
-            <div class="setting">
-              <label class="setting-label" for="expected-input">Expected answer</label>
-              <input type="text" class="prompt-input" id="expected-input" spellcheck="false">
-              <p class="setting-hint">Comma-separated alternatives, case-insensitive. Empty turns answer checking off.</p>
-            </div>
-
-            <div class="setting">
-              <label class="setting-label" for="media-prompt-input">Prompt for image and video generators</label>
-              <input type="text" class="prompt-input" id="media-prompt-input" spellcheck="false">
-              <p class="setting-hint">Generators pass by returning an asset, so there is no expected answer to match.</p>
-            </div>
-
-            <div class="setting">
-              <label class="setting-label" for="set-max-tokens">Output token limit</label>
-              <input type="number" min="1" step="1" class="prompt-input narrow" id="set-max-tokens">
-              <p class="setting-hint">A reasoning model can spend this whole budget thinking and return no content, which shows up as an empty response. Raise it if that happens.</p>
-            </div>
-
-            <button class="btn btn-ghost" id="btn-reset-prompt">Restore default prompt and answer</button>
-          </section>
-
-          <section class="settings-section" id="sec-schedule" hidden>
-            <h3>Schedule</h3>
-            <p class="settings-note">Unattended re-testing. Every run spends real API quota.</p>
-
-            <div class="setting">
-              <label class="setting-label" for="auto-test-select">Re-test the selected models</label>
-              <select class="prompt-input narrow" id="auto-test-select">
-                <option value="0">Off</option>
-                <option value="15">Every 15 minutes</option>
-                <option value="60">Every hour</option>
-                <option value="360">Every 6 hours</option>
-                <option value="1440">Every 24 hours</option>
-              </select>
-              <p class="setting-hint" id="auto-test-note"></p>
-            </div>
-
-            <label class="setting-check">
-              <input type="checkbox" id="set-skip-media">
-              <span>Leave image and video generators out of scheduled runs</span>
-            </label>
-            <p class="setting-hint">Without this, ticking a generator once means generating images on a timer, unattended.</p>
-
-            <label class="setting-check">
-              <input type="checkbox" id="set-notify-regression">
-              <span>Notify me when a model that was working stops</span>
-            </label>
-            <label class="setting-check">
-              <input type="checkbox" id="set-notify-complete">
-              <span>Notify me whenever a scheduled run finishes</span>
-            </label>
-          </section>
-
-          <section class="settings-section" id="sec-speed" hidden>
-            <h3>Speed and timeouts</h3>
-
-            <div class="setting">
-              <label class="setting-label">Latency colours</label>
-              <div class="setting-row">
-                <span class="swatch pass"></span> Green under
-                <input type="number" min="1" step="1" class="prompt-input tiny" id="set-time-good"> s
-                <span class="swatch warn"></span> Amber up to
-                <input type="number" min="1" step="1" class="prompt-input tiny" id="set-time-ok"> s
-                <span class="swatch fail"></span> Red beyond
-              </div>
-            </div>
-
-            <div class="setting">
-              <label class="setting-label">How long one model may take</label>
-              <div class="setting-row">
-                Chat <input type="number" min="5" step="5" class="prompt-input tiny" id="set-deadline-chat"> s
-                Image <input type="number" min="10" step="10" class="prompt-input tiny" id="set-deadline-image"> s
-                Video <input type="number" min="10" step="10" class="prompt-input tiny" id="set-deadline-video"> s
-              </div>
-              <p class="setting-hint">A generator legitimately needs minutes; a chat model that takes minutes is broken.</p>
-            </div>
-          </section>
-
-          <section class="settings-section" id="sec-reliability" hidden>
-            <h3>Reliability</h3>
-
-            <label class="setting-check">
-              <input type="checkbox" id="set-hedge-enabled">
-              <span>Race extra attempts at models that are being slow</span>
-            </label>
-            <p class="setting-hint">Rescues a model that is merely slow, and is the single biggest multiplier on what a run costs. Never applied to generators — they are supposed to be slow.</p>
-
-            <div class="setting-row indent">
-              At most <input type="number" min="1" max="20" step="1" class="prompt-input tiny" id="set-hedge-max"> attempts,
-              a new one every <input type="number" min="200" step="100" class="prompt-input tiny" id="set-hedge-step"> ms
-            </div>
-
-            <div class="setting">
-              <label class="setting-label" for="set-concurrency">Models tested at once</label>
-              <input type="number" min="1" max="6" step="1" class="prompt-input tiny" id="set-concurrency">
-              <p class="setting-hint">The only setting that shortens a run. Widening the hedge below spends more requests on one model without lowering that model&rsquo;s own latency; this works through the list faster. Each lane draws from the same per-key minute budget, so raising it past the number of keys mostly means more pacing.</p>
-            </div>
-
-            <div class="setting">
-              <label class="setting-label">Retries</label>
-              <div class="setting-row">
-                Transient errors (5xx, network)
-                <input type="number" min="0" max="10" step="1" class="prompt-input tiny" id="set-retries"> times
-              </div>
-              <div class="setting-row">
-                Rate limits — wait out up to
-                <input type="number" min="0" max="10" step="1" class="prompt-input tiny" id="set-rl-waits"> windows
-              </div>
-              <p class="setting-hint">Being rate limited is never recorded as the model failing; the run waits, or moves to another key.</p>
-            </div>
-          </section>
-
-          <section class="settings-section" id="sec-history" hidden>
-            <h3>History</h3>
-            <p class="settings-note">Uptime is computed from stored runs. Only verdicts are kept, never response text.</p>
-
-            <div class="setting-row">
-              Keep the last <input type="number" min="10" max="5000" step="10" class="prompt-input tiny" id="set-history-max"> runs
-            </div>
-            <div class="setting-row">
-              Show <input type="number" min="4" max="40" step="1" class="prompt-input tiny" id="set-spark-runs"> runs in the uptime bars
-            </div>
-
-            <div class="settings-actions">
-              <button class="btn btn-ghost" id="btn-export-history">Export history</button>
-              <button class="btn btn-ghost danger" id="btn-clear-history">Clear history</button>
-            </div>
-          </section>
-
-          <section class="settings-section" id="sec-appearance" hidden>
-            <h3>Appearance</h3>
-
-            <div class="setting">
-              <label class="setting-label">Theme</label>
-              <div class="theme-grid" id="theme-grid"></div>
-            </div>
-
-            <div class="setting">
-              <label class="setting-label">Accent</label>
-              <div class="swatch-row" id="accent-row"></div>
-            </div>
-
-            <div class="setting">
-              <label class="setting-label" for="set-density">Row density</label>
-              <select class="prompt-input narrow" id="set-density">
-                <option value="compact">Compact</option>
-                <option value="normal">Normal</option>
-                <option value="roomy">Roomy</option>
-              </select>
-              <p class="setting-hint">How much of the results table fits on screen at once.</p>
-            </div>
-          </section>
-
-          <section class="settings-section" id="sec-logs" hidden>
-            <h3>Diagnostics</h3>
-            <p class="settings-note">Records what was sent and what came back, so a failed test can be explained after the fact.</p>
-
-            <div class="setting">
-              <label class="setting-label" for="set-log-level">Log requests</label>
-              <select class="prompt-input narrow" id="set-log-level">
-                <option value="off">Off</option>
-                <option value="errors">Failures only</option>
-                <option value="all">Every request</option>
-              </select>
-              <p class="setting-hint">API keys are never written to the log — the Authorization header is replaced before anything reaches disk. Bodies are clipped at 4,000 characters and the file rotates at 5 MB.</p>
-            </div>
-
-            <div class="setting-row"><code class="settings-path" id="log-path">...</code></div>
-            <div class="settings-actions">
-              <button class="btn btn-ghost" id="btn-open-log">Show log file</button>
-              <button class="btn btn-ghost danger" id="btn-clear-log">Clear log</button>
-            </div>
-          </section>
-
-          <section class="settings-section" id="sec-about" hidden>
-            <h3>About</h3>
-
-            <div class="about-head">
-              <div class="about-mark">
-                <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-                  <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                  <path d="M2 17l10 5 10-5"/>
-                  <path d="M2 12l10 5 10-5"/>
-                </svg>
-              </div>
-              <div>
-                <div class="about-name">Upstream Checker</div>
-                <div class="about-version">Version <span id="about-version">-</span></div>
-              </div>
-            </div>
-
-            <p class="settings-note">
-              Tests every model a provider offers against one prompt, and keeps the results
-              so the question stops being &ldquo;does this model work right now&rdquo; and becomes
-              &ldquo;is this model reliable&rdquo;.
-            </p>
-
-            <div class="setting">
-              <label class="setting-label">Providers</label>
-              <div class="about-providers" id="about-providers"></div>
-            </div>
-
-            <div class="setting">
-              <label class="setting-label">This install</label>
-              <div class="about-stats" id="about-stats"></div>
-            </div>
-
-            <div class="settings-actions">
-              <button class="btn btn-ghost" id="btn-check-updates">Check for updates</button>
-            </div>
-            <p class="setting-hint" id="about-update-note"></p>
-          </section>
-          <section class="settings-section" id="sec-data" hidden>
-            <h3>Data</h3>
-            <p class="settings-note">Settings, providers and encrypted keys live in one folder; history sits beside them.</p>
-            <div class="setting-row"><code class="settings-path" id="settings-path">...</code></div>
-            <div class="settings-actions">
-              <button class="btn btn-ghost" id="btn-open-data">Open folder</button>
-              <button class="btn btn-ghost danger" id="btn-reset-settings">Reset all settings</button>
-            </div>
-            <p class="setting-hint">Resetting settings leaves your providers, keys and history untouched.</p>
-          </section>
-        </div>
-      </div>
-    </div>
   </div>
 
   <!-- Full Response Modal -->
@@ -560,7 +1224,7 @@
   <div class="modal-overlay" id="add-key-modal" style="display:none">
     <div class="modal">
       <div class="modal-header">
-        <h3>Add API Key</h3>
+        <h3 id="add-key-title">Add API Key</h3>
         <button class="modal-close" id="modal-cancel">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -676,6 +1340,12 @@
   <script src="providers/nexum.js"></script>
   <script src="providers/mirai.js"></script>
   <script src="providers/inception.js"></script>
+  <script src="providers/tokenharbor.js"></script>
+  <script src="providers/experiential.js"></script>
+  <script src="data/leaderboard-snapshot.js"></script>
   <script src="app.js"></script>
+  <script src="benchmark.js"></script>
+  <script src="catalog.js"></script>
+  <script src="profiles.js"></script>
 </body>
 </html>

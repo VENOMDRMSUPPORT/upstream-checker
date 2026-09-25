@@ -23,8 +23,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readHistory: () => ipcRenderer.invoke('read-history'),
   appendRun: (run, maxRuns) => ipcRenderer.invoke('append-run', run, maxRuns),
   clearHistory: () => ipcRenderer.invoke('clear-history'),
+
+  // Model catalog (models seen per provider + benchmark results)
+  readCatalog: () => ipcRenderer.invoke('read-catalog'),
+  writeCatalog: (data) => ipcRenderer.invoke('write-catalog', data),
   getDataPath: () => ipcRenderer.invoke('get-data-path'),
   openDataFolder: () => ipcRenderer.send('open-data-folder'),
+  openExternal: (url) => ipcRenderer.invoke('open-external', url),
   readLogInfo: () => ipcRenderer.invoke('read-log-info'),
   openRequestLog: () => ipcRenderer.send('open-request-log'),
   clearRequestLog: () => ipcRenderer.invoke('clear-request-log'),

@@ -18,9 +18,17 @@ window.INTEGRATED_PROVIDERS.nara = {
     rpm: 30,
     color: '#00d4ff',
     logo: '../assets/providers/nara.svg',
+    // Light brand colours; deepened on the light theme to hold contrast.
+    logoTone: 'bright',
     modelsEndpoint: '/models',
     plansEndpoint: '/api/plans',
     chatEndpoint: '/chat/completions',
+    // NaraRouter relays Experiential's TypeSafe Jev, which refuses chat and
+    // answers only on the decision route.
+    decisionEndpoint: '/systemone',
+
+    // Offers free models or a free quota (drives the Free Tier legend colour).
+    freeTier: true,
   },
 
   // Discovery is driven entirely by NaraRouter's own data, so new models appear
@@ -62,6 +70,9 @@ window.INTEGRATED_PROVIDERS.nara = {
           // Kept as the provider reported them; app.js reads the capability set
           // off these rather than guessing from the model's name. NaraRouter is
           // one of the few that says outright which models generate media.
+          // /api/pricing has no decision flag and lists Jev as a plain text
+          // model, so the family is recognised by its alias.
+          supports_decisions: /^jev(\b|-)/i.test(m.alias),
           supports_vision: m.supports_vision,
           supports_image_generation: m.supports_image_generation,
           supports_video_generation: m.supports_video_generation,

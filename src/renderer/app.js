@@ -35,7 +35,7 @@ const truthy = (v) => v === true || v === 'true' || v === 1;
 // below is name matching, which is a guess — a provider that declares the fact
 // outright is believed over it.
 
-const KIND_LABELS = { chat: '', image: 'Image', video: 'Video' };
+const KIND_LABELS = { chat: '', image: 'Image', video: 'Video', decision: 'Decision' };
 
 // Hedging is never applied to a generator: it exists to rescue a chat model that
 // is unusually slow, and a generator is supposed to be slow, so racing it would
@@ -43,12 +43,18 @@ const KIND_LABELS = { chat: '', image: 'Image', video: 'Video' };
 function kindLimits(kind) {
   if (kind === 'image') return { deadline: settings.deadlineImageMs, hedge: false };
   if (kind === 'video') return { deadline: settings.deadlineVideoMs, hedge: false };
+  // A decision call has no idempotency guarantee — a raced duplicate is real
+  // provider work — so it is never hedged either.
+  if (kind === 'decision') return { deadline: settings.deadlineDecisionMs, hedge: false };
   return { deadline: settings.deadlineChatMs, hedge: settings.hedgeEnabled };
 }
 
 function classifyModel(providerId, model) {
   // A declared capability outranks every heuristic below it: NaraRouter states
   // outright which models generate images or video, so there is nothing to infer.
+  // A native decision model (Experiential's TypeSafe Jev) refuses chat entirely
+  // and answers only on the provider's declared decisionEndpoint.
+  if (truthy(model.supports_decisions)) return 'decision';
   if (truthy(model.supports_video_generation)) return 'video';
   if (truthy(model.supports_image_generation)) return 'image';
 
@@ -64,6 +70,7 @@ function classifyModel(providerId, model) {
 }
 
 const isMedia = (model) => model && (model.kind === 'image' || model.kind === 'video');
+const isDecision = (model) => model && model.kind === 'decision';
 
 // testResults rows carry only the model id; correctness needs the model itself
 // to know which standard applies.
@@ -96,6 +103,7 @@ const DEFAULT_SETTINGS = {
   deadlineChatMs: 75000,
   deadlineImageMs: 240000,
   deadlineVideoMs: 600000,
+  deadlineDecisionMs: 60000,
 
   // Retry policy for transient failures and for provider rate limits.
   maxTestRetries: 2,
@@ -111,7 +119,22 @@ const DEFAULT_SETTINGS = {
   // at all, which the app then reports as an empty response. Raising this fixes
   // that case.
   maxOutputTokens: 512,
-  mediaPrompt: 'A single red circle centred on a plain white background.',
+
+  // Generators. Each is sent to its dedicated endpoint first (/images/generations,
+  // /videos) and falls back to chat on a provider that has no such route. A
+  // returned link proves little on its own — verifyAssets fetches its headers and
+  // passes the model only when the link really serves an image or a video.
+  imagePrompt: 'A single red circle centred on a plain white background.',
+  videoPrompt: 'A single red circle slowly moving across a plain white background.',
+  videoPollMs: 5000,
+  verifyAssets: true,
+
+  // Decision models answer a typed question with a probability. The probe is a
+  // statement whose truth is not in doubt, so a healthy model scores it high and
+  // anything under the threshold is a wrong answer — the decision twin of 2+2.
+  decisionState: 'The statement under review: 2 + 2 = 4.',
+  decisionQuestion: 'Is the statement under review mathematically correct?',
+  decisionThreshold: 0.7,
 
   historyMaxRuns: 300,
   sparkRuns: 12,
@@ -123,16 +146,34 @@ const DEFAULT_SETTINGS = {
   // every scheduled run — generating images on a timer, unattended.
   scheduleSkipMedia: true,
 
+  // Live provider health. Each probe is one GET /models per provider, so the
+  // cadence trades freshness against quota. liveUpdates pauses the monitor
+  // entirely (the breadcrumb toggle); a manual re-check still works.
+  healthIntervalMin: 2,
+  liveUpdates: true,
+
   // Appearance. Every colour in the stylesheet comes from a custom property, so
   // a theme is a block of overrides rather than a second stylesheet.
-  theme: 'default',
+  // 'vercel' (Dark) or 'daylight' (Light). followSystem overrides it with the
+  // OS setting. accent is a preset id or 'custom', which uses customAccent.
+  theme: 'vercel',
+  followSystem: false,
   accent: 'cyan',
+  customAccent: '#a855f7',
   density: 'normal',
 
   // off | errors | all. Off by default: the log is a file on disk holding the
   // traffic of an authenticated API, even with the key stripped out of it.
   logLevel: 'off',
 
+  // Model Catalog. The catalogue re-reads every connected provider's model
+  // list on this cadence; a model that appears is benchmarked straight away
+  // when catalogAutoBench is on (the first sync of a provider is a baseline —
+  // nothing is auto-run then). aaApiKey unlocks the live Artificial Analysis
+  // leaderboard in place of the bundled snapshot.
+  catalogSyncMinutes: 5,
+  catalogAutoBench: true,
+  aaApiKey: '',
 
   // Sidebar width in px; 0 means hidden. Capped at the design width — the
   // sidebar can be narrowed or shut, never widened, because everything in it is
@@ -146,12 +187,8 @@ const DEFAULT_SETTINGS = {
 };
 
 const THEMES = [
-  { id: 'default',  name: 'Deep Space', strip: ['#060a14', '#0f1526', '#243054', '#00d4ff'] },
-  { id: 'midnight', name: 'Midnight',   strip: ['#0b0d12', '#181b24', '#2a3040', '#00d4ff'] },
-  { id: 'carbon',   name: 'Carbon',     strip: ['#0d0d0d', '#1c1c1c', '#2e2e2e', '#00d4ff'] },
-  { id: 'amoled',   name: 'AMOLED',     strip: ['#000000', '#0a0a0a', '#242424', '#00d4ff'] },
-  { id: 'nord',     name: 'Nord',       strip: ['#20242e', '#2e3440', '#3f4858', '#88c0d0'] },
-  { id: 'daylight', name: 'Daylight',   strip: ['#f4f6fa', '#ffffff', '#cfd8e3', '#0ea5e9'] },
+  { id: 'daylight', name: 'Light' },
+  { id: 'vercel', name: 'Dark' },
 ];
 
 const ACCENTS = [
@@ -159,13 +196,72 @@ const ACCENTS = [
   { id: 'amber', hex: '#fbbf24' }, { id: 'rose', hex: '#fb7185' }, { id: 'blue', hex: '#60a5fa' },
 ];
 
-// The default theme is the stylesheet's own :root, so it carries no attribute.
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+const ACCENT_PROPS = ['--accent', '--accent-dim', '--accent-bg', '--accent-border', '--on-accent'];
+
+// Relative luminance (WCAG) of a #rrggbb colour.
+function luminance(hex) {
+  const lin = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  const n = parseInt(hex.slice(1), 16);
+  return 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+}
+const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+
+function effectiveTheme() {
+  if (settings.followSystem) return systemDark.matches ? 'vercel' : 'daylight';
+  return settings.theme;
+}
+
+function accentLabel() {
+  if (settings.accent === 'custom') return 'Custom';
+  return settings.accent[0].toUpperCase() + settings.accent.slice(1);
+}
+
 function applyAppearance() {
   const el = document.documentElement;
-  if (settings.theme && settings.theme !== 'default') el.setAttribute('data-theme', settings.theme);
-  else el.removeAttribute('data-theme');
-  el.setAttribute('data-accent', settings.accent);
+  const theme = effectiveTheme();
+  el.setAttribute('data-theme', theme);
   el.setAttribute('data-density', settings.density);
+
+  // A custom accent is written as inline properties, which outrank the preset
+  // [data-accent] rules; the derived shades are mixed from the one colour.
+  const custom = settings.accent === 'custom' && HEX_COLOR.test(settings.customAccent);
+  el.setAttribute('data-accent', custom ? 'custom' : settings.accent);
+  if (custom) {
+    const hex = settings.customAccent;
+    el.style.setProperty('--accent', hex);
+    el.style.setProperty('--accent-dim', `color-mix(in srgb, ${hex} 78%, black)`);
+    el.style.setProperty('--accent-bg', `color-mix(in srgb, ${hex} 10%, transparent)`);
+    el.style.setProperty('--accent-border', `color-mix(in srgb, ${hex} 26%, transparent)`);
+    // Black text wins on anything lighter than ~mid-grey; white below that.
+    el.style.setProperty('--on-accent', luminance(hex) > 0.18 ? '#0a0a0a' : '#ffffff');
+  } else {
+    ACCENT_PROPS.forEach((p) => el.style.removeProperty(p));
+  }
+
+  const toggle = document.getElementById('btn-theme-toggle');
+  if (toggle) {
+    const label = theme === 'daylight' ? 'Switch to dark mode' : 'Switch to light mode';
+    toggle.title = label;
+    toggle.setAttribute('aria-label', label);
+  }
+}
+
+// Windows switching light/dark while the app is open.
+systemDark.addEventListener('change', () => {
+  if (!settings.followSystem) return;
+  applyAppearance();
+  if (currentPage === 'settings') renderAppearancePickers();
+});
+
+// Header toggle flips the mode actually on screen; an explicit choice ends
+// following the system.
+function toggleTheme() {
+  settings.theme = effectiveTheme() === 'daylight' ? 'vercel' : 'daylight';
+  settings.followSystem = false;
+  applyAppearance();
+  queueSettingsSave();
+  if (currentPage === 'settings') renderAppearancePickers();
 }
 
 let settings = { ...DEFAULT_SETTINGS };
@@ -178,8 +274,21 @@ async function loadSettings() {
         const v = data.settings[k];
         if (typeof v === typeof DEFAULT_SETTINGS[k]) settings[k] = v;
       });
+      // One prompt used to drive both generators; it seeds both of their own.
+      const legacy = data.settings.mediaPrompt;
+      if (typeof legacy === 'string' && legacy.trim()) {
+        if (typeof data.settings.imagePrompt !== 'string') settings.imagePrompt = legacy;
+        if (typeof data.settings.videoPrompt !== 'string') settings.videoPrompt = legacy;
+      }
     }
   } catch (_) {}
+  // Themes that no longer exist (Deep Space, Midnight, Carbon, AMOLED, Nord)
+  // were all dark, so they land on Dark.
+  if (!THEMES.some((t) => t.id === settings.theme)) settings.theme = 'vercel';
+  if (settings.accent !== 'custom' && !ACCENTS.some((a) => a.id === settings.accent)) {
+    settings.accent = DEFAULT_SETTINGS.accent;
+  }
+  if (!HEX_COLOR.test(settings.customAccent)) settings.customAccent = DEFAULT_SETTINGS.customAccent;
 }
 
 let saveSettingsTimer = null;
@@ -197,9 +306,11 @@ function queueSettingsSave() {
 }
 
 // Set app version from main process
+// Reported by the main process once the window loads; shown in the nav and About.
+let appVersion = '';
 window.electronAPI.onAppVersion((version) => {
-  const versionEl = document.getElementById('app-version');
-  if (versionEl) versionEl.textContent = `v${version}`;
+  appVersion = version;
+  document.querySelectorAll('[data-app-version]').forEach((el) => { el.textContent = `v${version}`; });
 });
 
 // Built-in providers register their metadata into window.INTEGRATED_PROVIDERS
@@ -253,6 +364,11 @@ async function saveProviderConfig(providerId) {
   }
   data.providers[providerId] = entry;
   await window.electronAPI.writeConfig(data);
+  // Every save is a user edit to keys or the base URL, so the verdict is stale.
+  checkProviderHealth(providerId);
+  if (currentPage === 'providers') renderProvidersPage();
+  // The Model Catalog shows a provider's models only while it has a key.
+  window.dispatchEvent(new CustomEvent('providers-changed', { detail: { providerId } }));
 }
 
 // ============================================
@@ -265,6 +381,19 @@ const MIN_RUNS_FOR_UPTIME = 2; // one data point is not a rate
 
 // providerId::modelId -> [{ at, ok }] oldest first
 let history = new Map();
+// One entry per recorded run, oldest first — feeds the Overview panels.
+let runLog = [];
+
+function summariseRun(run) {
+  const results = run.results || [];
+  return {
+    at: run.at,
+    provider: run.provider,
+    providerName: run.providerName || run.provider,
+    total: results.length,
+    passed: results.filter((r) => r.status === 'pass').length,
+  };
+}
 let autoTestMinutes = 0; // 0 = off
 let autoTestTimer = null;
 
@@ -278,6 +407,7 @@ async function loadHistory() {
   try {
     data = await window.electronAPI.readHistory();
   } catch (_) {}
+  runLog = (data.runs || []).map(summariseRun);
   (data.runs || []).forEach((run) => {
     (run.results || []).forEach((r) => {
       const key = historyKey(run.provider, r.model);
@@ -334,6 +464,8 @@ async function recordRun(providerId, providerName, results) {
     if (!history.has(key)) history.set(key, []);
     history.get(key).push({ at: run.at, ok: r.status === 'pass' });
   });
+  runLog.push(summariseRun(run));
+  renderQuickStats();
 }
 
 // Compares this run against each model's previous recorded outcome. Called after
@@ -427,7 +559,16 @@ function isCorrect(result, model) {
   // every working generator wrong.
   if (model && isMedia(model)) {
     if (!result || result.status !== 'pass') return null;
-    return containsMediaUrl(result.response);
+    // A checked asset is the verdict; an unchecked one (verification off, or the
+    // host refused to say) falls back to "did it hand back a link at all".
+    if (typeof result.assetVerified === 'boolean') return result.assetVerified;
+    return result.assetInline || containsMediaUrl(result.response);
+  }
+
+  // A decision model is right when it rates the known-true probe as likely.
+  if (model && isDecision(model)) {
+    if (!result || result.status !== 'pass' || typeof result.decisionScore !== 'number') return null;
+    return result.decisionScore >= settings.decisionThreshold;
   }
 
   const alts = expectedAnswer
@@ -534,6 +675,7 @@ $('#btn-close').addEventListener('click', () => window.electronAPI.close());
 // ============================================
 function renderProviderTabs() {
   const container = $('#provider-tabs');
+  $('#provider-count').textContent = Object.keys(PROVIDERS).length;
   container.innerHTML = '';
   Object.values(PROVIDERS).forEach((p) => {
     const btn = document.createElement('button');
@@ -564,6 +706,7 @@ function renderProviderTabs() {
       badge = document.createElement('img');
       badge.className = 'provider-logo';
       badge.alt = '';
+      if (p.logoTone) badge.dataset.tone = p.logoTone;
       badge.addEventListener('error', () => { badge.style.display = 'none'; });
       badge.src = p.logo;
     } else {
@@ -571,11 +714,25 @@ function renderProviderTabs() {
       badge.className = 'provider-dot';
       badge.style.background = p.color;
     }
-    btn.prepend(badge);
+    const mark = document.createElement('span');
+    mark.className = 'provider-mark';
+    mark.appendChild(badge);
+    const pip = document.createElement('span');
+    pip.className = 'provider-health-pip';
+    mark.appendChild(pip);
+    btn.prepend(mark);
+    applyProviderHealth(btn, p.id);
 
     btn.addEventListener('click', () => switchProvider(p.id));
     container.appendChild(btn);
   });
+
+  // The list is rebuilt from scratch on every render, which resets scrollTop, so
+  // pull the active provider back into view when there are enough to scroll.
+  const active = container.querySelector('.provider-btn.active');
+  if (active) {
+    container.scrollTop = active.offsetTop - (container.clientHeight - active.offsetHeight) / 2;
+  }
 
   $$('.provider-edit').forEach((el) => {
     el.addEventListener('click', (e) => {
@@ -590,6 +747,218 @@ function renderProviderTabs() {
     });
   });
 }
+
+// ============================================
+// Provider health — a silent background probe of each provider's key
+// ============================================
+// States: 'ok' (a key authenticated), 'fail' (every key was refused or the host
+// is unreachable), 'none' (no usable key to test with). Kept outside the DOM
+// because the tab list is rebuilt on every render.
+const healthIntervalMs = () => Math.max(1, settings.healthIntervalMin) * 60 * 1000;
+const HEALTH_TIMEOUT_MS = 15000;
+// A dropped connection or a waking laptop fails every probe at once. A transient
+// failure is re-checked after this delay and only a second one turns the row red.
+const HEALTH_CONFIRM_MS = 10000;
+const healthConfirming = new Set();
+const providerHealth = new Map();
+const healthInFlight = new Set();
+const healthRecheck = new Set();
+let healthTimer = null;
+
+function describeHealthFailure(res) {
+  if (res.networkError) return res.timedOut ? 'No response' : 'Unreachable';
+  if (res.status === 401 || res.status === 403) return `Key rejected (HTTP ${res.status})`;
+  return `HTTP ${res.status}`;
+}
+
+function keyProbeResult(res) {
+  return isHealthyResponse(res)
+    ? { state: 'ok', text: `OK · ${res.elapsed} ms`, at: Date.now() }
+    : { state: 'fail', text: describeHealthFailure(res), at: Date.now() };
+}
+
+// Status pill shared by provider rows and key rows: a word that says what is
+// going on, and the measurement behind it set apart ("Reachable" | "472 ms").
+// Detail strings come from describeHealthFailure / the probes above.
+function splitStatus(text) {
+  const t = String(text || '');
+  const dot = t.split(' · ');
+  if (dot.length === 2) return { label: dot[0], meta: dot[1] };
+  const paren = t.match(/^(.*) \((HTTP \d+)\)$/);
+  if (paren) return { label: paren[1], meta: paren[2] };
+  const code = t.match(/^HTTP (\d+)$/);
+  if (code) return { label: Number(code[1]) >= 500 ? 'Server error' : 'Request refused', meta: t };
+  return { label: t, meta: '' };
+}
+
+function statusPillHTML(state, text, title = '') {
+  const { label, meta } = splitStatus(text);
+  const lead = state === 'testing' ? '<span class="spinner"></span>' : '<span class="st-pill-dot"></span>';
+  return `<span class="st-pill" data-state="${state}"${title ? ` title="${escapeHtml(title)}"` : ''}>${lead}`
+    + `<span class="st-pill-label">${escapeHtml(label)}</span>${meta ? `<span class="st-pill-meta">${escapeHtml(meta)}</span>` : ''}</span>`;
+}
+
+// A 429 still proves the key authenticated — the provider is up, just busy.
+function isHealthyResponse(res) {
+  return (res.status >= 200 && res.status < 300) || res.status === 429;
+}
+
+async function checkProviderHealth(id) {
+  const p = PROVIDERS[id];
+  if (!p) return;
+  // A key edited mid-probe must not be answered by the probe of the old keys.
+  if (healthInFlight.has(id)) {
+    healthRecheck.add(id);
+    return;
+  }
+  const keys = usableKeys(p);
+  if (keys.length === 0) {
+    setProviderHealth(id, { state: 'none', detail: 'No API key' });
+    return;
+  }
+
+  healthInFlight.add(id);
+  try {
+    // Every active key is probed, in parallel, so each key row carries its own
+    // verdict instead of "Not tested". A manual test already running is left alone.
+    const results = await Promise.all(keys.map(async (k) => {
+      let res;
+      try {
+        res = await window.electronAPI.apiRequest({
+          url: `${p.baseUrl}${p.modelsEndpoint || '/models'}`,
+          method: 'GET',
+          headers: { Authorization: `Bearer ${k.key}`, 'Content-Type': 'application/json' },
+          timeoutMs: HEALTH_TIMEOUT_MS,
+        });
+      } catch (err) {
+        res = { status: 0, networkError: true, error: err.message };
+      }
+      if (keyProbe.get(k.id)?.state !== 'testing') keyProbe.set(k.id, keyProbeResult(res));
+      return res;
+    }));
+    const healthy = results.find(isHealthyResponse);
+    if (healthy) {
+      healthConfirming.delete(id);
+      setProviderHealth(id, { state: 'ok', detail: `Connected · ${healthy.elapsed} ms` });
+      return;
+    }
+    const last = results[results.length - 1];
+    const transient = results.some((res) => res.networkError || res.status >= 500);
+    reportHealthFailure(id, describeHealthFailure(last), transient);
+  } catch (err) {
+    reportHealthFailure(id, err.message || 'Check failed', true);
+  } finally {
+    healthInFlight.delete(id);
+    if (healthRecheck.delete(id)) checkProviderHealth(id);
+  }
+}
+
+// A refused key is a verdict; a timeout or 5xx may be the network blinking, so
+// it is confirmed by a second probe before the row turns red.
+function reportHealthFailure(id, detail, transient) {
+  const current = providerHealth.get(id);
+  if (!transient || healthConfirming.has(id) || (current && current.state === 'fail')) {
+    healthConfirming.delete(id);
+    setProviderHealth(id, { state: 'fail', detail });
+    return;
+  }
+  healthConfirming.add(id);
+  setTimeout(() => checkProviderHealth(id), HEALTH_CONFIRM_MS);
+}
+
+function setProviderHealth(id, { state, detail }) {
+  const prev = providerHealth.get(id);
+  providerHealth.set(id, { state, detail, checkedAt: Date.now() });
+  // A Recheck the user pressed resolves into its verdict (see recheckProvider).
+  if (recheckAct.get(id)?.state === 'running') setAct(recheckAct, id, state);
+  const btn = document.querySelector(`.provider-btn[data-provider="${CSS.escape(id)}"]`);
+  if (btn) applyProviderHealth(btn, id);
+  renderQuickStats();
+  if (currentPage === 'providers') renderProvidersPage();
+  // These two show only the state (a dot), and rebuilding them resets open
+  // menus, so a probe that confirms the same state leaves them alone.
+  if (!prev || prev.state !== state) {
+    if (window.CATALOG) window.CATALOG.renderIfShown();
+    if (window.PROFILES) window.PROFILES.renderIfShown();
+  }
+}
+
+function applyProviderHealth(btn, id) {
+  const h = providerHealth.get(id);
+  btn.dataset.health = h ? h.state : 'pending';
+  const name = PROVIDERS[id] ? PROVIDERS[id].name : id;
+  btn.title = h
+    ? `${name} — ${h.detail} · checked ${new Date(h.checkedAt).toLocaleTimeString()}`
+    : `${name} — checking connection...`;
+}
+
+function checkAllProvidersHealth() {
+  // Sequential per provider would let one slow host delay the rest; each
+  // provider already walks its own keys one at a time.
+  Object.keys(PROVIDERS).forEach((id) => { checkProviderHealth(id); });
+}
+
+// The first pass always runs so every page has a verdict to show; after that
+// the timer, focus and reconnect probes all stop while live updates are paused.
+function startHealthMonitor() {
+  checkAllProvidersHealth();
+  scheduleHealthMonitor();
+  // Coming back to the app after a while shouldn't show a stale verdict.
+  // The connection coming back is exactly when red rows are most likely stale.
+  window.addEventListener('online', () => { if (settings.liveUpdates) checkAllProvidersHealth(); });
+  window.addEventListener('online', renderSystemLamp);
+  window.addEventListener('offline', renderSystemLamp);
+  window.addEventListener('focus', () => {
+    if (!settings.liveUpdates) return;
+    const stale = Date.now() - healthIntervalMs() / 2;
+    Object.keys(PROVIDERS).forEach((id) => {
+      const h = providerHealth.get(id);
+      if (!h || h.checkedAt < stale) checkProviderHealth(id);
+    });
+  });
+}
+
+function scheduleHealthMonitor() {
+  clearInterval(healthTimer);
+  healthTimer = settings.liveUpdates ? setInterval(checkAllProvidersHealth, healthIntervalMs()) : null;
+  renderLiveToggles();
+}
+
+// Resuming re-checks at once: whatever is on screen is as old as the pause.
+function setLiveUpdates(on) {
+  settings.liveUpdates = on;
+  queueSettingsSave();
+  scheduleHealthMonitor();
+  if (on) checkAllProvidersHealth();
+}
+
+// The toggle lives in every breadcrumb (see breadcrumbHTML), so a re-render of
+// any page keeps it; this only refreshes the ones already on screen.
+function liveToggleAttrs() {
+  const on = settings.liveUpdates;
+  const every = settings.healthIntervalMin === 1 ? 'every minute' : `every ${settings.healthIntervalMin} minutes`;
+  return {
+    on,
+    label: on ? 'Live' : 'Paused',
+    title: on
+      ? `Live updates on — provider health re-checked ${every}. Click to pause.`
+      : 'Live updates paused — provider health is not re-checked in the background. Click to resume.',
+  };
+}
+
+function renderLiveToggles() {
+  const { on, label, title } = liveToggleAttrs();
+  $$('[data-live-toggle]').forEach((btn) => {
+    btn.classList.toggle('on', on);
+    btn.setAttribute('aria-pressed', String(on));
+    btn.title = title;
+    btn.querySelector('.live-toggle-label').textContent = label;
+  });
+}
+
+document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-live-toggle]')) setLiveUpdates(!settings.liveUpdates);
+});
 
 async function addProvider({ name, baseUrl, rpm }) {
   name = (name || '').trim();
@@ -647,6 +1016,7 @@ function switchProvider(providerId) {
   renderModelsList();
   updateTestAllButton();
   updateStats();
+  if (currentPage === 'check') syncRoute();
 }
 
 // ============================================
@@ -1128,6 +1498,7 @@ function buildModelItem(m) {
       <div class="model-checkbox"></div>
       <div class="model-info">
         <span class="model-name" title="${id}">${id}</span>
+        ${KIND_LABELS[m.kind] ? `<span class="model-kind">${KIND_LABELS[m.kind]}</span>` : ''}
         ${m.contextLabel ? `<span class="model-context">${m.contextLabel}</span>` : ''}
       </div>
     </div>`;
@@ -1166,6 +1537,14 @@ function tokenLimitField(providerId) {
   const declared = (window.INTEGRATED_PROVIDERS || {})[providerId]?.meta?.tokenLimitField;
   return declared || 'max_tokens';
 }
+// Models that reject reasoning_effort. Some gateways translate it into
+// Anthropic's budgeted `thinking`, which newer Claude models refuse outright
+// ("requires adaptive thinking"). Learned per model from that 400, because the
+// provider's other models accept it and are better tested with it.
+const noReasoningEffort = new Set();
+const reasoningKey = (providerId, modelId) => `${providerId}::${modelId}`;
+const REASONING_REJECTED = /thinking|reasoning[_ ]effort/i;
+
 function swapTokenLimitField(providerId) {
   if (tokenLimitFields.get(providerId) === 'max_completion_tokens') return false;
   tokenLimitFields.set(providerId, 'max_completion_tokens');
@@ -1222,6 +1601,7 @@ const ENTITLEMENT_PATTERN = new RegExp(
     'no credit|out of credit|credits? remaining',
     'plan does not includ|not includ(?:e|ed) (?:in|on) your',
     'not (?:entitled|available on) your',
+    'not granted',
     'upgrade your|requires? a paid|paid plan',
     'payment required|billing',
     'quota exceeded|subscribe',
@@ -1411,6 +1791,260 @@ function retryDelay(attempt) {
   return 600 * Math.pow(2, attempt) + Math.floor(Math.random() * 300);
 }
 
+// ============================================
+// Testers — one request, judged by the model's kind
+// ============================================
+// Every tester returns the same result shape (status, response, time, tokens,
+// statusCode, retryAfter, keyId), so testModel's retry, rate-limit and
+// entitlement handling applies to all of them unchanged.
+
+// Token count from whichever usage dialect came back: chat's prompt/completion,
+// the images API's input/output, or a bare total.
+function usageTokens(u = {}) {
+  if (Number.isFinite(u.total_tokens)) return u.total_tokens;
+  return (u.prompt_tokens || u.input_tokens || 0) + (u.completion_tokens || u.output_tokens || 0);
+}
+
+// A non-200 reply as a failed result. Some gateways send `error` as a string.
+function failFromResponse(result, keyId) {
+  let errMsg = `HTTP ${result.status}`;
+  try {
+    const d = JSON.parse(result.body);
+    errMsg = (typeof d.error === 'string' ? d.error : d.error?.message) || d.message || errMsg;
+  } catch (_) {}
+  const ra = parseInt(result.headers?.['retry-after'], 10);
+  return { status: 'fail', response: errMsg, time: result.elapsed, tokens: 0, statusCode: result.status,
+           retryAfter: isNaN(ra) ? 0 : ra, keyId };
+}
+
+// A cancelled hedge loser or a transport failure, or null when a real HTTP
+// reply came back. The handler resolves these so the message and the elapsed
+// time survive the trip across IPC.
+function transportFailure(result, keyId) {
+  if (result.cancelled) return { status: 'fail', response: 'cancelled', time: result.elapsed || 0, tokens: 0, cancelled: true, keyId };
+  if (result.networkError) {
+    return { status: 'fail', response: result.error || 'Request failed', time: result.elapsed || 0,
+             tokens: 0, networkError: true, timedOut: !!result.timedOut, keyId };
+  }
+  return null;
+}
+
+function authHeaders(apiKey) {
+  return { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
+}
+
+// Providers found to have no dedicated image or video route this session. Many
+// routers serve generators through /chat/completions only; once a provider says
+// so, its generators go straight to chat instead of paying a 404 every time.
+const mediaViaChat = new Set();
+const mediaRouteKey = (providerId, kind) => `${providerId}|${kind}`;
+
+// Whether a failed generation call means "this route does not exist here" (fall
+// back to chat) rather than "this model failed" (report it). A 404 that names
+// the model is a missing model, not a missing route.
+function isMissingRoute(result, errMsg) {
+  const routeWords = /endpoint|route|path|url|not supported|unsupported|not implemented/i;
+  if (result.status === 405 || result.status === 501) return true;
+  if (result.status === 404) return !/model/i.test(errMsg) || routeWords.test(errMsg);
+  return result.status === 400 && routeWords.test(errMsg);
+}
+
+// First link to an asset anywhere in a JSON reply. Field names differ per
+// gateway (url, video_url, output[0], data[0].url...), so keys that mention a
+// url are searched before the rest.
+function findAssetUrl(node, depth = 0) {
+  if (node == null || depth > 5) return null;
+  if (typeof node === 'string') return /^(https?:\/\/|data:(image|video)\/)/i.test(node) ? node : null;
+  if (Array.isArray(node)) {
+    for (const v of node) {
+      const u = findAssetUrl(v, depth + 1);
+      if (u) return u;
+    }
+    return null;
+  }
+  if (typeof node === 'object') {
+    const entries = Object.entries(node).sort(([a], [b]) => /url/i.test(b) - /url/i.test(a));
+    for (const [, v] of entries) {
+      const u = findAssetUrl(v, depth + 1);
+      if (u) return u;
+    }
+  }
+  return null;
+}
+
+// The asset link inside a chat reply, markdown image syntax included.
+function extractMediaUrl(text) {
+  const m = /(https?:\/\/[^\s)"'<>\]]+|data:(?:image|video)\/[^\s)"'<>]+)/i.exec(text || '');
+  return m ? m[1] : null;
+}
+
+// Asks the host what a link serves without downloading it: HEAD first, then a
+// one-byte ranged GET for hosts (signed CDN links, mostly) that refuse HEAD.
+// true/false is a verdict; null means the host would not say, and the caller
+// falls back to the link itself.
+async function verifyAsset(url, kind, headers = {}) {
+  if (!settings.verifyAssets || !url) return null;
+  const want = kind === 'video' ? 'video/' : 'image/';
+  if (/^data:/i.test(url)) return url.slice(5).toLowerCase().startsWith(want);
+  for (const [method, extra] of [['HEAD', {}], ['GET', { Range: 'bytes=0-0' }]]) {
+    let res;
+    try {
+      res = await window.electronAPI.apiRequest({ url, method, headers: { ...headers, ...extra }, timeoutMs: 20000, logLevel: settings.logLevel });
+    } catch (_) {
+      continue;
+    }
+    if (res.networkError || res.cancelled) continue;
+    if ([403, 405, 501].includes(res.status)) continue;
+    if (res.status >= 400) return false; // a dead link is not a working generator
+    const type = String(res.headers?.['content-type'] || '').toLowerCase();
+    if (!type || type.startsWith('application/octet-stream')) return null;
+    return type.startsWith(want);
+  }
+  return null;
+}
+
+// Result fields for a generated asset: what the response column shows and, when
+// the check could be made, whether the link really serves that kind of media.
+async function assetResult(url, kind, headers) {
+  const verified = await verifyAsset(url, kind, headers);
+  const shown = /^data:/i.test(url) ? `Inline ${kind} · ${Math.round((url.length * 3) / 4 / 1024)} KB` : url;
+  return typeof verified === 'boolean' ? { response: shown, assetVerified: verified } : { response: shown };
+}
+
+async function attemptImage(model, provider, key, requestId) {
+  const { deadline } = kindLimits('image');
+  const res = await window.electronAPI.apiRequest({
+    url: `${provider.baseUrl}${provider.imageEndpoint || '/images/generations'}`,
+    method: 'POST',
+    headers: authHeaders(key.key),
+    body: JSON.stringify({ model: model.id, prompt: settings.imagePrompt, n: 1 }),
+    requestId,
+    timeoutMs: deadline,
+    logLevel: settings.logLevel,
+  });
+  const lost = transportFailure(res, key.id);
+  if (lost) return lost;
+  if (res.status !== 200) {
+    const f = failFromResponse(res, key.id);
+    return isMissingRoute(res, f.response) ? { routeMissing: true } : f;
+  }
+
+  const data = JSON.parse(res.body);
+  const item = data.data?.[0] || {};
+  const base = { keyId: key.id, status: 'pass', isEmpty: false, time: res.elapsed, tokens: usageTokens(data.usage) };
+  if (item.b64_json) {
+    return { ...base, response: `Inline image · ${Math.round((item.b64_json.length * 3) / 4 / 1024)} KB`, assetInline: true };
+  }
+  const url = item.url || findAssetUrl(data);
+  if (!url) return { ...buildEmptyResult(data.usage || {}, res.elapsed), response: 'No image returned by provider', keyId: key.id };
+  return { ...base, ...(await assetResult(url, 'image')) };
+}
+
+const JOB_DONE = new Set(['completed', 'succeeded', 'success', 'done', 'finished', 'ready']);
+const JOB_FAILED = new Set(['failed', 'error', 'cancelled', 'canceled', 'rejected', 'expired']);
+
+// Video is asynchronous: the create call returns a job, which is polled until it
+// finishes. A gateway that answers synchronously with the asset skips the polling.
+async function attemptVideo(model, provider, key, requestId) {
+  const { deadline } = kindLimits('video');
+  const endpoint = `${provider.baseUrl}${provider.videoEndpoint || '/videos'}`;
+  const started = Date.now();
+  const res = await window.electronAPI.apiRequest({
+    url: endpoint,
+    method: 'POST',
+    headers: authHeaders(key.key),
+    body: JSON.stringify({ model: model.id, prompt: settings.videoPrompt }),
+    requestId,
+    timeoutMs: deadline,
+    logLevel: settings.logLevel,
+  });
+  const lost = transportFailure(res, key.id);
+  if (lost) return lost;
+  if (res.status < 200 || res.status >= 300) {
+    const f = failFromResponse(res, key.id);
+    return isMissingRoute(res, f.response) ? { routeMissing: true } : f;
+  }
+
+  let job = JSON.parse(res.body);
+  const elapsed = () => Date.now() - started;
+  const fail = (response, extra = {}) => ({ status: 'fail', response, time: elapsed(), tokens: 0, keyId: key.id, ...extra });
+
+  while (true) {
+    const state = String(job.status || '').toLowerCase();
+    if (JOB_FAILED.has(state)) {
+      return fail(`Video job ${state}${job.error ? `: ${job.error.message || job.error}` : ''}`);
+    }
+    const url = findAssetUrl(job);
+    const done = JOB_DONE.has(state);
+    if (done || (url && !state)) {
+      const pass = { keyId: key.id, status: 'pass', isEmpty: false, time: elapsed(), tokens: usageTokens(job.usage) };
+      if (url) return { ...pass, ...(await assetResult(url, 'video')) };
+      // Finished without a link: the OpenAI shape serves the file from the job.
+      const contentUrl = `${endpoint}/${encodeURIComponent(job.id)}/content`;
+      const verified = await verifyAsset(contentUrl, 'video', { Authorization: `Bearer ${key.key}` });
+      return { ...pass, response: `Video ready · job ${job.id}`, ...(typeof verified === 'boolean' ? { assetVerified: verified } : {}) };
+    }
+    if (!job.id) return fail('Video job returned neither an id nor an asset');
+    if (abortTesting) return fail('Aborted', { cancelled: true });
+    if (elapsed() >= deadline) return fail(`Timed out while the video was ${state || 'pending'}`, { statusCode: 0, timedOut: true });
+
+    await sleep(Math.max(1000, settings.videoPollMs));
+    const poll = await window.electronAPI.apiRequest({
+      url: `${endpoint}/${encodeURIComponent(job.id)}`,
+      method: 'GET',
+      headers: authHeaders(key.key),
+      requestId: nextRequestId(),
+      timeoutMs: 30000,
+      logLevel: settings.logLevel,
+    });
+    if (poll.cancelled) return fail('cancelled', { cancelled: true });
+    if (poll.networkError) continue; // one lost poll is not a failed job
+    if (poll.status !== 200) return { ...failFromResponse(poll, key.id), time: elapsed() };
+    job = JSON.parse(poll.body);
+  }
+}
+
+// A decision model scores a typed question against a state. One noul question is
+// asked; its probability is the answer, judged against decisionThreshold.
+async function attemptDecision(model, provider, key, requestId) {
+  if (!provider.decisionEndpoint) {
+    return { status: 'fail', response: `${provider.name} declares no decision endpoint`, time: 0, tokens: 0, keyId: key.id };
+  }
+  const { deadline } = kindLimits('decision');
+  const res = await window.electronAPI.apiRequest({
+    url: `${provider.baseUrl}${provider.decisionEndpoint}`,
+    method: 'POST',
+    headers: authHeaders(key.key),
+    body: JSON.stringify({
+      model: model.id,
+      state: settings.decisionState,
+      questions: { probe: { type: 'noul', instructions: settings.decisionQuestion } },
+    }),
+    requestId,
+    timeoutMs: deadline,
+    logLevel: settings.logLevel,
+  });
+  const lost = transportFailure(res, key.id);
+  if (lost) return lost;
+  if (res.status !== 200) return failFromResponse(res, key.id);
+
+  const data = JSON.parse(res.body);
+  const answer = data.answers?.probe;
+  const score = Number(typeof answer === 'object' && answer !== null ? answer.noul : answer);
+  if (answer == null || !Number.isFinite(score)) {
+    return { ...buildEmptyResult(data.usage || {}, res.elapsed), response: 'No probability returned by provider', keyId: key.id };
+  }
+  return {
+    keyId: key.id,
+    status: 'pass',
+    isEmpty: false,
+    response: `noul ${score.toFixed(2)}`,
+    decisionScore: score,
+    time: res.elapsed,
+    tokens: usageTokens(data.usage),
+  };
+}
+
 // One single request. Returns a pass (content), an empty pass, or a fail carrying
 // statusCode/retryAfter so the caller can decide whether to retry.
 async function attemptOnce(model, provider, stream, requestId) {
@@ -1418,6 +2052,25 @@ async function attemptOnce(model, provider, stream, requestId) {
   if (!key) return { status: 'fail', response: 'All keys are rate limited', time: 0, tokens: 0, allKeysCooling: true };
   await waitForSlot(provider, key);
   if (abortTesting) return { status: 'fail', response: 'Aborted', time: 0, tokens: 0, cancelled: true };
+
+  try {
+    if (isDecision(model)) return await attemptDecision(model, provider, key, requestId);
+    if (isMedia(model) && !mediaViaChat.has(mediaRouteKey(provider.id, model.kind))) {
+      const tester = model.kind === 'video' ? attemptVideo : attemptImage;
+      const r = await tester(model, provider, key, requestId);
+      if (!r.routeMissing) return r;
+      mediaViaChat.add(mediaRouteKey(provider.id, model.kind));
+    }
+  } catch (err) {
+    return { status: 'fail', response: err.error || err.message || 'Request failed', time: err.elapsed || 0, tokens: 0,
+             cancelled: !!err.cancelled, networkError: !err.cancelled, keyId: key.id };
+  }
+  return attemptChat(model, provider, stream, requestId, key);
+}
+
+// Chat completion — also the fallback route for a generator whose provider has
+// no dedicated image or video endpoint.
+async function attemptChat(model, provider, stream, requestId, key) {
   const apiKey = key.key;
   const baseUrl = provider.baseUrl;
   // reasoning_effort:'low' is sent to every model — it is a no-op on non-reasoning
@@ -1427,7 +2080,10 @@ async function attemptOnce(model, provider, stream, requestId) {
   const media = isMedia(model);
   const payload = {
     model: model.id,
-    messages: [{ role: 'user', content: media ? settings.mediaPrompt : testPrompt || DEFAULT_TEST_PROMPT }],
+    messages: [{
+      role: 'user',
+      content: model.kind === 'video' ? settings.videoPrompt : media ? settings.imagePrompt : testPrompt || DEFAULT_TEST_PROMPT,
+    }],
     stream: !!stream,
   };
   // Newer OpenAI-compatible gateways rejected max_tokens in favour of
@@ -1436,7 +2092,9 @@ async function attemptOnce(model, provider, stream, requestId) {
   payload[tokenLimitField(provider.id)] = settings.maxOutputTokens;
   // reasoning_effort steers a reasoning model away from a deep chain on a trivial
   // prompt. It means nothing to a generator, so it isn't sent to one.
-  if (!media) payload.reasoning_effort = 'low';
+  if (!media && !noReasoningEffort.has(reasoningKey(provider.id, model.id))) {
+    payload.reasoning_effort = 'low';
+  }
 
   try {
     const { deadline } = kindLimits(model.kind);
@@ -1450,21 +2108,15 @@ async function attemptOnce(model, provider, stream, requestId) {
       logLevel: settings.logLevel,
     });
 
-    // Cancelled hedge loser — ignore it (raceAttempts skips cancelled results).
-    if (result.cancelled) return { status: 'fail', response: 'cancelled', time: result.elapsed || 0, tokens: 0, cancelled: true, keyId: key.id };
-
-    // Transport-level failure; the handler resolves these so the message and the
-    // elapsed time survive the trip across IPC.
-    if (result.networkError) {
-      return { status: 'fail', response: result.error || 'Request failed', time: result.elapsed || 0,
-               tokens: 0, networkError: true, timedOut: !!result.timedOut, keyId: key.id };
-    }
+    // A cancelled hedge loser (raceAttempts skips those) or a transport failure.
+    const lost = transportFailure(result, key.id);
+    if (lost) return lost;
 
     if (result.status === 200) {
       const parsed = stream ? parseStreamedCompletion(result.body) : parseChatCompletion(result.body);
       const usage = parsed.usage || {};
       if (!parsed.content) return { ...buildEmptyResult(usage, result.elapsed), keyId: key.id };
-      return {
+      const pass = {
         keyId: key.id,
         status: 'pass',
         response: parsed.content,
@@ -1474,13 +2126,16 @@ async function attemptOnce(model, provider, stream, requestId) {
         promptTokens: usage.prompt_tokens || 0,
         completionTokens: usage.completion_tokens || 0,
       };
+      // A generator answering over chat still has to hand back a real asset.
+      if (media) {
+        const verified = await verifyAsset(extractMediaUrl(parsed.content), model.kind);
+        if (typeof verified === 'boolean') pass.assetVerified = verified;
+      }
+      return pass;
     }
 
-    let errMsg = `HTTP ${result.status}`;
-    try {
-      const errData = JSON.parse(result.body);
-      errMsg = errData.error?.message || errMsg;
-    } catch (_) {}
+    const failed = failFromResponse(result, key.id);
+    const errMsg = failed.response;
 
     // "Unsupported parameter: max_tokens" and friends — switch the field and go
     // again rather than reporting a working model as broken.
@@ -1488,8 +2143,11 @@ async function attemptOnce(model, provider, stream, requestId) {
       const swapped = swapTokenLimitField(provider.id);
       if (swapped) return attemptOnce(model, provider, stream, nextRequestId());
     }
-    const ra = parseInt(result.headers?.['retry-after'], 10);
-    return { status: 'fail', response: errMsg, time: result.elapsed, tokens: 0, statusCode: result.status, retryAfter: isNaN(ra) ? 0 : ra, keyId: key.id };
+    if (result.status === 400 && payload.reasoning_effort && REASONING_REJECTED.test(errMsg)) {
+      noReasoningEffort.add(reasoningKey(provider.id, model.id));
+      return attemptOnce(model, provider, stream, nextRequestId());
+    }
+    return failed;
   } catch (err) {
     return { status: 'fail', response: err.error || err.message || 'Request failed', time: err.elapsed || 0, tokens: 0, cancelled: !!err.cancelled, networkError: !err.cancelled, keyId: key.id };
   }
@@ -1642,9 +2300,9 @@ async function testModel(model, provider) {
     if (r.status === 'pass' && !r.isEmpty) return done(r);
 
     if (r.status === 'pass' && r.isEmpty) {
-      // Generators don't stream text, so the SSE recovery below would just buy a
-      // second generation for nothing.
-      if (isMedia(model)) return done(r);
+      // Generators and decision models don't stream text, so the SSE recovery
+      // below would just buy a second generation (or decision) for nothing.
+      if (isMedia(model) || isDecision(model)) return done(r);
       // Empty on the non-streaming endpoint: some models (byNara event-stream)
       // deliver content only over SSE — try streaming.
       if (abortTesting) return done(r);
@@ -1690,8 +2348,11 @@ async function testModel(model, provider) {
       });
     }
 
-    // A failure. Retry on transient errors (5xx/network) with backoff.
-    const retryable = (r.statusCode && RETRYABLE_STATUS.has(r.statusCode)) || r.networkError;
+    // A failure. Retry on transient errors (5xx/network) with backoff — except for
+    // a decision call: it carries no idempotency guarantee, so a lost reply may
+    // already have been served and billed, and a retry would pay for it twice.
+    const retryable =
+      !isDecision(model) && ((r.statusCode && RETRYABLE_STATUS.has(r.statusCode)) || r.networkError);
     if (retryable && transientRetries < settings.maxTestRetries && !abortTesting) {
       await sleep(retryDelay(transientRetries));
       transientRetries++;
@@ -2092,6 +2753,7 @@ const ICONS = {
   tokens: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9 9h6M9 15h6"/><path d="M12 9v6"/></svg>`,
   image: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>`,
   video: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="14" height="14" rx="2"/><path d="M22 8l-6 4 6 4V8z"/></svg>`,
+  decision: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18"/><path d="M5 7h14"/><path d="M5 7l-3 7a3 3 0 006 0z"/><path d="M19 7l-3 7a3 3 0 006 0z"/></svg>`,
   retry: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="22 2 22 8 16 8"/></svg>`,
 };
 
@@ -2119,6 +2781,16 @@ function statusIconBadge(status, isEmpty) {
   return `<span class="status-icon running" title="Testing"><span class="spinner"></span></span>`;
 }
 
+// What ✓ and ✗ mean depends on the standard the model was judged by.
+function correctnessTitles(model) {
+  if (isDecision(model)) {
+    const t = settings.decisionThreshold.toFixed(2);
+    return [`Rated the probe at or above ${t}`, `Rated the probe below ${t}`];
+  }
+  if (isMedia(model)) return [`Returned a real ${model.kind}`, `The returned link does not serve a ${model.kind}`];
+  return ['Matches the expected answer', 'Does not contain the expected answer'];
+}
+
 function buildRowHtml(model, result) {
   const isRunning = result.status === 'running' || result.status === 'queued';
   const isFailed = result.status === 'fail';
@@ -2141,6 +2813,7 @@ function buildRowHtml(model, result) {
   const typeIcons = [];
   if (model.kind === 'image') typeIcons.push(iconSpan('image', 'Image generator', 'type-media'));
   if (model.kind === 'video') typeIcons.push(iconSpan('video', 'Video generator', 'type-media'));
+  if (model.kind === 'decision') typeIcons.push(iconSpan('decision', 'Decision model', 'type-media'));
   if (model.hasVision) typeIcons.push(iconSpan('vision', 'Vision', 'type-vision'));
   if (model.hasReasoning) typeIcons.push(iconSpan('think', 'Reasoning', 'type-think'));
   if (!model.noPlans) {
@@ -2188,12 +2861,13 @@ function buildRowHtml(model, result) {
     uptime == null ? 'cell-na' : uptime >= 0.95 ? 'uptime-high' : uptime >= 0.8 ? 'uptime-mid' : 'uptime-low';
 
   const correct = isCorrect(result, model);
+  const [yesTitle, noTitle] = correctnessTitles(model);
   const correctHtml =
     correct == null
       ? NA
       : correct
-        ? `<span class="correct-mark yes" title="Matches the expected answer">✓</span>`
-        : `<span class="correct-mark no" title="Does not contain the expected answer">✗</span>`;
+        ? `<span class="correct-mark yes" title="${yesTitle}">✓</span>`
+        : `<span class="correct-mark no" title="${noTitle}">✗</span>`;
 
   const full = result.response || '';
   const truncated = full.length > RESPONSE_PREVIEW;
@@ -2501,6 +3175,12 @@ function showInstallButton() {
   $('#update-progress').style.display = 'none';
 }
 
+function setUpdateBadgeLabel(text) {
+  const badge = $('#update-badge');
+  badge.title = text;
+  badge.setAttribute('aria-label', text);
+}
+
 function setupUpdateListeners() {
   if (!window.electronAPI || !window.electronAPI.updateAPI) return;
   const updateAPI = window.electronAPI.updateAPI;
@@ -2509,10 +3189,9 @@ function setupUpdateListeners() {
 
   updateAPI.onUpdateAvailable((info) => {
     if (!isUpdateDownloading && !isUpdateReady) {
-      // Show titlebar badge
       const badge = $('#update-badge');
-      badge.style.display = 'flex';
-      $('#update-badge-version').textContent = info.version;
+      badge.hidden = false;
+      setUpdateBadgeLabel(`Update v${info.version} available — click to download`);
       // Also show modal
       showUpdateModal(info);
     }
@@ -2525,32 +3204,29 @@ function setupUpdateListeners() {
     if (isUpdateDownloading) {
       setStatus('error', 'Update download failed');
       isUpdateDownloading = false;
-      // Update badge progress
-      const progressEl = $('#update-badge-progress');
-      if (progressEl) progressEl.style.display = 'none';
+      $('#update-badge').classList.remove('update-downloading');
+      setUpdateBadgeLabel('Update download failed — click to retry');
     }
   });
 
   updateAPI.onDownloadProgress((progress) => {
     showDownloadProgress(progress.percent);
-    // Update badge text
-    const progressEl = $('#update-badge-progress');
-    if (progressEl) {
-      progressEl.style.display = '';
-      progressEl.textContent = `${progress.percent}%`;
-    }
+    // The download may have been started from the modal, so the badge is put
+    // into its downloading state here too.
+    const badge = $('#update-badge');
+    badge.classList.add('update-downloading');
+    badge.style.setProperty('--progress', progress.percent);
+    setUpdateBadgeLabel(`Downloading update… ${progress.percent}%`);
   });
 
   updateAPI.onUpdateDownloaded(() => {
     isUpdateDownloading = false;
     isUpdateReady = true;
     showInstallButton();
-    // Update badge to install state
     const badge = $('#update-badge');
+    badge.classList.remove('update-downloading');
     badge.classList.add('update-ready');
-    $('#update-badge-progress').style.display = 'none';
-    $('#update-badge-version').textContent = 'ready!';
-    badge.title = 'Click to install update';
+    setUpdateBadgeLabel('Update ready — click to restart and install');
   });
 
   // Badge click handler
@@ -2592,11 +3268,13 @@ function setupUpdateListeners() {
 // ============================================
 // Add Key modal
 // ============================================
-$('#btn-add-key').addEventListener('click', () => {
-  const modal = $('#add-key-modal');
-  modal.style.display = 'flex';
+function openAddKeyModal(title = 'Add API Key') {
+  $('#add-key-title').textContent = title;
+  $('#add-key-modal').style.display = 'flex';
   setTimeout(() => $('#key-name-input').focus(), 100);
-});
+}
+
+$('#btn-add-key').addEventListener('click', () => openAddKeyModal());
 
 function closeAddKeyModal() {
   $('#add-key-modal').style.display = 'none';
@@ -2746,7 +3424,14 @@ $('#auto-test-select').addEventListener('change', (e) => {
 // unit and the displayed one differ (milliseconds stored, seconds shown).
 const SETTING_INPUTS = [
   ['#set-max-tokens', 'maxOutputTokens', 'int'],
-  ['#media-prompt-input', 'mediaPrompt', 'text'],
+  ['#set-image-prompt', 'imagePrompt', 'text'],
+  ['#set-video-prompt', 'videoPrompt', 'text'],
+  ['#set-video-poll', 'videoPollMs', 'sec'],
+  ['#set-verify-assets', 'verifyAssets', 'bool'],
+  ['#set-decision-state', 'decisionState', 'text'],
+  ['#set-decision-question', 'decisionQuestion', 'text'],
+  ['#set-decision-threshold', 'decisionThreshold', 'ratio'],
+  ['#set-deadline-decision', 'deadlineDecisionMs', 'sec'],
   ['#set-time-good', 'timeGoodMs', 'sec'],
   ['#set-time-ok', 'timeOkMs', 'sec'],
   ['#set-deadline-chat', 'deadlineChatMs', 'sec'],
@@ -2762,9 +3447,9 @@ const SETTING_INPUTS = [
   ['#set-skip-media', 'scheduleSkipMedia', 'bool'],
   ['#set-notify-regression', 'notifyRegression', 'bool'],
   ['#set-notify-complete', 'notifyRunComplete', 'bool'],
-  ['#set-density', 'density', 'text'],
   ['#set-log-level', 'logLevel', 'text'],
   ['#set-concurrency', 'concurrency', 'int'],
+  ['#set-health-interval', 'healthIntervalMin', 'int'],
 ];
 
 function fillSettingsForm() {
@@ -2778,8 +3463,26 @@ function fillSettingsForm() {
   $('#prompt-input').value = testPrompt;
   $('#expected-input').value = expectedAnswer;
   $('#auto-test-select').value = String(autoTestMinutes);
+  renderDecisionThreshold();
   renderCostEstimate();
 }
+
+function renderDecisionThreshold() {
+  $('#decision-threshold-value').textContent = settings.decisionThreshold.toFixed(2);
+}
+
+// The Test section holds one probe per model kind; only the chosen kind's
+// fields are shown, so the page stays as short as the chat-only one was.
+$('#test-kind-seg').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-kind]');
+  if (!btn) return;
+  $$('#test-kind-seg button').forEach((b) => {
+    const on = b === btn;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', String(on));
+  });
+  $$('#sec-test .test-pane').forEach((pane) => { pane.hidden = pane.dataset.kind !== btn.dataset.kind; });
+});
 
 function bindSettingsForm() {
   SETTING_INPUTS.forEach(([sel, key, kind]) => {
@@ -2791,8 +3494,10 @@ function bindSettingsForm() {
       else {
         const n = Number(el.value);
         if (!Number.isFinite(n) || n <= 0) return; // ignore a half-typed number
-        settings[key] = kind === 'sec' ? Math.round(n * 1000) : Math.round(n);
+        settings[key] = kind === 'sec' ? Math.round(n * 1000) : kind === 'ratio' ? n : Math.round(n);
       }
+      if (key === 'decisionThreshold') renderDecisionThreshold();
+      if (key === 'healthIntervalMin') scheduleHealthMonitor();
       queueSettingsSave();
       renderCostEstimate();
       // Colour bands and sparkline length change what is already on screen.
@@ -2804,14 +3509,17 @@ function bindSettingsForm() {
 // Hedging, retries and the schedule all multiply together, and the product is
 // invisible while you are turning one knob. Saying it out loud is the difference
 // between settings you can change and settings you can reason about.
+// The run-cost note describes the settings that multiply requests, so it shows
+// only beside them — and only once there is a selection to cost.
+const COST_SECTIONS = ['sec-test', 'sec-schedule', 'sec-speed', 'sec-reliability'];
+
 function renderCostEstimate() {
   const el = $('#settings-estimate');
   if (!el) return;
   const models = getSelectedModels().length;
-  if (models === 0) {
-    el.textContent = 'Select some models to see what a run costs.';
-    return;
-  }
+  const section = document.querySelector('.settings-nav-item.active')?.dataset.section;
+  el.hidden = models === 0 || !COST_SECTIONS.includes(section);
+  if (models === 0) return;
   const perModelMax = (settings.hedgeEnabled ? Math.max(1, settings.hedgeMax) : 1) * (1 + settings.maxTestRetries);
   const low = models;
   const high = models * perModelMax;
@@ -2824,34 +3532,139 @@ function renderCostEstimate() {
   el.textContent = text;
 }
 
-function renderAppearancePickers() {
-  $('#theme-grid').innerHTML = THEMES.map((t) =>
-    `<button class="theme-card ${t.id === settings.theme ? 'active' : ''}" data-theme-id="${t.id}">
-       <span class="theme-card-name">${t.name}</span>
-       <span class="theme-card-strip">${t.strip.map((c) => `<span style="background:${c}"></span>`).join('')}</span>
-     </button>`).join('');
-
-  $('#accent-row').innerHTML = ACCENTS.map((a) =>
-    `<button class="swatch-btn ${a.id === settings.accent ? 'active' : ''}" data-accent-id="${a.id}"
-             style="background:${a.hex}" title="${a.id}"></button>`).join('');
+// Swatches for both the Appearance page and the header popover: the presets,
+// then a colour-wheel swatch wrapping a native picker for any colour.
+function accentSwatchesHTML(cls, role) {
+  const presets = ACCENTS.map((a) => {
+    const on = a.id === settings.accent;
+    const name = a.id[0].toUpperCase() + a.id.slice(1);
+    return `<button class="${cls} ${on ? 'active' : ''}" type="button" role="${role}" aria-checked="${on}"
+             data-accent-id="${a.id}" title="${name}" aria-label="${name}"
+             style="background:${a.hex};color:${a.hex}"></button>`;
+  }).join('');
+  const on = settings.accent === 'custom';
+  const hex = settings.customAccent;
+  return presets + `<label class="${cls} swatch-custom ${on ? 'active' : ''}" title="Custom colour"
+             style="--custom:${hex};color:${on ? hex : 'var(--text-2)'}">
+             <input type="color" value="${hex}" aria-label="Custom accent colour"></label>`;
 }
 
-$('#theme-grid').addEventListener('click', (e) => {
-  const card = e.target.closest('.theme-card');
+function renderAppearancePickers() {
+  const theme = effectiveTheme();
+  $$('#mode-grid .mode-card').forEach((card) => {
+    const on = card.dataset.themeId === theme;
+    card.classList.toggle('active', on);
+    card.setAttribute('aria-checked', String(on));
+  });
+  $('#mode-grid').classList.toggle('following', settings.followSystem);
+  $('#set-follow-system').checked = settings.followSystem;
+
+  $('#accent-row').innerHTML = accentSwatchesHTML('accent-swatch', 'radio');
+  $('#accent-name').textContent = accentLabel();
+
+  $$('#density-seg button').forEach((b) => {
+    const on = b.dataset.value === settings.density;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-checked', String(on));
+  });
+}
+
+function saveAppearance() {
+  applyAppearance();
+  queueSettingsSave();
+  renderAppearancePickers();
+  if (!$('#accent-pop').hidden) renderAccentPop();
+}
+
+$('#mode-grid').addEventListener('click', (e) => {
+  const card = e.target.closest('.mode-card');
   if (!card) return;
   settings.theme = card.dataset.themeId;
-  applyAppearance();
-  queueSettingsSave();
-  renderAppearancePickers();
+  settings.followSystem = false;
+  saveAppearance();
 });
 
-$('#accent-row').addEventListener('click', (e) => {
-  const btn = e.target.closest('.swatch-btn');
-  if (!btn) return;
-  settings.accent = btn.dataset.accentId;
-  applyAppearance();
-  queueSettingsSave();
-  renderAppearancePickers();
+$('#set-follow-system').addEventListener('change', (e) => {
+  settings.followSystem = e.target.checked;
+  // Turning it off keeps the mode that is on screen rather than jumping back.
+  if (!settings.followSystem) settings.theme = systemDark.matches ? 'vercel' : 'daylight';
+  saveAppearance();
+});
+
+$('#density-seg').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-value]');
+  if (!b) return;
+  settings.density = b.dataset.value;
+  saveAppearance();
+  if (tableRows.length > 0) renderResultsTable();
+});
+
+$('#btn-reset-appearance').addEventListener('click', () => {
+  ['theme', 'followSystem', 'accent', 'customAccent', 'density'].forEach((k) => { settings[k] = DEFAULT_SETTINGS[k]; });
+  saveAppearance();
+  if (tableRows.length > 0) renderResultsTable();
+});
+
+function setAccent(id) {
+  if (id !== 'custom' && !ACCENTS.some((a) => a.id === id)) return;
+  settings.accent = id;
+  saveAppearance();
+}
+
+// Dragging in the native picker fires `input` continuously: the colour is
+// applied live, and the swatches are only rebuilt (and saved) on `change` —
+// rebuilding mid-drag would destroy the input the picker is attached to.
+function setCustomAccent(hex, commit) {
+  if (!HEX_COLOR.test(hex)) return;
+  settings.customAccent = hex;
+  settings.accent = 'custom';
+  if (commit) saveAppearance();
+  else applyAppearance();
+}
+
+function bindAccentSwatches(container) {
+  container.addEventListener('click', (e) => {
+    const sw = e.target.closest('[data-accent-id]');
+    if (sw) setAccent(sw.dataset.accentId);
+  });
+  container.addEventListener('input', (e) => {
+    if (e.target.type === 'color') setCustomAccent(e.target.value, false);
+  });
+  container.addEventListener('change', (e) => {
+    if (e.target.type === 'color') setCustomAccent(e.target.value, true);
+  });
+}
+bindAccentSwatches($('#accent-row'));
+
+// Header accent picker. Built from ACCENTS, like the Settings row, so the two
+// always offer the same colours.
+function renderAccentPop() {
+  $('#accent-pop-swatches').innerHTML = accentSwatchesHTML('hdr-swatch', 'menuitemradio');
+}
+
+function setAccentPopOpen(open) {
+  $('#accent-pop').hidden = !open;
+  $('#btn-accent').setAttribute('aria-expanded', String(open));
+  if (open) renderAccentPop();
+}
+
+$('#btn-accent').addEventListener('click', (e) => {
+  e.stopPropagation();
+  setAccentPopOpen($('#accent-pop').hidden);
+});
+// Picking re-renders the swatches, detaching the clicked node; stopped here so
+// the outside-click check below doesn't read it as a click outside and close
+// the popover mid-comparison.
+$('#accent-pop').addEventListener('click', (e) => e.stopPropagation());
+bindAccentSwatches($('#accent-pop-swatches'));
+document.addEventListener('click', (e) => {
+  if (!$('#accent-pop').hidden && !e.target.closest('.hdr-accent')) setAccentPopOpen(false);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('#accent-pop').hidden) {
+    setAccentPopOpen(false);
+    $('#btn-accent').focus();
+  }
 });
 
 async function refreshLogInfo() {
@@ -2863,7 +3676,7 @@ async function refreshLogInfo() {
 }
 
 function renderAbout() {
-  $('#about-version').textContent = ($('#app-version').textContent || '').replace(/^v/, '') || '—';
+  $('#about-version').textContent = appVersion || '—';
 
   $('#about-providers').innerHTML = Object.values(PROVIDERS)
     .map((p) => {
@@ -2893,33 +3706,108 @@ $('#btn-check-updates').addEventListener('click', () => {
   setTimeout(() => { $('#about-update-note').textContent = ''; }, 6000);
 });
 
-function openSettings() {
+// Settings is a page in the shell. Its form is refilled on every visit so it
+// reflects changes made elsewhere (theme toggles, a history clear, the log file).
+const SETTINGS_SECTIONS_META = {
+  'sec-appearance': { label: 'Appearance', desc: 'Theme, accent colour and how dense the results table is' },
+  'sec-test': { label: 'Test & Prompts', desc: 'The prompt and the pass rule for each kind of model' },
+  'sec-schedule': { label: 'Schedule', desc: 'Automatic re-tests, health checks and alerts' },
+  'sec-speed': { label: 'Speed & Timeouts', desc: 'Latency colours, and how long a model may take' },
+  'sec-reliability': { label: 'Reliability', desc: 'Hedging, models tested at once, and retries' },
+  'sec-catalog': { label: 'Model Catalog', desc: 'How the catalogue syncs, benchmarks and ranks models' },
+  'sec-history': { label: 'History', desc: 'How many runs are kept, and exporting them' },
+  'sec-logs': { label: 'Diagnostics & Logs', desc: 'What is logged about each request, and where' },
+  'sec-data': { label: 'Data Directory', desc: 'Where your settings, keys and history are stored' },
+  'sec-about': { label: 'About Upstream', desc: 'Version, providers and updates' }
+};
+
+function renderSettingsCrumbs(activeSectionLabel) {
+  const el = $('#settings-crumbs');
+  if (!el) return;
+  el.innerHTML = breadcrumbHTML([
+    { label: 'Home', page: 'overview', home: true },
+    { label: 'Settings', page: 'settings' },
+    { label: activeSectionLabel || 'Appearance' }
+  ]);
+}
+
+function switchSettingsSection(sectionId) {
+  const targetId = sectionId || 'sec-appearance';
+  const btn = $(`#settings-nav .settings-nav-item[data-section="${targetId}"]`);
+  if (!btn) return;
+  $$('#settings-nav .settings-nav-item').forEach((b) => {
+    const on = b === btn;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', String(on));
+  });
+  $$('.settings-section').forEach((sec) => { sec.hidden = sec.id !== targetId; });
+
+  // The page scrolls, not the card. A tab picked while scrolled down opens at
+  // its own top, with the categories still stuck in place above the fold.
+  const page = $('.page-settings');
+  const grid = $('.settings-layout-grid');
+  if (page && grid && !page.hidden) {
+    const stick = parseFloat(getComputedStyle(page).paddingTop) || 0;
+    const offset = grid.getBoundingClientRect().top - page.getBoundingClientRect().top;
+    if (offset < stick) page.scrollTop += offset - stick;
+  }
+
+  const meta = SETTINGS_SECTIONS_META[targetId] || { label: 'Settings', desc: 'Configure application options' };
+  const titleEl = $('#settings-main-head-title');
+  const descEl = $('#settings-main-head-desc');
+  if (titleEl) titleEl.textContent = meta.label;
+  if (descEl) descEl.textContent = meta.desc;
+  // The card's icon is the tab's own nav icon, so the two can't drift apart.
+  const iconBox = $('#settings-main-head-icon');
+  const navIcon = btn.querySelector('.settings-nav-icon');
+  if (iconBox) iconBox.replaceChildren(...(navIcon ? [navIcon.cloneNode(true)] : []));
+
+  renderSettingsCrumbs(meta.label);
+  renderCostEstimate();
+  if (currentPage === 'settings') syncRoute();
+}
+
+function prepareSettingsPage() {
   fillSettingsForm();
   renderAppearancePickers();
   refreshLogInfo();
   renderAbout();
-  $('#settings-overlay').style.display = 'flex';
+  if (window.CATALOG) window.CATALOG.fillSettings();
+  const activeBtn = $('#settings-nav .settings-nav-item.active') || $('#settings-nav .settings-nav-item');
+  if (activeBtn) {
+    switchSettingsSection(activeBtn.dataset.section);
+  } else {
+    switchSettingsSection('sec-appearance');
+  }
 }
 
-function closeSettings() {
-  $('#settings-overlay').style.display = 'none';
+function openSettings() {
+  showPage('settings');
 }
 
 $('#btn-settings').addEventListener('click', openSettings);
-$('#settings-close').addEventListener('click', closeSettings);
-$('#settings-overlay').addEventListener('click', (e) => {
-  if (e.target.id === 'settings-overlay') closeSettings();
-});
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && $('#settings-overlay').style.display === 'flex') closeSettings();
+
+$('.page-settings').addEventListener('click', (e) => {
+  const go = e.target.closest('[data-go]');
+  if (go && go.dataset.go) {
+    showPage(go.dataset.go);
+    return;
+  }
 });
 
 $('#settings-nav').addEventListener('click', (e) => {
   const btn = e.target.closest('.settings-nav-item');
   if (!btn) return;
-  $$('.settings-nav-item').forEach((b) => b.classList.toggle('active', b === btn));
-  $$('.settings-section').forEach((sec) => { sec.hidden = sec.id !== btn.dataset.section; });
+  switchSettingsSection(btn.dataset.section);
 });
+
+$('.page-settings').addEventListener('wheel', (e) => {
+  if (e.target.closest('.settings-categories-panel')) return;
+  const body = document.querySelector('.settings-main-panel .settings-panel-body');
+  if (body && !e.target.closest('.settings-panel-body')) {
+    body.scrollTop += e.deltaY;
+  }
+}, { passive: true });
 
 $('#btn-export-history').addEventListener('click', async () => {
   const data = await window.electronAPI.readHistory();
@@ -2942,6 +3830,7 @@ $('#btn-reset-settings').addEventListener('click', () => {
   queueSettingsSave();
   fillSettingsForm();
   renderAppearancePickers();
+  scheduleHealthMonitor();
   if (tableRows.length > 0) renderResultsTable();
   setStatus('done', 'Settings reset to defaults');
 });
@@ -2978,7 +3867,7 @@ $('#sidebar-resizer').addEventListener('mousedown', (e) => {
 
 window.addEventListener('mousemove', (e) => {
   if (!sidebarDragging) return;
-  settings.sidebarWidth = clampSidebar(e.clientX);
+  settings.sidebarWidth = clampSidebar(e.clientX - $('#sidebar').getBoundingClientRect().left);
   applySidebarWidth(settings.sidebarWidth);
 });
 
@@ -2999,6 +3888,1212 @@ $('#sidebar-resizer').addEventListener('dblclick', toggleSidebar);
 $('#sidebar-restore').addEventListener('click', toggleSidebar);
 
 
+// App shell. Bound before init() so the nav responds while providers and
+// history are still loading.
+const PAGES = ['overview', 'providers', 'catalog', 'profiles', 'check', 'settings'];
+let currentPage = 'overview';
+
+// Routes live in the URL hash (the page is loaded from file://, so real paths
+// can't be used) and survive a reload: #/check/<providerId>, #/settings/<section>.
+function parseRoute() {
+  const [page, sub] = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
+  return { page: PAGES.includes(page) ? page : 'overview', sub: sub || '' };
+}
+
+function syncRoute() {
+  let hash = `#/${currentPage}`;
+  if (currentPage === 'check' && activeProvider) hash += `/${encodeURIComponent(activeProvider)}`;
+  if (currentPage === 'settings') {
+    const btn = $('#settings-nav .settings-nav-item.active');
+    if (btn) hash += `/${btn.dataset.section.replace(/^sec-/, '')}`;
+  }
+  // replaceState: no hashchange event and no history stack to walk back through.
+  // window. is required: the run-history Map above shadows the global `history`.
+  if (location.hash !== hash) window.history.replaceState(null, '', hash);
+}
+
+function applyRoute() {
+  const { page, sub } = parseRoute();
+  if (page === 'check' && sub && PROVIDERS[sub]) switchProvider(sub);
+  showPage(page);
+  if (page === 'settings' && sub) switchSettingsSection(`sec-${sub}`);
+}
+
+const PAGE_META = {
+  overview: { title: 'Overview', desc: 'Provider health and test activity at a glance.' },
+  providers: { title: 'Providers', desc: 'Connect providers and manage their keys and accounts.' },
+  catalog: { title: 'Model Catalog', desc: 'Every model your connected providers offer, kept live, benchmarked and ranked against the global leaderboard.' },
+  profiles: { title: 'Venom Profiles', desc: 'Three virtual models — Lite, Pro, Max — filled automatically from the catalogue by measured intelligence, speed, reliability and cost.' },
+  check: { title: 'Upstream Check', desc: 'Test every model a provider offers against one prompt.' },
+  settings: { title: 'Settings', desc: 'Test prompt, scheduling, appearance and data.' },
+};
+
+// The header's icon is the page's own nav icon, so the two can't drift apart.
+function renderPageHeader(page) {
+  const meta = PAGE_META[page];
+  $('#shell-page-title').textContent = meta.title;
+  $('#shell-page-desc').textContent = meta.desc;
+  const icon = document.querySelector(`.shell-nav-item[data-page="${page}"] .shell-nav-icon`);
+  const box = $('#shell-page-icon');
+  box.replaceChildren();
+  if (icon) box.appendChild(icon.cloneNode(true));
+  document.title = `${meta.title} — Upstream Checker`;
+}
+
+function showPage(page) {
+  if (!PAGES.includes(page)) return;
+  currentPage = page;
+  $$('.shell-page').forEach((el) => { el.hidden = el.dataset.page !== page; });
+  $$('.shell-nav-item[data-page]').forEach((el) => {
+    const on = el.dataset.page === page;
+    el.classList.toggle('active', on);
+    if (on) el.setAttribute('aria-current', 'page');
+    else el.removeAttribute('aria-current');
+  });
+  renderPageHeader(page);
+  if (page === 'settings') prepareSettingsPage();
+  // The provider list centres the active tab on render, which can't happen
+  // while its page is hidden.
+  if (page === 'check') renderProviderTabs();
+  if (page === 'overview') renderQuickStats();
+  if (page === 'catalog' && window.CATALOG) window.CATALOG.render();
+  if (page === 'profiles' && window.PROFILES) window.PROFILES.render();
+  // The Providers page always opens on what is already connected.
+  if (page === 'providers') {
+    providersTab = 'connected';
+    pvShell = null;
+    pvState.view = COMPACT_LAYOUT.matches ? 'cards' : 'table';
+    renderProvidersPage();
+  }
+  syncRoute();
+}
+
+function bindShell() {
+  const shell = $('#shell');
+  renderPageHeader(currentPage);
+  $('#btn-theme-toggle').addEventListener('click', toggleTheme);
+  // Empty-state buttons on the Overview lead to where runs happen.
+  $('.page-overview').addEventListener('click', (e) => {
+    const go = e.target.closest('[data-go]');
+    if (go) showPage(go.dataset.go);
+  });
+  // The status strip leads to where provider health is shown per provider.
+  $('#shell-status').addEventListener('click', () => showPage('check'));
+  $$('.shell-nav-item[data-page]').forEach((el) => {
+    el.addEventListener('click', () => showPage(el.dataset.page));
+  });
+
+  // Collapsed nav (narrow window): a drawer opened from the top bar's menu button.
+  const menuBtn = $('#shell-menu-btn');
+  const setNavOpen = (open) => {
+    shell.classList.toggle('nav-open', open);
+    menuBtn.setAttribute('aria-expanded', String(open));
+    menuBtn.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+  };
+  menuBtn.addEventListener('click', () => setNavOpen(!shell.classList.contains('nav-open')));
+  $('#shell-nav-close').addEventListener('click', () => setNavOpen(false));
+  $('#shell-backdrop').addEventListener('click', () => setNavOpen(false));
+  shell.querySelectorAll('.shell-nav-item:not(:disabled)').forEach((el) => {
+    el.addEventListener('click', () => setNavOpen(false));
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && shell.classList.contains('nav-open')) setNavOpen(false);
+  });
+  // Widening past the breakpoint turns the drawer back into a rail; a drawer
+  // left "open" would reappear with its backdrop the next time it narrows.
+  window.matchMedia('(max-width: 1100px)').addEventListener('change', (mq) => {
+    if (!mq.matches) setNavOpen(false);
+  });
+
+  // "2h ago" goes stale.
+  setInterval(renderQuickStats, 60000);
+}
+
+function formatAgo(ts) {
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+// Quick Stats (nav) and the Overview KPIs come from real state: configured
+// providers, the health probes, and the run history.
+function renderQuickStats() {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  let last = 0;
+  history.forEach((runs) => {
+    const at = runs.length ? runs[runs.length - 1].at : 0;
+    if (at > last) last = at;
+  });
+  const ids = Object.keys(PROVIDERS);
+  const lastText = last ? formatAgo(last) : 'Never';
+  set('stat-providers', ids.length);
+  set('stat-models', history.size);
+  set('stat-last-check', lastText);
+  set('ov-providers', ids.length);
+  set('ov-models', history.size);
+  set('ov-last', lastText);
+  const states = ids.map((id) => (providerHealth.get(id) || {}).state);
+  const testable = states.filter((st) => st && st !== 'none').length;
+  set('ov-online', testable ? `${states.filter((st) => st === 'ok').length}/${testable}` : '—');
+  renderSystemLamp();
+  renderOverviewPanels();
+}
+
+function scoreClass(rate) {
+  if (rate >= 0.9) return '';
+  return rate >= 0.6 ? 'low' : 'bad';
+}
+
+// Overview: daily pass rate for the last 14 days, and the latest runs.
+function renderOverviewPanels() {
+  const trend = document.getElementById('ov-trend');
+  const activity = document.getElementById('ov-activity');
+  if (!trend || !activity) return;
+
+  if (runLog.length === 0) {
+    const empty = '<div class="ov-empty">No test runs recorded yet.' +
+      '<button class="btn btn-ghost" type="button" data-go="check">Open Upstream Check</button></div>';
+    trend.innerHTML = empty;
+    activity.innerHTML = empty;
+    $('#ov-trend-meta').textContent = '';
+    $('#ov-activity-meta').textContent = '';
+    return;
+  }
+
+  const DAY = 86400000;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days = [];
+  for (let d = 13; d >= 0; d--) days.push({ start: today.getTime() - d * DAY, passed: 0, total: 0, runs: 0 });
+  runLog.forEach((r) => {
+    const idx = Math.floor((r.at - days[0].start) / DAY);
+    if (idx < 0 || idx > 13) return;
+    days[idx].passed += r.passed;
+    days[idx].total += r.total;
+    days[idx].runs += 1;
+  });
+  const fmt = (t) => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  trend.innerHTML = '<div class="ov-trend-bars">' + days.map((d) => {
+    if (d.total === 0) return `<div class="ov-trend-bar empty" title="${fmt(d.start)} · no runs"><span></span></div>`;
+    const rate = d.passed / d.total;
+    const pct = Math.round(rate * 100);
+    return `<div class="ov-trend-bar ${scoreClass(rate)}" title="${fmt(d.start)} · ${pct}% pass · ${d.runs} run${d.runs === 1 ? '' : 's'}">` +
+      `<span style="height:${Math.max(4, pct)}%"></span></div>`;
+  }).join('') + '</div>' +
+    `<div class="ov-trend-axis"><span>${fmt(days[0].start)}</span><span>Today</span></div>`;
+  const totals = days.reduce((a, d) => ({ p: a.p + d.passed, t: a.t + d.total }), { p: 0, t: 0 });
+  $('#ov-trend-meta').innerHTML = totals.t ? `<b>${Math.round((totals.p / totals.t) * 100)}%</b> overall` : 'No runs in this window';
+
+  const recent = runLog.slice(-6).reverse();
+  activity.innerHTML = recent.map((r) => {
+    const rate = r.total ? r.passed / r.total : 0;
+    return `<div class="ov-activity-row">
+      <span class="ov-activity-name">${escapeHtml(r.providerName)}</span>
+      <span class="ov-activity-score ${scoreClass(rate)}">${r.passed}/${r.total}</span>
+      <span class="ov-activity-when">${formatAgo(r.at)}</span>
+    </div>`;
+  }).join('');
+  $('#ov-activity-meta').textContent = `${runLog.length} total`;
+}
+
+// Overall system status strip in the nav, summarised from the health probes:
+// green when every testable provider answers, red when any doesn't. The detail
+// lives in the tooltip.
+// Providers without a key are left out: they can't be down, only unconfigured.
+function renderSystemLamp() {
+  const box = document.getElementById('shell-status');
+  if (!box) return;
+  const ids = Object.keys(PROVIDERS);
+  const states = ids.map((id) => (providerHealth.get(id) || {}).state || 'pending');
+  const failed = ids.filter((_, i) => states[i] === 'fail').map((id) => PROVIDERS[id].name);
+  const checked = states.filter((st) => st === 'ok' || st === 'fail').length;
+  const testable = states.filter((st) => st !== 'none').length;
+
+  let state;
+  let text;
+  if (!navigator.onLine) {
+    state = 'fail';
+    text = 'Offline — no network connection';
+  } else if (ids.length === 0 || testable === 0) {
+    state = 'idle';
+    text = 'No provider keys configured';
+  } else if (checked < testable) {
+    state = 'pending';
+    text = `Checking providers… ${checked}/${testable}`;
+  } else if (failed.length === 0) {
+    state = 'ok';
+    text = `All ${testable} providers online`;
+  } else if (failed.length === testable) {
+    state = 'fail';
+    text = 'All providers unreachable';
+  } else {
+    state = 'fail';
+    text = failed.length === 1 ? `${failed[0]} is unreachable` : `${failed.length} providers unreachable`;
+  }
+  box.dataset.state = state;
+  const label = state === 'ok' ? 'All systems operational' : text;
+  box.title = failed.length > 1 ? `${label}: ${failed.join(', ')}` : label;
+  box.setAttribute('aria-label', box.title);
+}
+
+// ============================================
+// Breadcrumb — shared helper
+// ============================================
+// items: [{ label, page?, tab?, home? }] — the last item is the current page.
+function breadcrumbHTML(items) {
+  const sep = '<svg class="crumb-sep" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>';
+  const home = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12 12 3l9 9"/><path d="M5 10v10h14V10"/></svg>';
+  const { on, label, title } = liveToggleAttrs();
+  const live = `<button class="live-toggle ${on ? 'on' : ''}" type="button" data-live-toggle aria-pressed="${on}" title="${escapeHtml(title)}">`
+    + `<span class="live-toggle-dot" aria-hidden="true"></span><span class="live-toggle-label">${label}</span></button>`;
+  return items.map((it, i) => {
+    const last = i === items.length - 1;
+    const inner = (it.home ? home : '') + escapeHtml(it.label);
+    if (last) return `<span class="crumb" aria-current="page">${inner}</span>`;
+    const attrs = it.page ? `data-go="${it.page}"` : it.tab ? `data-tab="${it.tab}"` : '';
+    return `<button class="crumb" type="button" ${attrs}>${inner}</button>${sep}`;
+  }).join('') + live;
+}
+
+// ============================================
+// Providers page
+// ============================================
+// Connected = has at least one key. Integrated = every provider the app knows.
+let providersTab = 'connected';
+
+const PV_ICON = {
+  copy: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+  plug: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0z"/><path d="M12 18v4"/></svg>',
+  check: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+  keys: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/></svg>',
+  plus: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+  refresh: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>',
+  api: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
+  spark: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"/></svg>',
+  layers: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/></svg>',
+  gauge: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/></svg>',
+  user: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+  empty: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0z"/><path d="M12 18v4"/><path d="M3 3l18 18"/></svg>',
+};
+
+function isConnected(p) {
+  return p.keys.length > 0;
+}
+
+// The provider's own site: meta.website if the module gives one, otherwise the
+// registrable part of the API host. Local and bare-IP endpoints have none.
+function providerWebsite(p) {
+  if (p.website) return p.website;
+  try {
+    const host = new URL(p.baseUrl).hostname;
+    if (host === 'localhost' || /^[\d.]+$/.test(host) || host.includes(':')) return null;
+    return `https://${providerHost(p)}`;
+  } catch (_) {
+    return null;
+  }
+}
+
+function websiteLinkHTML(p) {
+  const url = providerWebsite(p);
+  if (!url) return '';
+  return `<button class="pv-site" type="button" data-site="${escapeHtml(url)}" title="Open ${escapeHtml(url.replace(/^https?:\/\//, ''))}" aria-label="Open the ${escapeHtml(p.name)} website">` +
+    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg></button>';
+}
+
+function providerHost(p) {
+  try {
+    return new URL(p.baseUrl).hostname.replace(/^(api|router|www)\./, '');
+  } catch (_) {
+    return 'custom';
+  }
+}
+
+// Numbers for a card, all from real state: keys, models with recorded runs,
+// and the all-time pass rate of this provider's runs.
+function providerStats(p) {
+  const prefix = `${p.id}::`;
+  let models = 0;
+  history.forEach((_, key) => { if (key.startsWith(prefix)) models += 1; });
+  const runs = runLog.filter((r) => r.provider === p.id);
+  const total = runs.reduce((n, r) => n + r.total, 0);
+  const passed = runs.reduce((n, r) => n + r.passed, 0);
+  return {
+    keys: p.keys.length,
+    activeKeys: usableKeys(p).length,
+    models,
+    rate: total ? Math.round((passed / total) * 100) : null,
+    runs: runs.length,
+  };
+}
+
+function providerTags(p) {
+  const adapter = (window.INTEGRATED_PROVIDERS || {})[p.id];
+  const tags = [`<span class="pv-tag">${PV_ICON.api}OpenAI API</span>`];
+  if (p.custom) tags.push(`<span class="pv-tag t-violet">${PV_ICON.user}Custom</span>`);
+  if (adapter && adapter.fetchModels) tags.push(`<span class="pv-tag t-green">${PV_ICON.spark}Curated catalog</span>`);
+  if (p.plansUrl) tags.push(`<span class="pv-tag t-amber">${PV_ICON.layers}Plan-aware</span>`);
+  if (p.rpm) tags.push(`<span class="pv-tag t-muted">${PV_ICON.gauge}${p.rpm} RPM</span>`);
+  return tags.join('');
+}
+
+function providerMark(p, cls = '') {
+  // logoTone (module meta) says how a mark drawn for a dark surface is re-inked
+  // on the light theme: 'mono' goes to the text colour, 'bright' is deepened.
+  const tone = p.logoTone ? ` data-tone="${escapeHtml(p.logoTone)}"` : '';
+  return p.logo
+    ? `<img src="${escapeHtml(p.logo)}" alt="" class="${cls}"${tone}>`
+    : `<span class="pv-dot ${cls}" style="background:${escapeHtml(p.color || 'var(--accent)')}"></span>`;
+}
+
+function providerHealthLine(p) {
+  if (!isConnected(p)) return { state: 'none', text: 'Not connected — needs an API key' };
+  const h = providerHealth.get(p.id);
+  if (!h) return { state: 'pending', text: 'Checking connection…' };
+  if (h.state === 'ok') return { state: 'ok', text: h.detail.replace('Connected', 'Reachable') };
+  if (h.state === 'none') return { state: 'none', text: 'No active key' };
+  return { state: h.state, text: h.detail };
+}
+
+function providerStatusHTML(p) {
+  const health = providerHealthLine(p);
+  const h = providerHealth.get(p.id);
+  const title = h ? `${health.text} — checked ${new Date(h.checkedAt).toLocaleTimeString()}` : health.text;
+  return statusPillHTML(health.state, health.text, title);
+}
+
+// Inline dot beside a provider's name on the Catalog and Profiles pages, so a
+// provider going down shows there too without opening Providers.
+function healthDotHTML(p) {
+  if (!p) return '';
+  const h = providerHealthLine(p);
+  return `<span class="pv-health pv-health-inline" data-health="${h.state}" title="${escapeHtml(h.text)}"></span>`;
+}
+
+function providerCardHTML(p, mode) {
+  const connected = isConnected(p);
+  const s = providerStats(p);
+  const id = escapeHtml(p.id);
+  const open = mode === 'connected' && pvExpanded.has(p.id);
+  const primary = mode === 'connected'
+    ? `<button class="btn ${open ? 'btn-ghost' : 'btn-primary'} pv-primary" type="button" data-kx-toggle="${id}" aria-expanded="${open}">${PV_ICON.keys}${open ? 'Hide keys' : 'Manage keys'}</button>`
+    : connected
+      ? `<button class="btn btn-primary pv-primary" type="button" disabled>${PV_ICON.check}Connected</button>`
+      : `<button class="btn btn-primary pv-primary" type="button" data-connect="${id}">${PV_ICON.plug}Connect</button>`;
+  const actions = mode === 'connected'
+    ? `<button class="pv-link" type="button" data-connect="${id}">${PV_ICON.plus}Add key</button>
+       <span class="pv-link-group">
+         ${recheckButtonHTML(p, 'link')}
+         <button class="pv-icon-btn" type="button" data-manage="${id}" title="Open in Upstream Check" aria-label="Open in Upstream Check">${KX_ICON.external}</button>
+       </span>`
+    : connected
+      ? `<button class="pv-link" type="button" data-manage="${id}">${PV_ICON.keys}Manage keys</button>
+         <span class="pv-hint">${s.keys} key${s.keys === 1 ? '' : 's'}</span>`
+      : '<span class="pv-hint">Bring an API key to start testing.</span>';
+
+  const types = providerTypes(p);
+  return `<article class="pv-card ${connected ? 'is-connected' : ''} ${open ? 'open' : ''}" data-provider="${id}" style="--type-stripe:${typeStripe(types)}">
+    <div class="pv-watermark" data-provider="${id}" aria-hidden="true">${providerMark(p)}</div>
+    <div class="pv-card-top">
+      ${providerLogoHTML(p)}
+      <span class="pv-host">${escapeHtml(providerHost(p))}</span>
+    </div>
+    <h3 class="pv-name"><span>${escapeHtml(p.name)}</span>${websiteLinkHTML(p)}</h3>
+    <div class="pv-url">
+      <code title="${escapeHtml(p.baseUrl)}">${escapeHtml(p.baseUrl)}</code>
+      <button class="pv-icon-btn" type="button" data-copy="${escapeHtml(p.baseUrl)}" title="Copy base URL" aria-label="Copy base URL">${PV_ICON.copy}</button>
+    </div>
+    <div class="pv-tags">${providerTags(p)}</div>
+    <div class="pv-stats">
+      <div class="pv-stat"><span class="pv-stat-label">Keys</span>
+        <span class="pv-stat-value ${s.keys ? '' : 'dim'}">${s.keys ? `${s.activeKeys}/${s.keys}` : '0'}</span></div>
+      <div class="pv-stat"><span class="pv-stat-label">Models</span>
+        <span class="pv-stat-value ${s.models ? '' : 'dim'}">${s.models || '—'}</span></div>
+      <div class="pv-stat"><span class="pv-stat-label">Pass rate</span>
+        <span class="pv-stat-value ${s.rate == null ? 'dim' : ''}">${s.rate == null ? '—' : `${s.rate}%`}</span></div>
+      <div class="pv-stats-foot">${providerStatusHTML(p)}</div>
+      ${connected ? `<div class="pv-stats-strip">${keyStripHTML(p)}</div>` : ''}
+    </div>
+    ${open ? keysPanelHTML(p) : ''}
+    ${primary}
+    <div class="pv-card-actions">${actions}</div>
+  </article>`;
+}
+
+
+// ============================================
+// Provider types — legend and markers
+// ============================================
+// Auth kind comes from the module (meta.auth, default an API key); freeTier is
+// a module flag. A provider can carry more than one type.
+const PROVIDER_TYPES = {
+  oauth: { label: 'OAuth 2.0', desc: 'Signs in through an OAuth authorization flow', color: 'var(--type-oauth)' },
+  apikey: { label: 'API Key', desc: 'Authenticates with a provider API key', color: 'var(--type-apikey)' },
+  free: { label: 'Free Tier', desc: 'Includes free models or a free quota', color: 'var(--type-free)' },
+  none: { label: 'No Auth', desc: 'Open to use — nothing to connect', color: 'var(--type-none)' },
+};
+
+function providerTypes(p) {
+  const types = Array.isArray(p.auth) && p.auth.length ? [...p.auth] : ['apikey'];
+  if (p.freeTier) types.push('free');
+  return types.filter((t) => PROVIDER_TYPES[t]);
+}
+
+function typeStripe(types, dir = '90deg') {
+  if (types.length === 1) return PROVIDER_TYPES[types[0]].color;
+  const step = 100 / types.length;
+  return `linear-gradient(${dir}, ${types.map((t, i) => `${PROVIDER_TYPES[t].color} ${i * step}% ${(i + 1) * step}%`).join(', ')})`;
+}
+
+// Logo tile on the Providers page, with the provider's type dots on a rail
+// across the bottom edge, read against the legend above the list.
+function providerLogoHTML(p) {
+  const types = providerTypes(p);
+  const rail = `<span class="pv-logo-types" title="${types.map((t) => PROVIDER_TYPES[t].label).join(' · ')}">`
+    + types.map((t) => `<i style="--c:${PROVIDER_TYPES[t].color}"></i>`).join('') + '</span>';
+  return `<span class="pv-logo has-types">${providerMark(p)}${rail}</span>`;
+}
+
+let pvLegendCollapsed = true;
+try { pvLegendCollapsed = localStorage.getItem('pvLegendCollapsed') !== '0'; } catch (_) {}
+
+function providerLegendHTML(list) {
+  const counts = Object.fromEntries(Object.keys(PROVIDER_TYPES).map((t) => [t, 0]));
+  list.forEach((p) => providerTypes(p).forEach((t) => { counts[t] += 1; }));
+  const chevron = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>';
+  return `<div class="pv-legend ${pvLegendCollapsed ? 'collapsed' : ''}">
+    <div class="pv-legend-head">
+      <span class="pv-legend-title"><span class="pv-legend-dots">${Object.values(PROVIDER_TYPES).map((t) => `<i style="--c:${t.color}"></i>`).join('')}</span>Provider types</span>
+      <button class="pv-legend-toggle" type="button" data-legend-toggle aria-expanded="${!pvLegendCollapsed}">
+        <span>${pvLegendCollapsed ? 'Show legend' : 'Hide legend'}</span>${chevron}
+      </button>
+    </div>
+    <div class="pv-legend-body">
+      ${Object.entries(PROVIDER_TYPES).map(([k, t]) => `
+        <div class="pv-legend-item ${counts[k] ? '' : 'empty'}" style="--c:${t.color}">
+          <span class="pv-legend-chip"><i></i></span>
+          <div class="pv-legend-text">
+            <div class="pv-legend-name">${t.label}<span class="pv-legend-count">${counts[k]} provider${counts[k] === 1 ? '' : 's'}</span></div>
+            <div class="pv-legend-desc">${t.desc}</div>
+          </div>
+        </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+
+// ============================================
+// Providers page — key management panel (table rows and cards)
+// ============================================
+// Expanded providers are shared by both views, so opening one in the table and
+// switching to cards keeps it open.
+const pvExpanded = new Set();
+const keyProbe = new Map();   // keyId -> { state: 'testing'|'ok'|'fail', text, at }
+let keyDeleteArmed = null;    // keyId awaiting a second click to delete
+let keyDeleteTimer = null;
+
+const KX_ICON = {
+  chevron: '<svg class="kx-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
+  test: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></svg>',
+  trash: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>',
+  lock: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
+  unlock: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>',
+  external: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>',
+};
+
+// ============================================
+// Action feedback — Recheck and key Test
+// ============================================
+// A click is answered: a spinner while the probe runs, then the verdict's icon
+// in its colour for a moment, then the button returns to rest. Background
+// checks never touch this, so only what the user started animates.
+const ACT_ICON = {
+  ok: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+  fail: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+  none: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="6" y1="12" x2="18" y2="12"/></svg>',
+};
+const ACT_RESULT_MS = 2600;
+// A probe that never reports back (transient failures are re-confirmed, which
+// can take a while) must not leave a button spinning forever.
+const ACT_RUNNING_MAX_MS = 45000;
+// A refused local port answers in milliseconds; the spinner is held this long
+// so the click still reads as "checked" rather than a flicker.
+const ACT_MIN_RUNNING_MS = 650;
+const recheckAct = new Map(); // id -> { state, timer, startedAt }
+const keyTestAct = new Map();
+
+function setAct(map, id, state) {
+  const cur = map.get(id);
+  clearTimeout(cur?.timer);
+  if (state !== 'running' && cur?.state === 'running') {
+    const wait = cur.startedAt + ACT_MIN_RUNNING_MS - Date.now();
+    if (wait > 0) {
+      map.set(id, { ...cur, timer: setTimeout(() => { setAct(map, id, state); rerenderProvidersIfShown(); }, wait) });
+      return;
+    }
+  }
+  const timer = setTimeout(() => {
+    map.delete(id);
+    rerenderProvidersIfShown();
+  }, state === 'running' ? ACT_RUNNING_MAX_MS : ACT_RESULT_MS);
+  map.set(id, { state, timer, startedAt: state === 'running' ? Date.now() : cur?.startedAt });
+}
+
+function rerenderProvidersIfShown() {
+  if (currentPage === 'providers') renderProvidersPage();
+}
+
+// Button inner markup for an action in state `act` ('running' | 'ok' | 'fail'
+// | 'none' | undefined for rest).
+function actIconHTML(act, restIcon) {
+  if (act === 'running') return '<span class="spinner act-spinner" aria-hidden="true"></span>';
+  if (ACT_ICON[act]) return `<span class="act-result" aria-hidden="true">${ACT_ICON[act]}</span>`;
+  return restIcon;
+}
+
+const RECHECK_LABEL = { running: 'Checking…', ok: 'Reachable', fail: 'Failed', none: 'No key' };
+
+function recheckButtonHTML(p, variant) {
+  const id = escapeHtml(p.id);
+  const act = recheckAct.get(p.id)?.state;
+  const attrs = `type="button" data-recheck="${id}"${act ? ` data-act="${act}"` : ''}${act === 'running' ? ' disabled aria-busy="true"' : ''}`;
+  if (variant === 'link') {
+    return `<button class="pv-link accent" ${attrs}>${actIconHTML(act, PV_ICON.refresh)}${RECHECK_LABEL[act] || 'Recheck'}</button>`;
+  }
+  const title = act ? RECHECK_LABEL[act] : 'Recheck connection';
+  return `<button class="dt-icon-btn" ${attrs} title="${title}" aria-label="${title}">${actIconHTML(act, PV_ICON.refresh)}</button>`;
+}
+
+function recheckProvider(id) {
+  if (recheckAct.get(id)?.state === 'running') return;
+  setAct(recheckAct, id, 'running');
+  if (currentPage === 'providers') renderProvidersPage();
+  checkProviderHealth(id);
+}
+
+// What state a key is in, most important first.
+function keyState(k) {
+  if (k.locked) return { id: 'locked', label: 'Locked', hint: 'Encrypted for another machine — re-add it' };
+  if (!k.active) return { id: 'off', label: 'Off', hint: 'Switched off — not used in runs' };
+  const cool = keyCooldownUntil.get(k.id) || 0;
+  if (cool > Date.now()) return { id: 'cooling', label: 'Cooling down', hint: `Rate limited — free again in ${Math.ceil((cool - Date.now()) / 1000)} s` };
+  const probe = keyProbe.get(k.id);
+  if (probe && probe.state === 'testing') return { id: 'testing', label: 'Testing…', hint: 'Testing connection to endpoint…' };
+  if (probe && probe.state === 'fail') return { id: 'fail', label: 'Failing', hint: probe.text };
+  return { id: 'active', label: 'Active', hint: 'In use by test runs' };
+}
+
+// key_<timestamp> ids carry the moment the key was added.
+function keyAddedLabel(k) {
+  const ts = Number(String(k.id).replace(/^key_/, ''));
+  if (!Number.isFinite(ts) || ts < 1e12) return '';
+  return new Date(ts).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+// Models this key sees on its own. The catalogue re-discovers every key on its
+// sync, through the provider's own discovery and filters, so its number is the
+// one runs use; the Check page's last discovery is the fallback.
+function keyModelCount(p, k) {
+  const km = window.CATALOG && window.CATALOG.keyModels(k.id);
+  if (km) return km;
+  if (!p.models || !p.models.length) return null;
+  return { count: p.models.filter((m) => Array.isArray(m.keyIds) && m.keyIds.includes(k.id)).length, at: null };
+}
+
+const KX_META_ICON = {
+  models: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 3 7l9 5 9-5-9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/></svg>',
+  clock: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+};
+
+// "18 of 21 models" when a key sees less than its provider's keys see
+// together — the case worth noticing; otherwise just the count.
+function keyModelsHTML(p, k) {
+  const km = keyModelCount(p, k);
+  if (!km) return '';
+  const total = p.keys.length > 1 && window.CATALOG ? window.CATALOG.providerModelCount(p.id) : null;
+  const partial = total != null && km.count < total;
+  const text = partial ? `${km.count} of ${total} models` : `${km.count} model${km.count === 1 ? '' : 's'}`;
+  const title = (partial ? `This key sees ${km.count} of the ${total} models this provider's keys offer` : 'Models this key can use')
+    + (km.at ? ` — listed ${new Date(km.at).toLocaleTimeString()}` : '');
+  return `<span class="kx-meta-item${partial ? ' partial' : ''}" title="${escapeHtml(title)}">${KX_META_ICON.models}${escapeHtml(text)}</span>`;
+}
+
+// When this key was last checked, by the background monitor or a Test. The
+// relative time is kept current in place by refreshAgoLabels().
+function keyCheckedHTML(probe) {
+  if (!probe || !probe.at || probe.state === 'testing') return '';
+  return `<span class="kx-meta-item" title="Last checked ${escapeHtml(new Date(probe.at).toLocaleString())}">${KX_META_ICON.clock}Checked <span data-ago="${probe.at}">${escapeHtml(formatAgo(probe.at))}</span></span>`;
+}
+
+function refreshAgoLabels() {
+  $$('[data-ago]').forEach((el) => { el.textContent = formatAgo(Number(el.dataset.ago)); });
+}
+setInterval(refreshAgoLabels, 30000);
+// A catalogue sync brings fresh per-key model counts.
+window.addEventListener('catalog-changed', () => { if (currentPage === 'providers') renderProvidersPage(); });
+
+function keyStripHTML(p) {
+  if (!p.keys.length) return '';
+  return `<div class="kx-strip" aria-label="Key states">${p.keys.map((k) => {
+    const st = keyState(k);
+    return `<span class="kx-seg" data-state="${st.id}" title="${escapeHtml(k.name)} — ${escapeHtml(st.label)}"></span>`;
+  }).join('')}</div>`;
+}
+
+// Everything one key shows, rendered once and laid out twice: as a stacked
+// row in the card view's panel, and as a table row under the provider's
+// columns (keyTableRowsHTML).
+function keyParts(p, k, i) {
+  const pid = escapeHtml(p.id);
+  const st = keyState(k);
+  const kid = escapeHtml(k.id);
+  const probe = keyProbe.get(k.id);
+  const added = keyAddedLabel(k);
+  const isTesting = probe && probe.state === 'testing';
+  // The Test button's own feedback: spinning while this test runs, then the
+  // verdict for a moment (background probes leave it at rest).
+  const testAct = isTesting ? 'running' : keyTestAct.get(k.id)?.state;
+  const testTitle = { running: 'Testing…', ok: 'Key works', fail: 'Key failed' }[testAct] || 'Test key';
+  // The background check covers every active key, so an unprobed active key
+  // is only waiting for it — unless live updates are paused.
+  let probeHTML;
+  if (probe) {
+    const at = probe.at && !isTesting ? `Checked ${new Date(probe.at).toLocaleTimeString()}` : '';
+    probeHTML = statusPillHTML(probe.state, probe.text, at);
+  } else if (k.locked) {
+    probeHTML = statusPillHTML('none', 'Unreadable', 'Encrypted on another machine — re-add the key');
+  } else if (!k.active) {
+    probeHTML = statusPillHTML('none', 'Not checked', 'Switched-off keys are left out of the background check');
+  } else {
+    probeHTML = settings.liveUpdates
+      ? statusPillHTML('pending', 'Checking…')
+      : statusPillHTML('none', 'Not checked', 'Live updates are paused — press Test to check this key');
+  }
+  const armed = keyDeleteArmed === k.id;
+  const isUnlocked = k.active && !k.locked;
+  const lockTitle = k.locked
+    ? 'Unreadable on this machine'
+    : (k.active ? 'In use — click to disable' : 'Disabled — click to enable');
+  const lockAria = isUnlocked ? 'Disable key' : 'Enable key';
+  const hint = `${st.hint}${added ? ` · added ${added}` : ''}`;
+  return {
+    st,
+    added,
+    probe,
+    index: `<span class="kx-index" title="${escapeHtml(hint)}">#${i + 1}</span>`,
+    name: `<span class="kx-name" title="${escapeHtml(hint)}">${escapeHtml(k.name)}</span>`,
+    badge: `<span class="kx-badge" data-state="${st.id}">${k.locked ? KX_ICON.lock : ''}${escapeHtml(st.label)}</span>`,
+    secret: `<div class="kx-secret">
+        <code>${k.locked ? 'encrypted' : escapeHtml(maskKey(k.key))}</code>
+        ${k.locked ? '' : `<button class="pv-icon-btn" type="button" data-kx-copy="${pid}|${kid}" title="Copy key" aria-label="Copy key">${PV_ICON.copy}</button>`}
+      </div>`,
+    probeHTML,
+    actions: `<button class="kx-btn icon-only kx-test-btn" type="button" data-kx-test="${pid}|${kid}"${testAct ? ` data-act="${testAct}"` : ''} ${k.locked || isTesting ? 'disabled' : ''}${isTesting ? ' aria-busy="true"' : ''} title="${testTitle}" aria-label="${testTitle}">${actIconHTML(testAct, KX_ICON.test)}</button>
+        <button class="kx-btn icon-only kx-lock-btn ${isUnlocked ? 'is-unlocked active' : 'is-locked'}" type="button" data-kx-active="${pid}|${kid}" ${k.locked ? 'disabled' : ''}
+                title="${lockTitle}" aria-label="${lockAria}">${isUnlocked ? KX_ICON.unlock : KX_ICON.lock}</button>
+        <button class="kx-btn icon-only danger ${armed ? 'armed' : ''}" type="button" data-kx-del="${pid}|${kid}" title="${armed ? 'Click again to delete' : 'Delete key'}" aria-label="Delete key">${KX_ICON.trash}${armed ? 'Confirm' : ''}</button>`,
+  };
+}
+
+function keysPanelHTML(p) {
+  const rows = p.keys.map((k, i) => {
+    const kp = keyParts(p, k, i);
+    return `<div class="kx-row" data-state="${kp.st.id}">
+      <div class="kx-id">
+        ${kp.index}
+        <div class="kx-id-text">
+          <span class="kx-name-line">${kp.name}${kp.badge}</span>
+          <span class="kx-meta">${kp.added ? `<span class="kx-meta-item">Added ${escapeHtml(kp.added)}</span>` : ''}${keyModelsHTML(p, k)}${keyCheckedHTML(kp.probe)}</span>
+        </div>
+      </div>
+      ${kp.secret}
+      <div class="kx-probe-cell">${kp.probeHTML}</div>
+      <div class="kx-actions">${kp.actions}</div>
+    </div>`;
+  }).join('');
+  return `<div class="kx-panel" aria-label="API keys"><div class="kx-list">${rows}</div></div>`;
+}
+
+// The table's key rows use the provider row's own columns, so each value sits
+// under its header: identity under Provider, the check under Status, the
+// key's state under Keys, its model count under Models, when it was checked
+// under Last run, and its buttons under Actions.
+function keyTableRowsHTML(p) {
+  return p.keys.map((k, i) => {
+    const kp = keyParts(p, k, i);
+    const km = keyModelCount(p, k);
+    const total = p.keys.length > 1 && window.CATALOG ? window.CATALOG.providerModelCount(p.id) : null;
+    const partial = km && total != null && km.count < total;
+    const models = !km
+      ? '<span class="dt-muted">—</span>'
+      : `<span class="${partial ? 'kx-models-partial' : ''}" title="${escapeHtml(partial ? `This key sees ${km.count} of the ${total} models this provider's keys offer` : 'Models this key can use')}">${km.count}${partial ? `<span class="dt-muted"> / ${total}</span>` : ''}</span>`;
+    const checked = kp.probe && kp.probe.at && kp.probe.state !== 'testing'
+      ? `<span class="kx-checked" title="Last checked ${escapeHtml(new Date(kp.probe.at).toLocaleString())}">${KX_META_ICON.clock}Checked <span data-ago="${kp.probe.at}">${escapeHtml(formatAgo(kp.probe.at))}</span></span>`
+      : '<span class="dt-muted">—</span>';
+    const last = i === p.keys.length - 1;
+    return `<tr class="dt-keyrow${last ? ' last' : ''}" data-state="${kp.st.id}">
+      <td class="dt-key-id"><div class="dt-key">
+        ${kp.index}
+        <div class="dt-key-text">${kp.name}${kp.secret}</div>
+      </div></td>
+      <td class="col-status">${kp.probeHTML}</td>
+      <td class="col-keys">${kp.badge}</td>
+      <td class="dt-num col-models">${models}</td>
+      <td class="col-rate"></td>
+      <td class="col-last">${checked}</td>
+      <td class="dt-actions-col"><div class="dt-row-actions">${kp.actions}</div></td>
+    </tr>`;
+  }).join('');
+}
+
+function refreshAfterKeyChange(pid) {
+  if (pid === activeProvider) {
+    renderKeysList();
+    updateTestAllButton();
+  }
+  if (currentPage === 'providers') renderProvidersPage();
+}
+
+async function testKey(pid, kid) {
+  const p = PROVIDERS[pid];
+  const k = p && p.keys.find((x) => x.id === kid);
+  if (!k || k.locked) return;
+  const startedAt = Date.now();
+  keyProbe.set(kid, { state: 'testing', text: 'Testing…', at: startedAt });
+  refreshAfterKeyChange(pid);
+  let res;
+  try {
+    res = await window.electronAPI.apiRequest({
+      url: `${p.baseUrl}${p.modelsEndpoint || '/models'}`,
+      method: 'GET',
+      headers: { Authorization: `Bearer ${k.key}`, 'Content-Type': 'application/json' },
+      timeoutMs: HEALTH_TIMEOUT_MS,
+    });
+  } catch (err) {
+    res = { status: 0, networkError: true, error: err.message };
+  }
+  // Same minimum spinner time as Recheck, so an instant answer still reads.
+  const hold = startedAt + ACT_MIN_RUNNING_MS - Date.now();
+  if (hold > 0) await new Promise((r) => setTimeout(r, hold));
+  const result = keyProbeResult(res);
+  keyProbe.set(kid, result);
+  setAct(keyTestAct, kid, result.state);
+  refreshAfterKeyChange(pid);
+}
+
+async function setKeyActive(pid, kid) {
+  const p = PROVIDERS[pid];
+  const k = p && p.keys.find((x) => x.id === kid);
+  if (!k || k.locked) return;
+  k.active = !k.active;
+  await saveProviderConfig(pid);
+  refreshAfterKeyChange(pid);
+}
+
+// Two clicks to delete: the first arms the button for a few seconds.
+async function deleteKey(pid, kid) {
+  if (keyDeleteArmed !== kid) {
+    keyDeleteArmed = kid;
+    clearTimeout(keyDeleteTimer);
+    keyDeleteTimer = setTimeout(() => { keyDeleteArmed = null; refreshAfterKeyChange(pid); }, 3500);
+    refreshAfterKeyChange(pid);
+    return;
+  }
+  clearTimeout(keyDeleteTimer);
+  keyDeleteArmed = null;
+  const p = PROVIDERS[pid];
+  p.keys = p.keys.filter((x) => x.id !== kid);
+  keyProbe.delete(kid);
+  if (window.CATALOG) window.CATALOG.forgetKey(kid);
+  if (!p.keys.length) pvExpanded.delete(pid);
+  await saveProviderConfig(pid);
+  refreshAfterKeyChange(pid);
+}
+
+// Accordion: opening one provider closes whichever was open.
+function togglePvExpanded(pid) {
+  const wasOpen = pvExpanded.has(pid);
+  pvExpanded.clear();
+  if (!wasOpen) pvExpanded.add(pid);
+  if (currentPage === 'providers') renderProvidersPage();
+}
+
+// ============================================
+// Stat cards — shared
+// ============================================
+// items: [{ label, value, sub?, foot, icon, meter? (0..1) }]
+function statCardsHTML(items) {
+  return '<div class="ov-kpis">' + items.map((it) => `
+    <div class="ov-kpi">
+      <span class="kpi-icon" aria-hidden="true">${it.icon || ''}</span>
+      <span class="ov-kpi-label">${escapeHtml(it.label)}</span>
+      <span class="ov-kpi-value">${it.value}${it.sub ? `<span class="kpi-value-sub">${it.sub}</span>` : ''}</span>
+      ${it.meter == null ? '' : `<span class="kpi-meter"><span style="width:${Math.round(Math.max(0, Math.min(1, it.meter)) * 100)}%"></span></span>`}
+      <span class="ov-kpi-foot">${escapeHtml(it.foot || '')}</span>
+    </div>`).join('') + '</div>';
+}
+
+// ============================================
+// Data toolbar — shared
+// ============================================
+// Left: search, filter chips, sort. Right: table / cards switch. The markup is
+// built once; bindDataToolbar() keeps `state` in step and calls onChange(key),
+// so a keystroke in the search box re-renders the results, never the toolbar.
+const DT_ICON = {
+  search: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+  table: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 10v10"/></svg>',
+  nomatch: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/><path d="m8.5 8.5 5 5M13.5 8.5l-5 5"/></svg>',
+  cards: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></svg>',
+};
+
+// config: { placeholder, filters: [{ value, label, dot? }], sorts: [{ value, label }] }
+function dataToolbarHTML(config, state) {
+  const chips = (config.filters || []).map((f) => `
+    <button class="dt-chip ${state.filter === f.value ? 'active' : ''}" type="button" role="radio"
+            aria-checked="${state.filter === f.value}" data-dt-filter="${f.value}">
+      ${f.dot ? `<span class="dt-chip-dot" style="--dot:${f.dot}"></span>` : ''}${escapeHtml(f.label)}
+      <span class="dt-chip-count" data-dt-count="${f.value}">0</span>
+    </button>`).join('');
+  const sorts = (config.sorts || []).map((s) =>
+    `<option value="${s.value}" ${state.sort === s.value ? 'selected' : ''}>${escapeHtml(s.label)}</option>`).join('');
+  return `<div class="dt-toolbar">
+    <div class="dt-left">
+      <label class="dt-search">${DT_ICON.search}
+        <input type="search" data-dt="search" placeholder="${escapeHtml(config.placeholder || 'Search…')}"
+               value="${escapeHtml(state.search)}" autocomplete="off" spellcheck="false" aria-label="Search">
+        <kbd>/</kbd>
+      </label>
+      ${chips ? `<div class="dt-chips" role="radiogroup" aria-label="Filter">${chips}</div>` : ''}
+      ${sorts ? `<label class="dt-select">Sort<select data-dt="sort" aria-label="Sort">${sorts}</select></label>` : ''}
+    </div>
+    <div class="dt-views" role="radiogroup" aria-label="View">
+      <button class="dt-view ${state.view === 'table' ? 'active' : ''}" type="button" role="radio"
+              aria-checked="${state.view === 'table'}" data-dt-view="table" title="Table view">${DT_ICON.table}</button>
+      <button class="dt-view ${state.view === 'cards' ? 'active' : ''}" type="button" role="radio"
+              aria-checked="${state.view === 'cards'}" data-dt-view="cards" title="Card view">${DT_ICON.cards}</button>
+    </div>
+  </div>`;
+}
+
+function syncDataToolbar(root, state) {
+  root.querySelectorAll('[data-dt-filter]').forEach((b) => {
+    const on = b.dataset.dtFilter === state.filter;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-checked', String(on));
+  });
+  root.querySelectorAll('[data-dt-view]').forEach((b) => {
+    const on = b.dataset.dtView === state.view;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-checked', String(on));
+  });
+}
+
+function bindDataToolbar(root, state, onChange) {
+  root.querySelector('[data-dt="search"]').addEventListener('input', (e) => {
+    state.search = e.target.value;
+    onChange('search');
+  });
+  const sort = root.querySelector('[data-dt="sort"]');
+  if (sort) sort.addEventListener('change', (e) => { state.sort = e.target.value; onChange('sort'); });
+  root.addEventListener('click', (e) => {
+    const f = e.target.closest('[data-dt-filter]');
+    const v = e.target.closest('[data-dt-view]');
+    if (f) { state.filter = f.dataset.dtFilter; syncDataToolbar(root, state); onChange('filter'); }
+    if (v) { state.view = v.dataset.dtView; state.viewPinned = true; syncDataToolbar(root, state); onChange('view'); }
+  });
+}
+
+// Table at full width, cards once the window is narrow enough for the nav to
+// fold into a drawer — the same breakpoint, so the page and the chrome change
+// shape together. A manual choice holds until the next crossing.
+const COMPACT_LAYOUT = window.matchMedia('(max-width: 1100px)');
+
+// ============================================
+// Providers page — Connected view
+// ============================================
+const pvState = {
+  search: '',
+  filter: 'all',
+  sort: 'name',
+  view: COMPACT_LAYOUT.matches ? 'cards' : 'table',
+};
+let pvShell = null; // which tab the body skeleton was built for
+
+const PV_TOOLBAR = {
+  placeholder: 'Search providers, hosts or URLs…',
+  filters: [
+    { value: 'all', label: 'All' },
+    { value: 'ok', label: 'Reachable', dot: 'var(--pass)' },
+    { value: 'issues', label: 'Issues', dot: 'var(--fail)' },
+  ],
+  sorts: [
+    { value: 'name', label: 'Name' },
+    { value: 'rate', label: 'Pass rate' },
+    { value: 'models', label: 'Models' },
+    { value: 'recent', label: 'Last run' },
+  ],
+};
+
+const KPI_ICON = {
+  plug: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0z"/><path d="M12 18v4"/></svg>',
+  key: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/></svg>',
+  pulse: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>',
+  target: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>',
+};
+
+function pvLastRun(p) {
+  for (let i = runLog.length - 1; i >= 0; i--) if (runLog[i].provider === p.id) return runLog[i].at;
+  return 0;
+}
+
+function pvHealthState(p) {
+  return providerHealthLine(p).state;
+}
+
+function renderConnectedKpis(connected, all) {
+  const keys = connected.reduce((n, p) => n + p.keys.length, 0);
+  const active = connected.reduce((n, p) => n + usableKeys(p).length, 0);
+  const reachable = connected.filter((p) => pvHealthState(p) === 'ok').length;
+  let passed = 0;
+  let total = 0;
+  runLog.forEach((r) => {
+    if (connected.some((p) => p.id === r.provider)) { passed += r.passed; total += r.total; }
+  });
+  const rate = total ? passed / total : null;
+  $('#pv-kpis').innerHTML = statCardsHTML([
+    { label: 'Connected', value: connected.length, sub: `/ ${all.length}`, icon: KPI_ICON.plug,
+      meter: all.length ? connected.length / all.length : 0, foot: 'of the integrated providers' },
+    { label: 'Active keys', value: active, sub: `/ ${keys}`, icon: KPI_ICON.key,
+      meter: keys ? active / keys : 0, foot: keys - active ? `${keys - active} switched off` : 'all keys in use' },
+    { label: 'Reachable', value: reachable, sub: `/ ${connected.length}`, icon: KPI_ICON.pulse,
+      meter: connected.length ? reachable / connected.length : 0, foot: 'answered the health check' },
+    { label: 'Pass rate', value: rate == null ? '—' : `${Math.round(rate * 100)}%`, icon: KPI_ICON.target,
+      meter: rate, foot: total ? `${total.toLocaleString()} results recorded` : 'no runs recorded yet' },
+  ]);
+}
+
+function pvFiltered(connected) {
+  const q = pvState.search.trim().toLowerCase();
+  let list = connected.filter((p) => {
+    if (q && !`${p.name} ${providerHost(p)} ${p.baseUrl}`.toLowerCase().includes(q)) return false;
+    const st = pvHealthState(p);
+    if (pvState.filter === 'ok') return st === 'ok';
+    if (pvState.filter === 'issues') return st === 'fail' || st === 'none';
+    return true;
+  });
+  const stats = new Map(list.map((p) => [p.id, providerStats(p)]));
+  const by = {
+    name: (a, b) => a.name.localeCompare(b.name),
+    rate: (a, b) => (stats.get(b.id).rate ?? -1) - (stats.get(a.id).rate ?? -1),
+    models: (a, b) => stats.get(b.id).models - stats.get(a.id).models,
+    recent: (a, b) => pvLastRun(b) - pvLastRun(a),
+  };
+  list = list.sort(by[pvState.sort] || by.name);
+  return { list, stats };
+}
+
+function pvTableHTML(list, stats) {
+  const rows = list.map((p) => {
+    const s = stats.get(p.id);
+    const last = pvLastRun(p);
+    const id = escapeHtml(p.id);
+    const rate = s.rate == null
+      ? '<span class="dt-muted">—</span>'
+      : `<div class="dt-rate"><div class="dt-rate-bar"><span class="${scoreClass(s.rate / 100)}" style="width:${s.rate}%"></span></div><b>${s.rate}%</b></div>`;
+    const open = pvExpanded.has(p.id);
+    return `<tr class="dt-row pv-row ${open ? 'open' : ''}" data-kx-toggle="${id}" aria-expanded="${open}" tabindex="0">
+      <td><div class="dt-provider">${KX_ICON.chevron}
+        ${providerLogoHTML(p)}
+        <div><div class="dt-provider-name">${escapeHtml(p.name)}${websiteLinkHTML(p)}</div><div class="dt-provider-host">${escapeHtml(providerHost(p))}</div></div>
+      </div></td>
+      <td class="col-status">${providerStatusHTML(p)}</td>
+      <td class="dt-num col-keys">${s.activeKeys}<span class="dt-muted"> / ${s.keys}</span></td>
+      <td class="dt-num col-models">${s.models || '<span class="dt-muted">—</span>'}</td>
+      <td class="col-rate">${rate}</td>
+      <td class="col-last">${last ? escapeHtml(formatAgo(last)) : '<span class="dt-muted">never</span>'}</td>
+      <td class="dt-actions-col"><div class="dt-row-actions">
+        <button class="dt-icon-btn primary" type="button" data-kx-toggle="${id}" title="${open ? 'Hide keys' : 'Show keys'}" aria-label="${open ? 'Hide keys' : 'Show keys'}">${PV_ICON.keys}</button>
+        <button class="dt-icon-btn" type="button" data-connect="${id}" title="Add key" aria-label="Add key">${PV_ICON.plus}</button>
+        ${recheckButtonHTML(p)}
+        <button class="dt-icon-btn" type="button" data-manage="${id}" title="Open in Upstream Check" aria-label="Open in Upstream Check">${KX_ICON.external}</button>
+      </div></td>
+    </tr>${open ? keyTableRowsHTML(p) : ''}`;
+  }).join('');
+  return `<div class="dt-table-wrap"><table class="dt-table">
+    <thead><tr><th>Provider</th><th class="col-status">Status</th><th class="col-keys">Keys</th><th class="col-models">Models</th><th class="col-rate">Pass rate</th><th class="col-last">Last run</th><th class="dt-actions-col">Actions</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
+}
+
+function renderConnectedResults(connected) {
+  const results = $('#pv-results');
+  // Filter counts reflect the search, so a chip never promises rows it hides.
+  const q = pvState.search.trim().toLowerCase();
+  const searched = connected.filter((p) => !q || `${p.name} ${providerHost(p)} ${p.baseUrl}`.toLowerCase().includes(q));
+  const count = { all: searched.length, ok: 0, issues: 0 };
+  searched.forEach((p) => {
+    const st = pvHealthState(p);
+    if (st === 'ok') count.ok += 1;
+    if (st === 'fail' || st === 'none') count.issues += 1;
+  });
+  $$('#pv-toolbar [data-dt-count]').forEach((el) => { el.textContent = count[el.dataset.dtCount] ?? 0; });
+
+  const { list, stats } = pvFiltered(connected);
+  if (list.length === 0) {
+    results.innerHTML = `<div class="dt-nomatch"><span class="dt-nomatch-icon" aria-hidden="true">${DT_ICON.nomatch}</span><strong>No providers match</strong>
+      Try a different search or filter.
+      <button class="btn btn-ghost" type="button" data-dt-clear>Clear search and filters</button></div>`;
+    return;
+  }
+  results.innerHTML = pvState.view === 'table'
+    ? pvTableHTML(list, stats)
+    : `<div class="pv-grid">${list.map((p) => providerCardHTML(p, 'connected')).join('')}</div>`;
+}
+
+function renderProvidersPage() {
+  const body = document.getElementById('pv-body');
+  if (!body) return;
+  const all = Object.values(PROVIDERS);
+  const connected = all.filter(isConnected);
+  $('#pv-count-connected').textContent = connected.length;
+  $('#pv-count-integrated').textContent = all.length;
+  $$('.pv-tab').forEach((t) => {
+    const on = t.dataset.tab === providersTab;
+    t.classList.toggle('active', on);
+    t.setAttribute('aria-selected', String(on));
+  });
+  $('#pv-crumbs').innerHTML = breadcrumbHTML([
+    { label: 'Home', page: 'overview', home: true },
+    { label: 'Providers', tab: 'connected' },
+    { label: providersTab === 'connected' ? 'Connected' : 'Integrated' },
+  ]);
+
+  if (providersTab === 'integrated') {
+    pvShell = 'integrated';
+    body.innerHTML = providerLegendHTML(all) +
+      `<div class="pv-grid">${all.map((p) => providerCardHTML(p, 'integrated')).join('')}</div>`;
+    return;
+  }
+  if (connected.length === 0) {
+    pvShell = 'empty';
+    body.innerHTML = `<div class="pv-empty">
+      <div class="pv-empty-icon">${PV_ICON.empty}</div>
+      <h3>No providers connected yet</h3>
+      <p>Connect an integrated provider with an API key and it will show up here, with its keys, health and test history in one place.</p>
+      <button class="btn btn-primary" type="button" data-tab="integrated">${PV_ICON.plug}Browse integrated providers</button>
+    </div>`;
+    return;
+  }
+  // Build the skeleton (stats, toolbar, results) once per visit to the tab; later
+  // calls only refresh the stats and the results, so typing isn't interrupted.
+  if (pvShell !== 'connected') {
+    pvShell = 'connected';
+    body.innerHTML = `<div id="pv-kpis"></div><div id="pv-legend"></div><div id="pv-toolbar">${dataToolbarHTML(PV_TOOLBAR, pvState)}</div><div id="pv-results"></div>`;
+    bindDataToolbar($('#pv-toolbar'), pvState, () => renderConnectedResults(Object.values(PROVIDERS).filter(isConnected)));
+  }
+  renderConnectedKpis(connected, all);
+  $('#pv-legend').innerHTML = providerLegendHTML(connected);
+  renderConnectedResults(connected);
+}
+
+COMPACT_LAYOUT.addEventListener('change', (e) => {
+  pvState.view = e.matches ? 'cards' : 'table';
+  const tb = document.getElementById('pv-toolbar');
+  if (tb) syncDataToolbar(tb, pvState);
+  if (currentPage === 'providers' && pvShell === 'connected') {
+    renderConnectedResults(Object.values(PROVIDERS).filter(isConnected));
+  }
+});
+
+document.querySelector('.page-providers').addEventListener('keydown', (e) => {
+  const row = e.target.closest && e.target.closest('tr.dt-row');
+  if (row && e.target === row && (e.key === 'Enter' || e.key === ' ')) {
+    e.preventDefault();
+    togglePvExpanded(row.dataset.kxToggle);
+  }
+});
+
+// "/" jumps to the search box on pages that have one.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
+  const input = document.querySelector('.shell-page:not([hidden]) [data-dt="search"]');
+  if (input) { e.preventDefault(); input.focus(); }
+});
+
+$('.page-providers').addEventListener('click', async (e) => {
+  const site = e.target.closest('[data-site]');
+  if (site) {
+    window.electronAPI.openExternal(site.dataset.site);
+    return;
+  }
+  const kx = e.target.closest('[data-kx-test], [data-kx-active], [data-kx-del], [data-kx-copy]');
+  if (kx) {
+    if (kx.disabled) return;
+    const [pid, kid] = (kx.dataset.kxTest || kx.dataset.kxActive || kx.dataset.kxDel || kx.dataset.kxCopy).split('|');
+    if (kx.dataset.kxTest) testKey(pid, kid);
+    else if (kx.dataset.kxActive) setKeyActive(pid, kid);
+    else if (kx.dataset.kxDel) deleteKey(pid, kid);
+    else {
+      const k = PROVIDERS[pid]?.keys.find((x) => x.id === kid);
+      if (k) {
+        try {
+          await navigator.clipboard.writeText(k.key);
+          kx.classList.add('copied');
+          setTimeout(() => kx.classList.remove('copied'), 1200);
+        } catch (_) {}
+      }
+    }
+    return;
+  }
+  // A row (or its keys button, or a card's Manage keys) opens the key panel;
+  // other buttons inside the row keep their own meaning.
+  const toggle = e.target.closest('[data-kx-toggle]');
+  if (toggle && (toggle.tagName === 'BUTTON' || !e.target.closest('button, a, input, .kx-panel'))) {
+    togglePvExpanded(toggle.dataset.kxToggle);
+    return;
+  }
+  if (e.target.closest('[data-legend-toggle]')) {
+    pvLegendCollapsed = !pvLegendCollapsed;
+    try { localStorage.setItem('pvLegendCollapsed', pvLegendCollapsed ? '1' : '0'); } catch (_) {}
+    $$('.pv-legend').forEach((lg) => {
+      lg.classList.toggle('collapsed', pvLegendCollapsed);
+      const t = lg.querySelector('[data-legend-toggle]');
+      t.setAttribute('aria-expanded', String(!pvLegendCollapsed));
+      t.querySelector('span').textContent = pvLegendCollapsed ? 'Show legend' : 'Hide legend';
+    });
+    return;
+  }
+  if (e.target.closest('[data-dt-clear]')) {
+    Object.assign(pvState, { search: '', filter: 'all' });
+    pvShell = null;
+    renderProvidersPage();
+    return;
+  }
+  const el = e.target.closest('[data-tab], [data-go], [data-connect], [data-manage], [data-recheck], [data-copy]');
+  if (!el || el.disabled) return;
+  const d = el.dataset;
+  if (d.tab) { providersTab = d.tab; pvShell = null; renderProvidersPage(); return; }
+  if (d.go) { showPage(d.go); return; }
+  if (d.connect) {
+    switchProvider(d.connect);
+    openAddKeyModal(`Connect ${PROVIDERS[d.connect].name}`);
+    return;
+  }
+  if (d.manage) { switchProvider(d.manage); showPage('check'); return; }
+  if (d.recheck) { recheckProvider(d.recheck); return; }
+  if (d.copy) {
+    try {
+      await navigator.clipboard.writeText(d.copy);
+      el.classList.add('copied');
+      setTimeout(() => el.classList.remove('copied'), 1200);
+    } catch (_) {}
+  }
+});
+
+bindShell();
+
 async function init() {
   await loadSettings();
   applyAppearance();
@@ -3016,6 +5111,22 @@ async function init() {
   renderModelsList();
   setStatus('idle', 'Ready — add an API key to begin');
   setupUpdateListeners();
+  startHealthMonitor();
+  renderQuickStats();
+  // The catalogue needs the providers and their keys, so it starts last.
+  if (window.CATALOG) window.CATALOG.init();
+  if (window.PROFILES) window.PROFILES.init();
+  // Last, so the restored page renders with settings and providers in place.
+  applyRoute();
 }
 
-init();
+// catalog.js and profiles.js load after this file, and init() hands them the
+// providers at its end. Started straight away, init's first IPC replies could
+// land before the parser had run them, so `window.CATALOG` was still missing
+// and the catalogue and profiles never started (no sync, no bindings).
+// DOMContentLoaded fires only once every script on the page has run.
+function start() {
+  init().catch((err) => console.error('Startup failed:', err));
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+else start();
