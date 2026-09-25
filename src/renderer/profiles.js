@@ -510,7 +510,7 @@
     const body = $('#pf-body');
     if (!body) return;
     if (!C.state.loaded) { C.load().then(render); return; }
-    $('#pf-crumbs').innerHTML = breadcrumbHTML([{ label: 'Home', page: 'overview', home: true }, { label: 'Profiles' }]);
+    $('#pf-crumbs').innerHTML = breadcrumbHTML([{ label: 'Overview', page: 'overview' }, { label: 'Profiles', icon: 'profiles' }]);
     const connected = Object.values(PROVIDERS).filter(isConnected);
     if (!connected.length) {
       body.innerHTML = `<div class="pv-empty"><div class="pv-empty-icon">${ICON.empty}</div><h3>No providers connected</h3><p>Profiles are built from the Model Catalog, which is empty until a provider has a key.</p><button class="btn btn-primary" type="button" data-go="providers">Open Providers</button></div>`;

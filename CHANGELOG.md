@@ -7,6 +7,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-26
+
+### Changed
+- Providers: the table is gone. Connected providers are a list of row cards
+  with a gap between them, on one column grid shared by every provider row
+  and every key row, so values line up down the list; there is no column
+  header, and no key button: the row itself opens its keys. An open
+  provider's card carries the accent bar, its keys sit in a recessed well
+  inside the card, and the tree line still grows from the logo into each key.
+  Narrow windows drop the same columns from every row.
+- Toolbar layout: search and sort on the left, the status filters and page
+  actions on the right, on every page that has one.
+- Providers are filtered and grouped by how they authenticate: the toolbar's
+  filters are All, OAuth and API Key (dotted in the legend's colours, in place
+  of Reachable and Issues), and the list — rows or cards — shows each kind
+  under its own divider, OAuth first. A kind with no provider shows no group;
+  a provider offering both is filed under its first kind and found by either
+  filter.
+- Status badges (providers and keys) are rectangles with a light radius and
+  one width for all, so they stack as a column. The colour dot carries the
+  verdict, so a healthy badge shows only its latency ("● | 476 ms"); a failure
+  shows its code without "HTTP" ("● | 401"). Under every key's badge, healthy
+  ones included, a two-word line says it in words ("Key working", "Key
+  rejected", "Host unreachable"…), centred on the badge (a provider's badge
+  stands alone: the words are for telling its keys apart); every
+  message the probes can produce has its own, and anything unexpected falls
+  back to its state's ("Check failed"). The value follows the dot
+  with no gap, in a slot sized for the longest reading ("—" when there is
+  none), so every badge keeps one width. The full sentence is in the tooltip.
+- A key's masked value and its copy button are one framed component, the
+  button a segment of its own behind a hairline. The status column is now as
+  wide as a badge, and the room it gave up went to the name column, so a
+  key's name and value sit clear of its status and are never cut short.
+- Key rows drop the Active / Off / Failing badge: the index chip's colour
+  already says it. A key switched off carries a lock by its name ("Disabled by
+  the admin"), and one that can't be decrypted here a warning mark.
+- Crossing the window width where the list turns into cards resets the
+  Providers page: Connected tab, All, no search, legend folded, every
+  provider closed.
+- A group's provider count is a framed rectangle, like the other badges, and
+  the group's heading (dot, kind, count) is framed as one tag on the page's
+  neutral surface, with only the dot in the kind's colour.
+- In a key row the two-word line sits above the badge, level with the key's
+  name, and the badge level with its masked value, at the same height.
+- The live-updates switch moved from every breadcrumb to an orb in the seam
+  between the Providers page's Connected and Integrated tabs: a pulse while
+  live, a pause mark when paused, in the theme's own neutrals.
+- Breadcrumbs start at Overview (not "Home") with the sidebar's own Overview
+  icon, and every crumb that stands for a page (Providers, Model Catalog,
+  Profiles, Settings) carries that page's sidebar icon.
+- Sidebar: the system-status lamp beats like a radar (two rings sweeping out
+  in turn, faster when something is wrong); the footer's heart answers a
+  click with a big beat and a burst of small hearts and sparks; and a second
+  layer of faint stars twinkles and rises over the painted starfield, with a
+  shooting star now and then. All of it stays under the content and stops
+  under reduced motion.
+- A key's last check sits under its buttons, in a frame as wide as the
+  buttons, instead of in the Last run column.
+- An open provider stands apart from its neighbours with more space above
+  and below it.
+- The provider-types legend opens and closes from anywhere on its header,
+  not only its button, and its header is slimmer.
+- One toolbar card for every page that has one (Providers, Model Catalog,
+  Profiles): same frame, surface, padding and spacing in both themes.
+- Form fields are one design-system component across the app. Focus is the
+  theme's own neutral (one border shade up and a soft ring) instead of an
+  accent-coloured frame, from a single rule for every field. The search box
+  keeps its icon in a segment of its own, set apart by a hairline and a
+  slightly different surface.
+- Every dropdown is the app's own menu (`ui-select.js`) instead of the
+  native list, whose Windows-blue highlight ignored the theme: the app's
+  surface, a neutral highlight, a tick on the chosen option, keyboard
+  navigation, sized to its field. The native `<select>` stays underneath as
+  the source of truth, so every existing control works unchanged, and
+  dropdowns added later are converted automatically.
+- No more list/cards switch in the toolbar: Providers and the Model Catalog
+  show the list at full width and cards once the window is narrow enough for
+  the sidebar to fold away (1100px), switching as the window is resized.
+
+### Removed
+- Custom providers. The app runs its integrated (built-in) providers only:
+  they can be connected, disconnected, renamed or re-pointed, never added or
+  deleted. The Add provider button and the Remove action are gone, and a
+  keyless custom provider left in an older config is removed from it; one
+  that still holds keys is left in the file, not loaded, so no key is lost.
+
+[1.4.0]: https://github.com/VENOMDRMSUPPORT/upstream-checker/releases/tag/v1.4.0
+
 ## [1.3.1] - 2026-09-26
 
 ### Fixed

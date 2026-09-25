@@ -320,7 +320,6 @@ Object.values(window.INTEGRATED_PROVIDERS || {}).forEach((entry) => {
   BUILTIN_PROVIDERS[entry.meta.id] = { ...entry.meta };
 });
 
-const CUSTOM_COLORS = ['#7b2ff7', '#00e0a4', '#ff6b6b', '#ffb020', '#4dabf7', '#e64980'];
 
 // Runtime provider map — built at init from BUILTIN_PROVIDERS + config
 let PROVIDERS = {};
@@ -357,12 +356,7 @@ async function saveProviderConfig(providerId) {
   if (!p) return;
   const data = await window.electronAPI.readConfig();
   if (!data.providers) data.providers = {};
-  const entry = { name: p.name, baseUrl: p.baseUrl, keys: p.keys, rpm: p.rpm ?? null };
-  if (p.custom) {
-    entry.custom = true;
-    entry.color = p.color;
-  }
-  data.providers[providerId] = entry;
+  data.providers[providerId] = { name: p.name, baseUrl: p.baseUrl, keys: p.keys, rpm: p.rpm ?? null };
   await window.electronAPI.writeConfig(data);
   // Every save is a user edit to keys or the base URL, so the verdict is stale.
   checkProviderHealth(providerId);
@@ -620,9 +614,11 @@ async function loadAllProviders() {
     PROVIDERS[def.id] = p;
   });
 
-  // Custom providers from config. A custom provider whose baseUrl now matches a
-  // built-in (i.e. that provider became integrated) is migrated into the built-in:
-  // its keys move over and the standalone custom entry is dropped.
+  // The app only runs its integrated providers. A custom provider left in an
+  // older config is migrated into the built-in with the same baseUrl (its keys
+  // move over); one with no built-in twin and no keys is removed. One that still
+  // holds keys is left in the file untouched, so no key is ever thrown away, but
+  // it is not loaded.
   Object.entries(stored).forEach(([id, s]) => {
     if (!s.custom || PROVIDERS[id]) return;
     const builtin = Object.values(PROVIDERS).find((p) => !p.custom && norm(p.baseUrl) === norm(s.baseUrl));
@@ -642,16 +638,12 @@ async function loadAllProviders() {
       dirty = true;
       return;
     }
-    const p = makeRuntimeProvider({
-      id,
-      name: s.name || id,
-      baseUrl: s.baseUrl || '',
-      color: s.color || CUSTOM_COLORS[0],
-      custom: true,
-    });
-    p.rpm = s.rpm ?? null;
-    p.keys = s.keys || [];
-    PROVIDERS[id] = p;
+    if (!(s.keys || []).length) {
+      delete stored[id];
+      dirty = true;
+    } else {
+      console.warn(`Custom provider "${s.name || id}" still holds keys; left in config, not loaded.`);
+    }
   });
 
   if (dirty) {
@@ -681,18 +673,12 @@ function renderProviderTabs() {
     const btn = document.createElement('button');
     btn.className = `provider-btn ${p.id === activeProvider ? 'active' : ''}`;
     btn.dataset.provider = p.id;
-    let actions =
+    const actions =
       `<span class="provider-action provider-edit" data-provider="${p.id}" title="Edit provider">` +
       `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>` +
       `</span>`;
-    if (p.custom) {
-      actions +=
-        `<span class="provider-action provider-delete" data-provider="${p.id}" title="Remove provider">` +
-        `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>` +
-        `</span>`;
-    }
-    // An integrated provider can ship a logo (meta.logo); otherwise fall back to a
-    // colored dot (used by custom, user-added providers).
+    // An integrated provider ships a logo (meta.logo); a provider without one
+    // falls back to a coloured dot.
     btn.innerHTML =
       `<span class="provider-name">${escapeHtml(p.name)}</span>` +
       `<span class="provider-actions">${actions}</span>`;
@@ -740,12 +726,6 @@ function renderProviderTabs() {
       openProviderModal(el.dataset.provider);
     });
   });
-  $$('.provider-delete').forEach((el) => {
-    el.addEventListener('click', (e) => {
-      e.stopPropagation();
-      removeProvider(el.dataset.provider);
-    });
-  });
 }
 
 // ============================================
@@ -777,8 +757,11 @@ function keyProbeResult(res) {
     : { state: 'fail', text: describeHealthFailure(res), at: Date.now() };
 }
 
-// Status pill shared by provider rows and key rows: a word that says what is
-// going on, and the measurement behind it set apart ("Reachable" | "472 ms").
+// Status badge shared by provider rows and key rows. The colour dot carries
+// the verdict and the badge holds the reading: a latency when healthy
+// ("● | 472 ms"), the code on a failure ("● | 401"). Under every badge, a
+// two-word line says it in words ("Key working", "Key rejected"); the whole
+// sentence stays in the tooltip.
 // Detail strings come from describeHealthFailure / the probes above.
 function splitStatus(text) {
   const t = String(text || '');
@@ -791,11 +774,44 @@ function splitStatus(text) {
   return { label: t, meta: '' };
 }
 
-function statusPillHTML(state, text, title = '') {
+// The line under every badge is exactly two words. Each detail string the
+// probes can produce has its own; anything else (an unexpected exception's
+// message) falls back to its state's, and the full text stays in the tooltip.
+const STATUS_CAPTION = {
+  Reachable: 'Provider online',
+  OK: 'Key working',
+  'Key rejected': 'Key rejected',
+  'No response': 'No response',
+  Unreachable: 'Host unreachable',
+  'Server error': 'Server error',
+  'Request refused': 'Request refused',
+  'Check failed': 'Check failed',
+  'No active key': 'Keys disabled',
+  'No API key': 'No keys',
+  'Not connected — needs an API key': 'Not connected',
+  'Checking connection…': 'Checking now',
+  'Checking…': 'Checking now',
+  'Testing…': 'Testing now',
+  Unreadable: 'Key unreadable',
+  'Not checked': 'Not checked',
+};
+const STATUS_CAPTION_FALLBACK = { ok: 'Working fine', fail: 'Check failed', none: 'Not checked', pending: 'Checking now', testing: 'Testing now' };
+
+function statusCaption(state, label) {
+  return STATUS_CAPTION[label] || STATUS_CAPTION_FALLBACK[state] || 'Not checked';
+}
+
+function statusPillHTML(state, text, title = '', { caption: withCaption = true } = {}) {
   const { label, meta } = splitStatus(text);
+  const value = meta.replace(/^HTTP\s+/i, '');
   const lead = state === 'testing' ? '<span class="spinner"></span>' : '<span class="st-pill-dot"></span>';
-  return `<span class="st-pill" data-state="${state}"${title ? ` title="${escapeHtml(title)}"` : ''}>${lead}`
-    + `<span class="st-pill-label">${escapeHtml(label)}</span>${meta ? `<span class="st-pill-meta">${escapeHtml(meta)}</span>` : ''}</span>`;
+  // The value slot is always there ("—" when there is no reading), so every
+  // badge keeps the same width.
+  const pill = `<span class="st-pill">${lead}<span class="st-pill-meta">${escapeHtml(value || (state === 'testing' || state === 'pending' ? '…' : '—'))}</span></span>`;
+  const caption = withCaption ? `<span class="st-caption">${escapeHtml(statusCaption(state, label))}</span>` : '';
+  // Words first, then the badge: in a key row they line up with the key's
+  // name and its masked value beside them.
+  return `<span class="st-status" data-state="${state}" title="${escapeHtml(title || text)}">${caption}${pill}</span>`;
 }
 
 // A 429 still proves the key authenticated — the provider is up, just busy.
@@ -932,14 +948,13 @@ function setLiveUpdates(on) {
   if (on) checkAllProvidersHealth();
 }
 
-// The toggle lives in every breadcrumb (see breadcrumbHTML), so a re-render of
-// any page keeps it; this only refreshes the ones already on screen.
+// The live switch is the orb between the Providers page's tabs; this keeps
+// it (and anything else marked data-live-toggle) in step with the setting.
 function liveToggleAttrs() {
   const on = settings.liveUpdates;
   const every = settings.healthIntervalMin === 1 ? 'every minute' : `every ${settings.healthIntervalMin} minutes`;
   return {
     on,
-    label: on ? 'Live' : 'Paused',
     title: on
       ? `Live updates on — provider health re-checked ${every}. Click to pause.`
       : 'Live updates paused — provider health is not re-checked in the background. Click to resume.',
@@ -947,62 +962,18 @@ function liveToggleAttrs() {
 }
 
 function renderLiveToggles() {
-  const { on, label, title } = liveToggleAttrs();
+  const { on, title } = liveToggleAttrs();
   $$('[data-live-toggle]').forEach((btn) => {
     btn.classList.toggle('on', on);
     btn.setAttribute('aria-pressed', String(on));
     btn.title = title;
-    btn.querySelector('.live-toggle-label').textContent = label;
+    btn.setAttribute('aria-label', title);
   });
 }
 
 document.addEventListener('click', (e) => {
   if (e.target.closest('[data-live-toggle]')) setLiveUpdates(!settings.liveUpdates);
 });
-
-async function addProvider({ name, baseUrl, rpm }) {
-  name = (name || '').trim();
-  baseUrl = (baseUrl || '').trim().replace(/\/+$/, '');
-
-  if (!name || !baseUrl) {
-    setStatus('error', 'Provider name and Base URL are required');
-    return false;
-  }
-  try {
-    new URL(baseUrl);
-  } catch (_) {
-    setStatus('error', 'Base URL is not a valid URL');
-    return false;
-  }
-  const dupe = Object.values(PROVIDERS).some(
-    (p) => p.name.toLowerCase() === name.toLowerCase()
-  );
-  if (dupe) {
-    setStatus('error', `A provider named "${name}" already exists`);
-    return false;
-  }
-
-  const id = `prov_${Date.now()}`;
-  const color = CUSTOM_COLORS[Object.keys(PROVIDERS).length % CUSTOM_COLORS.length];
-  PROVIDERS[id] = makeRuntimeProvider({ id, name, baseUrl, color, custom: true });
-  PROVIDERS[id].rpm = Number.isFinite(rpm) && rpm > 0 ? rpm : null;
-  await saveProviderConfig(id);
-  switchProvider(id);
-  setStatus('done', `Provider "${name}" added`);
-  return true;
-}
-
-async function removeProvider(id) {
-  const p = PROVIDERS[id];
-  if (!p || !p.custom) return;
-  delete PROVIDERS[id];
-  const data = await window.electronAPI.readConfig();
-  if (data.providers) delete data.providers[id];
-  await window.electronAPI.writeConfig(data);
-  if (activeProvider === id) activeProvider = Object.keys(PROVIDERS)[0];
-  switchProvider(activeProvider);
-  setStatus('done', `Provider "${p.name}" removed`);
-}
 
 function switchProvider(providerId) {
   activeProvider = providerId;
@@ -3361,28 +3332,19 @@ $('#add-key-modal').addEventListener('click', (e) => {
 });
 
 // ============================================
-// Add / Edit Provider modal
+// Edit Provider modal
 // ============================================
+// Providers are integrated (built in): they can be renamed, pointed at another
+// base URL or given a rate limit, never added or removed.
 let editingProviderId = null;
 
 function openProviderModal(id) {
-  editingProviderId = id || null;
-  const title = $('#provider-modal-title');
-  const submitBtn = $('#provider-modal-add');
-  if (editingProviderId) {
-    const p = PROVIDERS[editingProviderId];
-    title.textContent = 'Edit Provider';
-    submitBtn.textContent = 'Save Changes';
-    $('#provider-name-input').value = p.name;
-    $('#provider-url-input').value = p.baseUrl;
-    $('#provider-rpm-input').value = p.rpm ?? '';
-  } else {
-    title.textContent = 'Add Provider';
-    submitBtn.textContent = 'Add Provider';
-    $('#provider-name-input').value = '';
-    $('#provider-url-input').value = '';
-    $('#provider-rpm-input').value = '';
-  }
+  const p = PROVIDERS[id];
+  if (!p) return;
+  editingProviderId = id;
+  $('#provider-name-input').value = p.name;
+  $('#provider-url-input').value = p.baseUrl;
+  $('#provider-rpm-input').value = p.rpm ?? '';
   $('#add-provider-modal').style.display = 'flex';
   setTimeout(() => $('#provider-name-input').focus(), 100);
 }
@@ -3426,7 +3388,6 @@ function closeAddProviderModal() {
   editingProviderId = null;
 }
 
-$('#btn-add-provider').addEventListener('click', () => openProviderModal(null));
 $('#provider-modal-close').addEventListener('click', closeAddProviderModal);
 $('#provider-modal-cancel').addEventListener('click', closeAddProviderModal);
 $('#provider-modal-add').addEventListener('click', async () => {
@@ -3436,10 +3397,7 @@ $('#provider-modal-add').addEventListener('click', async () => {
     baseUrl: $('#provider-url-input').value,
     rpm: rpmRaw === '' ? null : Number(rpmRaw),
   };
-  const ok = editingProviderId
-    ? await updateProvider(editingProviderId, payload)
-    : await addProvider(payload);
-  if (ok) closeAddProviderModal();
+  if (editingProviderId && await updateProvider(editingProviderId, payload)) closeAddProviderModal();
 });
 $('#add-provider-modal').addEventListener('click', (e) => {
   if (e.target.id === 'add-provider-modal') closeAddProviderModal();
@@ -3747,7 +3705,7 @@ function renderAbout() {
       const n = (p.models || []).length;
       return `<div class="about-provider">
         <span class="about-provider-name">${escapeHtml(p.name)}</span>
-        <span class="about-provider-meta">${n ? `${n} models` : 'not fetched'}${p.custom ? ' · custom' : ''}</span>
+        <span class="about-provider-meta">${n ? `${n} models` : 'not fetched'}</span>
       </div>`;
     })
     .join('');
@@ -3789,7 +3747,7 @@ function renderSettingsCrumbs(activeSectionLabel) {
   const el = $('#settings-crumbs');
   if (!el) return;
   el.innerHTML = breadcrumbHTML([
-    { label: 'Home', page: 'overview', home: true },
+    { label: 'Overview', page: 'overview' },
     { label: 'Settings', page: 'settings' },
     { label: activeSectionLabel || 'Appearance' }
   ]);
@@ -4032,7 +3990,91 @@ function showPage(page) {
   syncRoute();
 }
 
+// ============================================
+// Sidebar ambience — moving stars and the signature heart
+// ============================================
+// A second, living layer over the sidebar's painted starfield (which stays as
+// it is): a few faint stars that twinkle while they rise slowly, and now and
+// then a shooting star. Positions come from a fixed seed, so the sky is the
+// same every launch. Everything sits under the content, at low opacity.
+function mountSidebarStars() {
+  const nav = document.querySelector('.shell-nav');
+  if (!nav || nav.querySelector('.shell-stars')) return;
+  let seed = 20260926;
+  const rand = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
+  const sky = document.createElement('div');
+  sky.className = 'shell-stars';
+  sky.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < 16; i++) {
+    const star = document.createElement('span');
+    star.className = 'shell-star';
+    const size = (1 + rand() * 1.4).toFixed(2);
+    star.style.cssText = [
+      `left:${(8 + rand() * 84).toFixed(1)}%`,
+      `bottom:${(4 + rand() * 88).toFixed(1)}%`,
+      `--size:${size}px`,
+      `--rise:${(-18 - rand() * 26).toFixed(0)}px`,
+      `--drift:${(16 + rand() * 14).toFixed(1)}s`,
+      `--twinkle:${(2.4 + rand() * 2.8).toFixed(2)}s`,
+      `--delay:${(-rand() * 20).toFixed(2)}s`,
+      `--peak:${(0.35 + rand() * 0.45).toFixed(2)}`,
+    ].join(';');
+    if (rand() < 0.4) star.classList.add('tinted');
+    star.appendChild(document.createElement('i'));
+    sky.appendChild(star);
+  }
+  const meteor = document.createElement('span');
+  meteor.className = 'shell-meteor';
+  sky.appendChild(meteor);
+  nav.prepend(sky);
+}
+
+// The heart answers a click: a big beat, and a burst of small hearts and
+// sparks that fly out and fade. Reduced motion keeps only a gentle beat.
+function bindSignatureHeart() {
+  const heart = document.querySelector('.shell-heart');
+  if (!heart) return;
+  heart.setAttribute('tabindex', '0');
+  heart.setAttribute('role', 'button');
+  heart.setAttribute('aria-label', 'Crafted with love');
+  const mini = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.5-4.6-10-9.3C.3 8.4 2.1 4.5 5.9 4.1c2.3-.2 4.3 1 5.4 2.9h1.4c1.1-1.9 3.1-3.1 5.4-2.9 3.8.4 5.6 4.3 3.9 7.6C19.5 16.4 12 21 12 21z"/></svg>';
+  const burst = () => {
+    heart.classList.remove('pop');
+    void heart.getBoundingClientRect(); // restart the animation on a quick second click
+    heart.classList.add('pop');
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const r = heart.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    const n = 12;
+    for (let i = 0; i < n; i++) {
+      const p = document.createElement('span');
+      const isHeart = i % 3 !== 2;
+      p.className = `heart-particle${isHeart ? '' : ' spark'}`;
+      if (isHeart) p.innerHTML = mini;
+      // Spread over the upper half-circle, so the burst rises out of the footer.
+      const angle = Math.PI + (Math.PI * (i + 0.5)) / n + (Math.random() - 0.5) * 0.35;
+      const dist = 34 + Math.random() * 38;
+      p.style.cssText = [
+        `left:${cx}px`, `top:${cy}px`,
+        `--dx:${(Math.cos(angle) * dist).toFixed(1)}px`,
+        `--dy:${(Math.sin(angle) * dist).toFixed(1)}px`,
+        `--rot:${((Math.random() - 0.5) * 70).toFixed(0)}deg`,
+        `--scale:${(0.55 + Math.random() * 0.6).toFixed(2)}`,
+        `--dur:${(750 + Math.random() * 450).toFixed(0)}ms`,
+      ].join(';');
+      p.addEventListener('animationend', () => p.remove(), { once: true });
+      document.body.appendChild(p);
+    }
+  };
+  heart.addEventListener('click', burst);
+  heart.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); burst(); } });
+  heart.addEventListener('animationend', (e) => { if (e.animationName === 'shell-heart-pop') heart.classList.remove('pop'); });
+}
+
 function bindShell() {
+  mountSidebarStars();
+  bindSignatureHeart();
   const shell = $('#shell');
   renderPageHeader(currentPage);
   $('#btn-theme-toggle').addEventListener('click', toggleTheme);
@@ -4205,20 +4247,31 @@ function renderSystemLamp() {
 // ============================================
 // Breadcrumb — shared helper
 // ============================================
-// items: [{ label, page?, tab?, home? }] — the last item is the current page.
+// items: [{ label, page?, tab?, icon? }] — the last item is the current page.
+// A crumb that stands for a page (`page`, or `icon` naming one) carries that
+// page's own sidebar icon, cloned from the nav, so the two never drift apart.
+// The trail starts at Overview, the app's first page.
+function crumbIconHTML(page) {
+  const svg = document.querySelector(`.shell-nav-item[data-page="${page}"] .shell-nav-icon`);
+  if (!svg) return '';
+  const icon = svg.cloneNode(true);
+  icon.setAttribute('width', '13');
+  icon.setAttribute('height', '13');
+  icon.setAttribute('aria-hidden', 'true');
+  icon.setAttribute('class', 'crumb-icon');
+  return icon.outerHTML;
+}
+
 function breadcrumbHTML(items) {
   const sep = '<svg class="crumb-sep" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>';
-  const home = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12 12 3l9 9"/><path d="M5 10v10h14V10"/></svg>';
-  const { on, label, title } = liveToggleAttrs();
-  const live = `<button class="live-toggle ${on ? 'on' : ''}" type="button" data-live-toggle aria-pressed="${on}" title="${escapeHtml(title)}">`
-    + `<span class="live-toggle-dot" aria-hidden="true"></span><span class="live-toggle-label">${label}</span></button>`;
   return items.map((it, i) => {
     const last = i === items.length - 1;
-    const inner = (it.home ? home : '') + escapeHtml(it.label);
+    const iconPage = it.icon || it.page;
+    const inner = (iconPage ? crumbIconHTML(iconPage) : '') + escapeHtml(it.label);
     if (last) return `<span class="crumb" aria-current="page">${inner}</span>`;
     const attrs = it.page ? `data-go="${it.page}"` : it.tab ? `data-tab="${it.tab}"` : '';
     return `<button class="crumb" type="button" ${attrs}>${inner}</button>${sep}`;
-  }).join('') + live;
+  }).join('');
 }
 
 // ============================================
@@ -4238,7 +4291,6 @@ const PV_ICON = {
   spark: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"/></svg>',
   layers: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/></svg>',
   gauge: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/></svg>',
-  user: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
   empty: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0z"/><path d="M12 18v4"/><path d="M3 3l18 18"/></svg>',
 };
 
@@ -4295,7 +4347,6 @@ function providerStats(p) {
 function providerTags(p) {
   const adapter = (window.INTEGRATED_PROVIDERS || {})[p.id];
   const tags = [`<span class="pv-tag">${PV_ICON.api}OpenAI API</span>`];
-  if (p.custom) tags.push(`<span class="pv-tag t-violet">${PV_ICON.user}Custom</span>`);
   if (adapter && adapter.fetchModels) tags.push(`<span class="pv-tag t-green">${PV_ICON.spark}Curated catalog</span>`);
   if (p.plansUrl) tags.push(`<span class="pv-tag t-amber">${PV_ICON.layers}Plan-aware</span>`);
   if (p.rpm) tags.push(`<span class="pv-tag t-muted">${PV_ICON.gauge}${p.rpm} RPM</span>`);
@@ -4324,7 +4375,9 @@ function providerStatusHTML(p) {
   const health = providerHealthLine(p);
   const h = providerHealth.get(p.id);
   const title = h ? `${health.text} — checked ${new Date(h.checkedAt).toLocaleTimeString()}` : health.text;
-  return statusPillHTML(health.state, health.text, title);
+  // A provider's badge stands alone: the words are for its keys, where they
+  // tell one key's problem from another's.
+  return statusPillHTML(health.state, health.text, title, { caption: false });
 }
 
 // Inline dot beside a provider's name on the Catalog and Profiles pages, so a
@@ -4398,6 +4451,20 @@ const PROVIDER_TYPES = {
   none: { label: 'No Auth', desc: 'Open to use — nothing to connect', color: 'var(--type-none)' },
 };
 
+// The Providers list is grouped by how a provider authenticates, OAuth first.
+// A provider that offers both is filed once, under its first declared kind,
+// but either filter finds it.
+const PV_AUTH_GROUPS = ['oauth', 'apikey'];
+
+function providerAuthKinds(p) {
+  const kinds = providerTypes(p).filter((t) => PV_AUTH_GROUPS.includes(t));
+  return kinds.length ? kinds : ['apikey'];
+}
+
+function providerAuthGroup(p) {
+  return providerAuthKinds(p)[0];
+}
+
 function providerTypes(p) {
   const types = Array.isArray(p.auth) && p.auth.length ? [...p.auth] : ['apikey'];
   if (p.freeTier) types.push('free');
@@ -4427,7 +4494,7 @@ function providerLegendHTML(list) {
   list.forEach((p) => providerTypes(p).forEach((t) => { counts[t] += 1; }));
   const chevron = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>';
   return `<div class="pv-legend ${pvLegendCollapsed ? 'collapsed' : ''}">
-    <div class="pv-legend-head">
+    <div class="pv-legend-head" data-legend-toggle>
       <span class="pv-legend-title"><span class="pv-legend-dots">${Object.values(PROVIDER_TYPES).map((t) => `<i style="--c:${t.color}"></i>`).join('')}</span>Provider types</span>
       <button class="pv-legend-toggle" type="button" data-legend-toggle aria-expanded="${!pvLegendCollapsed}">
         <span>${pvLegendCollapsed ? 'Show legend' : 'Hide legend'}</span>${chevron}
@@ -4461,6 +4528,7 @@ const KX_ICON = {
   chevron: '<svg class="kx-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
   test: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></svg>',
   trash: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>',
+  alert: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
   lock: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
   unlock: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>',
   external: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>',
@@ -4606,8 +4674,8 @@ function keyStripHTML(p) {
 }
 
 // Everything one key shows, rendered once and laid out twice: as a stacked
-// row in the card view's panel, and as a table row under the provider's
-// columns (keyTableRowsHTML).
+// row in the card view's panel, and as a row on the provider's own column
+// grid in the list view (keyRowsHTML).
 function keyParts(p, k, i) {
   const pid = escapeHtml(p.id);
   const st = keyState(k);
@@ -4646,8 +4714,15 @@ function keyParts(p, k, i) {
     added,
     probe,
     index: `<span class="kx-index" title="${escapeHtml(hint)}">#${i + 1}</span>`,
-    name: `<span class="kx-name" title="${escapeHtml(hint)}">${escapeHtml(k.name)}</span>`,
-    badge: `<span class="kx-badge" data-state="${st.id}">${k.locked ? KX_ICON.lock : ''}${escapeHtml(st.label)}</span>`,
+    // No state badge: the index chip's colour already says it. A key that is
+    // switched off, or can't be read here, carries a clear icon by its name.
+    name: `<span class="kx-name-line"><span class="kx-name" title="${escapeHtml(hint)}">${escapeHtml(k.name)}</span>${
+      k.locked
+        ? `<span class="kx-flag warn" title="Unreadable on this machine — the key was encrypted elsewhere; re-add it">${KX_ICON.alert}</span>`
+        : !k.active
+          ? `<span class="kx-flag" title="Disabled by the admin — this key is not used in runs">${KX_ICON.lock}</span>`
+          : ''
+    }</span>`,
     secret: `<div class="kx-secret">
         <code>${k.locked ? 'encrypted' : escapeHtml(maskKey(k.key))}</code>
         ${k.locked ? '' : `<button class="pv-icon-btn" type="button" data-kx-copy="${pid}|${kid}" title="Copy key" aria-label="Copy key">${PV_ICON.copy}</button>`}
@@ -4667,7 +4742,7 @@ function keysPanelHTML(p) {
       <div class="kx-id">
         ${kp.index}
         <div class="kx-id-text">
-          <span class="kx-name-line">${kp.name}${kp.badge}</span>
+          ${kp.name}
           <span class="kx-meta">${kp.added ? `<span class="kx-meta-item">Added ${escapeHtml(kp.added)}</span>` : ''}${keyModelsHTML(p, k)}${keyCheckedHTML(kp.probe)}</span>
         </div>
       </div>
@@ -4679,11 +4754,12 @@ function keysPanelHTML(p) {
   return `<div class="kx-panel" aria-label="API keys"><div class="kx-list">${rows}</div></div>`;
 }
 
-// The table's key rows use the provider row's own columns, so each value sits
-// under its header: identity under Provider, the check under Status, the
-// key's state under Keys, its model count under Models, when it was checked
-// under Last run, and its buttons under Actions.
-function keyTableRowsHTML(p) {
+// An open provider's keys, inside its row card and on the same column grid as
+// the provider row, so each value sits under the provider's own: identity
+// under the name, the check under the status, the key's state under the key
+// count, its model count under the models, and its buttons, with when it was
+// last checked framed beneath them, under the provider's buttons.
+function keyRowsHTML(p) {
   return p.keys.map((k, i) => {
     const kp = keyParts(p, k, i);
     const km = keyModelCount(p, k);
@@ -4692,23 +4768,76 @@ function keyTableRowsHTML(p) {
     const models = !km
       ? '<span class="dt-muted">—</span>'
       : `<span class="${partial ? 'kx-models-partial' : ''}" title="${escapeHtml(partial ? `This key sees ${km.count} of the ${total} models this provider's keys offer` : 'Models this key can use')}">${km.count}${partial ? `<span class="dt-muted"> / ${total}</span>` : ''}</span>`;
+    // When the key was last checked sits under its buttons, framed to their
+    // width, so the check and the controls that act on it read as one block.
     const checked = kp.probe && kp.probe.at && kp.probe.state !== 'testing'
-      ? `<span class="kx-checked" title="Last checked ${escapeHtml(new Date(kp.probe.at).toLocaleString())}">${KX_META_ICON.clock}Checked <span data-ago="${kp.probe.at}">${escapeHtml(formatAgo(kp.probe.at))}</span></span>`
-      : '<span class="dt-muted">—</span>';
+      ? `<span class="kx-checked-frame" title="Last checked ${escapeHtml(new Date(kp.probe.at).toLocaleString())}">${KX_META_ICON.clock}<span data-ago="${kp.probe.at}">${escapeHtml(formatAgo(kp.probe.at))}</span></span>`
+      : '<span class="kx-checked-frame is-empty" title="Not checked yet">not checked</span>';
     const last = i === p.keys.length - 1;
-    return `<tr class="dt-keyrow${last ? ' last' : ''}" data-state="${kp.st.id}">
-      <td class="dt-key-id"><div class="dt-key">
+    return `<div class="pv-krow${last ? ' last' : ''}" data-state="${kp.st.id}">
+      <div class="pv-cell col-provider"><div class="dt-key">
         ${kp.index}
         <div class="dt-key-text">${kp.name}${kp.secret}</div>
-      </div></td>
-      <td class="col-status">${kp.probeHTML}</td>
-      <td class="col-keys">${kp.badge}</td>
-      <td class="dt-num col-models">${models}</td>
-      <td class="col-rate"></td>
-      <td class="col-last">${checked}</td>
-      <td class="dt-actions-col"><div class="dt-row-actions">${kp.actions}</div></td>
-    </tr>`;
+      </div></div>
+      <div class="pv-cell col-status">${kp.probeHTML}</div>
+      <div class="pv-cell col-keys"></div>
+      <div class="pv-cell dt-num col-models">${models}</div>
+      <div class="pv-cell col-rate"></div>
+      <div class="pv-cell col-last"></div>
+      <div class="pv-cell col-actions"><div class="kx-actions-stack"><div class="dt-row-actions">${kp.actions}</div>${checked}</div></div>
+    </div>`;
   }).join('');
+}
+
+// A group's divider: a framed tag (its kind in the legend colour, how many
+// providers) and a hairline running to the edge.
+function pvGroupHeadHTML(kind, n) {
+  const t = PROVIDER_TYPES[kind];
+  return `<div class="pv-group-head" style="--c:${t.color}" role="presentation">
+    <span class="pv-group-tag">
+      <span class="pv-group-dot" aria-hidden="true"></span>
+      <span class="pv-group-label">${escapeHtml(t.label)}</span>
+      <span class="pv-group-count">${n} provider${n === 1 ? '' : 's'}</span>
+    </span>
+    <span class="pv-group-rule" aria-hidden="true"></span>
+  </div>`;
+}
+
+// Connected providers as a list of row cards, one per provider with a gap
+// between them, on one column grid shared with each provider's key rows, and
+// grouped by auth kind under a divider each. The whole row opens its keys;
+// there is no separate key button.
+function pvRowsHTML(groups, stats) {
+  const rows = groups.map((x) => pvGroupHeadHTML(x.g, x.items.length) + x.items.map((p) => {
+    const s = stats.get(p.id);
+    const last = pvLastRun(p);
+    const id = escapeHtml(p.id);
+    const rate = s.rate == null
+      ? '<span class="dt-muted">—</span>'
+      : `<div class="dt-rate"><div class="dt-rate-bar"><span class="${scoreClass(s.rate / 100)}" style="width:${s.rate}%"></span></div><b>${s.rate}%</b></div>`;
+    const open = pvExpanded.has(p.id);
+    return `<div class="pv-rowcard ${open ? 'open' : ''}" role="listitem">
+      <div class="pv-row ${open ? 'open' : ''}" data-kx-toggle="${id}" aria-expanded="${open}" tabindex="0">
+        <div class="pv-cell col-provider"><div class="dt-provider">${KX_ICON.chevron}
+          ${providerLogoHTML(p)}
+          <div><div class="dt-provider-name">${escapeHtml(p.name)}${websiteLinkHTML(p)}</div><div class="dt-provider-host">${escapeHtml(providerHost(p))}</div></div>
+        </div></div>
+        <div class="pv-cell col-status">${providerStatusHTML(p)}</div>
+        <div class="pv-cell dt-num col-keys">${s.activeKeys}<span class="dt-muted"> / ${s.keys}</span></div>
+        <div class="pv-cell dt-num col-models">${s.models || '<span class="dt-muted">—</span>'}</div>
+        <div class="pv-cell col-rate">${rate}</div>
+        <div class="pv-cell col-last">${last ? escapeHtml(formatAgo(last)) : '<span class="dt-muted">never</span>'}</div>
+        <div class="pv-cell col-actions"><div class="dt-row-actions">
+          <button class="dt-icon-btn" type="button" data-connect="${id}" title="Add key" aria-label="Add key">${PV_ICON.plus}</button>
+          ${recheckButtonHTML(p)}
+          <button class="dt-icon-btn" type="button" data-manage="${id}" title="Open in Upstream Check" aria-label="Open in Upstream Check">${KX_ICON.external}</button>
+        </div></div>
+      </div>${open ? `<div class="pv-rowcard-keys">${keyRowsHTML(p)}</div>` : ''}
+    </div>`;
+  }).join('')).join('');
+  return `<div class="pv-rows" role="list" aria-label="Connected providers">
+    ${rows}
+  </div>`;
 }
 
 function refreshAfterKeyChange(pid) {
@@ -4806,9 +4935,7 @@ function statCardsHTML(items) {
 // so a keystroke in the search box re-renders the results, never the toolbar.
 const DT_ICON = {
   search: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
-  table: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 10v10"/></svg>',
   nomatch: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/><path d="m8.5 8.5 5 5M13.5 8.5l-5 5"/></svg>',
-  cards: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></svg>',
 };
 
 // config: { placeholder, filters: [{ value, label, dot? }], sorts: [{ value, label }] }
@@ -4823,19 +4950,16 @@ function dataToolbarHTML(config, state) {
     `<option value="${s.value}" ${state.sort === s.value ? 'selected' : ''}>${escapeHtml(s.label)}</option>`).join('');
   return `<div class="dt-toolbar">
     <div class="dt-left">
-      <label class="dt-search">${DT_ICON.search}
+      <label class="dt-search"><span class="dt-search-icon" aria-hidden="true">${DT_ICON.search}</span>
         <input type="search" data-dt="search" placeholder="${escapeHtml(config.placeholder || 'Search…')}"
                value="${escapeHtml(state.search)}" autocomplete="off" spellcheck="false" aria-label="Search">
         <kbd>/</kbd>
       </label>
-      ${chips ? `<div class="dt-chips" role="radiogroup" aria-label="Filter">${chips}</div>` : ''}
       ${sorts ? `<label class="dt-select">Sort<select data-dt="sort" aria-label="Sort">${sorts}</select></label>` : ''}
     </div>
-    <div class="dt-views" role="radiogroup" aria-label="View">
-      <button class="dt-view ${state.view === 'table' ? 'active' : ''}" type="button" role="radio"
-              aria-checked="${state.view === 'table'}" data-dt-view="table" title="Table view">${DT_ICON.table}</button>
-      <button class="dt-view ${state.view === 'cards' ? 'active' : ''}" type="button" role="radio"
-              aria-checked="${state.view === 'cards'}" data-dt-view="cards" title="Card view">${DT_ICON.cards}</button>
+    <div class="dt-right">
+      ${chips ? `<div class="dt-chips" role="radiogroup" aria-label="Filter">${chips}</div>` : ''}
+      <div class="dt-actions"></div>
     </div>
   </div>`;
 }
@@ -4843,11 +4967,6 @@ function dataToolbarHTML(config, state) {
 function syncDataToolbar(root, state) {
   root.querySelectorAll('[data-dt-filter]').forEach((b) => {
     const on = b.dataset.dtFilter === state.filter;
-    b.classList.toggle('active', on);
-    b.setAttribute('aria-checked', String(on));
-  });
-  root.querySelectorAll('[data-dt-view]').forEach((b) => {
-    const on = b.dataset.dtView === state.view;
     b.classList.toggle('active', on);
     b.setAttribute('aria-checked', String(on));
   });
@@ -4862,15 +4981,13 @@ function bindDataToolbar(root, state, onChange) {
   if (sort) sort.addEventListener('change', (e) => { state.sort = e.target.value; onChange('sort'); });
   root.addEventListener('click', (e) => {
     const f = e.target.closest('[data-dt-filter]');
-    const v = e.target.closest('[data-dt-view]');
     if (f) { state.filter = f.dataset.dtFilter; syncDataToolbar(root, state); onChange('filter'); }
-    if (v) { state.view = v.dataset.dtView; state.viewPinned = true; syncDataToolbar(root, state); onChange('view'); }
   });
 }
 
-// Table at full width, cards once the window is narrow enough for the nav to
-// fold into a drawer — the same breakpoint, so the page and the chrome change
-// shape together. A manual choice holds until the next crossing.
+// The list at full width, cards once the window is narrow enough for the nav
+// to fold into a drawer — the same breakpoint, so the page and the chrome
+// change shape together. There is no manual switch: the window decides.
 const COMPACT_LAYOUT = window.matchMedia('(max-width: 1100px)');
 
 // ============================================
@@ -4888,8 +5005,8 @@ const PV_TOOLBAR = {
   placeholder: 'Search providers, hosts or URLs…',
   filters: [
     { value: 'all', label: 'All' },
-    { value: 'ok', label: 'Reachable', dot: 'var(--pass)' },
-    { value: 'issues', label: 'Issues', dot: 'var(--fail)' },
+    { value: 'oauth', label: 'OAuth', dot: 'var(--type-oauth)' },
+    { value: 'apikey', label: 'API Key', dot: 'var(--type-apikey)' },
   ],
   sorts: [
     { value: 'name', label: 'Name' },
@@ -4941,10 +5058,7 @@ function pvFiltered(connected) {
   const q = pvState.search.trim().toLowerCase();
   let list = connected.filter((p) => {
     if (q && !`${p.name} ${providerHost(p)} ${p.baseUrl}`.toLowerCase().includes(q)) return false;
-    const st = pvHealthState(p);
-    if (pvState.filter === 'ok') return st === 'ok';
-    if (pvState.filter === 'issues') return st === 'fail' || st === 'none';
-    return true;
+    return pvState.filter === 'all' || providerAuthKinds(p).includes(pvState.filter);
   });
   const stats = new Map(list.map((p) => [p.id, providerStats(p)]));
   const by = {
@@ -4957,50 +5071,14 @@ function pvFiltered(connected) {
   return { list, stats };
 }
 
-function pvTableHTML(list, stats) {
-  const rows = list.map((p) => {
-    const s = stats.get(p.id);
-    const last = pvLastRun(p);
-    const id = escapeHtml(p.id);
-    const rate = s.rate == null
-      ? '<span class="dt-muted">—</span>'
-      : `<div class="dt-rate"><div class="dt-rate-bar"><span class="${scoreClass(s.rate / 100)}" style="width:${s.rate}%"></span></div><b>${s.rate}%</b></div>`;
-    const open = pvExpanded.has(p.id);
-    return `<tr class="dt-row pv-row ${open ? 'open' : ''}" data-kx-toggle="${id}" aria-expanded="${open}" tabindex="0">
-      <td><div class="dt-provider">${KX_ICON.chevron}
-        ${providerLogoHTML(p)}
-        <div><div class="dt-provider-name">${escapeHtml(p.name)}${websiteLinkHTML(p)}</div><div class="dt-provider-host">${escapeHtml(providerHost(p))}</div></div>
-      </div></td>
-      <td class="col-status">${providerStatusHTML(p)}</td>
-      <td class="dt-num col-keys">${s.activeKeys}<span class="dt-muted"> / ${s.keys}</span></td>
-      <td class="dt-num col-models">${s.models || '<span class="dt-muted">—</span>'}</td>
-      <td class="col-rate">${rate}</td>
-      <td class="col-last">${last ? escapeHtml(formatAgo(last)) : '<span class="dt-muted">never</span>'}</td>
-      <td class="dt-actions-col"><div class="dt-row-actions">
-        <button class="dt-icon-btn primary" type="button" data-kx-toggle="${id}" title="${open ? 'Hide keys' : 'Show keys'}" aria-label="${open ? 'Hide keys' : 'Show keys'}">${PV_ICON.keys}</button>
-        <button class="dt-icon-btn" type="button" data-connect="${id}" title="Add key" aria-label="Add key">${PV_ICON.plus}</button>
-        ${recheckButtonHTML(p)}
-        <button class="dt-icon-btn" type="button" data-manage="${id}" title="Open in Upstream Check" aria-label="Open in Upstream Check">${KX_ICON.external}</button>
-      </div></td>
-    </tr>${open ? keyTableRowsHTML(p) : ''}`;
-  }).join('');
-  return `<div class="dt-table-wrap"><table class="dt-table">
-    <thead><tr><th>Provider</th><th class="col-status">Status</th><th class="col-keys">Keys</th><th class="col-models">Models</th><th class="col-rate">Pass rate</th><th class="col-last">Last run</th><th class="dt-actions-col">Actions</th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table></div>`;
-}
 
 function renderConnectedResults(connected) {
   const results = $('#pv-results');
   // Filter counts reflect the search, so a chip never promises rows it hides.
   const q = pvState.search.trim().toLowerCase();
   const searched = connected.filter((p) => !q || `${p.name} ${providerHost(p)} ${p.baseUrl}`.toLowerCase().includes(q));
-  const count = { all: searched.length, ok: 0, issues: 0 };
-  searched.forEach((p) => {
-    const st = pvHealthState(p);
-    if (st === 'ok') count.ok += 1;
-    if (st === 'fail' || st === 'none') count.issues += 1;
-  });
+  const count = { all: searched.length };
+  PV_AUTH_GROUPS.forEach((g) => { count[g] = searched.filter((p) => providerAuthKinds(p).includes(g)).length; });
   $$('#pv-toolbar [data-dt-count]').forEach((el) => { el.textContent = count[el.dataset.dtCount] ?? 0; });
 
   const { list, stats } = pvFiltered(connected);
@@ -5010,9 +5088,14 @@ function renderConnectedResults(connected) {
       <button class="btn btn-ghost" type="button" data-dt-clear>Clear search and filters</button></div>`;
     return;
   }
+  // One group per auth kind, each under its own divider; a kind with no
+  // provider (OAuth, today) shows no group at all.
+  const groups = PV_AUTH_GROUPS
+    .map((g) => ({ g, items: list.filter((p) => (pvState.filter === 'all' ? providerAuthGroup(p) === g : g === pvState.filter)) }))
+    .filter((x) => x.items.length);
   results.innerHTML = pvState.view === 'table'
-    ? pvTableHTML(list, stats)
-    : `<div class="pv-grid">${list.map((p) => providerCardHTML(p, 'connected')).join('')}</div>`;
+    ? pvRowsHTML(groups, stats)
+    : groups.map((x) => pvGroupHeadHTML(x.g, x.items.length) + `<div class="pv-grid">${x.items.map((p) => providerCardHTML(p, 'connected')).join('')}</div>`).join('');
 }
 
 function renderProvidersPage() {
@@ -5028,8 +5111,8 @@ function renderProvidersPage() {
     t.setAttribute('aria-selected', String(on));
   });
   $('#pv-crumbs').innerHTML = breadcrumbHTML([
-    { label: 'Home', page: 'overview', home: true },
-    { label: 'Providers', tab: 'connected' },
+    { label: 'Overview', page: 'overview' },
+    { label: 'Providers', tab: 'connected', icon: 'providers' },
     { label: providersTab === 'connected' ? 'Connected' : 'Integrated' },
   ]);
 
@@ -5061,17 +5144,22 @@ function renderProvidersPage() {
   renderConnectedResults(connected);
 }
 
+// Crossing the breakpoint changes the whole page's shape, so the Providers
+// page starts over in it: Connected tab, every provider (All), no search, the
+// legend folded and every provider closed. The sort order is kept.
 COMPACT_LAYOUT.addEventListener('change', (e) => {
   pvState.view = e.matches ? 'cards' : 'table';
-  const tb = document.getElementById('pv-toolbar');
-  if (tb) syncDataToolbar(tb, pvState);
-  if (currentPage === 'providers' && pvShell === 'connected') {
-    renderConnectedResults(Object.values(PROVIDERS).filter(isConnected));
-  }
+  Object.assign(pvState, { search: '', filter: 'all' });
+  providersTab = 'connected';
+  pvExpanded.clear();
+  pvLegendCollapsed = true;
+  try { localStorage.setItem('pvLegendCollapsed', '1'); } catch (_) {}
+  pvShell = null; // rebuild the toolbar too, so the search box is emptied
+  if (currentPage === 'providers') renderProvidersPage();
 });
 
 document.querySelector('.page-providers').addEventListener('keydown', (e) => {
-  const row = e.target.closest && e.target.closest('tr.dt-row');
+  const row = e.target.closest && e.target.closest('.pv-row[data-kx-toggle]');
   if (row && e.target === row && (e.key === 'Enter' || e.key === ' ')) {
     e.preventDefault();
     togglePvExpanded(row.dataset.kxToggle);
@@ -5118,12 +5206,14 @@ $('.page-providers').addEventListener('click', async (e) => {
     togglePvExpanded(toggle.dataset.kxToggle);
     return;
   }
+  // The whole legend header toggles it; the button inside stays the keyboard
+  // and screen-reader control, and carries the state.
   if (e.target.closest('[data-legend-toggle]')) {
     pvLegendCollapsed = !pvLegendCollapsed;
     try { localStorage.setItem('pvLegendCollapsed', pvLegendCollapsed ? '1' : '0'); } catch (_) {}
     $$('.pv-legend').forEach((lg) => {
       lg.classList.toggle('collapsed', pvLegendCollapsed);
-      const t = lg.querySelector('[data-legend-toggle]');
+      const t = lg.querySelector('.pv-legend-toggle');
       t.setAttribute('aria-expanded', String(!pvLegendCollapsed));
       t.querySelector('span').textContent = pvLegendCollapsed ? 'Show legend' : 'Hide legend';
     });

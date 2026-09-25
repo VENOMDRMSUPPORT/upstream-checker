@@ -957,8 +957,8 @@
 
   function renderCrumbs() {
     $('#mc-crumbs').innerHTML = breadcrumbHTML([
-      { label: 'Home', page: 'overview', home: true },
-      { label: 'Model Catalog' },
+      { label: 'Overview', page: 'overview' },
+      { label: 'Model Catalog', icon: 'catalog' },
     ]);
   }
 
@@ -986,7 +986,7 @@
       const tb = $('#mc-toolbar');
       bindDataToolbar(tb, ui, () => renderResults());
       tb.querySelector('.dt-left').insertAdjacentHTML('beforeend', providerSelectHTML());
-      tb.querySelector('.dt-views').insertAdjacentHTML('afterbegin',
+      tb.querySelector('.dt-actions').insertAdjacentHTML('afterbegin',
         `<button class="dt-icon-btn mc-sync-btn" type="button" data-mc-sync title="Sync now" aria-label="Sync now">${ICON.sync}</button>`);
       tb.querySelector('[data-mc-provider]').addEventListener('change', (ev) => { ui.provider = ev.target.value; renderResults(); });
     } else {
@@ -1060,7 +1060,8 @@
     });
     window.addEventListener('online', () => syncAll({ reason: 'online' }));
     COMPACT_LAYOUT.addEventListener('change', (mq) => {
-      if (!ui.viewPinned) { ui.view = mq.matches ? 'cards' : 'table'; renderIfShown(); }
+      ui.view = mq.matches ? 'cards' : 'table';
+      renderIfShown();
     });
   }
 
