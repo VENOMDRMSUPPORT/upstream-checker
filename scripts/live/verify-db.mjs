@@ -4,9 +4,10 @@
 //
 // Builds a fixture userData in %TEMP% (legacy JSON with fake keys, provider
 // URLs on a local mock), launches a separate VENOM Router on it over CDP,
-// checks the import and what survives a restart, then deletes the folder.
+// checks the import, the request log and what survives a restart, then
+// deletes the folder.
 // The owner's data folder is never read.
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { launch, spawnPlain } from './cdp.mjs';
@@ -90,7 +91,7 @@ async function checkKeysStayInMain({ app, dir, mock }) {
       headers: { Authorization: 'Bearer venomkey:k_dark_1' },
     });
     const sent = await window.electronAPI.apiRequest({
-      url: PROVIDERS.darkapi.baseUrl + '/chat/completions', method: 'POST', logLevel: 'all',
+      url: PROVIDERS.darkapi.baseUrl + '/chat/completions', method: 'POST',
       headers: { Authorization: 'Bearer venomkey:k_dark_1', 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: 'fixture-alpha', api_key: 'venomkey:k_dark_1', messages: [{ role: 'user', content: 'hi' }] }),
     });
@@ -121,8 +122,13 @@ async function checkKeysStayInMain({ app, dir, mock }) {
   const hit = mock.requests.find((r) => r.url.endsWith('/darkapi/v1/chat/completions') && r.body.includes('fixture-alpha'));
   check('main put the real key in the header and the JSON body',
     s.sentStatus === 200 && !!hit && hit.authorization === `Bearer ${FIXTURE.keys.dark1}` && JSON.parse(hit.body).api_key === FIXTURE.keys.dark1);
-  const log = existsSync(join(dir, 'requests.log')) ? readFileSync(join(dir, 'requests.log'), 'utf-8') : '';
-  check('requests.log keeps the placeholder, never the key', log.includes('venomkey:k_dark_1') && !log.includes(FIXTURE.keys.dark1));
+  // The log writer flushes every 250 ms.
+  await sleep(600);
+  const logged = await app.evaluate("window.electronAPI.logsList({ model: 'fixture-alpha', source: ['other'] }, null, 10)");
+  const row = logged.rows.find((r) => r.endpoint.endsWith('/darkapi/v1/chat/completions'));
+  check('the request was logged under its key id, never the key',
+    !!row && row.key_id === 'k_dark_1' && row.provider_id === 'darkapi' && row.status === 'ok' && !JSON.stringify(logged).includes(FIXTURE.keys.dark1),
+    JSON.stringify(row && { key: row.key_id, provider: row.provider_id, status: row.status }));
   check('copy-key refuses a locked key', s.lockedCopy === 'refused');
 }
 
@@ -193,9 +199,105 @@ async function checkWriteGate({ app }) {
   check('read gate: a settings save is refused and nothing changes on disk', r.direct && r.after === r.before, `${r.before} -> ${r.after}`);
 }
 
+// ---- request log ---------------------------------------------------------------
+
+// Answered right before closing: its row can only reach disk through the
+// writer's queue — the 250 ms timer or the flush on quit.
+const FLUSH_MARKER = `flush-probe-${Date.now()}`;
+
+async function logRightBeforeClose({ app }) {
+  await app.evaluate(`window.electronAPI.apiRequest({
+    url: PROVIDERS.darkapi.baseUrl + '/${FLUSH_MARKER}', method: 'GET',
+    headers: { Authorization: 'Bearer venomkey:k_dark_1' },
+  }).then(() => true)`);
+}
+
+async function checkQueuedRowSurvivedQuit({ app }) {
+  const { rows } = await app.evaluate("window.electronAPI.logsList({ source: ['other'], providerId: ['darkapi'] }, null, 200)");
+  check('a request answered right before quitting was written on quit', rows.some((r) => r.endpoint.endsWith(`/${FLUSH_MARKER}`)), FLUSH_MARKER);
+}
+
+async function checkLoggingOn({ app, dir }) {
+  const s = await app.evaluate(`(async () => ({
+    info: await window.electronAPI.logsInfo(),
+    health: (await window.electronAPI.logsList({ source: ['health'], providerId: ['darkapi'] }, null, 5)).rows,
+    label: document.querySelector('label[for="set-log-level"]').textContent.trim(),
+    level: settings.logLevel,
+  }))()`);
+  check('logging is on and venom-logs.db exists', s.info.enabled === true && s.info.rows > 0 && existsSync(join(dir, 'venom-logs.db')),
+    JSON.stringify({ enabled: s.info.enabled, rows: s.info.rows, error: s.info.error }));
+  check('health probes are logged with source health and a key id', s.health.length > 0 && /^k_dark_/.test(s.health[0].key_id), String(s.health.length));
+  check('the body setting reads "Request bodies" and a new install is on Failed only', s.label === 'Request bodies' && s.level === 'errors', `${s.label} / ${s.level}`);
+}
+
+async function checkRouteTestLogged({ app }) {
+  const s = await app.evaluate(`(async () => {
+    const wait = async (fn, ms) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end) {
+        if (fn()) return true;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      return false;
+    };
+    switchProvider('darkapi');
+    document.querySelector('#btn-fetch-models').click();
+    await wait(() => models.some((m) => m.id === 'fixture-alpha'), 15000);
+    await runTests(models.filter((m) => m.id === 'fixture-alpha'));
+    await new Promise((r) => setTimeout(r, 800));
+    const hist = await window.electronAPI.readHistory();
+    const last = hist.runs[hist.runs.length - 1];
+    const rows = (await window.electronAPI.logsList({ source: ['route_test'] }, null, 50)).rows;
+    return { runUid: last && last.runUid, result: last && last.results[0] && last.results[0].status, rows };
+  })()`, 60000);
+  const chat = s.rows.find((r) => r.endpoint.endsWith('/darkapi/v1/chat/completions'));
+  check('the Route Test passed', s.result === 'pass', String(s.result));
+  check('the Route Test wrote route_test rows', s.rows.length > 0, String(s.rows.length));
+  check("every route_test row carries the history run's id", s.rows.length > 0 && s.rows.every((r) => r.run_id === s.runUid),
+    `${s.runUid} vs ${[...new Set(s.rows.map((r) => r.run_id))].join(',')}`);
+  check('tokens come from the mock usage', !!chat && chat.input_tokens === 5 && chat.output_tokens === 1 && chat.usage_source === 'reported',
+    JSON.stringify(chat && { in: chat.input_tokens, out: chat.output_tokens }));
+  check('cost comes from the pool price (5 × $2 + 1 × $10 per 1M = 20 micro-USD)', !!chat && chat.cost_micros === 20, String(chat && chat.cost_micros));
+  check('the row names provider and key, attempt 1, not a hedge',
+    !!chat && chat.provider_id === 'darkapi' && /^k_dark_/.test(chat.key_id) && chat.attempt === 1 && chat.is_hedge === 0);
+  const meta = chat && chat.meta_json ? JSON.parse(chat.meta_json) : {};
+  check('meta_json has the manual trigger and a testGroup', meta.trigger === 'manual' && typeof meta.testGroup === 'string', chat && chat.meta_json);
+}
+
+async function checkFailedBodyScrubbed({ app }) {
+  const s = await app.evaluate(`(async () => {
+    const res = await window.electronAPI.apiRequest({
+      url: PROVIDERS.darkapi.baseUrl + '/echo-key', method: 'POST',
+      headers: { Authorization: 'Bearer venomkey:k_dark_1', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'fixture-alpha', api_key: 'venomkey:k_dark_1' }),
+    });
+    await new Promise((r) => setTimeout(r, 800));
+    const { rows } = await window.electronAPI.logsList({ status: ['error'], providerId: ['darkapi'] }, null, 50);
+    const row = rows.find((r) => r.endpoint.endsWith('/echo-key'));
+    return { status: res.status, full: row ? await window.electronAPI.logsGet(row.id) : null };
+  })()`);
+  const full = s.full;
+  const body = full && full.body;
+  check('the echo route answered 400', s.status === 400, String(s.status));
+  check('a failed request stored its body (Failed only)', !!body && full.has_body === 1);
+  check('the stored reply holds the placeholder, never the key',
+    !!body && body.response_body.includes('venomkey:k_dark_1') && !body.response_body.includes(FIXTURE.keys.dark1), body && body.response_body);
+  check('the stored request is the unresolved one and the auth header is redacted',
+    !!body && body.request_body.includes('venomkey:k_dark_1') && JSON.parse(body.request_headers_json).Authorization === '[redacted]');
+  check('the stored error message is scrubbed too', !!full && full.error_message.includes('venomkey:k_dark_1'), full && full.error_message);
+  check('nothing stored for that request holds the key', !!full && !JSON.stringify(full).includes(FIXTURE.keys.dark1));
+}
+
+async function checkNoRequestsLog({ dir }) {
+  check('requests.log was not written', !existsSync(join(dir, 'requests.log')) && !existsSync(join(dir, 'requests.log.1')));
+}
+
 const RUN1 = [checkImport, checkKeysStayInMain];
-const RUN1_END = [saveForNextRun, queueSaveThenClose];
-const RUN2 = [checkPersistence, checkFlushOnClose, checkSingleInstance];
+const RUN1_END = [saveForNextRun, logRightBeforeClose, queueSaveThenClose];
+const RUN2 = [
+  checkPersistence, checkFlushOnClose, checkQueuedRowSurvivedQuit, checkSingleInstance,
+  checkLoggingOn, checkRouteTestLogged, checkFailedBodyScrubbed, checkNoRequestsLog,
+];
 const RUN2_END = [checkWriteGate];
 
 // checkFastClose: assert the close was answered by the renderer's

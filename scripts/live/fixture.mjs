@@ -77,7 +77,7 @@ export function writeFixture(dir, origin) {
   const catalog = {
     version: 1,
     models: {
-      'darkapi::fixture-alpha': entry('fixture-alpha', {}),
+      'darkapi::fixture-alpha': entry('fixture-alpha', { pricing: { input: 2, output: 10, source: 'provider' } }),
       'darkapi::fixture-gone': entry('fixture-gone', { removedAt: now - 3600000, keyIds: ['k_dark_2'] }),
     },
     lastSync: { darkapi: now - 60000 },

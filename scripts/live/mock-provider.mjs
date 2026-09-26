@@ -1,6 +1,9 @@
 // A local stand-in for the fixture's providers: OpenAI-shaped /models and
 // /chat/completions on 127.0.0.1, answering only fixture keys. It records
 // every request, so the live check can see which key actually went out.
+// Completions report usage and fixture-alpha carries a price, so the request
+// log's tokens and cost can be checked; /echo-key quotes the key it was sent
+// back in an error, as some gateways do, so the log's scrubbing can be too.
 import http from 'node:http';
 
 export function startMock(port) {
@@ -18,9 +21,12 @@ export function startMock(port) {
       if (!authorization.startsWith('Bearer sk-fixture-')) return send(401, { error: { message: 'fixture: missing or unknown key' } });
       if (req.method === 'GET' && req.url.endsWith('/models')) {
         return send(200, { object: 'list', data: [
-          { id: 'fixture-alpha', object: 'model', owned_by: 'fixture' },
+          { id: 'fixture-alpha', object: 'model', owned_by: 'fixture', pricing: { input_usd_per_1m: 2, output_usd_per_1m: 10 } },
           { id: 'fixture-beta', object: 'model', owned_by: 'fixture' },
         ] });
+      }
+      if (req.method === 'POST' && req.url.endsWith('/echo-key')) {
+        return send(400, { error: { message: `fixture: rejected ${authorization}`, code: 'fixture_echo' } });
       }
       if (req.method === 'POST' && req.url.endsWith('/chat/completions')) {
         return send(200, {
