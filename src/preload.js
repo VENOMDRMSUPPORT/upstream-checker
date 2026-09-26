@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveProvider: (provider) => ipcRenderer.invoke('save-provider', provider),
   mergeProvider: (fromId, intoId) => ipcRenderer.invoke('merge-provider', fromId, intoId),
   deleteProvider: (id) => ipcRenderer.invoke('delete-provider', id),
+  // Main decrypts the key and writes the clipboard; the page never holds it.
+  copyKey: (keyId) => ipcRenderer.invoke('copy-key', keyId),
 
   // Run history
   readHistory: () => ipcRenderer.invoke('read-history'),

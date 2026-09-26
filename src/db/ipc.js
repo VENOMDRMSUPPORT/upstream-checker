@@ -4,14 +4,13 @@
 // Each channel reads or writes one thing, so two writers no longer overwrite
 // each other's sections of one big file. A handler that fails throws: the
 // renderer's promise rejects and it says so. Nothing is swallowed here.
-function readConfig(repos, { plaintext = false } = {}) {
-  const providers = repos.providers.list();
-  if (plaintext) Object.values(providers).forEach((p) => revealKeys(repos, p));
-  const data = { version: 1, providers };
+//
+// No reply ever carries a secret: keys go out as venomkey:<id> placeholders
+// with a masked hint, the Artificial Analysis key as venomsecret:aaApiKey.
+function readConfig(repos) {
+  const data = { version: 1, providers: repos.providers.list() };
   const settings = repos.settings.get('settings');
-  const aa = plaintext
-    ? repos.secrets.reveal('aaApiKey') || ''
-    : repos.secrets.has('aaApiKey') ? 'venomsecret:aaApiKey' : '';
+  const aa = repos.secrets.has('aaApiKey') ? 'venomsecret:aaApiKey' : '';
   if (settings || aa) data.settings = { ...(settings || {}), aaApiKey: aa };
   const test = repos.settings.get('test');
   if (test) data.test = test;
@@ -20,19 +19,7 @@ function readConfig(repos, { plaintext = false } = {}) {
   return data;
 }
 
-// Until the renderer works with placeholders, it still gets each key's
-// plaintext. Removed when keys stay in main.
-function revealKeys(repos, provider) {
-  if (!provider) return provider;
-  provider.keys.forEach((k) => {
-    if (!k.locked) k.key = repos.providers.revealKey(k.id) || '';
-  });
-  return provider;
-}
-
-function registerDataIpc({ ipcMain, repos, log = console, plaintextKeys = false }) {
-  const opts = { plaintext: plaintextKeys };
-  const out = (provider) => (plaintextKeys ? revealKeys(repos, provider) : provider);
+function registerDataIpc({ ipcMain, repos, clipboard, log = console }) {
   const handle = (channel, fn) => {
     ipcMain.handle(channel, (_event, ...args) => {
       try {
@@ -44,7 +31,7 @@ function registerDataIpc({ ipcMain, repos, log = console, plaintextKeys = false 
     });
   };
 
-  handle('read-config', () => readConfig(repos, opts));
+  handle('read-config', () => readConfig(repos));
   handle('save-settings', (settings) => {
     repos.settings.saveSettings(settings);
     return { success: true };
@@ -54,9 +41,16 @@ function registerDataIpc({ ipcMain, repos, log = console, plaintextKeys = false 
     repos.settings.saveTest(test);
     return { success: true };
   });
-  handle('save-provider', (provider) => out(repos.providers.save(provider)));
-  handle('merge-provider', (fromId, intoId) => out(repos.providers.merge(fromId, intoId)));
+  handle('save-provider', (provider) => repos.providers.save(provider));
+  handle('merge-provider', (fromId, intoId) => repos.providers.merge(fromId, intoId));
   handle('delete-provider', (id) => ({ deleted: repos.providers.remove(id) }));
+  // Main writes the clipboard, so a copied key never passes through the page.
+  handle('copy-key', (keyId) => {
+    const secret = repos.providers.revealKey(keyId);
+    if (secret === null) throw new Error('This key is unknown or cannot be read on this machine');
+    clipboard.writeText(secret);
+    return { copied: true };
+  });
   handle('read-catalog', () => repos.catalog.read());
   handle('write-catalog', (catalog, writeOpts) => repos.catalog.write(catalog, { reset: !!writeOpts && writeOpts.reset === true }));
   handle('read-history', () => repos.history.read());

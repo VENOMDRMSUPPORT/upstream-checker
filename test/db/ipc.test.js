@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { registerDataIpc } = require('../../src/db/ipc');
-const { memoryStore, quietLog } = require('../helpers');
+const { memoryStore, quietLog, LOCKED_BLOB } = require('../helpers');
 
 function fakeIpcMain() {
   const handlers = new Map();
@@ -15,11 +15,12 @@ function fakeIpcMain() {
   };
 }
 
-async function setup(t, opts = {}) {
+async function setup(t) {
   const store = await memoryStore(t);
   const ipc = fakeIpcMain();
-  registerDataIpc({ ipcMain: ipc, repos: store.repos, log: quietLog, ...opts });
-  return { store, ipc };
+  const clipboard = { text: null, writeText(value) { this.text = value; } };
+  registerDataIpc({ ipcMain: ipc, repos: store.repos, clipboard, log: quietLog });
+  return { store, ipc, clipboard };
 }
 
 const nara = (keys) => ({ id: 'nara', name: 'NaraRouter', baseUrl: 'https://router.bynara.id/v1', rpm: null, keys });
@@ -27,7 +28,7 @@ const nara = (keys) => ({ id: 'nara', name: 'NaraRouter', baseUrl: 'https://rout
 test('registers exactly the data channels', async (t) => {
   const { ipc } = await setup(t);
   assert.deepStrictEqual(ipc.channels(), [
-    'append-run', 'clear-history', 'delete-provider', 'merge-provider', 'read-catalog', 'read-config',
+    'append-run', 'clear-history', 'copy-key', 'delete-provider', 'merge-provider', 'read-catalog', 'read-config',
     'read-history', 'save-provider', 'save-secret', 'save-settings', 'save-test-definition', 'write-catalog',
   ]);
 });
@@ -37,20 +38,49 @@ test('read-config on an empty database', async (t) => {
   assert.deepStrictEqual(await ipc.invoke('read-config'), { version: 1, providers: {} });
 });
 
-test('read-config reveals keys and the AA key only when plaintextKeys is on', async (t) => {
-  const plain = await setup(t, { plaintextKeys: true });
-  await plain.ipc.invoke('save-provider', nara([{ id: 'key_1', name: 'Main', key: 'sk-nara-1', active: true }]));
-  await plain.ipc.invoke('save-secret', 'aaApiKey', 'aa-secret');
-  const open = await plain.ipc.invoke('read-config');
-  assert.strictEqual(open.providers.nara.keys[0].key, 'sk-nara-1');
-  assert.strictEqual(open.settings.aaApiKey, 'aa-secret');
+test('read-config hands out placeholders and hints, never keys', async (t) => {
+  const { ipc } = await setup(t);
+  await ipc.invoke('save-provider', nara([{ id: 'key_1', name: 'Main', key: 'sk-nara-secret-0001', active: true }]));
+  await ipc.invoke('save-secret', 'aaApiKey', 'aa-secret');
+  const cfg = await ipc.invoke('read-config');
+  assert.deepStrictEqual(cfg.providers.nara.keys[0], {
+    id: 'key_1', name: 'Main', key: 'venomkey:key_1', hint: 'sk-nara-se********0001', active: true, locked: false,
+  });
+  assert.strictEqual(cfg.settings.aaApiKey, 'venomsecret:aaApiKey');
+});
 
-  const sealed = await setup(t);
-  await sealed.ipc.invoke('save-provider', nara([{ id: 'key_1', name: 'Main', key: 'sk-nara-1', active: true }]));
-  await sealed.ipc.invoke('save-secret', 'aaApiKey', 'aa-secret');
-  const closed = await sealed.ipc.invoke('read-config');
-  assert.strictEqual(closed.providers.nara.keys[0].key, 'venomkey:key_1');
-  assert.strictEqual(closed.settings.aaApiKey, 'venomsecret:aaApiKey');
+test('no reply hands a secret to the renderer', async (t) => {
+  const { ipc, clipboard } = await setup(t);
+  const secrets = ['sk-live-SECRET-0001', 'sk-live-SECRET-0002', 'aa-live-SECRET'];
+  const replies = [];
+  replies.push(await ipc.invoke('save-provider', nara([{ id: 'key_1', name: 'A', key: secrets[0], active: true }])));
+  replies.push(await ipc.invoke('save-provider', {
+    id: 'custom_x', name: 'X', baseUrl: 'https://router.bynara.id/v1/', rpm: null, custom: true,
+    keys: [{ id: 'key_2', name: 'B', key: secrets[1], active: true }],
+  }));
+  replies.push(await ipc.invoke('save-secret', 'aaApiKey', secrets[2]));
+  replies.push(await ipc.invoke('read-config'));
+  replies.push(await ipc.invoke('merge-provider', 'custom_x', 'nara'));
+  replies.push(await ipc.invoke('copy-key', 'key_2'));
+  replies.push(await ipc.invoke('read-config'));
+  const wire = JSON.stringify(replies);
+  secrets.forEach((s) => assert.ok(!wire.includes(s), `${s} reached the renderer`));
+  assert.ok(wire.includes('venomkey:key_1') && wire.includes('venomkey:key_2') && wire.includes('venomsecret:aaApiKey'));
+  assert.strictEqual(clipboard.text, secrets[1]);
+});
+
+test('copy-key writes the clipboard in main and refuses a key it cannot read', async (t) => {
+  const { store, ipc, clipboard } = await setup(t);
+  store.repos.providers.importProvider({
+    id: 'darkapi', name: 'Dark API', baseUrl: 'https://darkapi.dev/v1', rpm: null, custom: false, position: 0,
+    keys: [{ id: 'key_9', name: 'Other PC', cipher: LOCKED_BLOB, active: true, quotaSpent: null }],
+  });
+  await ipc.invoke('save-provider', nara([{ id: 'key_1', name: 'Main', key: 'sk-copy-me', active: true }]));
+  assert.deepStrictEqual(await ipc.invoke('copy-key', 'key_1'), { copied: true });
+  assert.strictEqual(clipboard.text, 'sk-copy-me');
+  await assert.rejects(ipc.invoke('copy-key', 'key_9'), /cannot be read/);
+  await assert.rejects(ipc.invoke('copy-key', 'key_nope'), /cannot be read/);
+  assert.strictEqual(clipboard.text, 'sk-copy-me');
 });
 
 test('save-settings drops aaApiKey; settings, test and window come back in read-config', async (t) => {

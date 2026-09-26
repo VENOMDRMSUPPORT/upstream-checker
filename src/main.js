@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification, shell, dialog, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, shell, dialog, safeStorage, clipboard } = require('electron');
 const path = require('path');
 const https = require('https');
 const http = require('http');
@@ -8,6 +8,7 @@ const { resolveUserDataDir } = require('./user-data');
 const { createCipher } = require('./db/cipher');
 const { importLegacy, listImportedFiles, describeImportWarnings, needsReimportPrompt, FILES } = require('./db/import-json');
 const { registerDataIpc } = require('./db/ipc');
+const { createKeyResolver } = require('./db/keys');
 
 // Settled before anything reads a path or writes a log. An explicit
 // --user-data-dir (dev and test instances) is used as given.
@@ -34,6 +35,8 @@ let updateCheckInterval;
 // store is how keys used to get overwritten.
 let store = null;
 let importReport = null;
+// Swaps key placeholders for secrets in api-request (src/db/keys.js).
+let keyResolver = null;
 
 function showStartupError(message, detail) {
   dialog.showErrorBox('VENOM Router', `${message}\n\n${detail}`);
@@ -268,9 +271,8 @@ app.whenReady().then(async () => {
     return;
   }
   try {
-    // Keys still reach the renderer as plaintext here; they stay in main once
-    // the renderer works with placeholders.
-    registerDataIpc({ ipcMain, repos: store.repos, log, plaintextKeys: true });
+    registerDataIpc({ ipcMain, repos: store.repos, clipboard, log });
+    keyResolver = createKeyResolver({ providers: store.repos.providers, secrets: store.repos.secrets });
     initAutoUpdater();
     createWindow();
     startUpdateChecks();
@@ -323,9 +325,18 @@ const CONTENT_TOKEN = /"(?:content|text|reasoning_content|reasoning)"\s*:\s*"[^"
 // message buried and every other field — notably the elapsed time — gone, so a
 // failed model showed a meaningless error and 0.0s.
 ipcMain.handle('api-request', async (event, { url, method, headers, body, requestId, timeoutMs, logLevel }) => {
+  // The renderer holds placeholders (venomkey:<id>, venomsecret:<name>), not
+  // keys. They become the real secret here, only for the origin that secret
+  // belongs to; anything else is refused without sending. The request log
+  // below records the request as the renderer sent it, placeholders and all.
+  const outgoing = keyResolver ? keyResolver.resolve({ url, headers, body }) : { url, headers, body };
+  if (outgoing.blocked) {
+    log.warn(outgoing.error);
+    return { status: 0, body: '', elapsed: 0, headers: {}, blocked: true, error: outgoing.error };
+  }
   return new Promise((resolve) => {
     const startTime = Date.now();
-    const urlObj = new URL(url);
+    const urlObj = new URL(outgoing.url);
     const isHttps = urlObj.protocol === 'https:';
     const client = isHttps ? https : http;
 
@@ -334,7 +345,7 @@ ipcMain.handle('api-request', async (event, { url, method, headers, body, reques
       port: urlObj.port || (isHttps ? 443 : 80),
       path: urlObj.pathname + urlObj.search,
       method: method || 'GET',
-      headers: headers || {},
+      headers: outgoing.headers || {},
       // Socket inactivity timeout. A video generator sends nothing for minutes
       // while it works, so a fixed 60s here would kill it regardless of the
       // deadline the caller set for that kind of model.
@@ -415,7 +426,7 @@ ipcMain.handle('api-request', async (event, { url, method, headers, body, reques
                 error: `No response for ${Math.round(options.timeout / 1000)}s` });
     });
 
-    if (body) req.write(typeof body === 'string' ? body : JSON.stringify(body));
+    if (outgoing.body) req.write(typeof outgoing.body === 'string' ? outgoing.body : JSON.stringify(outgoing.body));
     req.end();
   });
 });
