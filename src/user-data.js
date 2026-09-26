@@ -17,6 +17,8 @@ function resolveUserDataDir(appData, fsLike) {
     fsLike.renameSync(legacy, target);
     return { dir: target, migrated: true };
   } catch (error) {
+    // A second instance launched at the same moment may have moved it first.
+    if (fsLike.existsSync(target)) return { dir: target, migrated: false };
     // Held open — usually an older version still running. Keep using it; the
     // move is tried again on the next launch.
     return { dir: legacy, migrated: false, error };

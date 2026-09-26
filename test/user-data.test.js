@@ -39,6 +39,19 @@ test('both exist: the new folder wins and legacy is untouched', () => {
   assert.strictEqual(fs.calls.length, 0);
 });
 
+test('two first launches racing: the loser follows the folder the winner moved', () => {
+  const set = new Set([LEGACY]);
+  const fs = {
+    existsSync: (p) => set.has(p),
+    // The other instance renamed it between our existsSync and renameSync.
+    renameSync: () => {
+      set.delete(LEGACY); set.add(TARGET);
+      const e = new Error('ENOENT'); e.code = 'ENOENT'; throw e;
+    },
+  };
+  assert.deepStrictEqual(resolveUserDataDir(APP, fs), { dir: TARGET, migrated: false });
+});
+
 test('locked legacy (old version running) keeps using the legacy folder', () => {
   const fs = fakeFs([LEGACY], { renameThrows: true });
   const r = resolveUserDataDir(APP, fs);
