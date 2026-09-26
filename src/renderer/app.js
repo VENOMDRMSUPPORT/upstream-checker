@@ -5885,7 +5885,7 @@ async function init() {
   // app runs on, and says so once.
   window.electronAPI.logsInfo()
     .then((info) => {
-      if (info && info.enabled === false && !storeReadError) setStatus('error', `Request logging is off: ${info.error}`);
+      if (info && info.enabled === false && !storeReadError && !writeFailed) setStatus('error', `Request logging is off: ${info.error}`);
     })
     .catch((err) => console.error('Could not read the request log status:', err));
   setupUpdateListeners();
