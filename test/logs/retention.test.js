@@ -149,6 +149,20 @@ test('scheduler: first run 30 s after start, then every 24 h', async () => {
   assert.deepStrictEqual(timers.delays(), [86400000]);
 });
 
+test('scheduler: a run that stops early (returns null) retries sooner; a completed run waits the full interval', async () => {
+  const timers = fakeTimers();
+  let result = null;
+  const s = createPurgeScheduler({ run: async () => result, ...timers, log: quietLog });
+  s.start();
+  timers.fire();
+  await settle();
+  assert.deepStrictEqual(timers.delays(), [60000], 'a null result (busy or closed mid-purge) retries at retryMs');
+  result = { rows: 1, bodies: 0, rollups: 0 };
+  timers.fire();
+  await settle();
+  assert.deepStrictEqual(timers.delays(), [86400000], 'a completed purge waits the full everyMs');
+});
+
 test('scheduler: defers while requests are in flight', async () => {
   const timers = fakeTimers();
   let runs = 0;

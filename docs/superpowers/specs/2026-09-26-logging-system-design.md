@@ -278,12 +278,15 @@ responses stays the separate follow-up task.
 - Settings read by main from the `settings` row (UI in C): `logRetentionDays` (90),
   `bodyRetentionDays` (7), `statsRetentionMonths` (12).
 - The purge runs 30 s after startup and then every 24 h, and is deferred while requests
-  are in flight (`activeApiRequests.size > 0`). It deletes in chunks of 1 000 rows using
-  a fresh short keyset query per chunk (never an iterator held across a yield), yielding
-  to the event loop between chunks: `request_logs` older than the limit (and their
-  bodies), `request_bodies` older than theirs (setting `has_body = 0`), `usage_hourly`
-  older than the stats limit; then `PRAGMA incremental_vacuum(2000)` in steps and
-  `wal_checkpoint(TRUNCATE)`. `meta.last_purge_at` records the run.
+  are in flight (`activeApiRequests.size > 0`), re-checked between every chunk and every
+  phase — a request starting mid-purge stops the rest of it early (same outcome as the
+  database closing mid-purge), and the scheduler retries after `retryMs` instead of
+  waiting the full 24 h. It deletes in chunks of 1 000 rows using a fresh short keyset
+  query per chunk (never an iterator held across a yield), yielding to the event loop
+  between chunks: `request_logs` older than the limit (and their bodies), `request_bodies`
+  older than theirs (setting `has_body = 0`), `usage_hourly` older than the stats limit;
+  then `PRAGMA incremental_vacuum(500)` in steps (small enough that `isBusy` is polled
+  often during it) and `wal_checkpoint(TRUNCATE)`. `meta.last_purge_at` records the run.
 
 ## 4. Query API for sub-project C
 
@@ -294,10 +297,10 @@ escapes `%` and `_` for LIKE.
 
 | Channel | Returns |
 |---|---|
-| `logs-list(filters, cursor, limit)` | `{ rows, nextCursor }`, newest first, keyset on `(created_at, id)`, `limit` ≤ 200. Filters: `from`, `to`, `source[]`, `providerId[]`, `model`, `status[]`, `runId`, `text` (matches `request_uid`, `run_id`, `error_message`), `afterId` (for a live tail polled by id) |
+| `logs-list(filters, cursor, limit)` | `{ rows, nextCursor }`, newest first, keyset on `(created_at, id)`, `limit` ≤ 200. Filters: `from`, `to`, `source[]`, `providerId[]`, `model`, `status[]`, `runId`, `text` (matches `request_uid`, `run_id`, `error_message`), `afterId` (a live tail polled by id: no cursor, orders by `id` — the primary key the filter already uses — instead of `created_at`, so an occasionally out-of-order clock can't reorder arrival order) |
 | `logs-get(id)` | the row plus its body, or `null` |
 | `logs-stats(filters, bucket, groupBy)` | from `usage_hourly` at hour granularity. Filters: `from`, `to`, `source[]`, `providerId[]`, `model`. `bucket` = `hour` or `day` (day = local date of each `hour_start`, grouped in JS, DST-safe). `groupBy` = `none` / `source` / `provider` / `model` / `error_class`. Returns totals and series: requests, ok %, errors by class, cancelled, blocked, average latency, approx p95, average TTFT (streams), tokens, cost |
-| `logs-facets({ from, to })` | distinct providers (id + latest name snapshot), models and sources in the range, for filter dropdowns |
+| `logs-facets({ from, to })` | distinct providers (id + latest name snapshot), models and sources, from `usage_hourly` at the same hour granularity as `logs-stats` (not a `request_logs` scan) — `from`/`to` bound whole hours, so the range can't distinguish two events inside the same clock hour. The provider's latest display name is still looked up against `request_logs` (one indexed lookup per distinct id), for filter dropdowns |
 | `logs-run-summary(runId)` | computed from raw rows: count, ok, errors by class, models, providers, total cost, first/last time, median latency |
 | `logs-export(filters, format)` | save dialog, then CSV or JSON of the filtered rows (no bodies), written in keyset chunks; returns `{ saved, path, rows }` |
 | `logs-info()` | `{ enabled, error, path, sizeBytes, rows, oldestAt, droppedRows, lastPurgeAt }` |

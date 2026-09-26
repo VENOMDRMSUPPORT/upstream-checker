@@ -127,14 +127,17 @@ function createPurgeScheduler({
       return;
     }
     running = true;
+    let result;
     try {
-      await run();
+      result = await run();
     } catch (err) {
       log.warn('Request log purge failed:', err && err.message);
     } finally {
       running = false;
     }
-    schedule(everyMs);
+    // null means the purge stopped early (busy, or the database closed): try
+    // again sooner rather than waiting a full day for the rest of it.
+    schedule(result === null ? retryMs : everyMs);
   }
 
   return {
