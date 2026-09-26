@@ -58,11 +58,7 @@ function createKeyResolver({ providers, secrets }) {
     return { error: `Key blocked: unknown key "${run}"` };
   }
 
-  // `record(token, secret)` is called for each placeholder actually resolved,
-  // so the caller can undo the substitution later (the scrub in api-request:
-  // a provider that echoes a key back in its response must not hand the
-  // renderer or requests.log the plaintext secret it just sent).
-  function substitute(text, target, host, encode, record) {
+  function substitute(text, target, host, encode) {
     let error = null;
     const out = text.replace(TOKEN, (match, kind, run) => {
       if (error) return match;
@@ -75,7 +71,6 @@ function createKeyResolver({ providers, secrets }) {
         error = hit.error;
         return match;
       }
-      record(`venom${kind}:${run.slice(0, hit.used)}`, hit.secret);
       return encode(hit.secret) + run.slice(hit.used);
     });
     return { text: out, error };
@@ -84,16 +79,13 @@ function createKeyResolver({ providers, secrets }) {
   const raw = (s) => s;
   const inJson = (s) => JSON.stringify(s).slice(1, -1);
 
-  // { url, headers, body, substituted } ready to send, or { blocked: true, error }.
-  // `substituted` lists every { token, secret } this call put into the
-  // request, deduplicated by token — the caller's map of what to scrub back
-  // out of the response before it reaches the renderer or requests.log.
+  // { url, headers, body } ready to send, or { blocked: true, error }.
   function resolve({ url, headers, body }) {
     const bodyText = body === undefined || body === null || body === '' || typeof body === 'string' ? body : JSON.stringify(body);
     const needed = HAS_TOKEN.test(String(url))
       || Object.values(headers || {}).some((v) => typeof v === 'string' && HAS_TOKEN.test(v))
       || (typeof bodyText === 'string' && HAS_TOKEN.test(bodyText));
-    if (!needed) return { url, headers, body, substituted: [] };
+    if (!needed) return { url, headers, body };
 
     const target = originOf(url);
     let host = String(url);
@@ -104,10 +96,7 @@ function createKeyResolver({ providers, secrets }) {
     }
     const blocked = (error) => ({ blocked: true, error });
 
-    const seen = new Map();
-    const record = (token, secret) => seen.set(token, secret);
-
-    const u = substitute(String(url), target, host, encodeURIComponent, record);
+    const u = substitute(String(url), target, host, encodeURIComponent);
     if (u.error) return blocked(u.error);
     const outHeaders = {};
     for (const [name, value] of Object.entries(headers || {})) {
@@ -115,7 +104,7 @@ function createKeyResolver({ providers, secrets }) {
         outHeaders[name] = value;
         continue;
       }
-      const h = substitute(value, target, host, raw, record);
+      const h = substitute(value, target, host, raw);
       if (h.error) return blocked(h.error);
       outHeaders[name] = h.text;
     }
@@ -127,29 +116,14 @@ function createKeyResolver({ providers, secrets }) {
       } catch (_) {
         isJson = false;
       }
-      const b = substitute(bodyText, target, host, isJson ? inJson : raw, record);
+      const b = substitute(bodyText, target, host, isJson ? inJson : raw);
       if (b.error) return blocked(b.error);
       outBody = b.text;
     }
-    const substituted = [...seen.entries()].map(([token, secret]) => ({ secret, token }));
-    return { url: u.text, headers: outHeaders, body: outBody, substituted };
+    return { url: u.text, headers: outHeaders, body: outBody };
   }
 
   return { resolve };
 }
 
-// A provider that echoes a key back in its response (an error message
-// quoting the Authorization header, a "your key" field, ...) must not send
-// that plaintext secret on to the renderer or into requests.log. `resolve()`
-// already knows every secret it substituted into this request; this puts
-// each one back to its placeholder wherever it shows up in `text`. Pure and
-// order-independent of the request itself, so it is tested on its own.
-function scrubSecrets(text, substituted) {
-  if (typeof text !== 'string' || !text || !substituted || !substituted.length) return text;
-  return substituted.reduce(
-    (out, { secret, token }) => (secret ? out.split(secret).join(token) : out),
-    text,
-  );
-}
-
-module.exports = { createKeyResolver, scrubSecrets };
+module.exports = { createKeyResolver };
