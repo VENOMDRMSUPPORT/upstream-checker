@@ -225,7 +225,16 @@ function createQuery(db, { file = null, meta, droppedRows = () => 0 } = {}) {
     if (cursor && Number.isFinite(cursor.createdAt) && Number.isInteger(cursor.id)) {
       c.add('(created_at < ? OR (created_at = ? AND id < ?))', cursor.createdAt, cursor.createdAt, cursor.id);
     }
-    const rows = stmt(`SELECT * FROM request_logs ${whereSql(c.where)} ORDER BY created_at DESC, id DESC LIMIT ?`).all(...c.params, limit);
+    // The live tail (afterId set, no cursor) wants rows in the order they
+    // arrived, which is what the primary key gives it directly. Ordering by
+    // created_at instead would let a request logged out of clock order (or
+    // just filed a millisecond late) jump the queue — and would need the
+    // planner to sort id > ? results by a different column than the one the
+    // filter used. Keyset paging (a cursor) keeps created_at, id: that's the
+    // page order the log list shows.
+    const liveTail = filters && typeof filters === 'object' && Number.isInteger(filters.afterId) && !cursor;
+    const orderBy = liveTail ? 'id DESC' : 'created_at DESC, id DESC';
+    const rows = stmt(`SELECT * FROM request_logs ${whereSql(c.where)} ORDER BY ${orderBy} LIMIT ?`).all(...c.params, limit);
     const last = rows[rows.length - 1];
     return { rows, nextCursor: rows.length === limit ? { createdAt: last.created_at, id: last.id } : null };
   }
@@ -254,7 +263,16 @@ function createQuery(db, { file = null, meta, droppedRows = () => 0 } = {}) {
     c.inList('source', items(f.source));
     c.inList('provider_id', items(f.providerId));
     if (nonEmpty(f.model)) c.add('model_id = ?', f.model);
-    const rows = stmt(`SELECT * FROM usage_hourly ${whereSql(c.where)} ORDER BY hour_start`).all(...c.params);
+    // Sum every counter in SQL, grouped by hour (and the group column, when
+    // there is one): a range's rows collapse from one per combo to one per
+    // hour[/group] before they ever reach JS. error_class has no group
+    // column of its own (its "groups" are counter columns, not a queried
+    // one), so it groups by hour_start alone, same as 'none'.
+    const groupCol = GROUP_COLUMNS[groupBy] || null;
+    const groupByCols = groupCol ? `hour_start, ${groupCol}` : 'hour_start';
+    const sums = ROLLUP_COUNTERS.map((col) => `SUM(${col}) AS ${col}`).join(', ');
+    const rows = stmt(`SELECT ${groupByCols}, ${sums} FROM usage_hourly ${whereSql(c.where)} GROUP BY ${groupByCols} ORDER BY ${groupByCols}`)
+      .all(...c.params);
 
     const totals = emptyCounters();
     const series = new Map();
@@ -271,7 +289,7 @@ function createQuery(db, { file = null, meta, droppedRows = () => 0 } = {}) {
         });
         return;
       }
-      const g = GROUP_COLUMNS[groupBy] ? r[GROUP_COLUMNS[groupBy]] : null;
+      const g = groupCol ? r[groupCol] : null;
       const key = `${b}|${g}`;
       if (!series.has(key)) series.set(key, { bucket: b, group: g, acc: emptyCounters() });
       addCounters(series.get(key).acc, r);
@@ -285,18 +303,23 @@ function createQuery(db, { file = null, meta, droppedRows = () => 0 } = {}) {
   function facets(range) {
     const r = range && typeof range === 'object' ? range : {};
     const c = conditions();
-    if (finite(r.from) !== null) c.add('created_at >= ?', r.from);
-    if (finite(r.to) !== null) c.add('created_at < ?', r.to);
+    if (finite(r.from) !== null) c.add('hour_start >= ?', Math.floor(r.from / HOUR) * HOUR);
+    if (finite(r.to) !== null) c.add('hour_start < ?', r.to);
     const also = (extra) => whereSql([...c.where, extra]);
-    // SQLite takes the bare provider_name from the row holding MAX(created_at):
-    // the latest name a provider had in the range.
-    const providers = stmt(`SELECT provider_id AS id, provider_name AS name, MAX(created_at) AS last_at FROM request_logs
-      ${also('provider_id IS NOT NULL')} GROUP BY provider_id ORDER BY provider_id`).all(...c.params)
-      .map(({ id, name }) => ({ id, name }));
-    const models = stmt(`SELECT DISTINCT model_requested AS id FROM request_logs ${also('model_requested IS NOT NULL')} ORDER BY model_requested`)
+    // The distinct ids come from usage_hourly (a handful of rows per hour,
+    // never the raw table): '' is how a missing provider/model is rolled up
+    // (writer.js), so it is filtered out the same way NULL was on the raw
+    // rows. Provider names aren't rolled up, so the latest one for each id
+    // found is looked up straight off request_logs_by_provider — an index
+    // hit, not a scan, and one per distinct provider rather than one per row.
+    const providerIds = stmt(`SELECT DISTINCT provider_id AS id FROM usage_hourly ${also("provider_id != ''")} ORDER BY provider_id`)
       .all(...c.params).map((x) => x.id);
-    const sources = stmt(`SELECT DISTINCT source FROM request_logs ${whereSql(c.where)} ORDER BY source`)
+    const models = stmt(`SELECT DISTINCT model_id AS id FROM usage_hourly ${also("model_id != ''")} ORDER BY model_id`)
+      .all(...c.params).map((x) => x.id);
+    const sources = stmt(`SELECT DISTINCT source FROM usage_hourly ${whereSql(c.where)} ORDER BY source`)
       .all(...c.params).map((x) => x.source);
+    const latestName = stmt('SELECT provider_name AS name FROM request_logs WHERE provider_id = ? ORDER BY created_at DESC LIMIT 1');
+    const providers = providerIds.map((id) => ({ id, name: (latestName.get(id) || {}).name ?? null }));
     return { providers, models, sources };
   }
 

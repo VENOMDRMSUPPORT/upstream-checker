@@ -93,6 +93,15 @@ test('afterId returns only newer rows (live tail)', (t) => {
   assert.deepStrictEqual(query.list({ afterId: ids[2] }).rows.map((r) => r.id), [ids[0], ids[1]]);
 });
 
+test('afterId orders by id (the primary key), not created_at, so an out-of-order clock cannot reorder the live tail', (t) => {
+  const { query } = setup(t, [
+    logRow({ created_at: T0 + 50 }),
+    logRow({ created_at: T0 }),
+    logRow({ created_at: T0 + 100 }),
+  ]);
+  assert.deepStrictEqual(query.list({ afterId: 0 }).rows.map((r) => r.id), [3, 2, 1]);
+});
+
 test('get: the row with its body, or null', (t) => {
   const { query } = setup(t, [
     { row: logRow({ request_uid: 'WITHBODY' }), body: { request_headers_json: '{}', request_body: 'req', response_body: 'res', truncated: 0 } },
@@ -177,6 +186,59 @@ test('stats grouped by error_class counts each class per bucket', (t) => {
   ]);
 });
 
+test('stats: several combos per hour aggregate in SQL to the same sums as counting every row', (t) => {
+  const noon = new Date(2026, 8, 20, 12).getTime();
+  const providers = ['nara', 'mirai'];
+  const modelsIds = ['m1', 'm2'];
+  const sources = ['route_test', 'health'];
+  const entries = [];
+  [noon, noon + HOUR].forEach((hourStart) => {
+    providers.forEach((provider_id) => {
+      modelsIds.forEach((model_requested) => {
+        sources.forEach((source) => {
+          entries.push(logRow({ created_at: hourStart, provider_id, model_requested, source, latency_ms: 100 }));
+        });
+      });
+    });
+  });
+  // One error each hour, layered onto an existing combo so that combo's
+  // hourly roll-up carries both an ok and an error request.
+  entries.push(logRow({
+    created_at: noon, provider_id: 'nara', model_requested: 'm1', source: 'route_test',
+    status: 'error', error_class: 'auth', http_status: 401,
+  }));
+  entries.push(logRow({
+    created_at: noon + HOUR, provider_id: 'mirai', model_requested: 'm2', source: 'health',
+    status: 'error', error_class: 'server', http_status: 502,
+  }));
+  const { query } = setup(t, entries);
+
+  // 8 combos/hour x 2 hours = 16 ok rows, plus the 2 errors above.
+  const totals = query.stats({}).totals;
+  assert.deepStrictEqual([totals.requests, totals.ok, totals.errors], [18, 16, 2]);
+  assert.deepStrictEqual(query.stats({}).totals.errorsByClass.auth, 1);
+  assert.deepStrictEqual(query.stats({}).totals.errorsByClass.server, 1);
+
+  const bySource = (bucket) => query.stats({}, bucket, 'source').series
+    .map((s) => [s.bucket, s.group, s.requests, s.ok]).sort((a, b) => a[0] - b[0] || (a[1] < b[1] ? -1 : 1));
+  assert.deepStrictEqual(bySource('hour'), [
+    [hourOf(noon), 'health', 4, 4], [hourOf(noon), 'route_test', 5, 4],
+    [hourOf(noon + HOUR), 'health', 5, 4], [hourOf(noon + HOUR), 'route_test', 4, 4],
+  ]);
+  assert.deepStrictEqual(bySource('day'), [['2026-09-20', 'health', 9, 8], ['2026-09-20', 'route_test', 9, 8]]);
+
+  const byProvider = (bucket) => query.stats({}, bucket, 'provider').series
+    .map((s) => [s.bucket, s.group, s.requests, s.ok]).sort((a, b) => a[0] - b[0] || (a[1] < b[1] ? -1 : 1));
+  assert.deepStrictEqual(byProvider('day'), [['2026-09-20', 'mirai', 9, 8], ['2026-09-20', 'nara', 9, 8]]);
+
+  const byModel = (bucket) => query.stats({}, bucket, 'model').series
+    .map((s) => [s.bucket, s.group, s.requests, s.ok]).sort((a, b) => a[0] - b[0] || (a[1] < b[1] ? -1 : 1));
+  assert.deepStrictEqual(byModel('day'), [['2026-09-20', 'm1', 9, 8], ['2026-09-20', 'm2', 9, 8]]);
+
+  assert.deepStrictEqual(query.stats({}, 'day', 'error_class').series.map((s) => [s.bucket, s.group, s.count]).sort(),
+    [['2026-09-20', 'auth', 1], ['2026-09-20', 'server', 1]].sort());
+});
+
 test('stats refuses an unknown bucket or groupBy', (t) => {
   const { query } = setup(t, []);
   assert.throws(() => query.stats({}, 'week'), /Unknown bucket/);
@@ -188,14 +250,29 @@ test('facets: providers with their latest name, models and sources in the range'
     logRow({ created_at: T0, provider_id: 'nara', provider_name: 'Nara (old)', model_requested: 'm1', source: 'route_test' }),
     logRow({ created_at: T0 + 10, provider_id: 'nara', provider_name: 'NaraRouter', model_requested: 'm2', source: 'health' }),
     logRow({ created_at: T0 + 20, provider_id: null, provider_name: null, model_requested: null, source: 'leaderboard' }),
-    logRow({ created_at: T0 + 100000, provider_id: 'mirai', provider_name: 'Mirai', model_requested: 'm3', source: 'benchmark' }),
+    // facets reads the id sets from usage_hourly (hour granularity), so this
+    // must land in a different hour to be a genuine out-of-range fixture.
+    logRow({ created_at: T0 + HOUR + 20, provider_id: 'mirai', provider_name: 'Mirai', model_requested: 'm3', source: 'benchmark' }),
   ]);
-  assert.deepStrictEqual(query.facets({ from: T0, to: T0 + 1000 }), {
+  assert.deepStrictEqual(query.facets({ from: T0, to: T0 + HOUR }), {
     providers: [{ id: 'nara', name: 'NaraRouter' }],
     models: ['m1', 'm2'],
     sources: ['health', 'leaderboard', 'route_test'],
   });
   assert.deepStrictEqual(query.facets({}).providers.map((p) => p.id), ['mirai', 'nara']);
+});
+
+test('facets range: hour-bucket granularity — an hour outside [from, to) is excluded, and from floors to its hour', (t) => {
+  const noon = new Date(2026, 8, 20, 12).getTime();
+  const { query } = setup(t, [
+    logRow({ created_at: noon + 30 * 60000, provider_id: 'inrange', model_requested: 'm1', source: 'health' }),
+    logRow({ created_at: noon + 2 * HOUR, provider_id: 'later', model_requested: 'm2', source: 'health' }),
+  ]);
+  assert.deepStrictEqual(query.facets({ from: noon, to: noon + HOUR }).providers.map((p) => p.id), ['inrange']);
+  assert.deepStrictEqual(query.facets({ from: noon + 2 * HOUR, to: noon + 3 * HOUR }).providers.map((p) => p.id), ['later']);
+  // from floors to the start of its hour, so a from mid-way through the hour
+  // still pulls in that whole hour's facets (same rounding stats() uses).
+  assert.deepStrictEqual(query.facets({ from: noon + 40 * 60000, to: noon + HOUR }).providers.map((p) => p.id), ['inrange']);
 });
 
 test('runSummary: counts, classes, models, providers, cost, first/last and median latency', (t) => {
