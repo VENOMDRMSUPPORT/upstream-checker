@@ -35,3 +35,9 @@ test('nothing to scrub: the text comes back as it was', () => {
   assert.strictEqual(scrub('venomkey:key_t stays', SUBS), 'venomkey:key_t stays');
   assert.strictEqual(scrub('x', [{ placeholder: 'p', secret: '' }]), 'x');
 });
+
+test('a secret with a lone surrogate is scrubbed from raw text without throwing', () => {
+  const lonesurrogate = 'sk-\uD800abc';
+  const subs = [{ placeholder: 'venomkey:surrogate', secret: lonesurrogate }];
+  assert.strictEqual(scrub(`error key ${lonesurrogate} failed`, subs), 'error key venomkey:surrogate failed');
+});

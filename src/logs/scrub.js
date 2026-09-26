@@ -10,7 +10,13 @@
 // reply the renderer gets.
 function formsOf(secret) {
   const json = JSON.stringify(secret).slice(1, -1);
-  return [secret, json, json.replace(/\//g, '\\/'), encodeURIComponent(secret)];
+  const forms = [secret, json, json.replace(/\//g, '\\/')];
+  try {
+    forms.push(encodeURIComponent(secret));
+  } catch {
+    // Skip URL-encoded form if encodeURIComponent throws (e.g., lone surrogate)
+  }
+  return forms;
 }
 
 function scrub(text, substitutions) {
