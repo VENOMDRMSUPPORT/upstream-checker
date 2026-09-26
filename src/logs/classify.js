@@ -9,9 +9,12 @@
 const QUOTA_CODES = new Set(['insufficient_quota', 'quota_exceeded', 'billing_hard_limit_reached']);
 const JSON_PARSE_LIMIT = 1024 * 1024;
 const SCAN_WINDOW = 64 * 1024;
-// Generous: the recorder scrubs secrets from the model field and clips to
-// the DB's real limit afterward, so this only guards against a runaway body.
-const MODEL_MAX = 4096;
+// The model the caller asked for (from the request body): the brief's cap.
+const MODEL_MAX = 200;
+// The model a reply reports back: generous, because the recorder scrubs
+// secrets from it and clips to the DB's real limit afterward — this only
+// guards against a runaway body, not the stored length.
+const RETURNED_MODEL_MAX = 4096;
 // Inclusive upper edges (ms) of lb0..lb12; lb13 holds everything above.
 const LATENCY_EDGES = [100, 250, 500, 1000, 2000, 3000, 5000, 8000, 12000, 20000, 30000, 60000, 120000];
 
@@ -124,7 +127,7 @@ function readStream(text) {
     }
   });
   const raw = started || delta ? { ...(started || {}), ...(delta || {}) } : usage;
-  return { usage: normalizeUsage(raw), model: clipped(model, MODEL_MAX) };
+  return { usage: normalizeUsage(raw), model: clipped(model, RETURNED_MODEL_MAX) };
 }
 
 // The object literal that starts at text[start] (a '{'), parsed, or null.
@@ -156,7 +159,7 @@ function objectAt(text, start) {
   return null;
 }
 
-const MODEL_FIELD = new RegExp(`"model"\\s*:\\s*"((?:[^"\\\\]|\\\\.){1,${MODEL_MAX}})"`);
+const MODEL_FIELD = new RegExp(`"model"\\s*:\\s*"((?:[^"\\\\]|\\\\.){1,${RETURNED_MODEL_MAX}})"`);
 
 // A JSON reply too big to parse whole: usage from the last "usage" object in
 // the tail, the model from the head (where OpenAI and Anthropic put it).
@@ -174,7 +177,7 @@ function readLargeJson(text) {
       model = null;
     }
   }
-  return { usage, model: clipped(model, MODEL_MAX) };
+  return { usage, model: clipped(model, RETURNED_MODEL_MAX) };
 }
 
 function readResponse(text, contentType) {
@@ -183,7 +186,7 @@ function readResponse(text, contentType) {
   if (text.length > JSON_PARSE_LIMIT) return readLargeJson(text);
   const o = parseObject(text);
   if (!o) return { usage: null, model: null };
-  return { usage: normalizeUsage(o.usage), model: clipped(typeof o.model === 'string' ? o.model : null, MODEL_MAX) };
+  return { usage: normalizeUsage(o.usage), model: clipped(typeof o.model === 'string' ? o.model : null, RETURNED_MODEL_MAX) };
 }
 
 // Prices are USD per 1M tokens, so tokens × price is already micro-USD.

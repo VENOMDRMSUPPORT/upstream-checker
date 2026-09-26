@@ -22,8 +22,7 @@ test('bodyText and modelRequested read the model from a JSON body', () => {
   assert.strictEqual(C.modelRequested('{"model":"gpt-x","messages":[]}'), 'gpt-x');
   assert.strictEqual(C.modelRequested('token=abc'), null);
   assert.strictEqual(C.modelRequested(null), null);
-  assert.strictEqual(C.modelRequested(JSON.stringify({ model: 'm'.repeat(300) })).length, 300);
-  assert.strictEqual(C.modelRequested(JSON.stringify({ model: 'm'.repeat(5000) })).length, 4096);
+  assert.strictEqual(C.modelRequested(JSON.stringify({ model: 'm'.repeat(300) })).length, 200);
 });
 
 test('isStreamRequest: stream true in the body, or an event-stream reply', () => {
@@ -39,6 +38,11 @@ test('OpenAI JSON: usage with cached and reasoning tokens, and the returned mode
     usage: { prompt_tokens: 100, completion_tokens: 20, prompt_tokens_details: { cached_tokens: 64 }, completion_tokens_details: { reasoning_tokens: 12 } },
   });
   assert.deepStrictEqual(C.readResponse(body, 'application/json'), { usage: usage(100, 20, 64, null, 12), model: 'gpt-x-2026' });
+});
+
+test('a returned model is capped at 4096 chars, wider than the requested-model cap', () => {
+  const body = JSON.stringify({ model: 'm'.repeat(5000), usage: { prompt_tokens: 1, completion_tokens: 1 } });
+  assert.strictEqual(C.readResponse(body, 'application/json').model.length, 4096);
 });
 
 test('Anthropic JSON: input counts cache reads and writes', () => {
