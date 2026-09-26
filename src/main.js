@@ -11,6 +11,16 @@ const {
   eachStoredKey,
   countPlaintextKeys,
 } = require('./keystore');
+const { resolveUserDataDir } = require('./user-data');
+
+// Settled before anything reads a path or writes a log. An explicit
+// --user-data-dir (dev and test instances) is used as given.
+if (!app.commandLine.hasSwitch('user-data-dir')) {
+  const userData = resolveUserDataDir(app.getPath('appData'), fs);
+  app.setPath('userData', userData.dir);
+  if (userData.migrated) log.info('Moved app data to', userData.dir);
+  if (userData.error) log.warn('Could not move the old app data folder, still using it:', userData.error.message);
+}
 
 let autoUpdater; // Lazy load after app ready
 let updateCheckInterval;

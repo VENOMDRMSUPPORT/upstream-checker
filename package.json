@@ -9,7 +9,8 @@
     "build:portable": "electron-builder --win portable",
     "publish": "electron-builder --win --x64 --publish always",
     "release": "node scripts/release.mjs",
-    "check:keystore": "electron scripts/keystore-check.js"
+    "check:keystore": "electron scripts/keystore-check.js",
+    "test": "node --test \"test/**/*.test.js\""
   },
   "build": {
     "publish": {
