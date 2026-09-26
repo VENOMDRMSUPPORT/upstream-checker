@@ -151,15 +151,17 @@ test('classifyStatus: the status and error-class table', () => {
   });
 });
 
-test('extractError: error.message, a string error, message, detail, or the first 200 characters; code clipped', () => {
+test('extractError: error.message, a string error, message, detail, or the first 200 characters; code is not clipped here', () => {
   assert.deepStrictEqual(C.extractError(JSON.stringify({ error: { message: 'Bad key', code: 'invalid_api_key' } })), { code: 'invalid_api_key', message: 'Bad key', quota: false });
   assert.deepStrictEqual(C.extractError(JSON.stringify({ error: { type: 'overloaded_error', message: 'Overloaded' } })), { code: 'overloaded_error', message: 'Overloaded', quota: false });
   assert.deepStrictEqual(C.extractError(JSON.stringify({ error: 'plain string' })), { code: null, message: 'plain string', quota: false });
   assert.deepStrictEqual(C.extractError(JSON.stringify({ message: 'top-level' })), { code: null, message: 'top-level', quota: false });
   assert.deepStrictEqual(C.extractError(JSON.stringify({ detail: 'Not Found' })), { code: null, message: 'Not Found', quota: false });
   assert.strictEqual(C.extractError(`<html>${'x'.repeat(500)}`).message.length, 200);
+  // The recorder clips error_code to 100 on the way into the row (see
+  // recorder.js); extractError itself hands the code back whole.
   const long = C.extractError(JSON.stringify({ error: { code: 'c'.repeat(250) } }));
-  assert.strictEqual(long.code.length, 100);
+  assert.strictEqual(long.code.length, 250);
   assert.strictEqual(long.message.length, 200);
   assert.deepStrictEqual(C.extractError(''), { code: null, message: null, quota: false });
 });

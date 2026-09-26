@@ -247,8 +247,9 @@ function extractError(text) {
     if (e && typeof e === 'object') {
       const rawCode = typeof e.code === 'string' || typeof e.code === 'number' ? String(e.code) : null;
       const rawType = typeof e.type === 'string' || typeof e.type === 'number' ? String(e.type) : null;
-      const c = rawCode || rawType;
-      if (c) code = c.slice(0, 100);
+      // Not clipped here: the recorder clips error_code to 100 once, after
+      // scrubbing, on the way into the row (see recorder.js).
+      code = rawCode || rawType;
       quota = (rawCode !== null && QUOTA_CODES.has(rawCode)) || (rawType !== null && QUOTA_CODES.has(rawType));
     }
   }
