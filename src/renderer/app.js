@@ -357,6 +357,11 @@ const $$ = (s) => document.querySelectorAll(s);
 // defaults, and saving them would overwrite the real data.
 let storeReadError = null;
 const pendingSaves = new Set();
+// Set the moment any persist() call is refused or fails, so init() can tell a
+// startup write went wrong even though it awaited each one and moved on —
+// without this, the final "Ready" status would overwrite the error persist()
+// already put in the status bar.
+let writeFailed = false;
 
 // "Error invoking remote method 'save-settings': TypeError: …" → "…"
 function ipcMessage(err) {
@@ -378,6 +383,7 @@ function failStartupRead(what, err) {
 // or failed (already reported).
 async function persist(what, call) {
   if (storeReadError) {
+    writeFailed = true;
     setStatus('error', `Couldn't ${what}: saved data could not be read at startup, so nothing is saved this session`);
     return undefined;
   }
@@ -386,6 +392,7 @@ async function persist(what, call) {
   try {
     return await job;
   } catch (err) {
+    writeFailed = true;
     console.error(`Couldn't ${what}:`, err);
     setStatus('error', `Couldn't ${what}: ${ipcMessage(err)}`);
     return undefined;
@@ -5763,7 +5770,7 @@ async function init() {
   renderProviderTabs();
   renderKeysList();
   renderModelsList();
-  if (!storeReadError) setStatus('idle', 'Ready — add an API key to begin');
+  if (!storeReadError && !writeFailed) setStatus('idle', 'Ready — add an API key to begin');
   setupUpdateListeners();
   startHealthMonitor();
   renderQuickStats();
