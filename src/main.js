@@ -281,7 +281,7 @@ function initAutoUpdater() {
     try {
       const url = `https://api.github.com/repos/VENOMDRMSUPPORT/upstream-checker/releases/tags/v${info.version}`;
       const response = await new Promise((resolve, reject) => {
-        const req = https.get(url, { headers: { 'User-Agent': 'Upstream-Checker', Accept: 'application/vnd.github+json' } }, (res) => {
+        const req = https.get(url, { headers: { 'User-Agent': 'VENOM-Router', Accept: 'application/vnd.github+json' } }, (res) => {
           const chunks = [];
           res.on('data', (chunk) => chunks.push(chunk));
           res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));

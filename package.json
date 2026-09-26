@@ -1,7 +1,7 @@
 {
-  "name": "upstream-checker",
+  "name": "venom-router",
   "version": "1.4.1",
-  "description": "Professional AI Model Provider Testing Tool",
+  "description": "LLM model router — one endpoint across every provider and key",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
@@ -20,7 +20,7 @@
       "releaseType": "release"
     },
     "appId": "com.upstream.checker",
-    "productName": "Upstream Checker",
+    "productName": "VENOM Router",
     "directories": {
       "output": "dist"
     },
@@ -45,10 +45,10 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "artifactName": "Upstream-Checker-Setup-${version}.exe"
+      "artifactName": "VENOM-Router-Setup-${version}.exe"
     },
     "portable": {
-      "artifactName": "Upstream Checker - Portable.exe"
+      "artifactName": "VENOM Router - Portable.exe"
     },
     "files": [
       "src/**/*"
