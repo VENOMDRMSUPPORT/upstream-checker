@@ -314,6 +314,14 @@ function initAutoUpdater() {
   autoUpdater.on('error', (err) => {
     log.error('Update error:', err);
     mainWindow?.webContents.send('update-error', { message: err.message });
+    // install-update flushes before quitAndInstall(), which marks the flush
+    // done so a second click on the X doesn't wait again. When quitAndInstall
+    // itself fails, the app keeps running with flushed stuck true — the next
+    // real close would skip the flush and the window row entirely. An update
+    // error can only mean the flush already ran for a close that never
+    // followed through, so it's always safe to make the next close redo it.
+    flushPromise = null;
+    flushed = false;
   });
 
   autoUpdater.on('download-progress', (progressObj) => {
