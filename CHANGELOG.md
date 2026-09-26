@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-09-26
+
 ### Added
 - Key usage, starting with Mirai API. Each key row on the Connected tab now
   shows the quota left (a bar, the percentage and the amount) and when the key
@@ -55,11 +57,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keys, 100/min per IP; paid accounts have none), so its Rate limit badge now
   lights. A going-over 429 still waits out the provider's Retry-After.
 
-### Fixed
-- A provider whose stored rate limit was empty (`null`, saved before its
-  module declared one) now uses the module's documented limit instead of
-  running unpaced.
-
 ### Changed
 - Updates: once an update finishes downloading, the update dialog opens in a
   "Update Ready" state that explains what happens next, with **Restart now**
@@ -92,6 +89,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - The update badge now turns green when an update is ready; the update
   dialog's icon rule was overriding its color with the accent.
+- A provider whose stored rate limit was empty (`null`, saved before its
+  module declared one) now uses the module's documented limit instead of
+  running unpaced.
+
+[1.4.1]: https://github.com/VENOMDRMSUPPORT/upstream-checker/releases/tag/v1.4.1
 
 ## [1.4.0] - 2026-09-26
 
