@@ -565,9 +565,10 @@ function previousStatus(modelId) {
 // Returns whether the run was saved (false when persist() refused it or the
 // write failed — already reported by persist; the caller shows it too, since
 // renderRunSummary's status would otherwise overwrite that report).
-async function recordRun(providerId, providerName, results) {
+async function recordRun(providerId, providerName, results, runUid) {
   if (results.length === 0) return true;
   const run = {
+    runUid,
     at: Date.now(),
     provider: providerId,
     providerName,
@@ -1934,18 +1935,40 @@ let requestSeq = 0;
 // flight. Without this, hitting Stop still leaves the hedged requests
 // running (and billing) until the 60s request timeout fires.
 const inflightIds = new Set();
+// Request-log tags by request id ({ attempt, hedgeIndex, testGroup, paramSwap }),
+// set when the id is handed out and read when its request goes out, so the
+// round and the hedge index travel with the id instead of through every
+// tester's signature. Cleared at the start of each run.
+const requestTags = new Map();
+// { runId, trigger } of the Route Test run in progress; null between runs.
+let routeRun = null;
 
-function nextRequestId() {
+function nextRequestId(tags = null) {
   requestSeq += 1;
   const id = `req_${Date.now()}_${requestSeq}`;
   inflightIds.add(id);
+  if (tags) requestTags.set(id, tags);
   return id;
 }
 
+// What a Route Test request carries into the request log.
+function routeTestTags(requestId) {
+  const t = (requestId && requestTags.get(requestId)) || {};
+  return {
+    source: 'route_test',
+    runId: routeRun ? routeRun.runId : undefined,
+    trigger: routeRun ? routeRun.trigger : undefined,
+    attempt: t.attempt,
+    hedgeIndex: t.hedgeIndex,
+    testGroup: t.testGroup,
+    paramSwap: t.paramSwap || undefined,
+  };
+}
+
 // Cancelling an already-finished id is a no-op in the main process, so this can
-// safely fire at every id from the current run.
+// safely fire at every id from the current run. Only Stop calls it.
 function cancelAllInflight() {
-  inflightIds.forEach((id) => window.electronAPI.cancelApiRequest(id));
+  inflightIds.forEach((id) => window.electronAPI.cancelApiRequest(id, 'stop'));
   inflightIds.clear();
 }
 
@@ -2052,14 +2075,15 @@ function extractMediaUrl(text) {
 // one-byte ranged GET for hosts (signed CDN links, mostly) that refuse HEAD.
 // true/false is a verdict; null means the host would not say, and the caller
 // falls back to the link itself.
-async function verifyAsset(url, kind, headers = {}) {
+async function verifyAsset(url, kind, headers = {}, requestId = null) {
   if (!settings.verifyAssets || !url) return null;
   const want = kind === 'video' ? 'video/' : 'image/';
   if (/^data:/i.test(url)) return url.slice(5).toLowerCase().startsWith(want);
   for (const [method, extra] of [['HEAD', {}], ['GET', { Range: 'bytes=0-0' }]]) {
     let res;
     try {
-      res = await window.electronAPI.apiRequest({ url, method, headers: { ...headers, ...extra }, timeoutMs: 20000, logLevel: settings.logLevel });
+      // Logged under the attempt that produced the link (requestId's tags).
+      res = await window.electronAPI.apiRequest({ url, method, headers: { ...headers, ...extra }, timeoutMs: 20000, ...routeTestTags(requestId) });
     } catch (_) {
       continue;
     }
@@ -2075,8 +2099,8 @@ async function verifyAsset(url, kind, headers = {}) {
 
 // Result fields for a generated asset: what the response column shows and, when
 // the check could be made, whether the link really serves that kind of media.
-async function assetResult(url, kind, headers) {
-  const verified = await verifyAsset(url, kind, headers);
+async function assetResult(url, kind, headers, requestId = null) {
+  const verified = await verifyAsset(url, kind, headers, requestId);
   const shown = /^data:/i.test(url) ? `Inline ${kind} · ${Math.round((url.length * 3) / 4 / 1024)} KB` : url;
   return typeof verified === 'boolean' ? { response: shown, assetVerified: verified } : { response: shown };
 }
@@ -2090,7 +2114,7 @@ async function attemptImage(model, provider, key, requestId) {
     body: JSON.stringify({ model: model.id, prompt: settings.imagePrompt, n: 1 }),
     requestId,
     timeoutMs: deadline,
-    logLevel: settings.logLevel,
+    ...routeTestTags(requestId),
   });
   const lost = transportFailure(res, key.id);
   if (lost) return lost;
@@ -2107,7 +2131,7 @@ async function attemptImage(model, provider, key, requestId) {
   }
   const url = item.url || findAssetUrl(data);
   if (!url) return { ...buildEmptyResult(data.usage || {}, res.elapsed), response: 'No image returned by provider', keyId: key.id };
-  return { ...base, ...(await assetResult(url, 'image')) };
+  return { ...base, ...(await assetResult(url, 'image', undefined, requestId)) };
 }
 
 const JOB_DONE = new Set(['completed', 'succeeded', 'success', 'done', 'finished', 'ready']);
@@ -2126,7 +2150,7 @@ async function attemptVideo(model, provider, key, requestId) {
     body: JSON.stringify({ model: model.id, prompt: settings.videoPrompt }),
     requestId,
     timeoutMs: deadline,
-    logLevel: settings.logLevel,
+    ...routeTestTags(requestId),
   });
   const lost = transportFailure(res, key.id);
   if (lost) return lost;
@@ -2148,10 +2172,10 @@ async function attemptVideo(model, provider, key, requestId) {
     const done = JOB_DONE.has(state);
     if (done || (url && !state)) {
       const pass = { keyId: key.id, status: 'pass', isEmpty: false, time: elapsed(), tokens: usageTokens(job.usage) };
-      if (url) return { ...pass, ...(await assetResult(url, 'video')) };
+      if (url) return { ...pass, ...(await assetResult(url, 'video', undefined, requestId)) };
       // Finished without a link: the OpenAI shape serves the file from the job.
       const contentUrl = `${endpoint}/${encodeURIComponent(job.id)}/content`;
-      const verified = await verifyAsset(contentUrl, 'video', { Authorization: `Bearer ${key.key}` });
+      const verified = await verifyAsset(contentUrl, 'video', { Authorization: `Bearer ${key.key}` }, requestId);
       return { ...pass, response: `Video ready · job ${job.id}`, ...(typeof verified === 'boolean' ? { assetVerified: verified } : {}) };
     }
     if (!job.id) return fail('Video job returned neither an id nor an asset');
@@ -2159,13 +2183,15 @@ async function attemptVideo(model, provider, key, requestId) {
     if (elapsed() >= deadline) return fail(`Timed out while the video was ${state || 'pending'}`, { statusCode: 0, timedOut: true });
 
     await sleep(Math.max(1000, settings.videoPollMs));
+    // A poll belongs to the same attempt: it carries the create call's tags.
+    const pollId = nextRequestId(requestTags.get(requestId) || null);
     const poll = await window.electronAPI.apiRequest({
       url: `${endpoint}/${encodeURIComponent(job.id)}`,
       method: 'GET',
       headers: authHeaders(key.key),
-      requestId: nextRequestId(),
+      requestId: pollId,
       timeoutMs: 30000,
-      logLevel: settings.logLevel,
+      ...routeTestTags(pollId),
     });
     if (poll.cancelled) return fail('cancelled', { cancelled: true });
     if (poll.networkError) continue; // one lost poll is not a failed job
@@ -2192,7 +2218,7 @@ async function attemptDecision(model, provider, key, requestId) {
     }),
     requestId,
     timeoutMs: deadline,
-    logLevel: settings.logLevel,
+    ...routeTestTags(requestId),
   });
   const lost = transportFailure(res, key.id);
   if (lost) return lost;
@@ -2275,7 +2301,7 @@ async function attemptChat(model, provider, stream, requestId, key) {
       body: JSON.stringify(payload),
       requestId,
       timeoutMs: deadline,
-      logLevel: settings.logLevel,
+      ...routeTestTags(requestId),
     });
 
     // A cancelled hedge loser (raceAttempts skips those) or a transport failure.
@@ -2302,7 +2328,7 @@ async function attemptChat(model, provider, stream, requestId, key) {
       };
       // A generator answering over chat still has to hand back a real asset.
       if (media) {
-        const verified = await verifyAsset(extractMediaUrl(parsed.content), model.kind);
+        const verified = await verifyAsset(extractMediaUrl(parsed.content), model.kind, {}, requestId);
         if (typeof verified === 'boolean') pass.assetVerified = verified;
       }
       return pass;
@@ -2313,13 +2339,15 @@ async function attemptChat(model, provider, stream, requestId, key) {
 
     // "Unsupported parameter: max_tokens" and friends — switch the field and go
     // again rather than reporting a working model as broken.
+    // A re-send after a rejected parameter is the same attempt, marked as one.
+    const swapId = () => nextRequestId({ ...requestTags.get(requestId), paramSwap: true });
     if (result.status === 400 && /max_tokens|max_completion_tokens/i.test(errMsg)) {
       const swapped = swapTokenLimitField(provider.id);
-      if (swapped) return attemptOnce(model, provider, stream, nextRequestId());
+      if (swapped) return attemptOnce(model, provider, stream, swapId());
     }
     if (result.status === 400 && payload.reasoning_effort && REASONING_REJECTED.test(errMsg)) {
       noReasoningEffort.add(reasoningKey(provider.id, model.id));
-      return attemptOnce(model, provider, stream, nextRequestId());
+      return attemptOnce(model, provider, stream, swapId());
     }
     return failed;
   } catch (err) {
@@ -2336,16 +2364,16 @@ function resultRank(r) {
 
 // Fire `count` parallel attempts; resolve as soon as one returns a non-empty pass
 // (cancelling the rest). If none do, wait for all and resolve with the best result.
-function raceAttempts(model, provider, stream, count) {
+function raceAttempts(model, provider, stream, count, tags = {}) {
   return new Promise((resolve) => {
     const ids = [];
     let pending = count;
     let best = null;
     let settled = false;
-    const cancelRest = () => ids.forEach((id) => window.electronAPI.cancelApiRequest(id));
+    const cancelRest = () => ids.forEach((id) => window.electronAPI.cancelApiRequest(id, 'hedge_lost'));
 
     for (let i = 0; i < count; i++) {
-      const id = nextRequestId();
+      const id = nextRequestId({ ...tags, hedgeIndex: i });
       ids.push(id);
       attemptOnce(model, provider, stream, id).then((r) => {
         pending -= 1;
@@ -2371,7 +2399,7 @@ function raceAttempts(model, provider, stream, count) {
 // non-empty answer wins (cancel the rest). An empty 200 is deterministic per
 // model, so we stop escalating once we see one and resolve with the best result.
 // A hard per-kind deadline prevents a pathologically slow model from hanging.
-function adaptiveNonStream(model, provider) {
+function adaptiveNonStream(model, provider, tags = {}) {
   const { deadline, hedge } = kindLimits(model.kind);
   const maxAttempts = hedge ? Math.max(1, settings.hedgeMax) : 1;
   return new Promise((resolve) => {
@@ -2384,13 +2412,16 @@ function adaptiveNonStream(model, provider) {
     let stepTimer = null;
     let deadlineTimer = null;
 
-    const cancelAll = () => ids.forEach((id) => window.electronAPI.cancelApiRequest(id));
-    const finish = (r) => {
+    // Why the attempts still running are cut, for the request log: a winner
+    // makes them hedge losers, Stop is the user's, and the per-kind deadline
+    // is recorded as a timeout.
+    const cancelAll = (reason) => ids.forEach((id) => window.electronAPI.cancelApiRequest(id, reason));
+    const finish = (r, reason = 'hedge_lost') => {
       if (settled) return;
       settled = true;
       clearTimeout(stepTimer);
       clearTimeout(deadlineTimer);
-      cancelAll();
+      cancelAll(reason);
       resolve(r);
     };
 
@@ -2412,7 +2443,7 @@ function adaptiveNonStream(model, provider) {
       }
       launched += 1;
       inflight += 1;
-      const id = nextRequestId();
+      const id = nextRequestId({ ...tags, hedgeIndex: launched - 1 });
       ids.push(id);
       attemptOnce(model, provider, false, id).then((r) => {
         inflight -= 1;
@@ -2420,7 +2451,7 @@ function adaptiveNonStream(model, provider) {
         // Stop was pressed. Every attempt comes back `cancelled`, which sets
         // neither `stop` nor `best` — without this the promise would hang until
         // the 75s deadline and "Stopping..." would sit there for over a minute.
-        if (abortTesting) return finish(best || { status: 'fail', response: 'Aborted', time: 0, tokens: 0 });
+        if (abortTesting) return finish(best || { status: 'fail', response: 'Aborted', time: 0, tokens: 0 }, 'stop');
         if (r.status === 'pass' && !r.isEmpty) return finish(r); // fastest correct wins
         if (!r.cancelled && (!best || resultRank(r) > resultRank(best))) best = r;
         // A completed non-win result (empty or failure) means the model isn't just
@@ -2437,7 +2468,7 @@ function adaptiveNonStream(model, provider) {
     };
 
     deadlineTimer = setTimeout(
-      () => finish(best || { status: 'fail', response: 'Timed out', time: deadline, tokens: 0, statusCode: 0, timedOut: true }),
+      () => finish(best || { status: 'fail', response: 'Timed out', time: deadline, tokens: 0, statusCode: 0, timedOut: true }, 'deadline'),
       deadline
     );
 
@@ -2449,6 +2480,8 @@ function adaptiveNonStream(model, provider) {
 // Test a single model — adaptive hedge, handles reasoning, empty, rate limits
 // ============================================
 async function testModel(model, provider) {
+  // One id per testModel call, so the log pages can draw its retry chain.
+  const testGroup = newUlid();
   let transientRetries = 0;
   let emptyRetried = false;
   let rateLimitWaits = 0;
@@ -2481,7 +2514,7 @@ async function testModel(model, provider) {
     }
     rounds += 1;
 
-    const r = await adaptiveNonStream(model, provider);
+    const r = await adaptiveNonStream(model, provider, { testGroup, attempt: rounds });
 
     // A key that serves a model it had been refused has quota again (reset
     // early, topped up). Serving another model says nothing: that one may
@@ -2499,7 +2532,7 @@ async function testModel(model, provider) {
       // Empty on the non-streaming endpoint: some models (byNara event-stream)
       // deliver content only over SSE — try streaming.
       if (abortTesting) return done(r);
-      const streamed = await raceAttempts(model, provider, true, STREAM_HEDGE);
+      const streamed = await raceAttempts(model, provider, true, STREAM_HEDGE, { testGroup, attempt: rounds });
       if (streamed.status === 'pass' && !streamed.isEmpty) return done(streamed);
       // Both empty. Empty can be flaky, so retry the whole model once.
       if (!emptyRetried && !abortTesting) {
@@ -2678,6 +2711,10 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
   isTesting = true;
   abortTesting = false;
   inflightIds.clear();
+  requestTags.clear();
+  // The run's id tags every request it sends and names its history run, so
+  // the request log and the history agree on which run a request was part of.
+  routeRun = { runId: newUlid(), trigger: scheduled ? 'scheduled' : 'manual' };
   keyCooldownUntil.clear();
   if (reset) learnedRpm.clear();
   if (reset) deniedPairs.clear();
@@ -2743,7 +2780,11 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
   updateTestAllButton();
   updateStats();
 
-  const saved = await recordRun(p.id, p.name, testResults);
+  // isTesting is already false here, so a new run may start while this one
+  // is saved; it must keep its own routeRun.
+  const finishedRun = routeRun;
+  const saved = await recordRun(p.id, p.name, testResults, finishedRun.runId);
+  if (routeRun === finishedRun) routeRun = null;
   lastRun = { done, total: list.length, stopped: abortTesting, changes: runRegressions(), saved };
   renderResultsTable(); // uptime cells now include this run
   renderRunSummary();
