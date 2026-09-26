@@ -130,10 +130,12 @@ async function startDatabase() {
     log.error('Import of the saved JSON files failed:', err);
     // A damaged config.json is the one failure the owner can work around
     // without our help: it's the only file the importer insists on, so
-    // moving it aside — never deleting it — lets the app start empty and it
-    // can be re-imported later once fixed.
+    // moving it out of the data folder lets the app start — but without the
+    // providers and keys that file held. That is not a deferred import:
+    // once startup succeeds without it, imported_from_json_at is set and a
+    // config.json that turns up later is never imported.
     const workaround = err.code === 'IMPORT_CONFIG_PARSE'
-      ? '\n\nMoving this file out of the folder lets VENOM Router start without it. Nothing is deleted; put it back and restart to try importing it again.'
+      ? '\n\nMoving this file out of the data folder lets VENOM Router start, but WITHOUT the providers and keys in that file. Nothing is deleted; keep the moved file safe.'
       : '';
     showStartupError(
       `VENOM Router could not import its saved data, so it will close.\n\n${err.message}`,
