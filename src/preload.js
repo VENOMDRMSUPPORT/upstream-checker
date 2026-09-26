@@ -24,7 +24,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   appendRun: (run, maxRuns) => ipcRenderer.invoke('append-run', run, maxRuns),
   clearHistory: () => ipcRenderer.invoke('clear-history'),
 
-  // Model catalog (models seen per provider + benchmark results)
+  // Model pool (models seen per provider + benchmark results)
   readCatalog: () => ipcRenderer.invoke('read-catalog'),
   writeCatalog: (data) => ipcRenderer.invoke('write-catalog', data),
   getDataPath: () => ipcRenderer.invoke('get-data-path'),

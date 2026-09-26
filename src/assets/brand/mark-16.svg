@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- 16 px master: 32 units per pixel, neck and head only, no tongue. -->
+  <path fill="currentColor" fill-rule="evenodd" d="M96 96 L224 96 L224 160 L192 160 L192 192 L256 256 L320 192 L320 160 L288 160 L288 96 L416 96 L272 416 L240 416 Z"/>
+</svg>

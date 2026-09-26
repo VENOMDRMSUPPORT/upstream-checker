@@ -1,5 +1,5 @@
 // ============================================
-// Venom profiles — three exits in front of the whole catalogue
+// Routing profiles — three exits in front of the whole model pool
 // ============================================
 // venom-lite, venom-pro and venom-max are virtual models. Each has a policy:
 // hard requirements a model must meet to serve it, and weights that order the
@@ -288,8 +288,8 @@
     return result;
   }
 
-  // The cached result goes stale by time too: cooldowns expire and Upstream
-  // Check runs add verdicts without touching the catalogue file.
+  // The cached result goes stale by time too: cooldowns expire and Route
+  // Test runs add verdicts without touching the catalog file.
   const RESULT_TTL_MS = 30000;
   function current() {
     if (state.result && Date.now() - state.result.at < RESULT_TTL_MS) return state.result;
@@ -329,7 +329,7 @@
         targets: p.active.map(row), candidates: p.candidates.map(row), cooldown: p.cooldown.map(row), excluded: p.excluded.map(row),
       };
     });
-    return { generatedAt: new Date(r.at).toISOString(), generator: 'Upstream Checker', suite: B.SUITE_VERSION,
+    return { generatedAt: new Date(r.at).toISOString(), generator: 'VENOM Router', suite: B.SUITE_VERSION,
       global: { minRuns: pol.minRuns, minVerdicts: pol.minVerdicts, topN: pol.topN, maxProviderShare: pol.maxProviderShare, cooldownStreak: pol.cooldownStreak, cooldownMinutes: pol.cooldownMinutes },
       profiles };
   }
@@ -485,7 +485,7 @@
       </div>
       ${editing ? policyEditorHTML(id, pol.profiles[id]) : ''}
       <div class="pf-section-head">Roster <span class="mc-muted">ranked · shares over the top ${pol.topN}</span></div>
-      ${table(pf.active, true, pf.excluded.length || pf.candidates.length ? 'Nothing active yet — see candidates and exclusions below.' : 'No models in the catalogue.')}
+      ${table(pf.active, true, pf.excluded.length || pf.candidates.length ? 'Nothing active yet — see candidates and exclusions below.' : 'No models in the pool.')}
       ${pf.candidates.length ? `<div class="pf-section-head">Candidates <span class="mc-muted">eligible, but not enough evidence to carry traffic (${pol.minRuns}+ runs, ${pol.minVerdicts}+ verdicts)</span></div>${table(pf.candidates, false, '')}` : ''}
       ${pf.cooldown.length ? `<div class="pf-section-head">Cooling down <span class="mc-muted">${pol.cooldownStreak}+ failures in a row; back after ${pol.cooldownMinutes} min</span></div>${table(pf.cooldown, false, '')}` : ''}
       <div class="pf-section-head pf-toggle" data-pf-excluded="${id}">${ICON.chevron} Excluded <span class="mc-muted">${pf.excluded.length} · ${pf.reasons.slice(0, 3).map(([r, n]) => `${escapeHtml(r)} (${n})`).join(' · ')}</span></div>
@@ -510,10 +510,10 @@
     const body = $('#pf-body');
     if (!body) return;
     if (!C.state.loaded) { C.load().then(render); return; }
-    $('#pf-crumbs').innerHTML = breadcrumbHTML([{ label: 'Overview', page: 'overview' }, { label: 'Profiles', icon: 'profiles' }]);
+    $('#pf-crumbs').innerHTML = breadcrumbHTML([{ label: 'Overview', page: 'overview' }, { label: 'Routing Profiles', icon: 'profiles' }]);
     const connected = Object.values(PROVIDERS).filter(isConnected);
     if (!connected.length) {
-      body.innerHTML = `<div class="pv-empty"><div class="pv-empty-icon">${ICON.empty}</div><h3>No providers connected</h3><p>Profiles are built from the Model Catalog, which is empty until a provider has a key.</p><button class="btn btn-primary" type="button" data-go="providers">Open Providers</button></div>`;
+      body.innerHTML = `<div class="pv-empty"><div class="pv-empty-icon">${ICON.empty}</div><h3>No providers connected</h3><p>Profiles route through the Model Pool, which is empty until a provider has a key.</p><button class="btn btn-primary" type="button" data-go="providers">Open Providers</button></div>`;
       return;
     }
     const pol = policy();
@@ -533,7 +533,7 @@
         </div>
       </div>
       <div class="pf-grid">${PROFILE_IDS.map((id) => profileCardHTML(r.profiles[id], pol)).join('')}</div>
-      <p class="mc-source pf-foot">Every number here was measured against your own keys by the Model Catalog benchmark. Intelligence marked <em>inherited</em> comes from the same model on another of your providers. Nothing is copied from a public leaderboard.</p>`;
+      <p class="mc-source pf-foot">Every number here was measured against your own keys by the Model Pool benchmark. Intelligence marked <em>inherited</em> comes from the same model on another of your providers. Nothing is copied from a public leaderboard.</p>`;
   }
 
   // The page is rebuilt whole, so a background update would drop a half-typed

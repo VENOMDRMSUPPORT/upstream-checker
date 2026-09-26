@@ -1,11 +1,22 @@
 # Changelog
 
-All notable changes to Upstream Checker will be documented in this file.
+All notable changes to VENOM Router (formerly Upstream Checker) will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Changed
+- Upstream Checker is now **VENOM Router**, an LLM model router. The app has a
+  new name, a new logo (the Viper V) and router vocabulary throughout: Model
+  catalog is now Model Pool, Upstream Check is Route Test, and Venom Profiles
+  are Routing Profiles. No page, feature or setting was removed.
+- App data moves from `%APPDATA%\upstream-checker` to `%APPDATA%\venom-router`
+  on first launch, keys and history included. If an older version is still
+  running, the old folder is kept in use and the move is tried again next time.
+- Installers are named `VENOM-Router-Setup-<version>.exe` and
+  `VENOM Router - Portable.exe`. Existing installs keep updating in place.
 
 ## [1.4.1] - 2026-09-26
 

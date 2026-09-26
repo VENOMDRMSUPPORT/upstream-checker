@@ -1,5 +1,5 @@
 /* ============================================
-   UPSTREAM CHECKER — Enterprise Dark Theme
+   VENOM ROUTER — Enterprise Dark Theme
    ============================================ */
 
 /* Registered so a change of accent animates: every color-mix() and gradient
@@ -447,7 +447,7 @@ html, body {
   flex-shrink: 0;
   border-radius: 8px;
   background: var(--accent);
-  color: #0a0a0a;
+  color: var(--on-accent);
   box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 .shell-brand-text {
@@ -3477,7 +3477,7 @@ body.sidebar-hidden .sidebar {
 
 
 /* ============================================
-   Upstream Check — inner sidebar
+   Route Test — inner sidebar
    ============================================ */
 /* The header row carries the section it heads (Providers + add) instead of a
    third copy of the brand, and stays aligned with the results status bar. */
@@ -4664,7 +4664,7 @@ img[data-tone] { filter: var(--logo-tone, none); }
 /* ============================================
    Page toolbar — one card for every page that has one
    ============================================ */
-/* Providers and the Model Catalog (search, filters, sort, page actions) and
+/* Providers and the Model Pool (search, filters, sort, page actions) and
    Profiles (policy fields, export) share one card: same frame, surface,
    padding and spacing, in both themes. There is no view switch: the list
    turns into cards when the window folds the nav away (COMPACT_LAYOUT). */
@@ -5386,7 +5386,7 @@ img[data-tone] { filter: var(--logo-tone, none); }
    transparent strip left a seam under the first cell. */
 .dt-row.open td { border-bottom: 0; }
 
-/* Detail rows (Model Catalog, Profiles) hang flush under their row. */
+/* Detail rows (Model Pool, Profiles) hang flush under their row. */
 .dt-detail > td {
   padding: 0 !important;
   background: color-mix(in srgb, var(--accent) 3%, transparent);
@@ -6910,7 +6910,7 @@ img[data-tone] { filter: var(--logo-tone, none); }
 
 
 /* ============================================
-   Model Catalog
+   Model Pool
    ============================================ */
 .page-catalog {
   padding: 24px clamp(16px, 3vw, 32px) 32px;

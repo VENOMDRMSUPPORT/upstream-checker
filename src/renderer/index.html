@@ -9,7 +9,7 @@
        stays on style-src only — element .style properties and a few style
        attributes rely on it. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'none'; script-src 'self';">
-  <title>Upstream Checker</title>
+  <title>VENOM Router</title>
   <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon.png">
   <link rel="stylesheet" href="fonts.css">
   <link rel="stylesheet" href="styles.css">
@@ -19,13 +19,9 @@
   <div class="titlebar" id="titlebar">
     <div class="titlebar-drag">
       <div class="titlebar-icon">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-          <path d="M2 17l10 5 10-5"/>
-          <path d="M2 12l10 5 10-5"/>
-        </svg>
+        <svg width="15" height="15" viewBox="96 96 320 320" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M96 96 L224 96 L224 160 L192 160 L192 192 L256 256 L320 192 L320 160 L288 160 L288 96 L416 96 L272 416 L240 416 Z"/></svg>
       </div>
-      <span class="titlebar-text">UPSTREAM CHECKER</span>
+      <span class="titlebar-text">VENOM ROUTER</span>
     </div>
     <div class="titlebar-controls">
       <!-- Update indicator: hidden until an update exists. The ring fills while
@@ -71,11 +67,11 @@
       <div class="shell-nav-head">
         <div class="shell-brand">
           <div class="shell-brand-mark">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+            <svg width="19" height="19" viewBox="96 96 320 320" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M96 96 L224 96 L224 160 L192 160 L192 192 L256 256 L320 192 L320 160 L288 160 L288 96 L416 96 L272 416 L240 416 Z"/></svg>
           </div>
           <div class="shell-brand-text">
-            <span class="shell-brand-top">UPSTREAM</span>
-            <span class="shell-brand-bottom">CHECKER</span>
+            <span class="shell-brand-top">VENOM</span>
+            <span class="shell-brand-bottom">ROUTER</span>
           </div>
           <span class="shell-version" data-app-version>v0.0.0</span>
           <button class="shell-nav-close" id="shell-nav-close" type="button" title="Close menu" aria-label="Close menu">
@@ -96,17 +92,17 @@
         </button>
         <button class="shell-nav-item" type="button" data-page="catalog">
           <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>
-          <span>Model catalog</span>
+          <span>Model Pool</span>
         </button>
 
-        <span class="shell-nav-group-label">Testing</span>
+        <span class="shell-nav-group-label">Routing</span>
         <button class="shell-nav-item" type="button" data-page="check">
           <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4"/></svg>
-          <span>Upstream Check</span>
+          <span>Route Test</span>
         </button>
         <button class="shell-nav-item" type="button" data-page="profiles">
           <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h10M4 18h6"/><circle cx="18" cy="16" r="3"/><path d="M20.5 18.5 22 20"/></svg>
-          <span>Venom Profiles</span>
+          <span>Routing Profiles</span>
         </button>
         <button class="shell-nav-item" type="button" disabled title="Coming soon">
           <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>
@@ -131,7 +127,7 @@
             Quick Stats
           </span>
           <!-- System status: summarises the provider health checks (detail in the
-               tooltip); opens Upstream Check. -->
+               tooltip); opens Route Test. -->
           <button class="shell-status" id="shell-status" type="button" data-state="pending"
                   title="Checking providers…" aria-label="Checking providers…">
             <span class="shell-status-dot"></span>
@@ -154,7 +150,7 @@
         <div class="shell-stat">
           <span class="shell-stat-label">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-            Last Check
+            Last test
           </span>
           <span class="shell-stat-value" id="stat-last-check">—</span>
         </div>
@@ -242,7 +238,7 @@
               <span class="ov-kpi-foot">with recorded runs</span>
             </div>
             <div class="ov-kpi">
-              <span class="ov-kpi-label">Last check</span>
+              <span class="ov-kpi-label">Last test</span>
               <span class="ov-kpi-value" id="ov-last">—</span>
               <span class="ov-kpi-foot">most recent test run</span>
             </div>
@@ -535,7 +531,7 @@
                   </button>
                   <button class="settings-nav-item" data-section="sec-catalog" role="tab" aria-selected="false">
                     <svg class="settings-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
-                    <span>Model Catalog</span>
+                    <span>Model Pool</span>
                   </button>
                   <button class="settings-nav-item" data-section="sec-history" role="tab" aria-selected="false">
                     <svg class="settings-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
@@ -551,7 +547,7 @@
                   </button>
                   <button class="settings-nav-item" data-section="sec-about" role="tab" aria-selected="false">
                     <svg class="settings-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>
-                    <span>About Upstream</span>
+                    <span>About VENOM Router</span>
                   </button>
                 </nav>
               </div>
@@ -989,9 +985,9 @@
                   </div>
                 </section>
 
-                <!-- Model Catalog -->
+                <!-- Model Pool -->
                 <section class="settings-section" id="sec-catalog" hidden>
-                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>The catalogue re-reads each connected provider&rsquo;s model list on a timer (one <code>GET /models</code> per key), on focus, and whenever a key is added or removed. New models are flagged; removed models disappear at once.</p></div>
+                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>The model pool re-reads each connected provider&rsquo;s model list on a timer (one <code>GET /models</code> per key), on focus, and whenever a key is added or removed. New models are flagged; removed models disappear at once.</p></div>
 
                   <div class="settings-rows">
                     <div class="settings-row-item">
@@ -1031,11 +1027,11 @@
 
                   <div class="settings-zone">
                     <div class="settings-zone-info">
-                      <div class="settings-zone-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>Clear catalogue data</div>
-                      <div class="settings-zone-desc">Benchmark results, or the whole catalogue, are removed from this machine.</div>
+                      <div class="settings-zone-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>Clear model pool data</div>
+                      <div class="settings-zone-desc">Benchmark results, or the whole model pool, are removed from this machine.</div>
                     </div>
                     <div class="settings-actions"><button class="btn btn-ghost" id="btn-catalog-clear-bench" type="button">Clear benchmark results</button>
-                    <button class="btn btn-ghost danger" id="btn-catalog-reset" type="button">Reset catalogue</button></div>
+                    <button class="btn btn-ghost danger" id="btn-catalog-reset" type="button">Reset model pool</button></div>
                   </div>
                 </section>
 
@@ -1153,19 +1149,15 @@
                 <section class="settings-section" id="sec-about" hidden>
                   <div class="about-head">
                     <div class="about-mark">
-                      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-                        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                        <path d="M2 17l10 5 10-5"/>
-                        <path d="M2 12l10 5 10-5"/>
-                      </svg>
+                      <svg width="31" height="28" viewBox="80 96 352 320" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M80 96 L208 96 L224 128 L224 144 L208 176 L248 248 L248 288 L232.4 320 L250.2 320 L256 308.1 L261.8 320 L279.6 320 L264 288 L264 248 L304 176 L288 144 L288 128 L304 96 L432 96 L264 416 L248 416 Z"/></svg>
                     </div>
                     <div>
-                      <div class="about-name">Upstream Checker</div>
+                      <div class="about-name">VENOM Router</div>
                       <div class="about-version">Version <span id="about-version">-</span></div>
                     </div>
                   </div>
 
-                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>Tests every model a provider offers against one prompt, and keeps the results, so the question stops being &ldquo;does this model work right now&rdquo; and becomes &ldquo;is this model reliable&rdquo;.</p></div>
+                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>Routes every request to the best model across your providers, chosen from measurements taken on your own keys &mdash; not from marketing claims.</p></div>
 
                   <div class="settings-rows">
                     <div class="settings-row-item vertical">

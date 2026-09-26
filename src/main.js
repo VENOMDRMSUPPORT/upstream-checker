@@ -11,6 +11,16 @@ const {
   eachStoredKey,
   countPlaintextKeys,
 } = require('./keystore');
+const { resolveUserDataDir } = require('./user-data');
+
+// Settled before anything reads a path or writes a log. An explicit
+// --user-data-dir (dev and test instances) is used as given.
+if (!app.commandLine.hasSwitch('user-data-dir')) {
+  const userData = resolveUserDataDir(app.getPath('appData'), fs);
+  app.setPath('userData', userData.dir);
+  if (userData.migrated) log.info('Moved app data to', userData.dir);
+  if (userData.error) log.warn('Could not move the old app data folder, still using it:', userData.error.message);
+}
 
 let autoUpdater; // Lazy load after app ready
 let updateCheckInterval;
@@ -145,7 +155,7 @@ function appendRun(run, maxRuns) {
 }
 
 // ============================================
-// Model catalog — catalog.json
+// Model pool — catalog.json
 // ============================================
 // Every model each connected provider has ever listed, with when it was first
 // and last seen, whether it has since disappeared, and its benchmark results.
@@ -222,7 +232,9 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
-    icon: path.join(__dirname, 'assets', 'icon.png'),
+    // The .ico carries the hand-hinted 16/32/48 px frames for the taskbar and
+    // Alt-Tab; the 512 px PNG would be shrunk into a blur there.
+    icon: path.join(__dirname, 'assets', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
   });
 
   if (saved.maximized) mainWindow.maximize();
@@ -271,7 +283,7 @@ function initAutoUpdater() {
     try {
       const url = `https://api.github.com/repos/VENOMDRMSUPPORT/upstream-checker/releases/tags/v${info.version}`;
       const response = await new Promise((resolve, reject) => {
-        const req = https.get(url, { headers: { 'User-Agent': 'Upstream-Checker', Accept: 'application/vnd.github+json' } }, (res) => {
+        const req = https.get(url, { headers: { 'User-Agent': 'VENOM-Router', Accept: 'application/vnd.github+json' } }, (res) => {
           const chunks = [];
           res.on('data', (chunk) => chunks.push(chunk));
           res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));

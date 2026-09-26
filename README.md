@@ -1,15 +1,17 @@
-# Upstream Checker
+# VENOM Router
 
-Desktop tool for testing AI model providers. Connect your API keys, discover
-every model each key can reach, test them for real, benchmark them, and track
-how they hold up over time.
+Desktop LLM model router for Windows. Connect your providers and API keys, keep
+a live pool of every model they offer, measure each one for real, and route
+requests through `venom-lite`, `venom-pro` and `venom-max` to the best model
+for the job.
 
 Built with Electron for Windows. Current version: **1.4.1** (see
-[CHANGELOG.md](CHANGELOG.md)).
+[CHANGELOG.md](CHANGELOG.md)). Formerly Upstream Checker — existing installs
+update in place and keep their data.
 
 ## Features
 
-- **Model testing** — sends a real prompt to each selected model and checks the
+- **Route testing** — sends a real prompt to each selected model and checks the
   answer. Chat, image and video models are each judged by the right standard.
   Hedged requests (the fastest correct answer wins), retries for transient
   failures, and per-kind time limits.
@@ -26,9 +28,9 @@ Built with Electron for Windows. Current version: **1.4.1** (see
 - **Benchmark** — 21 machine-checked tasks (reasoning & math, coding,
   instruction following, in three difficulty tiers) plus latency and
   throughput probes. Under a minute per model.
-- **Model catalog** — live inventory across all connected providers, with
+- **Model pool** — live inventory across all connected providers, with
   benchmark scores compared against the Artificial Analysis leaderboard.
-- **Venom profiles** — `venom-lite`, `venom-pro` and `venom-max`: virtual models
+- **Routing profiles** — `venom-lite`, `venom-pro` and `venom-max`: virtual models
   that rank and weight real models from measured data on your own providers.
 - **Export** — results as CSV or JSON, history as JSON.
 - **Appearance** — dark and light themes, following the OS or set by hand, with
@@ -55,10 +57,10 @@ All are OpenAI-compatible (`GET /models`, `POST /chat/completions`).
 | --------- | ------------------------------------------------------------------- |
 | Overview  | Summary of recent runs, uptime and regressions                      |
 | Providers | **Connected**: your keys and their health/usage. **Integrated**: available providers to connect |
-| Catalog   | Every model across providers, with benchmark results                |
-| Check     | Pick models and run tests; results table with export                |
-| Profiles  | The Venom profiles and the model roster behind each                 |
-| Settings  | Appearance, Test, Schedule, Speed, Reliability, Model Catalog, History, Diagnostics, Data, About |
+| Model Pool | Every model across providers, with benchmark results               |
+| Route Test | Pick models and run tests; results table with export               |
+| Routing Profiles | venom-lite, venom-pro and venom-max, and the model roster behind each |
+| Settings  | Appearance, Test, Schedule, Speed, Reliability, Model Pool, History, Diagnostics, Data, About |
 
 ## Project structure
 
@@ -72,8 +74,8 @@ src/
     index.html         App shell and all pages
     app.js             Core logic: providers, keys, discovery, testing, history, UI
     benchmark.js       Benchmark suite
-    catalog.js         Model catalog and leaderboard
-    profiles.js        Venom profiles engine
+    catalog.js         Model pool and leaderboard
+    profiles.js        Routing profiles engine
     key-usage.js       Key usage row + drawer (provider-agnostic)
     ui-select.js       Custom <select> menu
     providers/*.js     One module per integrated provider
@@ -107,7 +109,7 @@ Stored in the app's user-data folder (Settings › Data opens it):
   OS keystore (`enc:v1:` prefix) and only decrypt for the same Windows user on
   the same machine.
 - `history.json` — run history.
-- `catalog.json` — model catalog and benchmark results.
+- `catalog.json` — model pool and benchmark results.
 - Request log — optional, with auth headers redacted.
 
 ## Development
