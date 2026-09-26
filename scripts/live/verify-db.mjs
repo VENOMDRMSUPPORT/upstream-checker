@@ -137,9 +137,14 @@ async function saveForNextRun({ app }) {
   })()`);
 }
 
-// Queued and NOT waited for: the close that follows must still write it.
+// Queued and NOT waited for, with its own debounce timer pushed out past the
+// close wait: the setting can only reach disk through the renderer's
+// flush-pending handler answering the close handshake, not through its own
+// timer firing on its own during the 2 s the close waits for that answer.
 async function queueSaveThenClose({ app }) {
-  await app.evaluate('settings.hedgeStepMs = 2345; queueSettingsSave(); true');
+  await app.evaluate(
+    'settings.hedgeStepMs = 2345; clearTimeout(saveSettingsTimer); saveSettingsTimer = setTimeout(saveSettingsNow, 60000); true'
+  );
 }
 
 // ---- run 2: relaunch on the same folder -----------------------------------------
@@ -193,16 +198,28 @@ const RUN1_END = [saveForNextRun, queueSaveThenClose];
 const RUN2 = [checkPersistence, checkFlushOnClose, checkSingleInstance];
 const RUN2_END = [checkWriteGate];
 
-async function session(ctx, steps) {
+// checkFastClose: assert the close was answered by the renderer's
+// flush-pending reply, not by the main-side 2 s timeout — used right after
+// queueSaveThenClose, whose setting has no other way to reach disk.
+async function session(ctx, steps, { checkFastClose = false } = {}) {
   const app = await launch({ userDataDir: ctx.dir });
   try {
     await app.waitFor(READY, 30000);
     for (const step of steps) await step({ ...ctx, app });
   } finally {
+    const closeStarted = Date.now();
     const code = await app.close().catch((err) => {
       check('the app closed', false, err.message);
       return null;
     });
+    if (checkFastClose) {
+      const took = Date.now() - closeStarted;
+      check('the close was answered by the renderer, not the 2 s flush timeout', took < 1500, `${took} ms`);
+      check(
+        'no "did not confirm its pending saves" warning in the app output',
+        !app.output().includes('did not confirm its pending saves')
+      );
+    }
     if (code !== null) check('the app exited with code 0', code === 0, String(code));
   }
 }
@@ -213,7 +230,7 @@ try {
   const fixture = writeFixture(dir, mock.origin);
   const ctx = { dir, mock, fixture, check };
   console.log(`Fixture data folder: ${dir}\n`);
-  await session(ctx, [...RUN1, ...RUN1_END]);
+  await session(ctx, [...RUN1, ...RUN1_END], { checkFastClose: true });
   await session(ctx, [...RUN2, ...RUN2_END]);
 } catch (err) {
   check('the live run finished', false, err.stack || err.message);
