@@ -470,7 +470,7 @@
   const LANES = 3;
 
   // One request. Returns { status:'ok'|'error'|'empty'|'timeout'|'ratelimit', text, time, ttft, completionTokens, error }
-  async function ask(provider, model, key, prompt, { stream = false, maxTokens = 400, signal } = {}) {
+  async function ask(provider, model, key, prompt, { stream = false, maxTokens = 400, signal, runId, attempt, paramSwap } = {}) {
     const payload = {
       model: model.id,
       messages: [{ role: 'user', content: prompt }],
@@ -484,7 +484,7 @@
     if (stream) payload.stream_options = { include_usage: true };
 
     const requestId = `bench-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const onAbort = () => window.electronAPI.cancelApiRequest(requestId);
+    const onAbort = () => window.electronAPI.cancelApiRequest(requestId, 'stop');
     if (signal) signal.addEventListener('abort', onAbort, { once: true });
 
     let result;
@@ -499,7 +499,10 @@
         // far as the benchmark is concerned; the main test flow's deadline is
         // for generators. A hung request would otherwise stall a whole lane.
         timeoutMs: Math.min(Number(settings.deadlineChatMs) || BENCH_DEADLINE_MS, BENCH_DEADLINE_MS),
-        logLevel: settings.logLevel,
+        source: 'benchmark',
+        runId,
+        attempt,
+        paramSwap: paramSwap || undefined,
       });
     } finally {
       if (signal) signal.removeEventListener('abort', onAbort);
@@ -550,10 +553,16 @@
     let keyIx = 0;
     let waits = 0;
     let retries = 0;
+    // For the request log: which try this is (1-based), and whether it
+    // re-sends after a parameter the provider rejected.
+    let attempt = 0;
+    let paramSwap = false;
     for (;;) {
       if (opts.signal && opts.signal.aborted) return { status: 'cancelled', time: 0 };
       const key = keys[keyIx % keys.length];
-      const r = await ask(provider, model, key, prompt, opts);
+      attempt += 1;
+      const r = await ask(provider, model, key, prompt, { ...opts, attempt, paramSwap });
+      paramSwap = false;
       if (r.status === 'ratelimit' && waits < 3) {
         waits += 1;
         keyIx += 1; // another key may have headroom
@@ -575,11 +584,12 @@
       if (r.status === 'error' && r.httpStatus === 400 && retries < 2) {
         const msg = (r.error || '').toLowerCase();
         if (/max_tokens|max_completion_tokens|unsupported parameter/.test(msg) && typeof swapTokenLimitField === 'function') {
-          if (swapTokenLimitField(provider.id)) { retries += 1; continue; }
+          if (swapTokenLimitField(provider.id)) { retries += 1; paramSwap = true; continue; }
         }
         if (/thinking|reasoning[_ ]effort|reasoning\.effort/.test(msg) && typeof noReasoningEffort !== 'undefined') {
           noReasoningEffort.add(reasoningKey(provider.id, model.id));
           retries += 1;
+          paramSwap = true;
           continue;
         }
       }
@@ -594,6 +604,8 @@
   async function run(provider, model, { onProgress, signal } = {}) {
     const keys = keysFor(provider, model);
     if (!keys.length) throw new Error('No active key for this provider');
+    // One id per model run: every request of this benchmark carries it.
+    const runId = newUlid();
     const total = TASKS.length + 2;
     let done = 0;
     const tick = (note) => { if (onProgress) onProgress({ done, total, note }); };
@@ -601,7 +613,7 @@
 
     const probes = {};
     {
-      const r = await askWithRetry(provider, model, keys, LATENCY_PROBE.prompt, { stream: true, maxTokens: LATENCY_PROBE.maxTokens, signal }, tick);
+      const r = await askWithRetry(provider, model, keys, LATENCY_PROBE.prompt, { stream: true, maxTokens: LATENCY_PROBE.maxTokens, signal, runId }, tick);
       // A reasoning model may spend the small budget thinking and send no text;
       // the stream still started, and that is what this probe times.
       const started = r.status === 'ok' || r.status === 'empty';
@@ -611,7 +623,7 @@
     }
     if (signal && signal.aborted) throw new Error('Cancelled');
     {
-      const r = await askWithRetry(provider, model, keys, THROUGHPUT_PROBE.prompt, { stream: true, maxTokens: THROUGHPUT_PROBE.maxTokens, signal }, tick);
+      const r = await askWithRetry(provider, model, keys, THROUGHPUT_PROBE.prompt, { stream: true, maxTokens: THROUGHPUT_PROBE.maxTokens, signal, runId }, tick);
       // Tokens are counted from the text itself (numbers separated by spaces
       // tokenise at roughly one token each), never from provider usage.
       const tokens = r.status === 'ok' ? Math.max(cleanReply(r.text).split(/\s+/).filter(Boolean).length, Math.ceil((r.text || '').length / 3.5)) : 0;
@@ -627,7 +639,7 @@
       while (queue.length) {
         if (signal && signal.aborted) return;
         const task = queue.shift();
-        const r = await askWithRetry(provider, model, keys, task.prompt, { maxTokens: 400, signal }, tick);
+        const r = await askWithRetry(provider, model, keys, task.prompt, { maxTokens: 400, signal, runId }, tick);
         const ok = r.status === 'ok' && !!task.grade(r.text);
         items.push({
           id: task.id, category: task.category, label: task.label, tier: task.tier, weight: task.weight, hard: !!task.hard,
@@ -667,7 +679,7 @@
 
   async function rawChat(provider, model, key, payload, { signal, timeoutMs } = {}) {
     const requestId = `caps-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const onAbort = () => window.electronAPI.cancelApiRequest(requestId);
+    const onAbort = () => window.electronAPI.cancelApiRequest(requestId, 'stop');
     if (signal) signal.addEventListener('abort', onAbort, { once: true });
     try {
       return await window.electronAPI.apiRequest({
@@ -677,7 +689,7 @@
         body: JSON.stringify(payload),
         requestId,
         timeoutMs: timeoutMs || BENCH_DEADLINE_MS,
-        logLevel: settings.logLevel,
+        source: 'benchmark',
       });
     } finally {
       if (signal) signal.removeEventListener('abort', onAbort);

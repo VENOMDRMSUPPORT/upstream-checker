@@ -97,7 +97,7 @@ window.KEY_USAGE = (() => {
     rerender(pid, kid);
     const job = (async () => {
       try {
-        const usage = await adapterOf(p).fetchKeyUsage({ apiKey: k.key, baseUrl: p.baseUrl, apiRequest: window.electronAPI.apiRequest });
+        const usage = await adapterOf(p).fetchKeyUsage({ apiKey: k.key, baseUrl: p.baseUrl, apiRequest: taggedApiRequest('key_usage', p) });
         cache.set(kid, { state: 'ok', usage, at: Date.now() });
         reconcileSpent(pid, kid, usage);
       } catch (err) {
@@ -167,7 +167,7 @@ window.KEY_USAGE = (() => {
     renderDrawer();
     try {
       const data = await adapterOf(p).fetchKeyHistory({
-        apiKey: k.key, baseUrl: p.baseUrl, apiRequest: window.electronAPI.apiRequest, page, pageSize: HISTORY_PAGE_SIZE,
+        apiKey: k.key, baseUrl: p.baseUrl, apiRequest: taggedApiRequest('key_usage', p), page, pageSize: HISTORY_PAGE_SIZE,
       });
       // The drawer may have moved to another key while this page loaded.
       if (drawer.kid !== kid || drawer.page !== page) return;

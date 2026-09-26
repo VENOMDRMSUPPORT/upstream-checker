@@ -964,6 +964,7 @@ async function checkProviderHealth(id) {
           method: 'GET',
           headers: { Authorization: `Bearer ${k.key}`, 'Content-Type': 'application/json' },
           timeoutMs: HEALTH_TIMEOUT_MS,
+          source: 'health',
         });
       } catch (err) {
         res = { status: 0, networkError: true, error: err.message };
@@ -1284,6 +1285,17 @@ function getFreeGroupName(code) {
   return code;
 }
 
+// The apiRequest handed to a provider module, tagged for the request log with
+// what its caller is doing. A module's own pricing and plans pages (Nara,
+// Experiential) are tagged 'pricing', whoever asked for them.
+function taggedApiRequest(source, p) {
+  const pricingPages = [p && p.pricingUrl, p && p.plansUrl].filter(Boolean);
+  return (opts) => window.electronAPI.apiRequest({
+    ...opts,
+    source: pricingPages.some((u) => String(opts.url || '').startsWith(u)) ? 'pricing' : source,
+  });
+}
+
 // Discovery for one key. A provider can hand out catalogues that differ per key —
 // one key unlocking the Chinese models and another the Claude/GPT ones is a real
 // arrangement — so this runs once per key and the caller merges the results.
@@ -1295,7 +1307,7 @@ async function discoverModels(p, apiKey) {
       baseUrl: p.baseUrl,
       plansUrl: p.plansUrl,
       pricingUrl: p.pricingUrl,
-      apiRequest: window.electronAPI.apiRequest,
+      apiRequest: taggedApiRequest('discovery', p),
       formatContext,
       getFreeGroupName,
     });
@@ -1306,6 +1318,7 @@ async function discoverModels(p, apiKey) {
     url: `${p.baseUrl}/models`,
     method: 'GET',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    source: 'discovery',
   });
   if (modelsResult.status !== 200) throw new Error(`HTTP ${modelsResult.status}`);
   const rawModels = JSON.parse(modelsResult.body).data || [];
@@ -5434,6 +5447,7 @@ async function probeKey(p, apiKey) {
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: check.body ? JSON.stringify(check.body) : undefined,
       timeoutMs: HEALTH_TIMEOUT_MS,
+      source: 'key_check',
     });
   } catch (err) {
     return { status: 0, networkError: true, error: err.message };
