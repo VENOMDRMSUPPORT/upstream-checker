@@ -12,11 +12,20 @@
 // auto-update while its body is still empty — an app that checks during that
 // window shows an empty "What's New" and caches it.
 //
+// Nothing is pushed, tagged or uploaded until the build has passed a smoke
+// test: the packaged app is started with --smoke-test on a scratch data
+// folder and must open its database (the native better-sqlite3 module from
+// app.asar.unpacked), write, read and exit 0. The installers uploaded at the
+// end are made from that same tested build (--prepackaged).
+//
 // Usage:  bump "version" in package.json, commit, then:  npm run release
 // The GitHub token is taken from $GH_TOKEN / $GITHUB_TOKEN, or from the `gh` CLI
 // (`gh auth token`) if you are logged in. The token is never printed.
-import { execSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { execSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const REPO = 'VENOMDRMSUPPORT/upstream-checker';
 const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
@@ -64,6 +73,32 @@ if (!notes) {
   console.warn(`No CHANGELOG section found for ${version}. The release will have no notes.`);
 }
 
+// 2b. Build without publishing and prove the packaged app starts.
+function smokeTest() {
+  const unpacked = fileURLToPath(new URL('../dist/win-unpacked/', import.meta.url));
+  const exe = join(unpacked, 'VENOM Router.exe');
+  const native = join(unpacked, 'resources', 'app.asar.unpacked', 'node_modules', 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node');
+  if (!existsSync(native)) {
+    console.error(`Smoke test failed: ${native} is missing from the build. Nothing was published.`);
+    process.exit(1);
+  }
+  const dir = mkdtempSync(join(tmpdir(), 'venom-smoke-'));
+  try {
+    console.log(`$ "${exe}" --smoke-test --user-data-dir=<temp>`);
+    const res = spawnSync(exe, ['--smoke-test', `--user-data-dir=${dir}`], { stdio: 'inherit', timeout: 60000 });
+    if (res.status !== 0) {
+      console.error(`Smoke test failed (exit ${res.status ?? (res.error && res.error.message)}). Nothing was published.`);
+      process.exit(1);
+    }
+    console.log('Smoke test passed.\n');
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
+  }
+}
+
+run('electron-builder --win --x64 --publish never');
+smokeTest();
+
 const releasesForTag = () =>
   JSON.parse(capture(`gh api "repos/${REPO}/releases?per_page=100"`)).filter((r) => r.tag_name === tag);
 
@@ -97,8 +132,10 @@ if (notes && releasesForTag().length === 0) {
   });
 }
 
-// 7. Build the installers and upload them to that release.
-run('electron-builder --win --x64 --publish always');
+// 7. Package the smoke-tested build into the installers and upload them to
+//    that release. --prepackaged reuses dist/win-unpacked instead of building
+//    a second, untested copy.
+run('electron-builder --win --x64 --prepackaged dist/win-unpacked --publish always');
 
 // 8. Tidy up (best-effort). electron-builder publishes each build target
 //    (nsis + portable) separately and can still end up creating a duplicate

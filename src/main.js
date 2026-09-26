@@ -11,6 +11,13 @@ const { registerDataIpc } = require('./db/ipc');
 const { createKeyResolver } = require('./db/keys');
 const { requestFlush } = require('./flush');
 
+// --smoke-test only ever runs on an explicit scratch folder: refused here,
+// before the real data folder is resolved, moved or locked.
+if (app.commandLine.hasSwitch('smoke-test') && !app.commandLine.hasSwitch('user-data-dir')) {
+  console.error('SMOKE FAILED: --smoke-test needs --user-data-dir');
+  process.exit(2);
+}
+
 // Settled before anything reads a path or writes a log. An explicit
 // --user-data-dir (dev and test instances) is used as given.
 if (!app.commandLine.hasSwitch('user-data-dir')) {
@@ -130,6 +137,30 @@ async function startDatabase() {
     return false;
   }
   return true;
+}
+
+// Release check (scripts/release.mjs): the packaged app is started with
+// --smoke-test --user-data-dir=<temp>. It opens the database, writes and reads
+// back a row, and exits 0 — proof that the native SQLite module loads from
+// app.asar.unpacked. No window, no import, no network. (A run without
+// --user-data-dir was already refused at the top of this file.)
+async function runSmokeTest() {
+  let code = 1;
+  try {
+    // Same lazy require as startDatabase(): an ABI mismatch throws here, not at
+    // module load, and lands in the catch below either way.
+    const database = require('./db');
+    const smoke = await database.open(app.getPath('userData'), { cipher: createCipher(safeStorage), log });
+    const stamp = `smoke-${Date.now()}`;
+    smoke.repos.settings.set('smoke', { stamp });
+    const back = smoke.repos.settings.get('smoke');
+    smoke.close();
+    code = back && back.stamp === stamp ? 0 : 1;
+    console.log(code === 0 ? 'SMOKE OK' : 'SMOKE FAILED: the row read back differs');
+  } catch (err) {
+    console.error('SMOKE FAILED:', (err && err.stack) || err);
+  }
+  app.exit(code);
 }
 
 let mainWindow;
@@ -314,6 +345,10 @@ function stopUpdateChecks() {
 
 app.whenReady().then(async () => {
   if (!isPrimary) return;
+  if (app.commandLine.hasSwitch('smoke-test')) {
+    await runSmokeTest();
+    return;
+  }
   if (!(await startDatabase())) {
     app.quit();
     return;
