@@ -34,58 +34,88 @@ function originOf(url) {
   }
 }
 
+// What resolve() substituted: each ref once (kind + id), each placeholder
+// once with its secret. The request log scrubs stored text with the pairs.
+function collector() {
+  const refs = [];
+  const substitutions = [];
+  const seenRefs = new Set();
+  const seenPlaceholders = new Set();
+  return {
+    refs,
+    substitutions,
+    add(ref, placeholder, secret) {
+      const key = `${ref.kind}:${ref.id}`;
+      if (!seenRefs.has(key)) {
+        seenRefs.add(key);
+        refs.push(ref);
+      }
+      if (!seenPlaceholders.has(placeholder)) {
+        seenPlaceholders.add(placeholder);
+        substitutions.push({ placeholder, secret });
+      }
+    },
+  };
+}
+
 function createKeyResolver({ providers, secrets }) {
   // A token's secret, resolved only after its one allowed origin is confirmed
   // to match the request's target — so a wrong-host request never reaches the
   // cipher. For keys the longest key id that starts the token wins, so
-  // venomkey:key_12 is key_12, never key_1 followed by a "2".
+  // venomkey:key_12 is key_12, never key_1 followed by a "2". Every answer
+  // names what it is about (ref), so the request log can say which key a
+  // request used, or which one was refused.
   function lookup(kind, run, target) {
     if (kind === 'secret') {
-      if (!Object.prototype.hasOwnProperty.call(SECRET_ORIGINS, run)) return { error: `Key blocked: unknown secret "${run}"` };
-      if (!target || SECRET_ORIGINS[run] !== target) return { mismatch: true };
+      const ref = { kind: 'secret', id: run, providerId: null };
+      if (!Object.prototype.hasOwnProperty.call(SECRET_ORIGINS, run)) return { error: `Key blocked: unknown secret "${run}"`, ref };
+      if (!target || SECRET_ORIGINS[run] !== target) return { mismatch: true, ref };
       const secret = secrets.reveal(run);
-      if (secret === null) return { error: `Key blocked: the ${run} secret is not set or can't be read on this machine` };
-      return { secret, used: run.length };
+      if (secret === null) return { error: `Key blocked: the ${run} secret is not set or can't be read on this machine`, ref };
+      return { secret, used: run.length, ref };
     }
     for (let len = run.length; len > 0; len -= 1) {
       const record = providers.keyRecord(run.slice(0, len));
       if (!record) continue;
-      if (!target || originOf(record.baseUrl) !== target) return { mismatch: true };
+      const ref = { kind: 'key', id: record.id, providerId: record.providerId };
+      if (!target || originOf(record.baseUrl) !== target) return { mismatch: true, ref };
       const secret = providers.revealKey(record.id);
-      if (secret === null) return { error: `Key blocked: "${record.name}" can't be read on this machine` };
-      return { secret, used: len };
+      if (secret === null) return { error: `Key blocked: "${record.name}" can't be read on this machine`, ref };
+      return { secret, used: len, ref };
     }
-    return { error: `Key blocked: unknown key "${run}"` };
+    return { error: `Key blocked: unknown key "${run}"`, ref: { kind: 'key', id: run, providerId: null } };
   }
 
-  function substitute(text, target, host, encode) {
+  function substitute(text, target, host, encode, found) {
     let error = null;
+    let refused = null;
     const out = text.replace(TOKEN, (match, kind, run) => {
       if (error) return match;
       const hit = lookup(kind, run, target);
-      if (hit.mismatch) {
-        error = `Key blocked: ${host} is not this key's provider`;
+      if (hit.mismatch || hit.error) {
+        error = hit.mismatch ? `Key blocked: ${host} is not this key's provider` : hit.error;
+        refused = hit.ref;
         return match;
       }
-      if (hit.error) {
-        error = hit.error;
-        return match;
-      }
+      found.add(hit.ref, `venom${kind}:${run.slice(0, hit.used)}`, hit.secret);
       return encode(hit.secret) + run.slice(hit.used);
     });
-    return { text: out, error };
+    return { text: out, error, refused };
   }
 
   const raw = (s) => s;
   const inJson = (s) => JSON.stringify(s).slice(1, -1);
 
-  // { url, headers, body } ready to send, or { blocked: true, error }.
+  // { url, headers, body, refs, substitutions } ready to send, or
+  // { blocked: true, error, refs: [the refused ref] }. substitutions holds the
+  // secrets themselves: main hands it to the request log's scrubber and
+  // nowhere else — never to a reply, a log line or a stored record.
   function resolve({ url, headers, body }) {
     const bodyText = body === undefined || body === null || body === '' || typeof body === 'string' ? body : JSON.stringify(body);
     const needed = HAS_TOKEN.test(String(url))
       || Object.values(headers || {}).some((v) => typeof v === 'string' && HAS_TOKEN.test(v))
       || (typeof bodyText === 'string' && HAS_TOKEN.test(bodyText));
-    if (!needed) return { url, headers, body };
+    if (!needed) return { url, headers, body, refs: [], substitutions: [] };
 
     const target = originOf(url);
     let host = String(url);
@@ -94,18 +124,19 @@ function createKeyResolver({ providers, secrets }) {
     } catch (_) {
       // Unparsable: named as given.
     }
-    const blocked = (error) => ({ blocked: true, error });
+    const found = collector();
+    const blocked = (hit) => ({ blocked: true, error: hit.error, refs: hit.refused ? [hit.refused] : [] });
 
-    const u = substitute(String(url), target, host, encodeURIComponent);
-    if (u.error) return blocked(u.error);
+    const u = substitute(String(url), target, host, encodeURIComponent, found);
+    if (u.error) return blocked(u);
     const outHeaders = {};
     for (const [name, value] of Object.entries(headers || {})) {
       if (typeof value !== 'string') {
         outHeaders[name] = value;
         continue;
       }
-      const h = substitute(value, target, host, raw);
-      if (h.error) return blocked(h.error);
+      const h = substitute(value, target, host, raw, found);
+      if (h.error) return blocked(h);
       outHeaders[name] = h.text;
     }
     let outBody = bodyText;
@@ -116,11 +147,11 @@ function createKeyResolver({ providers, secrets }) {
       } catch (_) {
         isJson = false;
       }
-      const b = substitute(bodyText, target, host, isJson ? inJson : raw);
-      if (b.error) return blocked(b.error);
+      const b = substitute(bodyText, target, host, isJson ? inJson : raw, found);
+      if (b.error) return blocked(b);
       outBody = b.text;
     }
-    return { url: u.text, headers: outHeaders, body: outBody };
+    return { url: u.text, headers: outHeaders, body: outBody, refs: found.refs, substitutions: found.substitutions };
   }
 
   return { resolve };
