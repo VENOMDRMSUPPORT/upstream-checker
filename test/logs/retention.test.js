@@ -111,6 +111,27 @@ test('closing the database mid-purge ends it without throwing', async (t) => {
   assert.strictEqual(db.open, false);
 });
 
+test('isBusy turning true mid-purge stops the rest of it early, leaving the remainder for the next scheduled run', async (t) => {
+  const db = migratedLogsDb(t);
+  seed(db, 5000, NOW - 100 * DAY);
+  let busy = false;
+  let calls = 0;
+  const out = await purge(db, {
+    now: NOW,
+    ...LIMITS,
+    meta: fakeMeta(),
+    isBusy: () => busy,
+    yieldFn: async () => {
+      calls += 1;
+      if (calls === 1) busy = true;
+    },
+  });
+  assert.strictEqual(out, null);
+  assert.ok(calls >= 1, 'at least one chunk ran before the purge noticed it was busy');
+  const remaining = countRows(db, 'request_logs');
+  assert.ok(remaining > 0 && remaining < 5000, `expected a partial purge, got ${remaining} rows left`);
+});
+
 test('monthsAgo counts calendar months in UTC', () => {
   assert.strictEqual(monthsAgo(Date.UTC(2026, 8, 26, 12), 12), Date.UTC(2025, 8, 26, 12));
   assert.strictEqual(monthsAgo(Date.UTC(2026, 1, 15), 3), Date.UTC(2025, 10, 15));

@@ -95,9 +95,10 @@ function startLogs() {
       providers: createProviderLookup(store.db),
       getLogLevel: () => logSettings.logLevel,
     });
+    const purgeIsBusy = () => requester.inFlight() > 0;
     purgeScheduler = createPurgeScheduler({
-      run: () => purge(logs.db, { now: Date.now(), ...logSettings, meta: logs.repos.meta }),
-      isBusy: () => requester.inFlight() > 0,
+      run: () => purge(logs.db, { now: Date.now(), ...logSettings, meta: logs.repos.meta, isBusy: purgeIsBusy }),
+      isBusy: purgeIsBusy,
       log,
     });
     purgeScheduler.start();

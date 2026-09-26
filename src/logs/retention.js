@@ -8,14 +8,21 @@
 // mid-purge (the app quitting) ends the purge quietly.
 const DAY = 86400000;
 const CHUNK = 1000;
-const VACUUM_PAGES = 2000;
+// Small enough that one step never sits on the main thread for long, so a
+// request in flight (isBusy) is checked often and a purge that turns
+// unwelcome mid-run gives it the thread back quickly.
+const VACUUM_PAGES = 500;
 const defaultYield = () => new Promise((resolve) => setImmediate(resolve));
+const neverBusy = () => false;
 
 // Runs step() (one chunk, one transaction, returns the rows it took) until a
-// chunk comes back short or the database is gone.
-async function inChunks(db, step, chunk, yieldFn) {
+// chunk comes back short, the database is gone, or isBusy() turns true —
+// checked before every chunk (including the first), so a purge yields the
+// rest of its work back to the scheduler the moment a request is in flight,
+// rather than finishing the phase it happens to be in first.
+async function inChunks(db, step, chunk, yieldFn, isBusy = neverBusy) {
   let total = 0;
-  while (db.open) {
+  while (db.open && !isBusy()) {
     const n = step();
     total += n;
     if (n < chunk) break;
@@ -24,7 +31,7 @@ async function inChunks(db, step, chunk, yieldFn) {
   return total;
 }
 
-async function purgeLogsBefore(db, cutoff, { chunk = CHUNK, yieldFn = defaultYield } = {}) {
+async function purgeLogsBefore(db, cutoff, { chunk = CHUNK, yieldFn = defaultYield, isBusy = neverBusy } = {}) {
   const pick = 'SELECT id FROM request_logs WHERE created_at < ? ORDER BY created_at, id LIMIT ?';
   const deleteBodies = db.prepare(`DELETE FROM request_bodies WHERE log_id IN (${pick})`);
   const deleteRows = db.prepare(`DELETE FROM request_logs WHERE id IN (${pick})`);
@@ -33,11 +40,11 @@ async function purgeLogsBefore(db, cutoff, { chunk = CHUNK, yieldFn = defaultYie
     bodies += deleteBodies.run(cutoff, chunk).changes;
     return deleteRows.run(cutoff, chunk).changes;
   });
-  const rows = await inChunks(db, step, chunk, yieldFn);
+  const rows = await inChunks(db, step, chunk, yieldFn, isBusy);
   return { rows, bodies };
 }
 
-async function purgeBodiesBefore(db, cutoff, { chunk = CHUNK, yieldFn = defaultYield } = {}) {
+async function purgeBodiesBefore(db, cutoff, { chunk = CHUNK, yieldFn = defaultYield, isBusy = neverBusy } = {}) {
   const pick = 'SELECT log_id FROM request_bodies WHERE created_at < ? ORDER BY created_at, log_id LIMIT ?';
   const clearFlag = db.prepare(`UPDATE request_logs SET has_body = 0 WHERE id IN (${pick})`);
   const deleteBodies = db.prepare(`DELETE FROM request_bodies WHERE log_id IN (${pick})`);
@@ -45,21 +52,21 @@ async function purgeBodiesBefore(db, cutoff, { chunk = CHUNK, yieldFn = defaultY
     clearFlag.run(cutoff, chunk);
     return deleteBodies.run(cutoff, chunk).changes;
   });
-  return { bodies: await inChunks(db, step, chunk, yieldFn) };
+  return { bodies: await inChunks(db, step, chunk, yieldFn, isBusy) };
 }
 
-async function purgeRollupsBefore(db, hourCutoff, { chunk = CHUNK, yieldFn = defaultYield } = {}) {
+async function purgeRollupsBefore(db, hourCutoff, { chunk = CHUNK, yieldFn = defaultYield, isBusy = neverBusy } = {}) {
   const del = db.prepare(`DELETE FROM usage_hourly WHERE rowid IN
     (SELECT rowid FROM usage_hourly WHERE hour_start < ? ORDER BY hour_start LIMIT ?)`);
-  return { rollups: await inChunks(db, () => del.run(hourCutoff, chunk).changes, chunk, yieldFn) };
+  return { rollups: await inChunks(db, () => del.run(hourCutoff, chunk).changes, chunk, yieldFn, isBusy) };
 }
 
-// Hands freed pages back to the file system a few thousand at a time. Only
+// Hands freed pages back to the file system a few hundred at a time. Only
 // an INCREMENTAL database can (auto_vacuum is set when the file is created).
-async function stepVacuum(db, { pages = VACUUM_PAGES, yieldFn = defaultYield, maxSteps = 10000 } = {}) {
+async function stepVacuum(db, { pages = VACUUM_PAGES, yieldFn = defaultYield, maxSteps = 10000, isBusy = neverBusy } = {}) {
   if (!db.open || db.pragma('auto_vacuum', { simple: true }) !== 2) return;
   const n = Math.max(1, Math.floor(pages));
-  for (let i = 0; i < maxSteps && db.open; i += 1) {
+  for (let i = 0; i < maxSteps && db.open && !isBusy(); i += 1) {
     if (db.pragma('freelist_count', { simple: true }) === 0) return;
     db.pragma(`incremental_vacuum(${n})`);
     await yieldFn();
@@ -73,21 +80,24 @@ function monthsAgo(now, months) {
 }
 
 // One retention pass (spec §3): old rows with their bodies, old bodies, old
-// roll-ups, then the freed pages and the WAL.
+// roll-ups, then the freed pages and the WAL. isBusy is re-checked between
+// every phase (each of which already re-checks it between its own chunks):
+// a request that starts mid-purge stops the rest of it early, same as the
+// database closing — the scheduler's retry picks up where this left off.
 async function purge(db, {
   now = Date.now(), logRetentionDays, bodyRetentionDays, statsRetentionMonths, meta,
-  chunk = CHUNK, yieldFn = defaultYield, vacuumPages = VACUUM_PAGES,
+  chunk = CHUNK, yieldFn = defaultYield, vacuumPages = VACUUM_PAGES, isBusy = neverBusy,
 }) {
-  if (!db.open) return null;
-  const opts = { chunk, yieldFn };
+  if (!db.open || isBusy()) return null;
+  const opts = { chunk, yieldFn, isBusy };
   const logs = await purgeLogsBefore(db, now - logRetentionDays * DAY, opts);
-  if (!db.open) return null;
+  if (!db.open || isBusy()) return null;
   const bodies = await purgeBodiesBefore(db, now - bodyRetentionDays * DAY, opts);
-  if (!db.open) return null;
+  if (!db.open || isBusy()) return null;
   const rollups = await purgeRollupsBefore(db, monthsAgo(now, statsRetentionMonths), opts);
-  if (!db.open) return null;
-  await stepVacuum(db, { pages: vacuumPages, yieldFn });
-  if (!db.open) return null;
+  if (!db.open || isBusy()) return null;
+  await stepVacuum(db, { pages: vacuumPages, yieldFn, isBusy });
+  if (!db.open || isBusy()) return null;
   db.pragma('wal_checkpoint(TRUNCATE)');
   meta.set('last_purge_at', now);
   return { rows: logs.rows, bodies: logs.bodies + bodies.bodies, rollups: rollups.rollups };
