@@ -3442,6 +3442,10 @@ const { registerDataIpc } = require('./db/ipc');
 
 - [ ] **Step 2: Keep dev builds off the real data folder, remove the JSON stores, add the database startup**
 
+> **Superseded:** commit `fba2d91` (2026-09-26) replaced the dev-vs-packaged split
+> below with the plain `resolveUserDataDir` call again — the owner runs and tests
+> `npm start` on the real data folder. The snippet is left as written for history.
+
 A dev build (`npm start`) must never import or rename the installed app's data. Replace:
 ```js
 if (!app.commandLine.hasSwitch('user-data-dir')) {
@@ -7053,7 +7057,7 @@ git commit -m "build: --smoke-test flag; release builds, smoke-tests, then publi
 - [ ] **Step 7: Hand-off notes for the owner (chat, not a file)**
 
 Tell the owner, in the final report:
-- `npm start` on this branch uses %APPDATA%\venom-router-dev; the real folder is imported only by the installed release. Before installing it, copy %APPDATA%\venom-router somewhere safe yourself.
+- `npm start` uses the real data folder, %APPDATA%\venom-router, same as the installed release (owner decision 2026-09-26, commit fba2d91). Before installing a new version, copy %APPDATA%\venom-router somewhere safe yourself.
 - Before installing the new version, run `npm run check:import` once (legacy counts only); after the first launch, close the app and run it again to compare. It is read-only, offline and decrypts nothing.
 - The old JSON files are kept as `*.imported.json` next to `venom.db`. An older build started after this one will start empty (accepted in the spec); the files make a manual rollback possible.
 - `npm run release` now builds and smoke-tests before it pushes or publishes anything.

@@ -247,6 +247,7 @@ async function importLegacy({
     reassignedKeys: 0,
     renamed: [],
     renameFailed: [],
+    changedAfterImport: [],
   };
 
   let config = null;
@@ -282,18 +283,46 @@ async function importLegacy({
   // exist, so they get no second backup.
   const legacyKinds = Object.keys(FILES).filter((kind) => texts[kind] !== null);
   if (source === 'legacy' && legacyKinds.length) {
-    report.backupDir = path.join(dir, `backup-before-database-${now()}`);
-    try {
-      fs.mkdirSync(report.backupDir, { recursive: true });
-    } catch (err) {
-      throw new ImportAbort('IMPORT_BACKUP', `Could not create ${report.backupDir} to back up the saved data before importing (${err.message}), so nothing was imported. No file was changed.`, report.backupDir);
+    // A taken name gets a numeric suffix rather than being reused: an old
+    // backup is never overwritten.
+    let backupDir = path.join(dir, `backup-before-database-${now()}`);
+    for (let suffix = 0; ; suffix += 1) {
+      try {
+        fs.mkdirSync(backupDir);
+        break;
+      } catch (err) {
+        if (err.code !== 'EEXIST') {
+          throw new ImportAbort('IMPORT_BACKUP', `Could not create ${backupDir} to back up the saved data before importing (${err.message}), so nothing was imported. No file was changed.`, backupDir);
+        }
+        if (suffix >= 1000) {
+          throw new ImportAbort('IMPORT_BACKUP', `Could not create a backup folder before importing: too many existing backup-before-database-* folders in ${dir}. Nothing was imported. No file was changed.`, dir);
+        }
+        backupDir = path.join(dir, `backup-before-database-${now()}-${suffix + 1}`);
+      }
     }
+    report.backupDir = backupDir;
     for (const kind of legacyKinds) {
       const name = names[kind];
+      const src = path.join(dir, name);
+      const dest = path.join(backupDir, name);
       try {
-        fs.copyFileSync(path.join(dir, name), path.join(report.backupDir, name));
+        fs.copyFileSync(src, dest, fs.constants.COPYFILE_EXCL);
       } catch (err) {
-        throw new ImportAbort('IMPORT_BACKUP', `Could not back up ${name} before importing (${err.message}), so nothing was imported. No file was changed.`, path.join(dir, name));
+        throw new ImportAbort('IMPORT_BACKUP', `Could not back up ${name} before importing (${err.message}), so nothing was imported. No file was changed.`, src);
+      }
+      // Another running copy of the app (no single-instance lock without
+      // --user-data-dir, and older builds save with tmp+rename) can write
+      // config.json between our read above and this copy. Reading the copy
+      // back and comparing it with what was actually imported catches that:
+      // without it, the write would be silently lost.
+      let backedUp;
+      try {
+        backedUp = fs.readFileSync(dest, 'utf-8');
+      } catch (err) {
+        throw new ImportAbort('IMPORT_BACKUP', `Could not verify the backup of ${name} (${err.message}), so nothing was imported. No file was changed.`, dest);
+      }
+      if (backedUp !== texts[kind]) {
+        throw new ImportAbort('IMPORT_CHANGED', 'Another copy of VENOM Router seems to be running. Close it and start again.', src);
       }
     }
   }
@@ -321,7 +350,24 @@ async function importLegacy({
   if (source === 'legacy') {
     Object.keys(FILES).forEach((kind) => {
       if (texts[kind] === null) return;
-      renameAside(dir, names[kind], report.unreadable.includes(kind) ? 'unreadable' : 'imported', { fs, now, report, log });
+      const name = names[kind];
+      // Re-read right before renaming: if another running copy of the app
+      // saved this file after we read it (see the backup check above), the
+      // file on disk now differs from what venom.db actually has. Renaming it
+      // away would make that write look imported when it never was, so it is
+      // left in place instead and reported.
+      let current;
+      try {
+        current = fs.readFileSync(path.join(dir, name), 'utf-8');
+      } catch (err) {
+        current = null;
+      }
+      if (current !== texts[kind]) {
+        report.changedAfterImport.push(name);
+        log.warn(`${name} changed after it was imported into venom.db; it was left in place, not renamed.`);
+        return;
+      }
+      renameAside(dir, name, report.unreadable.includes(kind) ? 'unreadable' : 'imported', { fs, now, report, log });
     });
   }
   log.info(`Imported ${names.config}, ${names.catalog}, ${names.history} into venom.db` +
@@ -348,6 +394,7 @@ function describeImportWarnings(report) {
     lines.push(`${plural(report.reassignedKeys, 'key had a duplicate or unusable id and got a new one', 'keys had a duplicate or unusable id and got a new one')}.`);
   }
   report.renameFailed.forEach((name) => lines.push(`${name} was imported but could not be renamed; it is ignored from now on.`));
+  report.changedAfterImport.forEach((name) => lines.push(`${name} changed after it was imported and was left in place, not renamed.`));
   return lines.join('\n');
 }
 

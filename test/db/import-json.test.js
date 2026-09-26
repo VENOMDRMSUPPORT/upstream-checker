@@ -154,7 +154,9 @@ test('an I/O error that clears on a retry imports normally', async (t) => {
   const flaky = flakyFs('config.json', 1);
   const { store, run } = await setup(t, { files: all(), fsImpl: flaky });
   assert.strictEqual((await run()).status, 'imported');
-  assert.strictEqual(flaky.reads(), 2);
+  // 1 failed + 1 successful initial read, plus the backup's read-back and the
+  // pre-rename change check, both reading config.json again once it exists.
+  assert.strictEqual(flaky.reads(), 4);
   assert.strictEqual(count(store, 'providers'), 2);
 });
 
@@ -327,15 +329,15 @@ test('a successful legacy import backs up every legacy file before importing', a
   });
 });
 
-test('a failing backup copy aborts with IMPORT_BACKUP: nothing written, nothing renamed', async (t) => {
+test('a failing backup copy aborts with IMPORT_BACKUP: nothing written, nothing renamed, partial backup left as is', async (t) => {
   const failing = {
     ...fs,
-    copyFileSync(src, dest) {
+    copyFileSync(src, dest, flags) {
       if (path.basename(src) === 'catalog.json') {
         const e = new Error('EPERM: operation not permitted');
         throw e;
       }
-      return fs.copyFileSync(src, dest);
+      return fs.copyFileSync(src, dest, flags);
     },
   };
   const { dir, store, run } = await setup(t, { files: all(), fsImpl: failing });
@@ -343,12 +345,63 @@ test('a failing backup copy aborts with IMPORT_BACKUP: nothing written, nothing 
   assertNothingWritten(store);
   const entries = ls(dir).filter((e) => !e.startsWith('backup-before-database-'));
   assert.deepStrictEqual(entries, ['catalog.json', 'config.json', 'history.json']);
+  // config.json sorts before catalog.json is attempted, so it made it into the
+  // backup folder before the copy that failed; nothing overwrites or cleans
+  // that partial folder up.
+  const backupDir = path.join(dir, `backup-before-database-${NOW}`);
+  assert.deepStrictEqual(ls(backupDir), ['config.json']);
 });
 
 test('a fresh install with no legacy files creates no backup folder', async (t) => {
   const { dir, run } = await setup(t);
   await run();
   assert.deepStrictEqual(ls(dir), []);
+});
+
+test('a legacy file that changed by the time it is backed up aborts with IMPORT_CHANGED', async (t) => {
+  // Simulates another running copy of the app (no single-instance lock
+  // without --user-data-dir, an older build saving with tmp+rename) writing
+  // config.json between our read and the backup copy.
+  const racing = {
+    ...fs,
+    copyFileSync(src, dest, flags) {
+      if (path.basename(src) === 'config.json') fs.writeFileSync(src, '{"changed": true}');
+      return fs.copyFileSync(src, dest, flags);
+    },
+  };
+  const { dir, store, run } = await setup(t, { files: all(), fsImpl: racing });
+  await assert.rejects(run(), (err) => err instanceof ImportAbort && err.code === 'IMPORT_CHANGED');
+  assertNothingWritten(store);
+  const entries = ls(dir).filter((e) => !e.startsWith('backup-before-database-'));
+  assert.deepStrictEqual(entries, ['catalog.json', 'config.json', 'history.json']);
+});
+
+test('a legacy file that changed after commit is left in place, not renamed, and reported', async (t) => {
+  // Only the second read of history.json (the pre-rename check, after the
+  // initial read and the backup's own read-back) sees the "changed" content;
+  // config.json and catalog.json are untouched and still rename normally.
+  let calls = 0;
+  const racing = {
+    ...fs,
+    readFileSync(file, enc) {
+      if (path.basename(file) === 'history.json' && !path.dirname(file).includes('backup-before-database')) {
+        calls += 1;
+        if (calls > 1) return '{"changed": true}';
+      }
+      return fs.readFileSync(file, enc);
+    },
+  };
+  const { dir, store, run } = await setup(t, { files: all(), fsImpl: racing });
+  const report = await run();
+  assert.strictEqual(report.status, 'imported');
+  assert.deepStrictEqual(report.changedAfterImport, ['history.json']);
+  assert.deepStrictEqual(report.renamed.map((r) => r.from).sort(), ['config.json', 'catalog.json'].sort());
+  assert.ok(fs.existsSync(path.join(dir, 'history.json')));
+  assert.ok(!fs.existsSync(path.join(dir, 'history.imported.json')));
+  assert.ok(fs.existsSync(path.join(dir, 'config.imported.json')));
+  assert.ok(fs.existsSync(path.join(dir, 'catalog.imported.json')));
+  assert.match(describeImportWarnings(report), /history\.json changed after it was imported/);
+  assert.strictEqual(count(store, 'test_runs'), 2); // still imported into venom.db
 });
 
 test('a rename that fails is reported, not fatal', async (t) => {
