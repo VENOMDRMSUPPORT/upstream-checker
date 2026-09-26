@@ -11,6 +11,7 @@
     "release": "node scripts/release.mjs",
     "check:keystore": "electron scripts/keystore-check.js",
     "postinstall": "electron-builder install-app-deps",
+    "verify:live": "node scripts/live/verify-db.mjs",
     "test": "node scripts/run-tests.js"
   },
   "build": {
