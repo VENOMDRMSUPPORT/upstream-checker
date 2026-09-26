@@ -1,80 +1,37 @@
-# Settings Tabs & Distinctive Header Implementation Plan
+# Settings Toolbar & Two-Card Layout — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+**Status:** Done. Revised 2026-09-26 to record what was built; the original
+plan for horizontal segmented tabs was not followed. See
+[the design](../specs/2026-09-25-settings-tabs-header-design.md).
 
-**Goal:** Transform the Settings page navigation from a legacy vertical list into a professional top toolbar with dynamic breadcrumbs, glowing accent line, and modern horizontal segmented tabs, matching the look and feel of the Providers page.
+**Goal:** Give Settings a breadcrumb toolbar and the same card layout as the
+rest of the app: a sticky Categories card on the left and a main card for the
+active section on the right.
 
-**Architecture:**
-The Settings page layout is updated from a two-column grid (`settings-nav` + `settings-content`) to a single-column layout headed by a `.settings-toolbar` card (sharing the design patterns of `.pv-toolbar`). The toolbar contains dynamic breadcrumbs (`#settings-crumbs`) on the top-left and a sleek horizontal segmented tabstrip (`#settings-nav`) with category dividers.
-
-**Architecture Diagram:**
-
-```mermaid
-graph TD
-    subgraph "Settings Page Header"
-        Toolbar[".settings-toolbar (Card with top accent glow)"]
-        Toolbar --> Breadcrumbs["#settings-crumbs (Home > Settings > [Section])"]
-        Toolbar --> Tabs["#settings-nav (Horizontal Segmented Tabs)"]
-        Tabs --> TestingGroup["Testing Tabs (Test, Schedule, Speed, Reliability)"]
-        Tabs --> DataGroup["Data Tabs (History, Diagnostics, Data)"]
-        Tabs --> AppGroup["App Tabs (Appearance, About)"]
-    end
-    subgraph "Settings Content"
-        Tabs -.-> |Click triggers| Content[".settings-content (Full-width, centered)"]
-        Content --> ActiveSection["Active Section (.settings-section)"]
-    end
-```
-
-**Tech Stack:** Vanilla JavaScript, HTML5 semantic markup, CSS3 custom properties & glassmorphism, Electron 33.
-
-## Global Constraints
-- Must match `.pv-toolbar` design language (border, border-radius, background, accent glow line `::before`).
-- All 9 existing settings sections and their form fields/actions must remain fully functional.
-- Flawless appearance in both Dark (`vercel`) and Light (`daylight`) themes.
-- Responsive horizontal scrolling for tabs if viewport width is narrow.
+**Tech stack:** Vanilla JavaScript, HTML, CSS custom properties, Electron 33.
 
 ---
 
-### Task 1: Update HTML Structure in `src/renderer/index.html`
+### Task 1: HTML (`src/renderer/index.html`)
 
-**Files:**
-- Modify: `src/renderer/index.html:470-500`
+- [x] Add `.settings-toolbar` with `#settings-crumbs` at the top of `page-settings`
+- [x] Add `.settings-layout-grid` with the Categories card (`#settings-nav`, 10 items with icons)
+- [x] Add the main card with `#settings-main-head-icon`, `-title`, `-desc` and all 10 sections
 
-- [ ] **Step 1: Replace legacy `.settings-header` and vertical `.settings-nav` with `.settings-toolbar`**
-Wrap the top of `page-settings` with `.settings-toolbar` containing `#settings-crumbs` and `#settings-nav` (as a horizontal tab bar with category dividers).
-- [ ] **Step 2: Verify HTML syntax and DOM structure**
+### Task 2: CSS (`src/renderer/styles.css`)
 
----
+- [x] `.settings-toolbar` with the accent line and `vercel` / `daylight` variants
+- [x] `.settings-layout-grid` (240px + fluid) and `.settings-panel-card` / `.settings-panel-head`
+- [x] Sticky, internally scrolling Categories card
+- [x] One-column layout under 960px, tighter padding under 760px
 
-### Task 2: Update Styles in `src/renderer/styles.css`
+### Task 3: JS (`src/renderer/app.js`)
 
-**Files:**
-- Modify: `src/renderer/styles.css:5540-5680`
+- [x] `SETTINGS_SECTIONS_META` with a label and description per section
+- [x] `renderSettingsCrumbs()` using `breadcrumbHTML()`
+- [x] `switchSettingsSection()` syncs nav state, visible section, main card head, breadcrumb, cost estimate and route
+- [x] `prepareSettingsPage()` restores the active section
 
-- [ ] **Step 1: Define `.settings-toolbar` and glowing top accent bar**
-- [ ] **Step 2: Style `#settings-crumbs` and `#settings-nav` horizontal tabs with icons, hover and active states**
-- [ ] **Step 3: Update `.settings-body` and `.settings-content` for full-width centered layout**
-- [ ] **Step 4: Add dark theme (`[data-theme="vercel"]`) and light theme (`[data-theme="daylight"]`) overrides**
+### Task 4: Cleanup
 
----
-
-### Task 3: Update Controller Logic in `src/renderer/app.js`
-
-**Files:**
-- Modify: `src/renderer/app.js:3600-3630`
-
-- [ ] **Step 1: Add dynamic breadcrumb rendering function for settings**
-- [ ] **Step 2: Update `#settings-nav` click handler to refresh breadcrumbs on tab switch**
-- [ ] **Step 3: Call settings breadcrumb render in `prepareSettingsPage()`**
-
----
-
-### Task 4: Visual Verification & Testing
-
-**Files:**
-- Run: `scripts/capture-settings.js`
-
-- [ ] **Step 1: Capture screenshot of Settings page in Light theme (`daylight`)**
-- [ ] **Step 2: Capture screenshot of Settings page in Dark theme (`vercel`)**
-- [ ] **Step 3: Test tab switching to verify other sections (e.g. Schedule, Appearance)**
-- [ ] **Step 4: Inspect visual screenshots to ensure professional finish**
+- [x] Remove the unused `.settings-panel`, `.settings-page …`, `.settings-header`, `.settings-body`, `.settings-nav`, `.settings-nav-group` and `.settings-content` rules from `styles.css` (42 rules and an empty `@media (max-width: 900px)` block, ~245 lines)
