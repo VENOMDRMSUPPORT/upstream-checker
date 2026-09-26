@@ -12,6 +12,7 @@
     "check:keystore": "electron scripts/keystore-check.js",
     "postinstall": "electron-builder install-app-deps",
     "verify:live": "node scripts/live/verify-db.mjs",
+    "check:import": "node scripts/check-import-counts.js",
     "test": "node scripts/run-tests.js"
   },
   "build": {
