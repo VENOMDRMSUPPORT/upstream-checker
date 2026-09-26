@@ -224,6 +224,11 @@ html, body {
   position: relative;
   filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent) 70%, transparent));
 }
+/* The modal header's .update-icon rule (accent text) would otherwise win and
+   keep the ready state from turning green. */
+.update-badge .update-icon {
+  color: inherit;
+}
 .update-badge:not(.update-downloading):not(.update-ready) .update-arrow {
   animation: update-nudge 1.6s ease-in-out infinite;
 }
@@ -268,11 +273,25 @@ html, body {
 .update-badge.update-ready .update-icon {
   filter: drop-shadow(0 0 6px color-mix(in srgb, var(--pass) 70%, transparent));
 }
-.update-badge.update-ready .update-ring-track { stroke: color-mix(in srgb, var(--pass) 30%, transparent); }
-.update-badge.update-ready .update-ring-bar { stroke: var(--pass); stroke-dashoffset: 0; }
+/* Ready: the download icon and its full ring gave way to a restart arrow. A
+   closed green ring read as a spinner that was still working. */
+.update-icon-restart,
+.update-badge.update-ready .update-ring,
+.update-badge.update-ready .update-icon:not(.update-icon-restart) {
+  display: none;
+}
+.update-badge.update-ready .update-icon-restart {
+  display: block;
+  animation: update-turn 2.4s ease-in-out infinite;
+}
+@keyframes update-turn {
+  0%, 70%, 100% { transform: rotate(0deg); }
+  85% { transform: rotate(40deg); }
+}
 @media (prefers-reduced-motion: reduce) {
   .update-badge .update-arrow,
-  .update-badge .update-ring { animation: none !important; }
+  .update-badge .update-ring,
+  .update-badge .update-icon-restart { animation: none !important; }
 }
 /* ============================================
    App shell — nav rail + page area
@@ -2241,6 +2260,44 @@ html, body {
 
 .update-progress {
   margin-top: 16px;
+}
+
+/* Add-key modal, Connect flow: why a key was not saved. */
+.key-verify {
+  margin-top: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.key-verify[data-state="fail"] {
+  background: color-mix(in srgb, var(--fail) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fail) 35%, transparent);
+}
+.key-verify[data-state="unverified"] {
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+}
+.key-verify[hidden],
+.modal-footer .btn[hidden] {
+  display: none;
+}
+
+.update-ready-note {
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--pass) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pass) 30%, transparent);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.update-ready-note[hidden] {
+  display: none;
+}
+.update-ready-note strong {
+  color: var(--text-1);
 }
 
 .section-action-btn {
@@ -4284,12 +4341,23 @@ img[data-tone] { filter: var(--logo-tone, none); }
   font-size: 13px;
   font-weight: 600;
 }
-.pv-primary:disabled {
+/* Integrated card of a provider that is already connected. It must read as
+   switched off at a glance: grey, no fill, a dashed edge and no hover. A green
+   tint here looked like a live, pressable button. */
+.btn.pv-primary-done,
+.btn.pv-primary-done:hover {
   opacity: 1;
-  cursor: default;
-  background: color-mix(in srgb, var(--pass) 12%, transparent);
-  border-color: color-mix(in srgb, var(--pass) 35%, transparent);
+  cursor: not-allowed;
+  background: transparent;
+  border: 1px dashed var(--border-2);
+  color: var(--text-3);
+  box-shadow: none;
+  transform: none;
+  filter: none;
+}
+.pv-primary-done svg {
   color: var(--pass);
+  opacity: 0.8;
 }
 .pv-card-actions {
   display: flex;
@@ -4297,6 +4365,11 @@ img[data-tone] { filter: var(--logo-tone, none); }
   justify-content: space-between;
   gap: 8px;
   min-height: 26px;
+}
+/* Integrated cards: the one line under the button sits centred on it. */
+.pv-card-actions.is-centered {
+  justify-content: center;
+  text-align: center;
 }
 .pv-link {
   display: inline-flex;
@@ -4448,6 +4521,174 @@ img[data-tone] { filter: var(--logo-tone, none); }
 @media (prefers-reduced-motion: reduce) {
   .pv-card, .pv-card:hover { transition: none; transform: none; }
 }
+
+/* Integrated tab: a denser catalogue grid. The column minimum gives four
+   cards at the default window, more on wide screens, two on narrow ones and
+   one on the smallest; nothing is fixed to a count. */
+.pv-grid-compact {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr));
+  gap: 12px;
+}
+.pv-grid-compact .pv-card {
+  gap: 10px;
+  padding: 16px;
+  border-radius: 12px;
+}
+.pv-grid-compact .pv-watermark {
+  width: 116px;
+  height: 116px;
+  top: -14px;
+  right: -18px;
+}
+.pv-grid-compact .pv-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+}
+.pv-grid-compact .pv-logo img {
+  width: 29px;
+  height: 29px;
+}
+.pv-grid-compact .pv-host {
+  padding: 2px 8px;
+  font-size: 10.5px;
+}
+.pv-grid-compact .pv-name { font-size: 15px; }
+.pv-grid-compact .pv-url code { font-size: 10.5px; }
+/* Capabilities: the same four on every card, in a fixed 2x2 grid of square-
+   cornered cells. Lit = the provider has it; dimmed = it doesn't. */
+.pv-caps {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.pv-cap {
+  justify-content: flex-start;
+  min-width: 0;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+}
+.pv-cap svg { flex-shrink: 0; }
+.pv-cap.is-off {
+  border-style: dashed;
+  border-color: var(--border-2);
+  background: transparent;
+  color: var(--text-3);
+  opacity: 0.6;
+  font-weight: 500;
+}
+.pv-grid-compact .pv-cap {
+  padding: 4px 7px;
+  font-size: 10.5px;
+}
+/* The Rate limit badge's info button, at the badge's far end. */
+.pv-cap-info {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.85;
+}
+.pv-cap-info:hover,
+.pv-cap-info[aria-expanded="true"] {
+  opacity: 1;
+  background: color-mix(in srgb, currentColor 18%, transparent);
+}
+.pv-cap.is-off .pv-cap-info { cursor: pointer; }
+
+/* Rate limit details popover */
+.rl-pop {
+  position: fixed;
+  z-index: 9500;
+  width: 320px;
+  max-width: calc(100vw - 16px);
+  padding: 14px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-lg);
+  background: var(--bg-2);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border-2);
+  font-size: 12px;
+  color: var(--text-1);
+  animation: hdr-pop-in 140ms ease-out;
+}
+.rl-pop[hidden] { display: none; }
+.rl-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rl-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-0);
+}
+.rl-close {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.rl-close:hover { background: var(--bg-3); color: var(--text-0); }
+.rl-pace {
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--bg-3);
+  line-height: 1.5;
+}
+.rl-pace b { color: var(--text-0); }
+.rl-sub {
+  margin: 12px 0 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.rl-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 5px 10px;
+  margin: 0;
+}
+.rl-list dt { font-weight: 600; color: var(--text-0); white-space: nowrap; }
+.rl-list dd { margin: 0; color: var(--text-2); line-height: 1.45; }
+.rl-note { color: var(--text-2); line-height: 1.5; }
+.rl-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.rl-source:hover { text-decoration: underline; }
+.pv-grid-compact .pv-primary {
+  padding: 8px 12px;
+  font-size: 12.5px;
+}
+.pv-grid-compact .pv-card-actions { min-height: 22px; }
+.pv-grid-compact .pv-hint { font-size: 11.5px; }
+.pv-tag[title] { cursor: help; }
 
 
 /* ============================================
@@ -5149,7 +5390,8 @@ img[data-tone] { filter: var(--logo-tone, none); }
   .pv-legend-body { grid-template-columns: 1fr; }
 }
 /* Legend above the Integrated grid gets the same spacing as above the toolbar. */
-.pv-body > .pv-legend + .pv-grid { margin-top: 16px; }
+.pv-body > .pv-legend + .pv-grid,
+.pv-body > .pv-legend + .pv-group-head { margin-top: 16px; }
 .pv-body > .pv-legend:first-child { margin-top: 0; }
 
 /* Markers: a segmented stripe along the card top / row edge, and dots by the
@@ -5543,6 +5785,8 @@ img[data-tone] { filter: var(--logo-tone, none); }
 .pv-krow:hover { background: color-mix(in srgb, var(--accent) 5%, transparent); }
 /* A failing key is the one thing in the list that needs a decision. */
 .pv-krow[data-state="fail"] { background: color-mix(in srgb, var(--fail) 6%, transparent); }
+/* A spent quota is temporary, and other models may still run on the key. */
+.pv-krow[data-state="spent"] { background: color-mix(in srgb, var(--warn) 5%, transparent); }
 /* Key content starts under the provider's name, past the tree line. */
 .pv-krow > .col-provider { padding-left: 80px; padding-right: 12px; }
 /* Tree: a trunk through every key, stopping at the last one's branch (└). */
@@ -5711,11 +5955,13 @@ img[data-tone] { filter: var(--logo-tone, none); }
 /* Key state colour, for card rows and the Providers list's key rows alike. */
 :is(.kx-row, .pv-krow)[data-state="off"]     { --ks: var(--text-4); }
 :is(.kx-row, .pv-krow)[data-state="fail"]    { --ks: var(--fail); }
+:is(.kx-row, .pv-krow)[data-state="spent"]   { --ks: var(--warn); }
 :is(.kx-row, .pv-krow)[data-state="cooling"] { --ks: var(--warn); }
 :is(.kx-row, .pv-krow)[data-state="locked"]  { --ks: var(--warn); }
 :is(.kx-row, .pv-krow)[data-state="testing"] { --ks: var(--accent); }
 /* A failing key is the one thing in the list that needs a decision. */
 .kx-row[data-state="fail"] { background: color-mix(in srgb, var(--fail) 5%, transparent); }
+.kx-row[data-state="spent"] { background: color-mix(in srgb, var(--warn) 5%, transparent); }
 :is(.kx-row, .pv-krow):is([data-state="off"], [data-state="locked"]) .kx-name { color: var(--text-3); }
 :is(.kx-row, .pv-krow):is([data-state="off"], [data-state="locked"]) .kx-secret code { opacity: 0.6; }
 
@@ -5774,6 +6020,9 @@ img[data-tone] { filter: var(--logo-tone, none); }
 /* A key that sees fewer models than its provider's keys together. */
 .kx-meta-item.partial { color: var(--warn); font-weight: 500; }
 .kx-meta-item.partial svg { opacity: 1; }
+/* A spent key's reset, on its own line under the meta. */
+.kx-reset { margin-top: 3px; color: var(--warn); font-weight: 500; }
+.kx-reset svg { opacity: 1; }
 
 /* The masked key and its copy button are one component: one frame, the
    button a segment of its own behind a hairline. */
@@ -5824,6 +6073,7 @@ img[data-tone] { filter: var(--logo-tone, none); }
 }
 .st-status[data-state="ok"]      { --s: var(--pass); }
 .st-status[data-state="fail"]    { --s: var(--fail); }
+.st-status[data-state="spent"]   { --s: var(--warn); }
 .st-status[data-state="pending"],
 .st-status[data-state="testing"] { --s: var(--accent); }
 .st-pill {
@@ -6053,6 +6303,7 @@ img[data-tone] { filter: var(--logo-tone, none); }
 .kx-seg[data-state="locked"],
 .kx-seg[data-state="cooling"] { --s: var(--warn); }
 .kx-seg[data-state="fail"] { --s: var(--fail); }
+.kx-seg[data-state="spent"] { --s: var(--warn); }
 .kx-seg[data-state="testing"] { --s: var(--accent); }
 
 [data-theme="vercel"] .kx-panel { background: rgba(0, 0, 0, 0.35); border-color: rgba(255, 255, 255, 0.08); border-left-color: var(--accent); }
@@ -7330,3 +7581,386 @@ img[data-tone] { filter: var(--logo-tone, none); }
 .pf-chip.pf-pro { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent-text); }
 .pf-chip.pf-max { background: color-mix(in srgb, #a78bfa 14%, transparent); color: #a78bfa; }
 .pf-foot { margin-top: 16px; }
+
+/* ============================================
+   Key usage (key-usage.js) — quota and expiry in the key row, the rest in a
+   drawer from the right
+   ============================================ */
+.ku-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  width: calc(100% + 16px);
+  min-width: 0;
+  padding: 5px 8px;
+  margin: -5px -8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-1);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+button.ku-cell:hover {
+  background: var(--bg-3);
+  border-color: var(--border-2);
+}
+.ku-cell.is-loading { opacity: 0.6; }
+.ku-quota-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ku-quota-line .dt-rate-bar { min-width: 48px; }
+.ku-quota-line b {
+  min-width: 42px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-0);
+  text-align: right;
+}
+.ku-sub {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.ku-cell-fail {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  color: var(--fail);
+}
+.ku-cell-fail svg { flex-shrink: 0; }
+.ku-expiry {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+.ku-expiry b { font-weight: 600; color: var(--text-0); white-space: nowrap; }
+.ku-expiry[data-tone="low"] b { color: var(--warn); }
+.ku-expiry[data-tone="bad"] b { color: var(--fail); }
+
+/* Loading placeholders */
+.ku-skel { cursor: default; gap: 6px; }
+.ku-skel span,
+.ku-hero-skel span,
+.ku-table-skel span {
+  display: block;
+  height: 8px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--bg-3), color-mix(in srgb, var(--bg-3) 40%, var(--border-2)), var(--bg-3));
+  background-size: 200% 100%;
+  animation: ku-shimmer 1.2s ease-in-out infinite;
+}
+.ku-skel span:first-child { width: 100%; }
+.ku-skel span + span { width: 60%; }
+@keyframes ku-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+/* Card view: both readings on one line under the key's meta. */
+/* Quota over expiry, the details icon beside both. */
+.ku-inline {
+  display: inline-grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 4px;
+  text-align: left;
+  margin-top: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-1);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.ku-inline:hover { background: var(--bg-3); border-color: var(--border-2); }
+.ku-inline.ku-skel { min-width: 180px; border-style: dashed; }
+.ku-inline > .ku-inline-quota,
+.ku-inline > .ku-expiry { grid-column: 1; }
+.ku-inline > svg { grid-column: 2; grid-row: 1 / span 2; color: var(--text-3); }
+.ku-inline > .ku-dot { display: none; }
+.ku-inline.ku-cell-fail { display: inline-flex; }
+.ku-inline-quota { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-variant-numeric: tabular-nums; }
+.ku-inline-quota .dt-rate-bar { width: 100%; min-width: 0; flex: none; }
+.ku-inline-num { white-space: nowrap; }
+.ku-inline .ku-expiry { flex-direction: row; font-size: 11.5px; }
+.ku-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--text-4); }
+
+/* Drawer */
+.ku-drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+}
+.ku-drawer[hidden] { display: none; }
+.ku-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+.ku-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(520px, 100vw);
+  border-left: 1px solid var(--border-2);
+  background: var(--bg-1);
+  box-shadow: var(--shadow-lg);
+  transform: translateX(100%);
+  transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.ku-drawer.open .ku-scrim { opacity: 1; }
+.ku-drawer.open .ku-panel { transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .ku-scrim, .ku-panel { transition: none; }
+  .ku-skel span, .ku-hero-skel span, .ku-table-skel span { animation: none; }
+}
+.ku-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border-1);
+}
+.ku-head-id {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+.ku-head-text { min-width: 0; }
+.ku-head-text h3 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-0);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ku-head-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ku-head-sub code { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-3); }
+.ku-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-md);
+  background: var(--bg-2);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.ku-icon-btn:hover:not(:disabled) { color: var(--text-0); border-color: var(--border-2); background: var(--bg-3); }
+.ku-icon-btn:disabled { opacity: 0.45; cursor: default; }
+.ku-icon-btn.is-spinning svg { animation: spin 0.9s linear infinite; }
+.ku-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 18px 18px;
+}
+.ku-section { padding: 16px 0; }
+.ku-section + .ku-section { border-top: 1px solid var(--border-1); }
+.ku-section-title {
+  margin-bottom: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.ku-quota-hero {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.ku-quota-big {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-0);
+}
+.ku-quota-of { font-size: 13px; color: var(--text-2); }
+.ku-quota-pct {
+  margin-left: auto;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--pass);
+}
+.ku-quota-pct[data-tone="low"] { color: var(--warn); }
+.ku-quota-pct[data-tone="bad"] { color: var(--fail); }
+.ku-bar-lg { height: 8px; border-radius: 4px; }
+.ku-bar-lg span { border-radius: 4px; }
+.ku-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.ku-bar-lg + .ku-stats { margin-top: 14px; }
+.ku-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-lg);
+  background: var(--bg-2);
+}
+.ku-stat-label { font-size: 11px; color: var(--text-3); }
+.ku-stat-value {
+  font-size: 17px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-0);
+}
+.ku-stat[data-tone="good"] .ku-stat-value { color: var(--pass); }
+.ku-stat[data-tone="low"] .ku-stat-value { color: var(--warn); }
+.ku-stat[data-tone="bad"] .ku-stat-value { color: var(--fail); }
+.ku-stat-sub {
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ku-expiry-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-lg);
+  background: var(--bg-2);
+}
+.ku-expiry-big { font-size: 16px; font-weight: 700; color: var(--text-0); }
+.ku-expiry-date { font-size: 12px; color: var(--text-2); }
+.ku-expiry-hero[data-tone="low"] {
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+}
+.ku-expiry-hero[data-tone="low"] .ku-expiry-big { color: var(--warn); }
+.ku-expiry-hero[data-tone="bad"] {
+  border-color: color-mix(in srgb, var(--fail) 40%, transparent);
+  background: color-mix(in srgb, var(--fail) 8%, transparent);
+}
+.ku-expiry-hero[data-tone="bad"] .ku-expiry-big { color: var(--fail); }
+.ku-hero-skel { display: grid; gap: 10px; padding: 16px 0; }
+.ku-hero-skel span:nth-child(1) { height: 26px; width: 55%; }
+.ku-hero-skel span:nth-child(2) { height: 8px; }
+.ku-hero-skel span:nth-child(3) { height: 54px; }
+.ku-table-skel { display: grid; gap: 10px; }
+.ku-table-skel span { height: 14px; }
+.ku-table-wrap {
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: opacity var(--transition-fast);
+}
+.ku-table-wrap.is-loading { opacity: 0.55; }
+.ku-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.ku-table th {
+  padding: 8px 10px;
+  background: var(--bg-2);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: left;
+  color: var(--text-3);
+}
+.ku-table td {
+  padding: 8px 10px;
+  border-top: 1px solid var(--border-1);
+  color: var(--text-1);
+  white-space: nowrap;
+}
+.ku-table .dt-num { text-align: right; }
+.ku-table tbody tr:hover td { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.ku-model {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+.ku-status {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--fail) 12%, transparent);
+  color: var(--fail);
+}
+.ku-status[data-ok="true"] {
+  background: color-mix(in srgb, var(--pass) 12%, transparent);
+  color: var(--pass);
+}
+.ku-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-1);
+}
+.ku-pager-btns { display: inline-flex; gap: 6px; }
+.ku-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px dashed var(--border-2);
+  border-radius: var(--radius-lg);
+  font-size: 12px;
+  color: var(--text-2);
+}
+.ku-empty.ku-cell-fail {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--fail) 35%, transparent);
+  background: color-mix(in srgb, var(--fail) 8%, transparent);
+  color: var(--text-1);
+  margin: 12px 0 0;
+}
+.ku-empty.ku-cell-fail svg { color: var(--fail); }
+.ku-updated {
+  padding-top: 8px;
+  font-size: 11px;
+  color: var(--text-3);
+  text-align: right;
+}

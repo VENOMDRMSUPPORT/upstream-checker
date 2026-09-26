@@ -610,9 +610,13 @@ ipcMain.on('download-update', () => {
   if (autoUpdater) autoUpdater.downloadUpdate();
 });
 
+// Silent install with a forced relaunch. The default (wizard) mode reopened the
+// full NSIS installer, which sat frozen for several seconds while its
+// app-running check shelled out to PowerShell, then needed a Finish click. Silent
+// mode keeps the existing install directory and reopens the app on its own.
 ipcMain.on('install-update', () => {
   log.info('User requested update install');
-  if (autoUpdater) setImmediate(() => autoUpdater.quitAndInstall());
+  if (autoUpdater) setImmediate(() => autoUpdater.quitAndInstall(true, true));
 });
 
 ipcMain.on('check-for-updates-manual', () => {
