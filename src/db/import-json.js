@@ -277,6 +277,27 @@ async function importLegacy({
   const catalogRows = normaliseCatalog(catalog, report);
   const runs = normaliseHistory(history, report);
 
+  // A safety copy of the legacy files, made right before the one shot at
+  // importing them. Re-imports read from *.imported.json copies that already
+  // exist, so they get no second backup.
+  const legacyKinds = Object.keys(FILES).filter((kind) => texts[kind] !== null);
+  if (source === 'legacy' && legacyKinds.length) {
+    report.backupDir = path.join(dir, `backup-before-database-${now()}`);
+    try {
+      fs.mkdirSync(report.backupDir, { recursive: true });
+    } catch (err) {
+      throw new ImportAbort('IMPORT_BACKUP', `Could not create ${report.backupDir} to back up the saved data before importing (${err.message}), so nothing was imported. No file was changed.`, report.backupDir);
+    }
+    for (const kind of legacyKinds) {
+      const name = names[kind];
+      try {
+        fs.copyFileSync(path.join(dir, name), path.join(report.backupDir, name));
+      } catch (err) {
+        throw new ImportAbort('IMPORT_BACKUP', `Could not back up ${name} before importing (${err.message}), so nothing was imported. No file was changed.`, path.join(dir, name));
+      }
+    }
+  }
+
   const write = db.transaction(() => {
     plan.providers.forEach((p) => repos.providers.importProvider(p));
     if (plan.settings) repos.settings.set('settings', plan.settings);
@@ -303,7 +324,8 @@ async function importLegacy({
       renameAside(dir, names[kind], report.unreadable.includes(kind) ? 'unreadable' : 'imported', { fs, now, report, log });
     });
   }
-  log.info(`Imported ${names.config}, ${names.catalog}, ${names.history} into venom.db:`,
+  log.info(`Imported ${names.config}, ${names.catalog}, ${names.history} into venom.db` +
+    (report.backupDir ? ` (backed up to ${report.backupDir})` : '') + ':',
     JSON.stringify({ providers: plan.providers.length, runs: runs.length, skipped: report.skipped }));
   return report;
 }

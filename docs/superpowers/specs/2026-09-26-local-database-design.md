@@ -222,15 +222,22 @@ into a DB that already has seeded providers.
      warning dialog reports the counts;
    - `settings` is imported verbatim minus `aaApiKey` (so `mediaPrompt` and unknown
      fields survive).
-3. **Providers and keys**: ciphertext (`enc:v1:…`) is copied verbatim; nothing is
+3. **Backup**: once every file has been read and normalised, and before the write
+   transaction opens, every legacy file that exists is copied byte-for-byte into
+   `<dataDir>/backup-before-database-<epoch ms>/`. A failure to create that folder or
+   to copy any file aborts the import (nothing written, nothing renamed) with the same
+   dialog-and-quit path as the other abort cases. Skipped on a re-import (the
+   `*.imported.json` copies already are the backup) and on a fresh install (no legacy
+   files).
+4. **Providers and keys**: ciphertext (`enc:v1:…`) is copied verbatim; nothing is
    decrypted. A plaintext legacy key is encrypted on the way in; if safeStorage is not
    available, the import aborts with the dialog (plaintext is never stored). Legacy
    custom providers are imported with `is_custom = 1` exactly as stored. A provider or
    key row that cannot be written aborts the import.
-4. `aaApiKey`: if already `enc:v1:` it is copied, otherwise encrypted, into `secrets`.
-5. Everything is written in **one transaction**, which also sets
+5. `aaApiKey`: if already `enc:v1:` it is copied, otherwise encrypted, into `secrets`.
+6. Everything is written in **one transaction**, which also sets
    `meta.imported_from_json_at`.
-6. After commit, each imported file is renamed `<name>.imported.json` (or
+7. After commit, each imported file is renamed `<name>.imported.json` (or
    `<name>.imported-<ms>.json` if that name exists, because rename overwrites on
    Windows). A failed rename is logged and not fatal. Nothing is deleted.
    `requests.log` is left alone (sub-project B).

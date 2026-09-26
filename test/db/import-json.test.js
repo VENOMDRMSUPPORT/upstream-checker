@@ -125,7 +125,7 @@ test('imports every file in one go and renames them', async (t) => {
   assert.deepStrictEqual(cat.lastSync, { nara: 2 });
   assert.deepStrictEqual(cat.keyModels, { key_1: { count: 1, at: 2 } });
   assert.strictEqual(store.repos.meta.get('imported_from_json_at'), String(NOW));
-  assert.deepStrictEqual(ls(dir), ['catalog.imported.json', 'config.imported.json', 'history.imported.json']);
+  assert.deepStrictEqual(ls(dir), [`backup-before-database-${NOW}`, 'catalog.imported.json', 'config.imported.json', 'history.imported.json']);
   assert.strictEqual(describeImportWarnings(report), '');
 });
 
@@ -175,7 +175,7 @@ test('a damaged catalogue or history is left out, renamed .unreadable.json and r
   assert.strictEqual(count(store, 'providers'), 2);
   assert.strictEqual(count(store, 'models'), 0);
   assert.strictEqual(count(store, 'test_runs'), 0);
-  assert.deepStrictEqual(ls(dir), ['catalog.unreadable.json', 'config.imported.json', 'history.unreadable.json']);
+  assert.deepStrictEqual(ls(dir), [`backup-before-database-${NOW}`, 'catalog.unreadable.json', 'config.imported.json', 'history.unreadable.json']);
   const text = describeImportWarnings(report);
   assert.match(text, /catalog\.json is damaged and was not imported\. It was renamed catalog\.unreadable\.json\./);
   assert.match(text, /history\.json is damaged and was not imported/);
@@ -284,7 +284,7 @@ test('a write that fails mid-import commits nothing and renames nothing', async 
   store.db.exec("CREATE TRIGGER fail_runs BEFORE INSERT ON test_runs BEGIN SELECT RAISE(ABORT, 'disk full'); END");
   await assert.rejects(run(), (err) => err.code === 'IMPORT_WRITE' && /disk full/.test(err.message));
   assertNothingWritten(store);
-  assert.deepStrictEqual(ls(dir), ['catalog.json', 'config.json', 'history.json']);
+  assert.deepStrictEqual(ls(dir), [`backup-before-database-${NOW}`, 'catalog.json', 'config.json', 'history.json']);
   store.db.exec('DROP TRIGGER fail_runs');
   assert.strictEqual((await run()).status, 'imported');
   assert.strictEqual(count(store, 'test_runs'), 2);
@@ -312,6 +312,43 @@ test('needsReimportPrompt: offered only when saved copies are all that is left',
   // Already imported, or a fresh install marked 'none'.
   assert.strictEqual(needsReimportPrompt({ importedAt: String(NOW), legacyPresent: false, savedCopies: 3 }), false);
   assert.strictEqual(needsReimportPrompt({ importedAt: 'none', legacyPresent: false, savedCopies: 3 }), false);
+});
+
+test('a successful legacy import backs up every legacy file before importing', async (t) => {
+  const files = all();
+  const { dir, run } = await setup(t, { files });
+  const report = await run();
+  assert.strictEqual(report.status, 'imported');
+  assert.ok(report.backupDir && fs.existsSync(report.backupDir));
+  assert.match(path.basename(report.backupDir), /^backup-before-database-\d+$/);
+  Object.entries(files).forEach(([name, content]) => {
+    const backedUp = fs.readFileSync(path.join(report.backupDir, name), 'utf-8');
+    assert.strictEqual(backedUp, JSON.stringify(content));
+  });
+});
+
+test('a failing backup copy aborts with IMPORT_BACKUP: nothing written, nothing renamed', async (t) => {
+  const failing = {
+    ...fs,
+    copyFileSync(src, dest) {
+      if (path.basename(src) === 'catalog.json') {
+        const e = new Error('EPERM: operation not permitted');
+        throw e;
+      }
+      return fs.copyFileSync(src, dest);
+    },
+  };
+  const { dir, store, run } = await setup(t, { files: all(), fsImpl: failing });
+  await assert.rejects(run(), (err) => err instanceof ImportAbort && err.code === 'IMPORT_BACKUP' && err.message.includes('catalog.json'));
+  assertNothingWritten(store);
+  const entries = ls(dir).filter((e) => !e.startsWith('backup-before-database-'));
+  assert.deepStrictEqual(entries, ['catalog.json', 'config.json', 'history.json']);
+});
+
+test('a fresh install with no legacy files creates no backup folder', async (t) => {
+  const { dir, run } = await setup(t);
+  await run();
+  assert.deepStrictEqual(ls(dir), []);
 });
 
 test('a rename that fails is reported, not fatal', async (t) => {
