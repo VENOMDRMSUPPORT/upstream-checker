@@ -11,13 +11,19 @@ test('endpointOf keeps origin and path, drops the query', () => {
   assert.strictEqual(C.endpointOf(undefined), '');
 });
 
+test('endpointOf caps a very long http(s) origin+path at 500 characters too', () => {
+  const long = `https://api.example.com/${'v'.repeat(600)}`;
+  assert.strictEqual(C.endpointOf(long).length, 500);
+});
+
 test('bodyText and modelRequested read the model from a JSON body', () => {
   assert.strictEqual(C.bodyText({ model: 'm1' }), '{"model":"m1"}');
   assert.strictEqual(C.bodyText(''), null);
   assert.strictEqual(C.modelRequested('{"model":"gpt-x","messages":[]}'), 'gpt-x');
   assert.strictEqual(C.modelRequested('token=abc'), null);
   assert.strictEqual(C.modelRequested(null), null);
-  assert.strictEqual(C.modelRequested(JSON.stringify({ model: 'm'.repeat(300) })).length, 200);
+  assert.strictEqual(C.modelRequested(JSON.stringify({ model: 'm'.repeat(300) })).length, 300);
+  assert.strictEqual(C.modelRequested(JSON.stringify({ model: 'm'.repeat(5000) })).length, 4096);
 });
 
 test('isStreamRequest: stream true in the body, or an event-stream reply', () => {
@@ -108,6 +114,8 @@ test('computeCost: tokens × price per 1M in micro-USD; free is 0; unknown is NU
   assert.deepStrictEqual(C.computeCost(usage(5, 1), null), { costMicros: null, priceJson: null });
   assert.deepStrictEqual(C.computeCost(null, { input: 2, output: 10 }), { costMicros: null, priceJson: null });
   assert.deepStrictEqual(C.computeCost(usage(null, null), { input: 2, output: 10 }), { costMicros: null, priceJson: null });
+  assert.deepStrictEqual(C.computeCost(usage(5, 1), { input: -1e6, output: -1e6 }), { costMicros: null, priceJson: null });
+  assert.deepStrictEqual(C.computeCost(usage(5, 1), { input: 1 }), { costMicros: null, priceJson: null });
 });
 
 test('classifyStatus: the status and error-class table', () => {
@@ -140,16 +148,33 @@ test('classifyStatus: the status and error-class table', () => {
 });
 
 test('extractError: error.message, a string error, message, detail, or the first 200 characters; code clipped', () => {
-  assert.deepStrictEqual(C.extractError(JSON.stringify({ error: { message: 'Bad key', code: 'invalid_api_key' } })), { code: 'invalid_api_key', message: 'Bad key' });
-  assert.deepStrictEqual(C.extractError(JSON.stringify({ error: { type: 'overloaded_error', message: 'Overloaded' } })), { code: 'overloaded_error', message: 'Overloaded' });
-  assert.deepStrictEqual(C.extractError(JSON.stringify({ error: 'plain string' })), { code: null, message: 'plain string' });
-  assert.deepStrictEqual(C.extractError(JSON.stringify({ message: 'top-level' })), { code: null, message: 'top-level' });
-  assert.deepStrictEqual(C.extractError(JSON.stringify({ detail: 'Not Found' })), { code: null, message: 'Not Found' });
+  assert.deepStrictEqual(C.extractError(JSON.stringify({ error: { message: 'Bad key', code: 'invalid_api_key' } })), { code: 'invalid_api_key', message: 'Bad key', quota: false });
+  assert.deepStrictEqual(C.extractError(JSON.stringify({ error: { type: 'overloaded_error', message: 'Overloaded' } })), { code: 'overloaded_error', message: 'Overloaded', quota: false });
+  assert.deepStrictEqual(C.extractError(JSON.stringify({ error: 'plain string' })), { code: null, message: 'plain string', quota: false });
+  assert.deepStrictEqual(C.extractError(JSON.stringify({ message: 'top-level' })), { code: null, message: 'top-level', quota: false });
+  assert.deepStrictEqual(C.extractError(JSON.stringify({ detail: 'Not Found' })), { code: null, message: 'Not Found', quota: false });
   assert.strictEqual(C.extractError(`<html>${'x'.repeat(500)}`).message.length, 200);
   const long = C.extractError(JSON.stringify({ error: { code: 'c'.repeat(250) } }));
   assert.strictEqual(long.code.length, 100);
   assert.strictEqual(long.message.length, 200);
-  assert.deepStrictEqual(C.extractError(''), { code: null, message: null });
+  assert.deepStrictEqual(C.extractError(''), { code: null, message: null, quota: false });
+});
+
+test('extractError detects a quota code in error.type even when error.code is something else, and code falls through an empty string', () => {
+  const statusCode = C.extractError(JSON.stringify({ error: { code: '429', type: 'insufficient_quota' } }));
+  assert.strictEqual(statusCode.quota, true);
+  assert.deepStrictEqual(
+    C.classifyStatus({ outcome: 'end', httpStatus: 429, errorCode: statusCode.code, quota: statusCode.quota }),
+    { status: 'error', errorClass: 'quota' },
+  );
+
+  const emptyCode = C.extractError(JSON.stringify({ error: { code: '', type: 'insufficient_quota' } }));
+  assert.strictEqual(emptyCode.code, 'insufficient_quota');
+  assert.strictEqual(emptyCode.quota, true);
+  assert.deepStrictEqual(
+    C.classifyStatus({ outcome: 'end', httpStatus: 429, errorCode: emptyCode.code, quota: emptyCode.quota }),
+    { status: 'error', errorClass: 'quota' },
+  );
 });
 
 test('latency buckets and the approximate p95', () => {

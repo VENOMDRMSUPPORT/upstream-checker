@@ -9,7 +9,9 @@
 const QUOTA_CODES = new Set(['insufficient_quota', 'quota_exceeded', 'billing_hard_limit_reached']);
 const JSON_PARSE_LIMIT = 1024 * 1024;
 const SCAN_WINDOW = 64 * 1024;
-const MODEL_MAX = 200;
+// Generous: the recorder scrubs secrets from the model field and clips to
+// the DB's real limit afterward, so this only guards against a runaway body.
+const MODEL_MAX = 4096;
 // Inclusive upper edges (ms) of lb0..lb12; lb13 holds everything above.
 const LATENCY_EDGES = [100, 250, 500, 1000, 2000, 3000, 5000, 8000, 12000, 20000, 30000, 60000, 120000];
 
@@ -21,7 +23,7 @@ function endpointOf(url) {
   const text = String(url ?? '');
   try {
     const u = new URL(text);
-    if (u.protocol === 'http:' || u.protocol === 'https:') return u.origin + u.pathname;
+    if (u.protocol === 'http:' || u.protocol === 'https:') return (u.origin + u.pathname).slice(0, 500);
   } catch (_) {
     // Not a URL: stored as given, minus anything after ? or #.
   }
@@ -154,7 +156,7 @@ function objectAt(text, start) {
   return null;
 }
 
-const MODEL_FIELD = /"model"\s*:\s*"((?:[^"\\]|\\.){1,200})"/;
+const MODEL_FIELD = new RegExp(`"model"\\s*:\\s*"((?:[^"\\\\]|\\\\.){1,${MODEL_MAX}})"`);
 
 // A JSON reply too big to parse whole: usage from the last "usage" object in
 // the tail, the model from the head (where OpenAI and Anthropic put it).
@@ -186,7 +188,10 @@ function readResponse(text, contentType) {
 
 // Prices are USD per 1M tokens, so tokens × price is already micro-USD.
 function computeCost(usage, price) {
-  if (!usage || !price || (usage.input === null && usage.output === null)) return { costMicros: null, priceJson: null };
+  const validPrice = !!price
+    && Number.isFinite(price.input) && price.input >= 0
+    && Number.isFinite(price.output) && price.output >= 0;
+  if (!usage || !validPrice || (usage.input === null && usage.output === null)) return { costMicros: null, priceJson: null };
   return {
     costMicros: Math.round((usage.input || 0) * price.input + (usage.output || 0) * price.output),
     priceJson: JSON.stringify({ input: price.input, output: price.output }),
@@ -194,7 +199,11 @@ function computeCost(usage, price) {
 }
 
 // outcome comes from src/api-request.js: end | cancelled | timeout | error | aborted | blocked.
-function classifyStatus({ outcome, httpStatus = null, cancelReason = null, errorCode = null } = {}) {
+// quota is an optional pre-computed flag (see extractError): a caller that
+// already knows the body's error.code/error.type matched a quota code can
+// pass it straight through instead of relying on errorCode alone, since a
+// quota code can live in error.type while error.code holds an HTTP status.
+function classifyStatus({ outcome, httpStatus = null, cancelReason = null, errorCode = null, quota = false } = {}) {
   if (outcome === 'blocked') return { status: 'blocked', errorClass: 'blocked' };
   if (outcome === 'cancelled') {
     // The adaptive per-kind deadline gave up on it: a timeout, not a choice.
@@ -205,7 +214,7 @@ function classifyStatus({ outcome, httpStatus = null, cancelReason = null, error
   if (outcome !== 'end' || !Number.isInteger(httpStatus)) return { status: 'error', errorClass: 'other' };
   if (httpStatus >= 200 && httpStatus < 300) return { status: 'ok', errorClass: null };
   // A spent quota is named in the body, whatever the status line says.
-  if (errorCode !== null && QUOTA_CODES.has(String(errorCode))) return { status: 'error', errorClass: 'quota' };
+  if (quota || (errorCode !== null && QUOTA_CODES.has(String(errorCode)))) return { status: 'error', errorClass: 'quota' };
   if (httpStatus === 401 || httpStatus === 403) return { status: 'error', errorClass: 'auth' };
   if (httpStatus === 402) return { status: 'error', errorClass: 'quota' };
   if (httpStatus === 429) return { status: 'error', errorClass: 'rate_limit' };
@@ -216,12 +225,16 @@ function classifyStatus({ outcome, httpStatus = null, cancelReason = null, error
 
 // The message the renderer's failFromResponse shows: error.message (or a
 // string error), else message, else detail, else the body's first 200
-// characters. code is error.code or error.type.
+// characters. code is error.code, falling through to error.type when code is
+// missing or empty (some providers put the quota code in .type and leave
+// .code as an empty string or the HTTP status). quota is true when either
+// field named a quota code, even if the other one is what got stored as code.
 function extractError(text) {
   const src = typeof text === 'string' ? text : '';
   const d = parseObject(src);
   let message = null;
   let code = null;
+  let quota = false;
   if (d) {
     const e = d.error;
     if (typeof e === 'string') message = e;
@@ -229,11 +242,14 @@ function extractError(text) {
     if (!message && typeof d.message === 'string') message = d.message;
     if (!message && typeof d.detail === 'string') message = d.detail;
     if (e && typeof e === 'object') {
-      const c = e.code ?? e.type;
-      if (typeof c === 'string' || typeof c === 'number') code = String(c).slice(0, 100);
+      const rawCode = typeof e.code === 'string' || typeof e.code === 'number' ? String(e.code) : null;
+      const rawType = typeof e.type === 'string' || typeof e.type === 'number' ? String(e.type) : null;
+      const c = rawCode || rawType;
+      if (c) code = c.slice(0, 100);
+      quota = (rawCode !== null && QUOTA_CODES.has(rawCode)) || (rawType !== null && QUOTA_CODES.has(rawType));
     }
   }
-  return { code, message: message || src.slice(0, 200) || null };
+  return { code, message: message || src.slice(0, 200) || null, quota };
 }
 
 function latencyBucket(ms) {
