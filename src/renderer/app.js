@@ -1953,8 +1953,12 @@ const inflightIds = new Set();
 // Request-log tags by request id ({ attempt, hedgeIndex, testGroup, paramSwap }),
 // set when the id is handed out and read when its request goes out, so the
 // round and the hedge index travel with the id instead of through every
-// tester's signature. Cleared at the start of each run.
+// tester's signature. Never cleared at the start of a run: a straggler from
+// the previous run (a video poll, a delayed retry) still needs its captured
+// tags to log under the run it actually belongs to. Bounded instead — a Map
+// keeps insertion order, so the oldest entries are the first dropped.
 const requestTags = new Map();
+const REQUEST_TAGS_MAX = 2000;
 // { runId, trigger } of the Route Test run in progress; null between runs.
 let routeRun = null;
 
@@ -1971,6 +1975,7 @@ function nextRequestId(tags = null) {
     const runId = tags.runId !== undefined ? tags.runId : (routeRun ? routeRun.runId : undefined);
     const trigger = tags.trigger !== undefined ? tags.trigger : (routeRun ? routeRun.trigger : undefined);
     requestTags.set(id, { ...tags, runId, trigger });
+    while (requestTags.size > REQUEST_TAGS_MAX) requestTags.delete(requestTags.keys().next().value);
   }
   return id;
 }
@@ -2739,7 +2744,8 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
   isTesting = true;
   abortTesting = false;
   inflightIds.clear();
-  requestTags.clear();
+  // requestTags is intentionally not cleared here: a straggler from the run
+  // that just ended still needs its captured tags (see requestTags above).
   // The run's id tags every request it sends and names its history run, so
   // the request log and the history agree on which run a request was part of.
   routeRun = { runId: newUlid(), trigger: scheduled ? 'scheduled' : 'manual' };
