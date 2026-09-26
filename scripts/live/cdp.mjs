@@ -136,3 +136,11 @@ export async function launch({ userDataDir, port = 9333 }) {
 
   return { child, evaluate, waitFor, close, exited, output: () => output };
 }
+
+// A second, plain instance on the same data folder (no CDP), for the
+// single-instance check.
+export function spawnPlain({ userDataDir }) {
+  assertScratchDir(userDataDir);
+  const child = spawn(ELECTRON, ['.', `--user-data-dir=${userDataDir}`], { cwd: ROOT, env: appEnv(), stdio: 'ignore' });
+  return { child, exited: new Promise((resolve) => child.on('exit', (code) => resolve(code))) };
+}

@@ -24,6 +24,22 @@ if (!app.commandLine.hasSwitch('user-data-dir')) {
   }
 }
 
+// One instance per data folder (the lock is per userData, so it comes right
+// after setPath and before the database opens). A second instance would run
+// every timer twice and race the first one's writes; it hands over to the
+// window that is already open and quits.
+const isPrimary = app.requestSingleInstanceLock();
+if (!isPrimary) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+}
+
 let autoUpdater; // Lazy load after app ready
 let updateCheckInterval;
 
@@ -266,6 +282,7 @@ function stopUpdateChecks() {
 }
 
 app.whenReady().then(async () => {
+  if (!isPrimary) return;
   if (!(await startDatabase())) {
     app.quit();
     return;

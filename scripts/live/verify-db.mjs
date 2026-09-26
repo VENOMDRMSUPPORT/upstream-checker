@@ -9,7 +9,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { launch } from './cdp.mjs';
+import { launch, spawnPlain } from './cdp.mjs';
 import { FIXTURE, writeFixture } from './fixture.mjs';
 import { startMock } from './mock-provider.mjs';
 
@@ -153,6 +153,17 @@ async function checkPersistence({ app, dir }) {
   check('the model pool kept its rows', s.models >= 2, String(s.models));
 }
 
+async function checkSingleInstance({ app, dir }) {
+  const second = spawnPlain({ userDataDir: dir });
+  const code = await Promise.race([second.exited, sleep(15000).then(() => 'timeout')]);
+  if (code === 'timeout') {
+    second.child.kill();
+    await second.exited;
+  }
+  check('a second instance on the same data folder exits on its own', code !== 'timeout', String(code));
+  check('the first instance keeps running', (await app.evaluate('1 + 1')) === 2);
+}
+
 // Last in its run: it poisons the session on purpose.
 async function checkWriteGate({ app }) {
   const r = await app.evaluate(`(async () => {
@@ -169,7 +180,7 @@ async function checkWriteGate({ app }) {
 
 const RUN1 = [checkImport, checkKeysStayInMain];
 const RUN1_END = [saveForNextRun];
-const RUN2 = [checkPersistence];
+const RUN2 = [checkPersistence, checkSingleInstance];
 const RUN2_END = [checkWriteGate];
 
 async function session(ctx, steps) {
