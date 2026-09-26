@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VENOM Router — Phase 2 build index</title>
+<style>
+  :root {
+    --bg-0: #000000;
+    --bg-1: #0a0a0a;
+    --bg-2: #111111;
+    --bg-3: #1a1a1a;
+    --border-1: #1f1f1f;
+    --border-2: #2e2e2e;
+    --border-3: #454545;
+    --text-0: #ffffff;
+    --text-1: #ededed;
+    --text-2: #a1a1a1;
+    --text-3: #8f8f8f;
+    --text-4: #525252;
+    --accent: #00d4ff;
+    --accent-dim: #0098b8;
+    --pass: #22c55e;
+    --warn: #f59e0b;
+    --held: #8b5cf6;
+    --rail: 2px;
+    --step: 0.9375rem;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--bg-0);
+    color: var(--text-1);
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 62rem;
+    margin: 0 auto;
+    padding: 3.5rem 1.5rem 6rem;
+  }
+
+  /* ---- masthead ---------------------------------------------------- */
+
+  .masthead {
+    display: flex;
+    align-items: baseline;
+    gap: 0.875rem;
+    padding-bottom: 1.25rem;
+  }
+  .mark { flex: none; width: 26px; height: 26px; align-self: center; }
+  .mark path { fill: var(--accent); }
+  .wordmark {
+    font-size: 1.0625rem;
+    font-weight: 650;
+    letter-spacing: -0.015em;
+    color: var(--text-0);
+    margin: 0;
+  }
+  .masthead .sub {
+    font-size: 0.9375rem;
+    color: var(--text-3);
+    margin: 0;
+  }
+
+  h1 {
+    font-size: clamp(1.75rem, 1.2rem + 2.4vw, 2.75rem);
+    line-height: 1.12;
+    letter-spacing: -0.032em;
+    font-weight: 620;
+    color: var(--text-0);
+    margin: 0 0 0.75rem;
+    max-width: 22ch;
+  }
+  .standfirst {
+    font-size: 1.0625rem;
+    color: var(--text-2);
+    margin: 0 0 2.5rem;
+    max-width: 62ch;
+  }
+  .standfirst b { color: var(--text-1); font-weight: 600; }
+
+  /* ---- the pipeline rail (hero) ------------------------------------ */
+
+  .pipeline { margin: 0 0 3.25rem; }
+
+  .pipe-track {
+    display: flex;
+    gap: 3px;
+    height: 46px;
+    align-items: stretch;
+  }
+  .seg {
+    position: relative;
+    border: 1px solid var(--border-2);
+    background:
+      repeating-linear-gradient(135deg, transparent 0 5px, rgba(255,255,255,.022) 5px 10px);
+    display: flex;
+    align-items: center;
+    padding: 0 0.75rem;
+    overflow: hidden;
+    min-width: 0;
+  }
+  .seg .fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 0;
+    background: var(--accent);
+    opacity: .16;
+    transition: width 900ms cubic-bezier(.2,.7,.2,1);
+  }
+  .seg[data-state="merged"] { border-color: color-mix(in srgb, var(--pass) 45%, var(--border-2)); }
+  .seg[data-state="merged"] .fill { background: var(--pass); }
+  .seg[data-state="held"] { border-color: color-mix(in srgb, var(--held) 55%, var(--border-2)); }
+  .seg[data-state="held"] .fill { background: var(--held); opacity: .2; }
+  .seg[data-state="open"] { border-style: dashed; border-color: var(--border-2); }
+
+  .seg .tag {
+    position: relative;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--text-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .seg[data-state="merged"] .tag { color: var(--pass); }
+  .seg[data-state="held"] .tag { color: #b9a3f7; }
+
+  .pipe-legend {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-top: 0.625rem;
+    font-size: 0.8125rem;
+    color: var(--text-4);
+  }
+  .gate-note {
+    color: #b9a3f7;
+    display: flex;
+    align-items: center;
+    gap: 0.4375rem;
+  }
+  .gate-note svg { width: 13px; height: 13px; fill: currentColor; flex: none; }
+
+  .overall {
+    display: flex;
+    align-items: baseline;
+    gap: 0.625rem;
+    margin-bottom: 0.875rem;
+  }
+  .overall .pct {
+    font-size: 2.25rem;
+    font-weight: 300;
+    letter-spacing: -0.04em;
+    color: var(--text-0);
+    line-height: 1;
+  }
+  .overall .of { font-size: 0.9375rem; color: var(--text-3); }
+
+  /* ---- phase sections ---------------------------------------------- */
+
+  .phase {
+    border-top: 1px solid var(--border-1);
+    padding: 2rem 0 0.5rem;
+  }
+  .phase-head {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.5rem 1.5rem;
+    align-items: start;
+    margin-bottom: 1.25rem;
+  }
+  .phase h2 {
+    font-size: 1.1875rem;
+    font-weight: 620;
+    letter-spacing: -0.02em;
+    color: var(--text-0);
+    margin: 0;
+  }
+  .phase h2 .letter {
+    display: inline-block;
+    min-width: 1.5rem;
+    color: var(--text-4);
+    font-weight: 500;
+  }
+  .phase .where {
+    font-size: 0.875rem;
+    color: var(--text-3);
+    margin: 0.3125rem 0 0;
+    max-width: 68ch;
+  }
+  .phase .where code {
+    font-family: ui-monospace, 'Cascadia Mono', 'Consolas', monospace;
+    font-size: 0.8125rem;
+    color: var(--text-2);
+    background: var(--bg-2);
+    border: 1px solid var(--border-1);
+    border-radius: 3px;
+    padding: 0.0625rem 0.3125rem;
+  }
+
+  .state {
+    justify-self: end;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.1875rem 0.5rem;
+    border: 1px solid;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+  .state[data-s="merged"] { color: var(--pass); border-color: color-mix(in srgb, var(--pass) 35%, transparent); }
+  .state[data-s="held"]   { color: #b9a3f7; border-color: color-mix(in srgb, var(--held) 45%, transparent); }
+  .state[data-s="open"]   { color: var(--text-3); border-color: var(--border-2); }
+
+  /* ---- meter: one cell per step ------------------------------------ */
+
+  .meter { margin-bottom: 1.5rem; }
+  .meter-cells {
+    display: flex;
+    gap: 2px;
+    height: 10px;
+  }
+  .cell {
+    flex: 1 1 0;
+    background: var(--bg-3);
+    border-radius: 1px;
+    transition: background 200ms ease;
+  }
+  .cell[data-done="1"] { background: var(--accent); }
+  .phase[data-state="merged"] .cell[data-done="1"] { background: var(--pass); }
+  .phase[data-state="held"]   .cell[data-done="1"] { background: var(--held); }
+
+  .meter-scale {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 0.4375rem;
+    font-size: 0.75rem;
+    color: var(--text-4);
+  }
+  .meter-scale .now { color: var(--text-1); font-weight: 600; }
+
+  /* ---- step groups -------------------------------------------------- */
+
+  .group { margin: 0 0 1.5rem; }
+  .group > h3 {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--text-1);
+    margin: 0 0 0.625rem;
+  }
+  .group > h3 .count {
+    font-weight: 400;
+    color: var(--text-4);
+    margin-left: 0.5rem;
+  }
+
+  ul.steps { list-style: none; margin: 0; padding: 0; }
+
+  ul.steps li {
+    position: relative;
+    padding-left: 1.75rem;
+    margin-bottom: 0.4375rem;
+  }
+
+  .steps label {
+    display: block;
+    font-size: var(--step);
+    color: var(--text-2);
+    cursor: pointer;
+  }
+  .steps input {
+    position: absolute;
+    left: 0;
+    top: 0.3125rem;
+    width: 15px;
+    height: 15px;
+    margin: 0;
+    appearance: none;
+    background: var(--bg-1);
+    border: 1px solid var(--border-3);
+    border-radius: 2px;
+    cursor: pointer;
+    display: grid;
+    place-content: center;
+  }
+  .steps input:hover { border-color: var(--accent-dim); }
+  .steps input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .steps input::after {
+    content: '';
+    width: 7px;
+    height: 4px;
+    border-left: 2px solid var(--bg-0);
+    border-bottom: 2px solid var(--bg-0);
+    transform: rotate(-45deg) translate(1px, -1px);
+    opacity: 0;
+  }
+  .steps input:checked { background: var(--accent); border-color: var(--accent); }
+  .steps input:checked::after { opacity: 1; }
+  .steps input:checked + span { color: var(--text-4); text-decoration: line-through; text-decoration-color: var(--text-4); }
+
+  .phase[data-state="merged"] .steps input:checked { background: var(--pass); border-color: var(--pass); }
+  .phase[data-state="held"] .steps input:checked { background: var(--held); border-color: var(--held); }
+
+  .steps input:disabled { cursor: default; opacity: 1; }
+  .steps input:disabled + span { cursor: default; }
+
+  .note {
+    display: block;
+    font-size: 0.8125rem;
+    color: var(--warn);
+    margin-top: 0.125rem;
+  }
+  .note.plain { color: var(--text-3); }
+
+  /* ---- folded (finished) phases -------------------------------------- */
+
+  .fold { margin-bottom: 1rem; }
+  .fold > summary {
+    font-size: 0.875rem;
+    color: var(--text-3);
+    cursor: pointer;
+    padding: 0.25rem 0;
+    width: fit-content;
+  }
+  .fold > summary:hover { color: var(--text-1); }
+  .fold > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .fold[open] > summary { margin-bottom: 1rem; }
+  .fold > .group:last-child { margin-bottom: 0.5rem; }
+
+  /* ---- footer ------------------------------------------------------- */
+
+  footer {
+    border-top: 1px solid var(--border-1);
+    margin-top: 2.5rem;
+    padding-top: 1.5rem;
+    font-size: 0.8125rem;
+    color: var(--text-4);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.5rem;
+    align-items: center;
+    justify-content: space-between;
+  }
+  footer p { margin: 0; max-width: 60ch; }
+  button.reset {
+    font: inherit;
+    font-size: 0.8125rem;
+    color: var(--text-3);
+    background: var(--bg-1);
+    border: 1px solid var(--border-2);
+    border-radius: 3px;
+    padding: 0.3125rem 0.75rem;
+    cursor: pointer;
+  }
+  button.reset:hover { color: var(--text-1); border-color: var(--border-3); }
+  button.reset:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  @media (max-width: 40rem) {
+    .wrap { padding-top: 2.25rem; }
+    .pipe-track { height: 40px; }
+    .seg { padding: 0 0.4375rem; }
+    .seg .tag { font-size: 0.75rem; }
+    .phase-head { grid-template-columns: 1fr; }
+    .state { justify-self: start; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .seg .fill { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <svg class="mark" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M2 3h4.6l5.4 12.2L17.4 3H22l-8.1 18h-1.5l-2.2-4.9 2-4.6L2 3Z"/>
+    </svg>
+    <p class="wordmark">VENOM Router</p>
+    <p class="sub">Phase 2 build index</p>
+  </div>
+
+  <h1>What is left before Phase&nbsp;2 ships</h1>
+  <p class="standfirst">
+    The database is in. The logging system is written and green, but it cannot land on its
+    own — the owner's rule is that it merges <b>together with the log pages</b>, and the log
+    pages have not been started. Tick a step as you finish it; the page remembers.
+  </p>
+
+  <section class="pipeline" aria-label="Phase 2 pipeline">
+    <div class="overall">
+      <span class="pct" id="overall-pct">0%</span>
+      <span class="of" id="overall-of">0 of 0 steps</span>
+    </div>
+    <div class="pipe-track" id="pipe"></div>
+    <div class="pipe-legend">
+      <span>0%</span>
+      <span class="gate-note">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 9V7a5 5 0 0 0-10 0v2H5v12h14V9h-2Zm-8-2a3 3 0 0 1 6 0v2H9V7Zm4 9.7V19h-2v-2.3a2 2 0 1 1 2 0Z"/></svg>
+        Logging waits at the merge gate
+      </span>
+      <span>100%</span>
+    </div>
+  </section>
+
+  <main id="phases"></main>
+
+  <footer>
+    <p>
+      Read from the repository on 27 September 2026 — <code>main</code> at 16b9f89 and branch
+      <code>feat/logging-system</code> at 68bd6de. Commits are the source of truth; the plan
+      files keep their boxes unticked.
+    </p>
+    <button class="reset" type="button" id="reset">Clear my ticks</button>
+  </footer>
+
+</div>
+
+<script>
+const PHASES = [
+  {
+    id: 'A', key: 'db', name: 'Local database', state: 'merged',
+    badge: 'Merged',
+    where: 'Merged into <code>main</code> at 16b9f89. 133 tests green.',
+    groups: [{
+      title: 'Shipped',
+      steps: [
+        { t: 'SQLite store replaces config.json, catalog.json and history.json', done: true },
+        { t: 'API keys stay in the main process; the renderer only sees placeholders', done: true },
+        { t: 'Every data-loss path the audit found is closed', done: true },
+        { t: 'Single-instance lock per data folder', done: true },
+        { t: 'Pending saves flush before close and before an update installs', done: true },
+        { t: 'Legacy JSON files backed up, then imported', done: true }
+      ]
+    }]
+  },
+  {
+    id: 'B', key: 'logs', name: 'Logging system', state: 'held',
+    badge: 'Built, waiting',
+    where: 'Branch <code>feat/logging-system</code> in <code>C:\\Users\\venom\\Desktop\\venom-router-logging</code> — 37 commits ahead, tree clean, 268 tests green.',
+    groups: [
+      {
+        title: 'Log database layer (src/logs)',
+        steps: [
+          { t: 'Schema v1, log settings and test helpers', done: true },
+          { t: 'classify.js — endpoint, model, usage, cost, status', done: true },
+          { t: 'scrub.js — substituted secrets out of stored text', done: true },
+          { t: 'writer.js — batched writes, roll-ups, dropped counter', done: true },
+          { t: 'retention.js — chunked purge, stepped vacuum, scheduler', done: true },
+          { t: 'query.js — list, get, stats, facets, run summary, export, info, clear', done: true },
+          { t: 'index.js — open, pragmas, migrate, tryOpen, close', done: true },
+          { t: 'ipc.js — the eight logs-* channels', done: true }
+        ]
+      },
+      {
+        title: 'Capturing every request in main',
+        steps: [
+          { t: 'resolve() reports the refs and substitutions it made', done: true },
+          { t: 'History accepts the renderer\u2019s run id', done: true },
+          { t: 'lookups.js and recorder.js build each record', done: true },
+          { t: 'api-request.js — one ending per request, logged after the reply', done: true },
+          { t: 'Data IPC hooks keep the main-side caches fresh', done: true },
+          { t: 'Main wiring: requester, startLogs, logs IPC, quit order, smoke test, preload', done: true }
+        ]
+      },
+      {
+        title: 'Renderer: run ids, tags, cancel reasons, Settings',
+        steps: [
+          { t: 'ULID helper for run ids', done: true },
+          { t: 'Route Test tags every request with run, attempt, hedge and test group', done: true },
+          { t: 'Every other apiRequest call tagged; benchmark run ids and cancel reasons', done: true },
+          { t: 'Settings copy, the new-install default and the logging-off warning', done: true }
+        ]
+      },
+      {
+        title: 'Live check and review round',
+        steps: [
+          { t: 'Live check of the request log on the synthetic fixture', done: true },
+          { t: 'Review fixes: SQL-side facets and sums, purge scheduler, run-id capture, bounded tags', done: true }
+        ]
+      }
+    ]
+  },
+  {
+    id: 'C', key: 'pages', name: 'Log pages', state: 'open',
+    badge: 'Not started',
+    where: 'No spec, no plan, no branch yet. Scope: Request Log (in the Test History slot), Runs, Monitoring.',
+    groups: [
+      {
+        title: 'Spec and plan',
+        steps: [
+          { t: 'Brainstorm the three pages with the owner — scope, layout, defaults' },
+          { t: 'Write the design spec' },
+          { t: 'Delegated spec review, apply the required changes' },
+          { t: 'Write the implementation plan, one task per commit' },
+          { t: 'Branch feat/log-pages in its own worktree' }
+        ]
+      },
+      {
+        title: 'Request Log',
+        steps: [
+          { t: 'Request list in the Test History slot, keyset paging through logs-list' },
+          { t: 'Filter bar from logs-facets: provider, model, source, status, dates, text' },
+          { t: 'Row detail drawer from logs-get: timings, tokens, cost, scrubbed body' },
+          { t: 'Live tail polls logs-list with afterId, ordered by id', note: 'Never page a tail with nextCursor — a stale clock reorders arrivals.' },
+          { t: 'Sort by latency, TTFT or cost', blocks: 1, note: 'logs-list cannot sort yet — needs a change on the B side.' },
+          { t: 'Retry-chain view keyed on is_stream and endpoint', note: 'Non-stream and SSE-recovery copies share testGroup, attempt and hedgeIndex 0.' },
+          { t: 'Export the current filter through logs-export' }
+        ]
+      },
+      {
+        title: 'Runs',
+        steps: [
+          { t: 'Runs listing', blocks: 1, note: 'There is no logs-runs channel — it has to be added on the B side.' },
+          { t: 'Run summary cards from logs-run-summary' },
+          { t: 'Add p50, median TTFT and pass rate to the summary', blocks: 1, note: 'Another B-side addition.' },
+          { t: 'Link benchmark results to their log rows through the run id in bench_json' },
+          { t: 'Drill from a run into the Request Log, already filtered' }
+        ]
+      },
+      {
+        title: 'Monitoring',
+        steps: [
+          { t: 'Charts from logs-stats — hour or day buckets, grouped by source, provider, model or error class' },
+          { t: 'Keep the default range short, or guard it', note: 'Grouping by model over 12 months costs about 1.4 s on the main thread.' },
+          { t: 'Render a fallback when a provider name comes back null', note: 'Facets read usage_hourly; past 90 days the raw rows are gone.' },
+          { t: 'Map the unknown provider the same way everywhere', note: 'Empty string in the roll-ups, NULL in the rows.' }
+        ]
+      },
+      {
+        title: 'Settings and maintenance',
+        steps: [
+          { t: 'Retention settings: 90 days of rows, 7 days of bodies, 12 months of roll-ups' },
+          { t: 'Clear the log with a visible progress state' },
+          { t: 'Log health panel from logs-info: path, size, rows, oldest row, dropped rows, last purge' }
+        ]
+      },
+      {
+        title: 'Verification',
+        steps: [
+          { t: 'Unit tests per page module' },
+          { t: 'Live check driving the real app against the synthetic fixture' },
+          { t: 'A reviewer after each task, then a whole-branch review' }
+        ]
+      }
+    ]
+  },
+  {
+    id: 'M', key: 'gate', name: 'Merge gate', state: 'open',
+    badge: 'Blocked by C',
+    where: 'The owner\u2019s rule: logging and the log pages land in one merge, never separately.',
+    groups: [{
+      title: 'One merge for B and C',
+      steps: [
+        { t: 'Log pages implemented and reviewed on their own branch' },
+        { t: 'Rebase feat/logging-system onto current main' },
+        { t: 'Full suite and npm run verify:live green on the merged tree' },
+        { t: 'Single merge of logging and the log pages into main' },
+        { t: 'Remove the venom-router-logging worktree' }
+      ]
+    }]
+  },
+  {
+    id: 'R', key: 'release', name: 'Release', state: 'open',
+    badge: 'Not started',
+    where: '<code>main</code> is 60 commits past tag v1.4.1; the rebrand and the database work still sit under Unreleased.',
+    groups: [{
+      title: 'Cut the version',
+      steps: [
+        { t: 'Fold the logging and log-page notes into CHANGELOG.md' },
+        { t: 'Move Unreleased to the new dated version heading' },
+        { t: 'Bump version in package.json and commit' },
+        { t: 'npm test and npm run verify:live green' },
+        { t: 'npm run release — smoke-tests the build, tags, publishes, uploads' },
+        { t: 'Confirm auto-update picks the release up' }
+      ]
+    }]
+  }
+];
+
+const FOLLOWUPS = {
+  title: 'Follow-ups, not blocking the release',
+  steps: [
+    { t: 'Scrub provider-echoed keys out of responses shown to the renderer', note: 'Stored log text is already scrubbed. Commit f35d20d was reverted and is the starting point.' },
+    { t: 'Remove the stale worktree .kilo/worktrees/animated-barnyard', note: 'Its commit is an ancestor of main, so nothing is lost.' }
+  ]
+};
+
+// Ticks persist when the page has storage. Opened straight from a data: URL it
+// has none, so every call is wrapped: the page still works, it just forgets.
+const STORE = 'venom-phase2-index';
+const store = {
+  read() { try { return JSON.parse(localStorage.getItem(STORE) || '{}'); } catch { return {}; } },
+  write(v) { try { localStorage.setItem(STORE, JSON.stringify(v)); } catch { /* no storage */ } },
+  clear() { try { localStorage.removeItem(STORE); } catch { /* no storage */ } }
+};
+let ticked = store.read();
+
+const isDone = (id, seed) => (id in ticked ? ticked[id] : !!seed);
+
+/* Build the DOM ----------------------------------------------------- */
+
+const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const phasesEl = document.getElementById('phases');
+const pipeEl = document.getElementById('pipe');
+
+PHASES.forEach((p) => {
+  let n = 0;
+  p.groups.forEach((g) => g.steps.forEach((s) => { s.id = `${p.key}.${n++}`; }));
+
+  const section = document.createElement('section');
+  section.className = 'phase';
+  section.dataset.state = p.state;
+  section.dataset.phase = p.key;
+
+  const total = n;
+  section.innerHTML = `
+    <div class="phase-head">
+      <div>
+        <h2><span class="letter">${p.id}</span>${esc(p.name)}</h2>
+        <p class="where">${p.where}</p>
+      </div>
+      <span class="state" data-s="${p.state}">${esc(p.badge)}</span>
+    </div>
+    <div class="meter">
+      <div class="meter-cells" role="img" aria-label="${esc(p.name)} progress"></div>
+      <div class="meter-scale"><span>0%</span><span class="now">0 of ${total}</span><span>100%</span></div>
+    </div>`;
+
+  const cells = section.querySelector('.meter-cells');
+  for (let i = 0; i < total; i++) cells.appendChild(document.createElement('div')).className = 'cell';
+
+  // Finished phases fold away: the page is about what is still open.
+  const folded = p.state !== 'open';
+  let host = section;
+  if (folded) {
+    const fold = document.createElement('details');
+    fold.className = 'fold';
+    fold.innerHTML = `<summary>${total} tasks, all done</summary>`;
+    section.appendChild(fold);
+    host = fold;
+  }
+
+  p.groups.forEach((g) => {
+    const box = document.createElement('div');
+    box.className = 'group';
+    const list = g.steps.map((s) => `
+      <li>
+        <label>
+          <input type="checkbox" data-id="${s.id}" ${isDone(s.id, s.done) ? 'checked' : ''}>
+          <span>${esc(s.t)}</span>
+        </label>
+        ${s.note ? `<span class="note${s.blocks ? '' : ' plain'}">${esc(s.note)}</span>` : ''}
+      </li>`).join('');
+    box.innerHTML = `<h3>${esc(g.title)}<span class="count">${g.steps.length}</span></h3>
+      <ul class="steps">${list}</ul>`;
+    host.appendChild(box);
+  });
+
+  phasesEl.appendChild(section);
+
+  const seg = document.createElement('div');
+  seg.className = 'seg';
+  seg.dataset.state = p.state;
+  seg.dataset.phase = p.key;
+  seg.style.flexGrow = String(total);
+  seg.innerHTML = `<span class="fill"></span><span class="tag">${p.id} ${esc(p.name)}</span>`;
+  pipeEl.appendChild(seg);
+});
+
+/* Follow-ups sit outside the count ---------------------------------- */
+
+const extra = document.createElement('section');
+extra.className = 'phase';
+extra.dataset.state = 'open';
+extra.innerHTML = `
+  <div class="phase-head">
+    <div><h2><span class="letter">+</span>Loose ends</h2>
+    <p class="where">Worth doing, but nothing below holds the release.</p></div>
+  </div>
+  <div class="group">
+    <ul class="steps">${FOLLOWUPS.steps.map((s, i) => `
+      <li>
+        <label>
+          <input type="checkbox" data-id="extra.${i}" data-uncounted="1" ${isDone(`extra.${i}`, false) ? 'checked' : ''}>
+          <span>${esc(s.t)}</span>
+        </label>
+        <span class="note plain">${esc(s.note)}</span>
+      </li>`).join('')}</ul>
+  </div>`;
+phasesEl.appendChild(extra);
+
+/* Recount ------------------------------------------------------------ */
+
+function recount(animate) {
+  let allDone = 0, allTotal = 0;
+
+  document.querySelectorAll('.phase[data-phase]').forEach((section) => {
+    const boxes = [...section.querySelectorAll('input[type="checkbox"]')];
+    const done = boxes.filter((b) => b.checked).length;
+    const cells = section.querySelectorAll('.cell');
+    cells.forEach((c, i) => { c.dataset.done = i < done ? '1' : '0'; });
+    section.querySelector('.now').textContent = `${done} of ${boxes.length}`;
+
+    const seg = pipeEl.querySelector(`.seg[data-phase="${section.dataset.phase}"] .fill`);
+    const pct = boxes.length ? (done / boxes.length) * 100 : 0;
+    if (animate) requestAnimationFrame(() => { seg.style.width = pct + '%'; });
+    else seg.style.width = pct + '%';
+
+    allDone += done;
+    allTotal += boxes.length;
+  });
+
+  const pct = allTotal ? Math.round((allDone / allTotal) * 100) : 0;
+  document.getElementById('overall-pct').textContent = pct + '%';
+  document.getElementById('overall-of').textContent = `${allDone} of ${allTotal} steps across five phases`;
+}
+
+document.addEventListener('change', (e) => {
+  const box = e.target.closest('input[type="checkbox"]');
+  if (!box) return;
+  ticked[box.dataset.id] = box.checked;
+  store.write(ticked);
+  recount(false);
+});
+
+document.getElementById('reset').addEventListener('click', () => {
+  ticked = {};
+  store.clear();
+  document.querySelectorAll('input[type="checkbox"]').forEach((b) => {
+    const phase = PHASES.find((p) => b.dataset.id && b.dataset.id.startsWith(p.key + '.'));
+    let seed = false;
+    if (phase) {
+      const all = phase.groups.flatMap((g) => g.steps);
+      const step = all.find((s) => s.id === b.dataset.id);
+      seed = !!(step && step.done);
+    }
+    b.checked = seed;
+  });
+  recount(false);
+});
+
+recount(true);
+</script>
+</body>
+</html>
