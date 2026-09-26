@@ -128,9 +128,16 @@ async function startDatabase() {
     importReport = await importLegacy({ dir, db: store.db, repos: store.repos, cipher, log, source });
   } catch (err) {
     log.error('Import of the saved JSON files failed:', err);
+    // A damaged config.json is the one failure the owner can work around
+    // without our help: it's the only file the importer insists on, so
+    // moving it aside — never deleting it — lets the app start empty and it
+    // can be re-imported later once fixed.
+    const workaround = err.code === 'IMPORT_CONFIG_PARSE'
+      ? '\n\nMoving this file out of the folder lets VENOM Router start without it. Nothing is deleted; put it back and restart to try importing it again.'
+      : '';
     showStartupError(
       `VENOM Router could not import its saved data, so it will close.\n\n${err.message}`,
-      `${err.file || dir}\n\nThe import runs again the next time VENOM Router starts.`,
+      `${err.file || dir}\n\nThe import runs again the next time VENOM Router starts.${workaround}`,
     );
     store.close();
     store = null;
