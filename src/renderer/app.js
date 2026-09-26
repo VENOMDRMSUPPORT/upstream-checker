@@ -4576,11 +4576,20 @@ function providerCapabilities(p) {
         : 'No plans: every key sees the same models.',
     },
     {
-      label: 'Rate limit', icon: PV_ICON.gauge, tone: 'violet', on: rpm > 0,
-      tip: (on) => on
-        ? `Rate limit: ${rpm} requests per minute. Test runs are paced to stay under it.`
-        : 'No published rate limit: test runs are not paced.',
+      label: p.unlimitedUsage ? 'Unlimited' : 'Rate limit', icon: PV_ICON.gauge, tone: p.unlimitedUsage ? 'green' : 'violet', on: p.unlimitedUsage || rpm > 0,
+      tip: p.unlimitedUsage
+        ? 'Unlimited usage: the weekly plan has no published request-rate limit. Runs are not paced.'
+        : rpm > 0
+          ? `Rate limit: ${rpm} requests per minute. Test runs are paced to stay under it.`
+          : 'No published rate limit: test runs are not paced.',
     },
+    ...(p.billing ? [{
+      label: p.billing.plan,
+      icon: PV_ICON.layers,
+      tone: 'amber',
+      on: true,
+      tip: `${p.billing.usageLabel || 'Provider plan'}: ${p.billing.plan}.`,
+    }] : []),
   ];
 }
 
@@ -4589,8 +4598,8 @@ function providerTags(p) {
     const tip = typeof c.tip === 'function' ? c.tip(c.on) : c.tip;
     // Rate limit carries an info button: the full picture needs more room
     // than a tooltip.
-    const info = c.label === 'Rate limit'
-      ? `<button class="pv-cap-info" type="button" data-rl-info="${escapeHtml(p.id)}" title="Rate limit details" aria-label="Rate limit details for ${escapeHtml(p.name)}" aria-haspopup="dialog">${RL_ICON.info}</button>`
+    const info = (c.label === 'Rate limit' || c.label === 'Unlimited')
+      ? `<button class="pv-cap-info" type="button" data-rl-info="${escapeHtml(p.id)}" title="Usage and rate details" aria-label="Usage and rate details for ${escapeHtml(p.name)}" aria-haspopup="dialog">${RL_ICON.info}</button>`
       : '';
     return `<span class="pv-tag pv-cap t-${c.tone}${c.on ? '' : ' is-off'}" title="${escapeHtml(tip)}">${c.icon}${c.label}${info}</span>`;
   }).join('');
@@ -4611,9 +4620,11 @@ let rlPopOpener = null;
 function rateLimitPopHTML(p) {
   const rpm = rpmOf(p);
   const doc = p.rateLimits || null;
-  const pace = rpm
-    ? `<p class="rl-pace"><b>${rpm} requests/min</b> per key — runs are paced to stay under it.</p>`
-    : '<p class="rl-pace"><b>Not paced</b> — this provider publishes no rate limit.</p>';
+  const pace = p.unlimitedUsage
+    ? '<p class="rl-pace"><b>Unlimited</b> — no request-rate limit is published for the weekly plan.</p>'
+    : rpm
+      ? `<p class="rl-pace"><b>${rpm} requests/min</b> per key — runs are paced to stay under it.</p>`
+      : '<p class="rl-pace"><b>Not paced</b> — this provider publishes no rate limit.</p>';
   const lines = doc && Array.isArray(doc.lines) && doc.lines.length
     ? `<h5 class="rl-sub">Published limits</h5><dl class="rl-list">${doc.lines.map((l) => `<dt>${escapeHtml(l.label)}</dt><dd>${escapeHtml(l.value)}</dd>`).join('')}</dl>`
     : '';
@@ -4626,8 +4637,9 @@ function rateLimitPopHTML(p) {
     </div>
     ${pace}
     ${lines}
-    <h5 class="rl-sub">If the provider refuses (HTTP 429)</h5>
-    <p class="rl-note">The run waits for its Retry-After (or a full minute), lowers that key's pace to what it actually allowed, and moves on to another key if there is one. Being throttled is never recorded as the model failing.</p>
+    <h5 class="rl-sub">Usage</h5>
+    <p class="rl-note">${p.unlimitedUsage ? `${escapeHtml(p.unlimitedUsage.range)} · ${escapeHtml(p.unlimitedUsage.detail)}.` : 'This provider does not expose a normalized usage reading here.'}</p>
+    ${p.unlimitedUsage ? '' : '<h5 class="rl-sub">If the provider refuses (HTTP 429)</h5><p class="rl-note">The run waits for its Retry-After (or a full minute), lowers that key\'s pace to what it actually allowed, and moves on to another key if there is one. Being throttled is never recorded as the model failing.</p>'}
     ${source}`;
 }
 

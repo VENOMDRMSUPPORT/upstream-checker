@@ -13,6 +13,19 @@ window.INTEGRATED_PROVIDERS.nexum = {
     logo: '../assets/providers/nexum.svg',
     modelsEndpoint: '/models',
     chatEndpoint: '/chat/completions',
+    // Nexum is a fixed-price weekly unlimited plan: usage is informational,
+    // not a provider quota that needs to be fetched or paced.
+    billing: {
+      plan: '$5.50 / week',
+      interval: 'weekly',
+      usage: 'unlimited',
+      usageLabel: 'Weekly unlimited',
+    },
+    unlimitedUsage: {
+      label: 'Weekly plan',
+      range: '0 → ∞ tokens',
+      detail: 'Unlimited model usage · $5.50 per week',
+    },
   },
 
   // Nexum is OpenAI-compatible and its /models response already carries a context

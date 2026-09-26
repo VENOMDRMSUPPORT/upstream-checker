@@ -55,7 +55,17 @@ window.KEY_USAGE = (() => {
   }
 
   function supports(p) {
-    return Boolean(adapterOf(p) && adapterOf(p).fetchKeyUsage);
+    return Boolean((adapterOf(p) && adapterOf(p).fetchKeyUsage) || p?.unlimitedUsage);
+  }
+
+  function localUsage(p) {
+    if (!p?.unlimitedUsage) return null;
+    return {
+      unlimited: true,
+      label: p.unlimitedUsage.label || 'Unlimited plan',
+      range: p.unlimitedUsage.range || '0 → ∞ tokens',
+      detail: p.unlimitedUsage.detail || 'Unlimited usage',
+    };
   }
 
   function findKey(pid, kid) {
@@ -73,6 +83,11 @@ window.KEY_USAGE = (() => {
   function refresh(pid, kid, { force = false } = {}) {
     const { p, k } = findKey(pid, kid);
     if (!supports(p) || !k || k.locked) return Promise.resolve();
+    if (p.unlimitedUsage) {
+      cache.set(kid, { state: 'ok', usage: localUsage(p), at: Date.now() });
+      rerender(pid, kid);
+      return Promise.resolve();
+    }
     if (inflight.has(kid)) return inflight.get(kid);
     const cur = cache.get(kid);
     if (!force && cur && cur.state === 'ok' && Date.now() - cur.at < STALE_MS) return Promise.resolve();
@@ -212,6 +227,13 @@ window.KEY_USAGE = (() => {
       if (!c || c.state === 'loading') return '<div class="ku-cell ku-skel" aria-label="Loading usage"><span></span><span></span></div>';
       return `<button class="ku-cell ku-cell-fail" ${openAttrs(p, k, `Usage unavailable: ${c.error} — open details`)}>${ICON.alert}<span>Usage unavailable</span></button>`;
     }
+    if (u.unlimited) {
+      const tip = `${u.detail} — no quota or rate limit is reported by this provider`;
+      return `<button class="ku-cell ku-cell-unlimited" ${openAttrs(p, k, tip)}>
+        <span class="ku-unlimited-line"><span class="ku-unlimited-track"><span class="ku-unlimited-start">0</span><span class="ku-unlimited-fill"></span><span class="ku-unlimited-end">∞</span></span></span>
+        <span class="ku-sub">${escapeHtml(u.range)}</span>
+      </button>`;
+    }
     if (u.allowance && u.allowance.usedPct != null) {
       const a = u.allowance;
       const left = (100 - a.usedPct) / 100;
@@ -262,6 +284,10 @@ window.KEY_USAGE = (() => {
       return `<button class="ku-inline ku-cell-fail" ${openAttrs(p, k, `Usage unavailable: ${c.error}`)}>${ICON.alert}Usage unavailable</button>`;
     }
     const parts = [];
+    if (u.unlimited) {
+      parts.push(`<span class="ku-inline-unlimited"><span class="ku-unlimited-track"><span class="ku-unlimited-start">0</span><span class="ku-unlimited-fill"></span><span class="ku-unlimited-end">∞</span></span><span class="ku-inline-num">${escapeHtml(u.range)}</span></span>`);
+      return `<button class="ku-inline" ${openAttrs(p, k, `${u.detail} — open usage details`)}>${parts.join('')}${ICON.panel}</button>`;
+    }
     const a = u.allowance;
     if (a && a.usedPct != null) {
       const left = (100 - a.usedPct) / 100;
@@ -329,6 +355,19 @@ window.KEY_USAGE = (() => {
         ${statHTML('Remaining', compact(remaining), `${full(remaining)} ${escapeHtml(unit)}`)}
         ${statHTML('Total', compact(total), `${full(total)} ${escapeHtml(unit)}`)}
       </div>
+    </section>`;
+  }
+
+  function unlimitedSectionHTML(u) {
+    if (!u.unlimited) return '';
+    return `<section class="ku-section">
+      <h4 class="ku-section-title">${escapeHtml(u.label)}</h4>
+      <div class="ku-unlimited-hero">
+        <span class="ku-unlimited-hero-value">0 → ∞</span>
+        <span class="ku-quota-of">tokens · unlimited model usage</span>
+      </div>
+      <div class="ku-unlimited-track ku-unlimited-track-lg"><span class="ku-unlimited-start">0</span><span class="ku-unlimited-fill"></span><span class="ku-unlimited-end">∞ tokens</span></div>
+      <p class="ku-unlimited-note">${escapeHtml(u.detail)}. This provider does not expose a consumable quota or request-rate cap.</p>
     </section>`;
   }
 
@@ -443,7 +482,7 @@ window.KEY_USAGE = (() => {
         : '<div class="ku-hero-skel"><span></span><span></span><span></span></div>';
     } else {
       usageHTML = (c.state === 'fail' ? `<div class="ku-empty ku-cell-fail">${ICON.alert}Showing the last reading — refresh failed: ${escapeHtml(c.error)}</div>` : '') +
-        allowanceSectionHTML(u) + quotaSectionHTML(u) + expirySectionHTML(u) + windowSectionHTML(u);
+        unlimitedSectionHTML(u) + allowanceSectionHTML(u) + quotaSectionHTML(u) + expirySectionHTML(u) + windowSectionHTML(u);
     }
     const updated = c && c.at && c.state !== 'loading'
       ? `<div class="ku-updated">Updated <span data-ago="${c.at}">${escapeHtml(formatAgo(c.at))}</span></div>`
