@@ -14,9 +14,11 @@ retention, and a query API. The schema leaves room for the future hosted relay.
 
 ## Release rule (owner decision)
 
-B is built and reviewed on branch `feat/logging-system` and is **merged to `main`
-together with C**, never alone. Until then `main` — and the owner's `npm start` — keeps
-writing `requests.log` and showing today's Settings text. B also rewrites the
+B is built and reviewed on branch `feat/logging-system` in a **separate git worktree**
+(`C:\Users\venom\Desktop\venom-router-logging`), and is **merged to `main` together with
+C**, never alone. The owner's own checkout (`C:\Users\venom\Desktop\UPSTREAM CHECKER`)
+stays on `main`, so their `npm start` keeps writing `requests.log` and showing today's
+Settings text until the merge. B also rewrites the
 "Diagnostics & Logs" Settings copy that describes `requests.log` (`index.html:1094-1108`)
 so that the branch is self-consistent, and relabels the log-level select as
 "Request bodies".
@@ -236,7 +238,10 @@ work to the reply path.
 
 ### Scrubbing substituted secrets
 
-`api-request` knows the exact secrets it substituted for this request. Before queueing,
+`resolve()` also returns `substitutions: [{ placeholder, secret }]` for this request. That
+list stays in memory only: it goes straight to `scrub.js` and is never put in the
+record, `meta_json`, electron-log or any IPC reply (a unit test asserts that no secret
+value appears in any queued record). Before queueing,
 `scrub.js` replaces every occurrence of each — raw, JSON-escaped
 (`JSON.stringify(s).slice(1, -1)`), `\/`-escaped and `encodeURIComponent` forms, longest
 first — with its placeholder in `error_message` and `response_body`. This only touches
