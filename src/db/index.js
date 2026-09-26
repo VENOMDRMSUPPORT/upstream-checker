@@ -15,6 +15,7 @@ const Database = require('better-sqlite3');
 const MIGRATIONS = require('./migrations');
 const { createSettingsRepo } = require('./repos/settings');
 const { createSecretsRepo } = require('./repos/secrets');
+const { createProvidersRepo } = require('./repos/providers');
 
 const DB_FILE = 'venom.db';
 const BACKUPS_KEPT = 3;
@@ -105,6 +106,7 @@ function createRepos(db, cipher, log) {
     meta: { get: (key) => getMeta(db, key), set: (key, value) => setMeta(db, key, value) },
     settings: createSettingsRepo(db),
     secrets: createSecretsRepo(db, cipher, cache),
+    providers: createProvidersRepo(db, cipher, cache, log),
   };
 }
 
