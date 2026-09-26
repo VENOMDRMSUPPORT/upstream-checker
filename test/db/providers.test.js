@@ -217,3 +217,27 @@ test("keyRecord names the key's provider; revealKey is null for a locked key", a
   assert.strictEqual(store.repos.providers.revealKey('key_2'), null);
   assert.strictEqual(store.repos.providers.revealKey('key_9'), null);
 });
+
+test('a placeholder copying a different key onto this id drops the old cached secret', async (t) => {
+  const store = await memoryStore(t);
+  store.repos.providers.save(nara([
+    { id: 'key_1', name: 'One', key: 'sk-B', active: true },
+    { id: 'key_3', name: 'Three', key: 'sk-A', active: true },
+  ]));
+  // Warm the cache for key_3 with its own secret before repointing it at key_1.
+  assert.strictEqual(store.repos.providers.revealKey('key_3'), 'sk-A');
+  store.repos.providers.save(nara([
+    { id: 'key_1', name: 'One', key: 'venomkey:key_1', active: true },
+    { id: 'key_3', name: 'Three', key: 'venomkey:key_1', active: true },
+  ]));
+  assert.strictEqual(store.repos.providers.revealKey('key_3'), 'sk-B');
+});
+
+test('save-provider without a keys array throws and changes nothing', async (t) => {
+  const store = await memoryStore(t);
+  store.repos.providers.save(nara([{ id: 'key_1', name: 'Main', key: 'sk-1', active: true }]));
+  const before = cipherOf(store, 'key_1');
+  assert.throws(() => store.repos.providers.save({ id: 'nara', name: 'NaraRouter', baseUrl: NARA }), /keys array/);
+  assert.deepStrictEqual(store.repos.providers.get('nara').keys.map((k) => k.id), ['key_1']);
+  assert.strictEqual(cipherOf(store, 'key_1'), before);
+});

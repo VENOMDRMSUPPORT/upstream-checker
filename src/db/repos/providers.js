@@ -94,6 +94,10 @@ function createProvidersRepo(db, cipher, cache, log = console) {
       const ref = q.key.get(value.slice(KEY_PLACEHOLDER.length));
       if (!ref) throw new Error(`Key "${label}" points at a key that doesn't exist`);
       if (ref.provider_id !== providerId) throw new Error(`Key "${label}" belongs to another provider`);
+      // A placeholder can point at a different key's id (copying its secret onto
+      // k.id). Drop any cached plaintext for k.id, or a stale reveal would still
+      // answer with the old secret under the new cipher.
+      cache.delete(cacheKey(k.id));
       return ref.cipher;
     }
     if (value === '') {
@@ -114,7 +118,8 @@ function createProvidersRepo(db, cipher, cache, log = console) {
   const saveTx = db.transaction((p) => {
     if (!p || typeof p !== 'object' || typeof p.id !== 'string' || !p.id) throw new TypeError('A provider needs an id');
     if (typeof p.name !== 'string' || typeof p.baseUrl !== 'string') throw new TypeError(`Provider "${p.id}" needs a name and a base URL`);
-    const keys = Array.isArray(p.keys) ? p.keys : [];
+    if (!Array.isArray(p.keys)) throw new TypeError('save-provider needs a keys array');
+    const keys = p.keys;
     const now = Date.now();
     const existing = q.provider.get(p.id);
     const row = {
