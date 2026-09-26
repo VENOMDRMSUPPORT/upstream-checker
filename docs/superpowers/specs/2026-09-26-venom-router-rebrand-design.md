@@ -84,6 +84,8 @@ if target does not exist and legacy exists:
 - DPAPI protects `Local State`'s key per Windows user, not per path, so encrypted
   keys keep decrypting after the move.
 - If both folders exist, `target` wins and `legacy` is left untouched.
+- If the process was started with `--user-data-dir`, migration is skipped and
+  that directory is used as is (dev and test instances).
 - The logic is a small pure function (`resolveUserDataDir(appData, fsLike)`)
   so it can be exercised with a mocked fs in Node.
 
