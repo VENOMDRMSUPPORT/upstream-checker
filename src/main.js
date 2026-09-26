@@ -8,7 +8,7 @@ const { resolveUserDataDir } = require('./user-data');
 const { createCipher } = require('./db/cipher');
 const { importLegacy, listImportedFiles, describeImportWarnings, needsReimportPrompt, FILES } = require('./db/import-json');
 const { registerDataIpc } = require('./db/ipc');
-const { createKeyResolver } = require('./db/keys');
+const { createKeyResolver, scrubSecrets } = require('./db/keys');
 const { requestFlush } = require('./flush');
 
 // --smoke-test only ever runs on an explicit scratch folder: refused here,
@@ -478,7 +478,11 @@ ipcMain.handle('api-request', async (event, { url, method, headers, body, reques
       res.on('end', () => {
         cleanup();
         const elapsed = Date.now() - startTime;
-        const text = Buffer.concat(chunks).toString('utf8');
+        // A provider can echo a key back (an error quoting the Authorization
+        // header, a "your key" field, ...). scrubSecrets puts every secret
+        // this request substituted back to its placeholder, so neither the
+        // renderer nor requests.log ever sees the plaintext.
+        const text = scrubSecrets(Buffer.concat(chunks).toString('utf8'), outgoing.substituted);
         if (logLevel === 'all' || (logLevel === 'errors' && res.statusCode !== 200)) {
           appendRequestLog({
             at: new Date().toISOString(),

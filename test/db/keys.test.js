@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { createKeyResolver } = require('../../src/db/keys');
+const { createKeyResolver, scrubSecrets } = require('../../src/db/keys');
 const { memoryStore, LOCKED_BLOB, fakeCipher } = require('../helpers');
 
 const NARA = 'https://router.bynara.id/v1';
@@ -29,7 +29,29 @@ test('a header placeholder becomes the key for its own provider', async (t) => {
     url: `${NARA}/models`,
     headers: { Authorization: 'Bearer sk-nara-1', 'Content-Type': 'application/json' },
     body: undefined,
+    substituted: [{ secret: 'sk-nara-1', token: 'venomkey:key_1' }],
   });
+});
+
+test('resolve lists every secret it substituted, once each, so the caller can scrub the response', async (t) => {
+  const { resolver } = await setup(t);
+  // key_1 appears twice (header and body) and must be listed once; key_12 is
+  // a second, distinct secret in the same request.
+  const out = resolver.resolve({
+    url: `${NARA}/m`,
+    headers: { Authorization: 'Bearer venomkey:key_1', 'X-Other': 'venomkey:key_12' },
+    body: 'again venomkey:key_1',
+  });
+  assert.deepStrictEqual(
+    [...out.substituted].sort((a, b) => a.token.localeCompare(b.token)),
+    [{ secret: 'sk-nara-1', token: 'venomkey:key_1' }, { secret: 'sk-nara-12', token: 'venomkey:key_12' }],
+  );
+});
+
+test('resolve reports no substitutions for a request with no placeholders', async (t) => {
+  const { resolver } = await setup(t);
+  const out = resolver.resolve({ url: `${NARA}/m`, headers: { A: 'plain' } });
+  assert.deepStrictEqual(out.substituted, []);
 });
 
 test('a placeholder in the URL is replaced URL-encoded', async (t) => {
@@ -166,4 +188,32 @@ test('a placeholder refused for the wrong host never reaches the cipher', async 
   const out2 = resolver.resolve({ url: `${NARA}/models`, headers: { 'x-api-key': 'venomsecret:aaApiKey' } });
   assert.strictEqual(out2.blocked, true);
   assert.strictEqual(cipher.calls.decrypt, before2);
+});
+
+// scrubSecrets: the pure helper api-request runs on a provider's response
+// before it reaches the renderer or requests.log, using resolve()'s own
+// `substituted` list — a provider that echoes a key back must not leak it.
+test('scrubSecrets replaces every occurrence of a substituted secret with its placeholder', () => {
+  const substituted = [{ secret: 'sk-nara-1', token: 'venomkey:key_1' }];
+  assert.strictEqual(
+    scrubSecrets('your key is sk-nara-1 (sk-nara-1 again)', substituted),
+    'your key is venomkey:key_1 (venomkey:key_1 again)',
+  );
+});
+
+test('scrubSecrets handles several substituted secrets and leaves unrelated text alone', () => {
+  const substituted = [
+    { secret: 'sk-nara-1', token: 'venomkey:key_1' },
+    { secret: 'aa-secret', token: 'venomsecret:aaApiKey' },
+  ];
+  assert.strictEqual(
+    scrubSecrets('key=sk-nara-1 aa=aa-secret rest unchanged', substituted),
+    'key=venomkey:key_1 aa=venomsecret:aaApiKey rest unchanged',
+  );
+});
+
+test('scrubSecrets is a no-op with nothing substituted, no text, or no secret text', () => {
+  assert.strictEqual(scrubSecrets('plain response', []), 'plain response');
+  assert.strictEqual(scrubSecrets('', [{ secret: 's', token: 't' }]), '');
+  assert.strictEqual(scrubSecrets(undefined, [{ secret: 's', token: 't' }]), undefined);
 });
