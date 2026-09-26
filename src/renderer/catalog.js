@@ -1108,10 +1108,15 @@
     const auto = $('#set-catalog-autobench');
     if (auto) auto.addEventListener('change', () => { settings.catalogAutoBench = auto.checked; queueSettingsSave(); });
     const key = $('#set-aa-key');
-    if (key) key.addEventListener('change', () => { settings.aaApiKey = key.value.trim(); queueSettingsSave(); });
+    // The key is a saved secret, encrypted in main; save-settings drops it.
+    const saveAaKey = () => {
+      settings.aaApiKey = key.value.trim();
+      return persist('save the Artificial Analysis key', () => window.electronAPI.saveSecret('aaApiKey', settings.aaApiKey));
+    };
+    if (key) key.addEventListener('change', saveAaKey);
     const refresh = $('#btn-aa-refresh');
     if (refresh) refresh.addEventListener('click', async () => {
-      if (key) { settings.aaApiKey = key.value.trim(); queueSettingsSave(); }
+      if (key) await saveAaKey();
       refresh.disabled = true;
       const el = $('#aa-status');
       if (el) el.textContent = 'Refreshing…';

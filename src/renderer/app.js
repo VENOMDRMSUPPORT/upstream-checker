@@ -266,22 +266,21 @@ function toggleTheme() {
 
 let settings = { ...DEFAULT_SETTINGS };
 
+// A failed read throws to init(), which shows it and blocks every write.
 async function loadSettings() {
-  try {
-    const data = await window.electronAPI.readConfig();
-    if (data.settings && typeof data.settings === 'object') {
-      Object.keys(DEFAULT_SETTINGS).forEach((k) => {
-        const v = data.settings[k];
-        if (typeof v === typeof DEFAULT_SETTINGS[k]) settings[k] = v;
-      });
-      // One prompt used to drive both generators; it seeds both of their own.
-      const legacy = data.settings.mediaPrompt;
-      if (typeof legacy === 'string' && legacy.trim()) {
-        if (typeof data.settings.imagePrompt !== 'string') settings.imagePrompt = legacy;
-        if (typeof data.settings.videoPrompt !== 'string') settings.videoPrompt = legacy;
-      }
+  const data = await window.electronAPI.readConfig();
+  if (data.settings && typeof data.settings === 'object') {
+    Object.keys(DEFAULT_SETTINGS).forEach((k) => {
+      const v = data.settings[k];
+      if (typeof v === typeof DEFAULT_SETTINGS[k]) settings[k] = v;
+    });
+    // One prompt used to drive both generators; it seeds both of their own.
+    const legacy = data.settings.mediaPrompt;
+    if (typeof legacy === 'string' && legacy.trim()) {
+      if (typeof data.settings.imagePrompt !== 'string') settings.imagePrompt = legacy;
+      if (typeof data.settings.videoPrompt !== 'string') settings.videoPrompt = legacy;
     }
-  } catch (_) {}
+  }
   // Themes that no longer exist (Deep Space, Midnight, Carbon, AMOLED, Nord)
   // were all dark, so they land on Dark.
   if (!THEMES.some((t) => t.id === settings.theme)) settings.theme = 'vercel';
@@ -291,18 +290,19 @@ async function loadSettings() {
   if (!HEX_COLOR.test(settings.customAccent)) settings.customAccent = DEFAULT_SETTINGS.customAccent;
 }
 
+// One row, written on its own: no read-modify-write, so it can't undo a key
+// or provider change made meanwhile. aaApiKey is dropped by main (the key is
+// a secret, saved with saveSecret).
 let saveSettingsTimer = null;
+function saveSettingsNow() {
+  clearTimeout(saveSettingsTimer);
+  saveSettingsTimer = null;
+  return persist('save settings', () => window.electronAPI.saveSettings({ ...settings }));
+}
+
 function queueSettingsSave() {
   clearTimeout(saveSettingsTimer);
-  saveSettingsTimer = setTimeout(async () => {
-    try {
-      const data = await window.electronAPI.readConfig();
-      data.settings = { ...settings };
-      await window.electronAPI.writeConfig(data);
-    } catch (err) {
-      console.warn('Failed to persist settings:', err);
-    }
-  }, 350);
+  saveSettingsTimer = setTimeout(saveSettingsNow, 350);
 }
 
 // Set app version from main process
@@ -349,7 +349,53 @@ const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
 // ============================================
-// Persistence — JSON config file
+// Saving — every write goes through persist()
+// ============================================
+// Writes are small typed calls into main (venom.db). A failure is shown in the
+// status bar, never swallowed. If saved data could not be read at startup,
+// every write is refused for the rest of the session: the app is then showing
+// defaults, and saving them would overwrite the real data.
+let storeReadError = null;
+const pendingSaves = new Set();
+
+// "Error invoking remote method 'save-settings': TypeError: …" → "…"
+function ipcMessage(err) {
+  return String((err && err.message) || err).replace(/^Error invoking remote method '[^']+': (?:[A-Za-z]*Error: )?/, '');
+}
+
+function failStartupRead(what, err) {
+  console.error(`Could not read ${what} at startup:`, err);
+  if (!storeReadError) storeReadError = `${what}: ${ipcMessage(err)}`;
+  const banner = $('#store-error');
+  if (banner) {
+    banner.hidden = false;
+    $('#store-error-text').textContent = `Saved data could not be read (${storeReadError}). Nothing will be saved this session — close VENOM Router and open it again.`;
+  }
+  setStatus('error', 'Saved data could not be read — changes are not being saved');
+}
+
+// Runs one write. Resolves with its result, or undefined when it was refused
+// or failed (already reported).
+async function persist(what, call) {
+  if (storeReadError) {
+    setStatus('error', `Couldn't ${what}: saved data could not be read at startup, so nothing is saved this session`);
+    return undefined;
+  }
+  const job = Promise.resolve().then(call);
+  pendingSaves.add(job);
+  try {
+    return await job;
+  } catch (err) {
+    console.error(`Couldn't ${what}:`, err);
+    setStatus('error', `Couldn't ${what}: ${ipcMessage(err)}`);
+    return undefined;
+  } finally {
+    pendingSaves.delete(job);
+  }
+}
+
+// ============================================
+// Providers — each saved on its own (save-provider)
 // ============================================
 async function saveProviderConfig(providerId) {
   const p = PROVIDERS[providerId];
@@ -395,19 +441,46 @@ function historyKey(providerId, modelId) {
   return `${providerId}::${modelId}`;
 }
 
+// A failed read throws to init() (startup) or to the Clear button's handler.
 async function loadHistory() {
   history = new Map();
-  let data = { runs: [] };
-  try {
-    data = await window.electronAPI.readHistory();
-  } catch (_) {}
-  runLog = (data.runs || []).map(summariseRun);
-  (data.runs || []).forEach((run) => {
-    (run.results || []).forEach((r) => {
-      const key = historyKey(run.provider, r.model);
-      if (!history.has(key)) history.set(key, []);
-      history.get(key).push({ at: run.at, ok: r.status === 'pass' });
-    });
+  runLog = [];
+  const data = await window.electronAPI.readHistory();
+  (data.runs || []).forEach(foldRun);
+  capHistory();
+}
+
+// Every run gets a sequence number, so capping can drop whole runs from both
+// indexes at once.
+let runSeq = 0;
+function foldRun(run) {
+  runSeq += 1;
+  const seq = runSeq;
+  runLog.push({ ...summariseRun(run), seq });
+  (run.results || []).forEach((r) => {
+    const key = historyKey(run.provider, r.model);
+    if (!history.has(key)) history.set(key, []);
+    history.get(key).push({ at: run.at, ok: r.status === 'pass', seq });
+  });
+}
+
+// Same cap as main applies on disk (historyMaxRuns, at most 5000), so a long
+// session doesn't grow memory without bound and uptime reads the same runs
+// the disk keeps.
+function historyCap() {
+  const n = Number(settings.historyMaxRuns);
+  return n > 0 ? Math.min(Math.floor(n), 5000) : 300;
+}
+
+function capHistory() {
+  const excess = runLog.length - historyCap();
+  if (excess <= 0) return;
+  const cutoff = runLog[excess - 1].seq;
+  runLog = runLog.slice(excess);
+  history.forEach((list, key) => {
+    const kept = list.filter((e) => e.seq > cutoff);
+    if (kept.length) history.set(key, kept);
+    else history.delete(key);
   });
 }
 
@@ -447,18 +520,10 @@ async function recordRun(providerId, providerName, results) {
       correct: isCorrect(r, modelById(r.model)),
     })),
   };
-  try {
-    await window.electronAPI.appendRun(run, settings.historyMaxRuns);
-  } catch (err) {
-    console.warn('Failed to record run history:', err);
-  }
+  await persist('record the run', () => window.electronAPI.appendRun(run, settings.historyMaxRuns));
   // Fold into the in-memory index so the table reflects it immediately.
-  run.results.forEach((r) => {
-    const key = historyKey(providerId, r.model);
-    if (!history.has(key)) history.set(key, []);
-    history.get(key).push({ at: run.at, ok: r.status === 'pass' });
-  });
-  runLog.push(summariseRun(run));
+  foldRun(run);
+  capHistory();
   renderQuickStats();
 }
 
@@ -481,6 +546,7 @@ function runRegressions() {
 // ============================================
 // Test definition — prompt + expected answer
 // ============================================
+// The inputs are filled either way; a failed read then throws to init().
 async function loadTestDefinition() {
   try {
     const data = await window.electronAPI.readConfig();
@@ -490,25 +556,23 @@ async function loadTestDefinition() {
     // falls back to the default.
     if (typeof t.expected === 'string') expectedAnswer = t.expected;
     if (Number.isFinite(t.autoMinutes)) autoTestMinutes = t.autoMinutes;
-  } catch (_) {}
-  $('#prompt-input').value = testPrompt;
-  $('#expected-input').value = expectedAnswer;
-  $('#auto-test-select').value = String(autoTestMinutes);
-  applyAutoTestSchedule();
-}
-
-async function saveTestDefinition() {
-  try {
-    const data = await window.electronAPI.readConfig();
-    data.test = { prompt: testPrompt, expected: expectedAnswer, autoMinutes: autoTestMinutes };
-    await window.electronAPI.writeConfig(data);
-  } catch (err) {
-    console.warn('Failed to persist test definition:', err);
+  } finally {
+    $('#prompt-input').value = testPrompt;
+    $('#expected-input').value = expectedAnswer;
+    $('#auto-test-select').value = String(autoTestMinutes);
+    applyAutoTestSchedule();
   }
 }
 
-// Typing fires per keystroke, and a save now costs an OS keystore round trip for
-// every stored key plus a full config rewrite. Coalesce the writes.
+function saveTestDefinition() {
+  clearTimeout(saveTestTimer);
+  saveTestTimer = null;
+  return persist('save the test prompt', () => window.electronAPI.saveTestDefinition({
+    prompt: testPrompt, expected: expectedAnswer, autoMinutes: autoTestMinutes,
+  }));
+}
+
+// Typing fires per keystroke; coalesce the writes.
 let saveTestTimer = null;
 function queueTestDefinitionSave() {
   clearTimeout(saveTestTimer);
@@ -4045,8 +4109,14 @@ $('#btn-export-history').addEventListener('click', async () => {
 });
 
 $('#btn-clear-history').addEventListener('click', async () => {
-  await window.electronAPI.clearHistory();
-  await loadHistory();
+  const cleared = await persist('clear the run history', () => window.electronAPI.clearHistory());
+  if (!cleared) return;
+  try {
+    await loadHistory();
+  } catch (err) {
+    setStatus('error', `Couldn't reload the run history: ${ipcMessage(err)}`);
+    return;
+  }
   if (tableRows.length > 0) renderResultsTable();
   setStatus('done', 'History cleared');
 });
@@ -4054,7 +4124,8 @@ $('#btn-clear-history').addEventListener('click', async () => {
 $('#btn-open-data').addEventListener('click', () => window.electronAPI.openDataFolder());
 
 $('#btn-reset-settings').addEventListener('click', () => {
-  settings = { ...DEFAULT_SETTINGS };
+  // The Artificial Analysis key is a saved secret, not a setting: a reset keeps it.
+  settings = { ...DEFAULT_SETTINGS, aaApiKey: settings.aaApiKey };
   applyAppearance();
   applySidebarWidth(settings.sidebarWidth);
   queueSettingsSave();
@@ -5664,13 +5735,16 @@ $('.page-providers').addEventListener('click', async (e) => {
 bindShell();
 
 async function init() {
-  await loadSettings();
+  // Startup read gate: a read that fails is shown and blocks every write for
+  // the session (see persist), instead of becoming defaults that a later save
+  // would write over the real data.
+  try { await loadSettings(); } catch (err) { failStartupRead('settings', err); }
   applyAppearance();
   applySidebarWidth(clampSidebar(settings.sidebarWidth));
   bindSettingsForm();
   window.electronAPI.getDataPath().then((dir) => { $('#settings-path').textContent = dir; });
-  await loadTestDefinition();
-  await loadHistory();
+  try { await loadTestDefinition(); } catch (err) { failStartupRead('the test prompt', err); }
+  try { await loadHistory(); } catch (err) { failStartupRead('run history', err); }
   await loadAllProviders();
   if (!PROVIDERS[activeProvider]) {
     activeProvider = Object.keys(PROVIDERS)[0];
@@ -5678,7 +5752,7 @@ async function init() {
   renderProviderTabs();
   renderKeysList();
   renderModelsList();
-  setStatus('idle', 'Ready — add an API key to begin');
+  if (!storeReadError) setStatus('idle', 'Ready — add an API key to begin');
   setupUpdateListeners();
   startHealthMonitor();
   renderQuickStats();
