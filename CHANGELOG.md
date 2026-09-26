@@ -7,6 +7,92 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Key usage, starting with Mirai API. Each key row on the Connected tab now
+  shows the quota left (a bar, the percentage and the amount) and when the key
+  expires (amber within three days, red within one or once expired). Clicking
+  either opens a drawer from the right with the full quota breakdown, the
+  expiry date, the last 24 hours (requests, success and error rate) and the
+  key's request history, 20 requests a page. Usage refreshes on Connect, on
+  opening a provider's keys (when older than five minutes), on Test, on
+  Recheck and from the drawer's refresh button — never in the background.
+- Provider modules can report usage through two optional functions,
+  `fetchKeyUsage` and `fetchKeyHistory`, returning a shared shape that the new
+  `key-usage.js` renders; the app itself stays provider-agnostic. Mirai's
+  usage session cookie is kept in memory only and never written to disk.
+- Spent quotas. A key refused a model because its allowance is used up is
+  now recognised from the provider's own error. The refusal is remembered per
+  model on that key — one key can draw on more than one allowance (Token
+  Harbor's campaign models carry their own) — so later runs skip only the
+  models that were refused, with no request, and every other model is still
+  tried. The key row reads "Quota used" in amber with the refusal's status, a
+  "Resets in …" cell counts down to the reset time the provider named (date
+  under it), and its tooltip lists the affected models. It is kept across
+  restarts and lifts by itself at the reset, or as soon as the key serves one
+  of those models again.
+- Token Harbor key usage. Each key row shows how much of its free allowance is
+  used (a bar and the percentage) and when it renews ("Resets in 6d 22h", date
+  under it), always, not only once it runs out; the drawer shows the same with
+  the plan. Token Harbor sends the allowance on every chat answer
+  (`x-th-free-used-pct`, `x-th-free-resets`, `x-th-plan`), so a test run keeps
+  the reading current for free; opening the keys, Test and Refresh read it with
+  a one-token request to one of the key's own free models. A spent key's 429
+  carries no such headers, so its reading comes from the refusal (100% used,
+  renewing at the time the message names). A reading under 100% lifts a stale
+  "Quota used". The free-tier refusal (`free_tier_limit_reached`) is
+  recognised; modules can declare `readQuotaError` and `readUsageHeaders`, and
+  the standard `insufficient_quota` / `quota_exceeded` codes are recognised
+  for every provider.
+
+- Rate limit details. The Rate limit badge on every provider card has an info
+  button that opens a panel with how runs are paced for that provider, the
+  limits it publishes (from the module's `meta.rateLimits`, with a link to the
+  source when there is one — Token Harbor, NARA and Inception today), and what
+  a run does when the provider answers 429. Integrated cards lost the "View in
+  Connected" link; the line under the Connect button is centred on it.
+- Token Harbor paces runs at its documented free-account limit, 60 requests a
+  minute (docs/api/rate-limits: 60/min and 1,800/hour per account across all
+  keys, 100/min per IP; paid accounts have none), so its Rate limit badge now
+  lights. A going-over 429 still waits out the provider's Retry-After.
+
+### Fixed
+- A provider whose stored rate limit was empty (`null`, saved before its
+  module declared one) now uses the module's documented limit instead of
+  running unpaced.
+
+### Changed
+- Updates: once an update finishes downloading, the update dialog opens in a
+  "Update Ready" state that explains what happens next, with **Restart now**
+  and **Later** (installs on the next close). The titlebar badge turns into a
+  green restart arrow instead of a closed ring that looked like a spinner, and
+  clicking it reopens that dialog.
+- Updates install silently and reopen the app on their own. The installer
+  wizard no longer appears, so there is no frozen window while it checks the
+  app has closed and no Finish button to press.
+- Providers, Integrated tab: cards show only who the provider is (logo, name,
+  base URL, capability tags) and a Connect button. Keys, models, pass rate,
+  health and the key strip now live only on the Connected tab. A connected
+  provider's button reads "Already connected" in a grey, dashed, clearly
+  disabled style, with a "View in Connected" link under it.
+- Integrated tab layout: providers are grouped by auth kind (OAuth, API Key)
+  under the same dividers as the Connected tab, in a denser grid of smaller
+  cards that fits four at a typical window and adapts from one column to six.
+- Provider capability badges are now the same four on every card, in a fixed
+  2x2 grid of square-cornered cells — OpenAI API, Filtered, Plans, Rate limit —
+  lit when the provider has the capability and dimmed when it doesn't. Each
+  has a tooltip explaining what it means (the rate limit's shows the number).
+- Connect checks the key with the provider before saving it. A working key
+  saves and moves you to the Connected tab with that provider's keys open; a
+  refused key (401/403) is not saved and the dialog says so; if the provider
+  cannot be reached, the dialog offers "Save anyway".
+- Provider modules can declare `meta.keyCheck` (endpoint, method, body) when
+  their models endpoint answers without a key. Inception Labs uses a one-token
+  chat request, so Connect and a key's Test button now catch a bad key there.
+
+### Fixed
+- The update badge now turns green when an update is ready; the update
+  dialog's icon rule was overriding its color with the accent.
+
 ## [1.4.0] - 2026-09-26
 
 ### Changed

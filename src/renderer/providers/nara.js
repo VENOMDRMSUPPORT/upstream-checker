@@ -16,6 +16,12 @@ window.INTEGRATED_PROVIDERS.nara = {
     // since a paid plan raises it — the app paces against this rather than
     // discovering the cap by being refused.
     rpm: 30,
+    rateLimits: {
+      lines: [
+        { label: 'Pay as you go', value: '30 requests/min (documented default)' },
+        { label: 'Paid plans', value: 'Higher — raise the pace in Edit provider to match your plan' },
+      ],
+    },
     color: '#00d4ff',
     logo: '../assets/providers/nara.svg',
     // Light brand colours; deepened on the light theme to hold contrast.

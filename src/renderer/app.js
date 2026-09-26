@@ -605,7 +605,9 @@ async function loadAllProviders() {
     if (s) {
       if (s.name) p.name = s.name;
       if (s.baseUrl) p.baseUrl = s.baseUrl;
-      if (s.rpm !== undefined) p.rpm = s.rpm;
+      // null is "not set", which a provider seeded before its module declared a
+      // limit carries; it falls back to the module's documented rpm.
+      if (s.rpm != null) p.rpm = s.rpm;
       p.keys = s.keys || [];
     } else {
       stored[def.id] = { name: p.name, baseUrl: p.baseUrl, keys: p.keys, rpm: p.rpm ?? null };
@@ -781,6 +783,7 @@ const STATUS_CAPTION = {
   Reachable: 'Provider online',
   OK: 'Key working',
   'Key rejected': 'Key rejected',
+  'Quota used': 'Quota used',
   'No response': 'No response',
   Unreachable: 'Host unreachable',
   'Server error': 'Server error',
@@ -1127,6 +1130,13 @@ async function removeKey(keyId) {
   updateTestAllButton();
 }
 
+async function storeKey(pid, name, key) {
+  const k = { id: `key_${Date.now()}`, name: name || `Key ${Date.now()}`, key, active: true };
+  PROVIDERS[pid].keys.push(k);
+  await saveProviderConfig(pid);
+  return k;
+}
+
 async function addKey() {
   const nameInput = $('#key-name-input');
   const keyInput = $('#key-value-input');
@@ -1138,17 +1148,9 @@ async function addKey() {
     return;
   }
 
-  const p = PROVIDERS[activeProvider];
-  p.keys.push({
-    id: `key_${Date.now()}`,
-    name,
-    key,
-    active: true,
-  });
-
   nameInput.value = '';
   keyInput.value = '';
-  await saveProviderConfig(activeProvider);
+  await storeKey(activeProvider, name, key);
   renderKeysList();
   updateTestAllButton();
   setStatus('done', `Key "${name}" added`);
@@ -1593,6 +1595,78 @@ function isEntitlementDenial(r) {
 const deniedPairs = new Set();
 const denialKey = (keyId, modelId) => `${keyId}::${modelId}`;
 
+// A key whose allowance is used up — a free tier's weekly allowance, a prepaid
+// quota. A models-endpoint check can't see it (it keeps answering 200), so it
+// is learned from the provider's error — the module's readQuotaError, else the
+// standard codes below — and kept on the key as `quotaSpent` (so it survives a
+// restart) until the reset time the error named.
+//
+// It is recorded per model, not for the whole key: one key can draw on more
+// than one allowance. Token Harbor's free models share the free-tier allowance,
+// but a campaign model carries its own, so with the free tier spent
+// qwen3.8-flash:free still answers 200. `quotaSpent.models` lists the models
+// that were refused; only those sit the key out, every other model is still
+// tried on it (once), and one that is refused joins the list.
+const QUOTA_ERROR_CODES = new Set(['insufficient_quota', 'quota_exceeded']);
+
+function readQuotaError(provider, r) {
+  const adapter = (window.INTEGRATED_PROVIDERS || {})[provider.id];
+  const info = { status: r.statusCode, code: r.errorCode, message: r.response };
+  const own = adapter && adapter.readQuotaError ? adapter.readQuotaError(info) : null;
+  if (own) return own;
+  return QUOTA_ERROR_CODES.has(r.errorCode) ? { until: null, message: r.response } : null;
+}
+
+// The key has a spent allowance that has not reset yet (for some models).
+function isKeySpent(k) {
+  const s = k && k.quotaSpent;
+  return Boolean(s) && (!s.until || s.until > Date.now());
+}
+
+// The key was refused this model for a spent allowance, and it hasn't reset.
+function isKeySpentFor(k, modelId) {
+  return isKeySpent(k) && Array.isArray(k.quotaSpent.models) && k.quotaSpent.models.includes(modelId);
+}
+
+// "5h 12m", "2d 3h", "40m" — time left until a future moment.
+function formatIn(ts) {
+  const m = Math.max(1, Math.round((ts - Date.now()) / 60000));
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return m % 60 ? `${h}h ${m % 60}m` : `${h}h`;
+  const d = Math.floor(h / 24);
+  return h % 24 ? `${d}d ${h % 24}h` : `${d}d`;
+}
+
+function spentHint(k) {
+  const s = k.quotaSpent;
+  const reset = s.until ? `resets ${new Date(s.until).toLocaleString()} (in ${formatIn(s.until)})` : 'no reset time given';
+  const models = Array.isArray(s.models) && s.models.length ? s.models : null;
+  return models
+    ? `Quota used up for ${models.length} model${models.length === 1 ? '' : 's'} — ${reset}. Those are skipped on this key until then; other models are still tried.\n\n${models.join('\n')}`
+    : `Quota used up — ${reset}.`;
+}
+
+// Records that the key was refused `modelId` for a spent allowance. Models
+// refused earlier in the same period stay listed.
+async function markKeySpent(pid, kid, quota, modelId) {
+  const k = PROVIDERS[pid] && PROVIDERS[pid].keys.find((x) => x.id === kid);
+  if (!k) return;
+  const models = isKeySpent(k) && Array.isArray(k.quotaSpent.models) ? [...k.quotaSpent.models] : [];
+  if (modelId && !models.includes(modelId)) models.push(modelId);
+  k.quotaSpent = { until: quota.until || null, status: quota.status || null, message: quota.message || '', at: Date.now(), models };
+  await saveProviderConfig(pid);
+  refreshAfterKeyChange(pid);
+}
+
+async function clearKeySpent(pid, kid) {
+  const k = PROVIDERS[pid] && PROVIDERS[pid].keys.find((x) => x.id === kid);
+  if (!k || !k.quotaSpent) return;
+  delete k.quotaSpent;
+  await saveProviderConfig(pid);
+  refreshAfterKeyChange(pid);
+}
+
 // ============================================
 // Keys and pacing
 // ============================================
@@ -1626,6 +1700,11 @@ function keysFor(provider, model) {
     if (listed.length > 0) keys = listed;
   }
   if (!model) return keys;
+  // A key already refused this model for a spent quota sits out while another
+  // can serve it. When every key is, the full list comes back and testModel
+  // reports that.
+  const unspent = keys.filter((k) => !isKeySpentFor(k, model.id));
+  if (unspent.length > 0) keys = unspent;
   const permitted = keys.filter((k) => !deniedPairs.has(denialKey(k.id, model.id)));
   // If every key has been refused, hand back the full list so the caller still
   // gets a real error to report rather than "no key available".
@@ -1779,13 +1858,15 @@ function usageTokens(u = {}) {
 // A non-200 reply as a failed result. Some gateways send `error` as a string.
 function failFromResponse(result, keyId) {
   let errMsg = `HTTP ${result.status}`;
+  let errorCode = null; // machine-readable error.code (or .type), when the body has one
   try {
     const d = JSON.parse(result.body);
     errMsg = (typeof d.error === 'string' ? d.error : d.error?.message) || d.message || errMsg;
+    if (d.error && typeof d.error === 'object') errorCode = d.error.code || d.error.type || null;
   } catch (_) {}
   const ra = parseInt(result.headers?.['retry-after'], 10);
   return { status: 'fail', response: errMsg, time: result.elapsed, tokens: 0, statusCode: result.status,
-           retryAfter: isNaN(ra) ? 0 : ra, keyId };
+           retryAfter: isNaN(ra) ? 0 : ra, keyId, errorCode };
 }
 
 // A cancelled hedge loser or a transport failure, or null when a real HTTP
@@ -2083,6 +2164,10 @@ async function attemptChat(model, provider, stream, requestId, key) {
     const lost = transportFailure(result, key.id);
     if (lost) return lost;
 
+    // Usage some providers send on every answer (Token Harbor's allowance
+    // headers) keeps the key's reading current without asking for it.
+    if (window.KEY_USAGE) KEY_USAGE.observe(provider.id, key.id, result.headers);
+
     if (result.status === 200) {
       const parsed = stream ? parseStreamedCompletion(result.body) : parseChatCompletion(result.body);
       const usage = parsed.usage || {};
@@ -2264,9 +2349,28 @@ async function testModel(model, provider) {
       updateResultRow(model, RUNNING_RESULT);
     }
     if (abortTesting) return done({ status: 'fail', response: 'Aborted', time: 0, tokens: 0 });
+
+    // Every key that could serve this model was already refused it for a spent
+    // quota: say so, and when the first one resets, without sending anything.
+    const candidates = keysFor(provider, model);
+    if (candidates.length > 0 && candidates.every((k) => isKeySpentFor(k, model.id))) {
+      const resets = candidates.map((k) => k.quotaSpent.until).filter(Boolean);
+      const next = resets.length ? Math.min(...resets) : null;
+      return done({
+        status: 'fail', time: 0, tokens: 0, quotaSpent: true,
+        response: `Quota used up for this model${next ? ` — resets ${new Date(next).toLocaleString()} (in ${formatIn(next)})` : ''}`,
+      });
+    }
     rounds += 1;
 
     const r = await adaptiveNonStream(model, provider);
+
+    // A key that serves a model it had been refused has quota again (reset
+    // early, topped up). Serving another model says nothing: that one may
+    // draw on a different allowance.
+    if (r.status === 'pass' && r.keyId && isKeySpentFor(provider.keys.find((k) => k.id === r.keyId), model.id)) {
+      clearKeySpent(provider.id, r.keyId);
+    }
 
     if (r.status === 'pass' && !r.isEmpty) return done(r);
 
@@ -2286,6 +2390,17 @@ async function testModel(model, provider) {
         continue;
       }
       return done(r);
+    }
+
+    // The key's quota for this model is spent. It is remembered (until the
+    // reset) so later runs don't ask again, and this model moves on to another
+    // key if there is one. Checked before the entitlement rule below, which
+    // would forget it at the end of the run.
+    const quota = r.status === 'fail' && r.keyId ? readQuotaError(provider, r) : null;
+    if (quota && !abortTesting) {
+      await markKeySpent(provider.id, r.keyId, { ...quota, status: r.statusCode }, model.id);
+      if (keysFor(provider, model).some((k) => !isKeySpentFor(k, model.id))) continue;
+      return done({ ...r, quotaSpent: true });
     }
 
     // This key isn't entitled to this model. Remember that and try another key
@@ -3086,6 +3201,9 @@ function showUpdateModal(info) {
   $('#update-modal-download-btn').innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download Update`;
   $('#update-modal-install-btn').style.display = 'none';
   $('#update-modal-later-btn').style.display = '';
+  $('#update-modal-later-btn').textContent = 'Remind Later';
+  $('#update-modal-title').textContent = 'Update Available';
+  $('#update-ready-note').hidden = true;
 
   $('#update-modal').style.display = 'flex';
 }
@@ -3203,11 +3321,28 @@ function showDownloadProgress(percent) {
   $('#update-progress-percent').textContent = `${percent}%`;
 }
 
-function showInstallButton() {
-  $('#update-modal-download-btn').style.display = 'none';
-  $('#update-modal-install-btn').style.display = '';
-  $('#update-modal-later-btn').style.display = 'none';
+// The ready state is shown as the modal, not only as the badge: a download
+// started from the badge never opened it, and the badge alone gave no hint that
+// one more click was needed.
+function showUpdateReady() {
+  $('#update-modal-title').textContent = 'Update Ready';
+  $('#update-ready-note').hidden = false;
   $('#update-progress').style.display = 'none';
+  $('#update-modal-download-btn').style.display = 'none';
+  $('#update-modal-later-btn').style.display = '';
+  $('#update-modal-later-btn').textContent = 'Later';
+  const install = $('#update-modal-install-btn');
+  install.style.display = '';
+  install.disabled = false;
+  $('#update-modal').style.display = 'flex';
+}
+
+function installUpdateNow() {
+  const install = $('#update-modal-install-btn');
+  install.disabled = true;
+  install.innerHTML = '<span class="spinner"></span> Restarting…';
+  $('#update-modal-later-btn').style.display = 'none';
+  window.electronAPI.updateAPI.installUpdate();
 }
 
 function setUpdateBadgeLabel(text) {
@@ -3257,17 +3392,17 @@ function setupUpdateListeners() {
   updateAPI.onUpdateDownloaded(() => {
     isUpdateDownloading = false;
     isUpdateReady = true;
-    showInstallButton();
     const badge = $('#update-badge');
     badge.classList.remove('update-downloading');
     badge.classList.add('update-ready');
     setUpdateBadgeLabel('Update ready — click to restart and install');
+    showUpdateReady();
   });
 
   // Badge click handler
   $('#update-badge')?.addEventListener('click', () => {
     if (isUpdateReady) {
-      window.electronAPI.updateAPI.installUpdate();
+      showUpdateReady();
     } else if (!isUpdateDownloading) {
       // Start download
       isUpdateDownloading = true;
@@ -3286,9 +3421,7 @@ function setupUpdateListeners() {
     updateAPI.downloadUpdate();
   });
 
-  $('#update-modal-install-btn')?.addEventListener('click', () => {
-    updateAPI.installUpdate();
-  });
+  $('#update-modal-install-btn')?.addEventListener('click', installUpdateNow);
 
   $('#update-modal-later-btn')?.addEventListener('click', () => {
     hideUpdateModal();
@@ -3303,8 +3436,18 @@ function setupUpdateListeners() {
 // ============================================
 // Add Key modal
 // ============================================
-function openAddKeyModal(title = 'Add API Key') {
+// Set while the modal is an Integrated card's Connect: the key is checked with
+// the provider before it is saved, and a working key moves the provider to the
+// Connected tab.
+let connectingProvider = null;
+
+function openAddKeyModal(title = 'Add API Key', connectPid = null) {
+  connectingProvider = connectPid;
   $('#add-key-title').textContent = title;
+  const add = $('#modal-add');
+  add.disabled = false;
+  add.textContent = connectPid ? 'Connect' : 'Add Key';
+  setKeyVerify(null);
   $('#add-key-modal').style.display = 'flex';
   setTimeout(() => $('#key-name-input').focus(), 100);
 }
@@ -3312,21 +3455,86 @@ function openAddKeyModal(title = 'Add API Key') {
 $('#btn-add-key').addEventListener('click', () => openAddKeyModal());
 
 function closeAddKeyModal() {
+  connectingProvider = null;
   $('#add-key-modal').style.display = 'none';
   $('#key-name-input').value = '';
   $('#key-value-input').value = '';
+}
+
+// state: null (hidden), 'fail' (the key was refused) or 'unverified' (the
+// provider could not be reached, so the key can still be saved unchecked).
+function setKeyVerify(state, text = '') {
+  const el = $('#key-verify');
+  el.hidden = !state;
+  el.dataset.state = state || '';
+  el.textContent = text;
+  $('#modal-save-anyway').hidden = state !== 'unverified';
+}
+
+async function connectWithKey({ unverified = false } = {}) {
+  const pid = connectingProvider;
+  const p = PROVIDERS[pid];
+  const name = $('#key-name-input').value.trim();
+  const key = $('#key-value-input').value.trim();
+  if (!key) {
+    setKeyVerify('fail', 'Enter an API key.');
+    return;
+  }
+
+  let res = null;
+  if (!unverified) {
+    const add = $('#modal-add');
+    add.disabled = true;
+    add.innerHTML = '<span class="spinner"></span> Checking key…';
+    setKeyVerify(null);
+    res = await probeKey(p, key);
+    add.disabled = false;
+    add.textContent = 'Connect';
+    // Closed while the check ran: the user backed out, so nothing is saved.
+    if (connectingProvider !== pid) return;
+    if (!isHealthyResponse(res)) {
+      if (res.status === 401 || res.status === 403) {
+        setKeyVerify('fail', `${p.name} rejected this key (HTTP ${res.status}). Check it and try again.`);
+      } else {
+        setKeyVerify('unverified', `Could not verify the key — ${describeHealthFailure(res)}. ${p.name} may be down; you can save the key anyway.`);
+      }
+      return;
+    }
+  }
+
+  const k = await storeKey(pid, name, key);
+  if (res) keyProbe.set(k.id, keyProbeResult(res));
+  closeAddKeyModal();
+  setStatus('done', `${p.name} connected`);
+  // Connected now: the provider is shown there, with its keys open.
+  providersTab = 'connected';
+  pvShell = null;
+  pvExpanded.add(pid);
+  refreshAfterKeyChange(pid);
+  checkProviderHealth(pid);
+  if (window.KEY_USAGE) KEY_USAGE.refresh(pid, k.id, { force: true });
 }
 
 $('#modal-cancel').addEventListener('click', closeAddKeyModal);
 $('#modal-cancel-btn').addEventListener('click', closeAddKeyModal);
 
 $('#modal-add').addEventListener('click', () => {
+  if (connectingProvider) {
+    connectWithKey();
+    return;
+  }
   addKey();
   $('#add-key-modal').style.display = 'none';
 });
 
+$('#modal-save-anyway').addEventListener('click', () => connectWithKey({ unverified: true }));
+
+// A new key is a new attempt; the last one's verdict no longer applies.
+$('#key-value-input').addEventListener('input', () => setKeyVerify(null));
+
 $('#add-key-modal').addEventListener('click', (e) => {
   if (e.target.id === 'add-key-modal') {
+    connectingProvider = null;
     $('#add-key-modal').style.display = 'none';
   }
 });
@@ -4344,14 +4552,143 @@ function providerStats(p) {
   };
 }
 
-function providerTags(p) {
+// The same four capabilities on every card, lit when the provider module has
+// them and dimmed when it doesn't, so cards line up and can be compared at a
+// glance. The tooltip says what each one means for the models and runs.
+function providerCapabilities(p) {
   const adapter = (window.INTEGRATED_PROVIDERS || {})[p.id];
-  const tags = [`<span class="pv-tag">${PV_ICON.api}OpenAI API</span>`];
-  if (adapter && adapter.fetchModels) tags.push(`<span class="pv-tag t-green">${PV_ICON.spark}Curated catalog</span>`);
-  if (p.plansUrl) tags.push(`<span class="pv-tag t-amber">${PV_ICON.layers}Plan-aware</span>`);
-  if (p.rpm) tags.push(`<span class="pv-tag t-muted">${PV_ICON.gauge}${p.rpm} RPM</span>`);
-  return tags.join('');
+  const rpm = rpmOf(p);
+  return [
+    {
+      label: 'OpenAI API', icon: PV_ICON.api, tone: 'accent', on: true,
+      tip: 'OpenAI API: models are listed from /models and tested on /chat/completions.',
+    },
+    {
+      label: 'Filtered', icon: PV_ICON.spark, tone: 'green', on: Boolean(adapter && adapter.fetchModels),
+      tip: (on) => on
+        ? "Filtered: the model list follows this provider's own rules (free-only models, plan tiers, access grants) instead of everything /models returns."
+        : 'Not filtered: every model /models returns is listed.',
+    },
+    {
+      label: 'Plans', icon: PV_ICON.layers, tone: 'amber', on: Boolean(p.plansUrl),
+      tip: (on) => on
+        ? 'Plans: each key sees the models of its own plan, so two keys here can list different models.'
+        : 'No plans: every key sees the same models.',
+    },
+    {
+      label: 'Rate limit', icon: PV_ICON.gauge, tone: 'violet', on: rpm > 0,
+      tip: (on) => on
+        ? `Rate limit: ${rpm} requests per minute. Test runs are paced to stay under it.`
+        : 'No published rate limit: test runs are not paced.',
+    },
+  ];
 }
+
+function providerTags(p) {
+  return providerCapabilities(p).map((c) => {
+    const tip = typeof c.tip === 'function' ? c.tip(c.on) : c.tip;
+    // Rate limit carries an info button: the full picture needs more room
+    // than a tooltip.
+    const info = c.label === 'Rate limit'
+      ? `<button class="pv-cap-info" type="button" data-rl-info="${escapeHtml(p.id)}" title="Rate limit details" aria-label="Rate limit details for ${escapeHtml(p.name)}" aria-haspopup="dialog">${RL_ICON.info}</button>`
+      : '';
+    return `<span class="pv-tag pv-cap t-${c.tone}${c.on ? '' : ' is-off'}" title="${escapeHtml(tip)}">${c.icon}${c.label}${info}</span>`;
+  }).join('');
+}
+
+// ---------- Rate limit details (the badge's info button) ----------
+// What the app does (its pace, and what happens on a 429) comes from app
+// state; what the provider publishes comes from the module's meta.rateLimits
+// ({ source?, lines: [{ label, value }] }).
+const RL_ICON = {
+  info: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><line x1="12" y1="11" x2="12" y2="16.5"/><line x1="12" y1="7.5" x2="12.01" y2="7.5"/></svg>',
+  close: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+  link: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>',
+};
+
+let rlPopOpener = null;
+
+function rateLimitPopHTML(p) {
+  const rpm = rpmOf(p);
+  const doc = p.rateLimits || null;
+  const pace = rpm
+    ? `<p class="rl-pace"><b>${rpm} requests/min</b> per key — runs are paced to stay under it.</p>`
+    : '<p class="rl-pace"><b>Not paced</b> — this provider publishes no rate limit.</p>';
+  const lines = doc && Array.isArray(doc.lines) && doc.lines.length
+    ? `<h5 class="rl-sub">Published limits</h5><dl class="rl-list">${doc.lines.map((l) => `<dt>${escapeHtml(l.label)}</dt><dd>${escapeHtml(l.value)}</dd>`).join('')}</dl>`
+    : '';
+  const source = doc && doc.source
+    ? `<button class="rl-source" type="button" data-rl-site="${escapeHtml(doc.source)}">${RL_ICON.link}${escapeHtml(doc.source.replace(/^https?:\/\//, ''))}</button>`
+    : '';
+  return `<div class="rl-head">
+      <span class="rl-title">Rate limit · ${escapeHtml(p.name)}</span>
+      <button class="rl-close" type="button" data-rl-close title="Close" aria-label="Close">${RL_ICON.close}</button>
+    </div>
+    ${pace}
+    ${lines}
+    <h5 class="rl-sub">If the provider refuses (HTTP 429)</h5>
+    <p class="rl-note">The run waits for its Retry-After (or a full minute), lowers that key's pace to what it actually allowed, and moves on to another key if there is one. Being throttled is never recorded as the model failing.</p>
+    ${source}`;
+}
+
+function openRateLimitPop(btn) {
+  const p = PROVIDERS[btn.dataset.rlInfo];
+  if (!p) return;
+  let pop = document.getElementById('rl-pop');
+  if (!pop) {
+    pop = document.createElement('div');
+    pop.id = 'rl-pop';
+    pop.className = 'rl-pop';
+    pop.setAttribute('role', 'dialog');
+    pop.setAttribute('aria-label', 'Rate limit details');
+    document.body.appendChild(pop);
+    pop.addEventListener('click', (e) => {
+      const site = e.target.closest('[data-rl-site]');
+      if (site) window.electronAPI.openExternal(site.dataset.rlSite);
+      if (e.target.closest('[data-rl-close]')) closeRateLimitPop();
+    });
+  }
+  pop.innerHTML = rateLimitPopHTML(p);
+  pop.hidden = false;
+  // Below the button, kept inside the window; above it when there's no room.
+  const r = btn.getBoundingClientRect();
+  const w = pop.offsetWidth;
+  const h = pop.offsetHeight;
+  const left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8));
+  const below = r.bottom + 8;
+  const top = below + h > window.innerHeight - 8 ? Math.max(8, r.top - h - 8) : below;
+  pop.style.left = `${left}px`;
+  pop.style.top = `${top}px`;
+  rlPopOpener = btn;
+  btn.setAttribute('aria-expanded', 'true');
+  pop.querySelector('.rl-close').focus();
+}
+
+function closeRateLimitPop() {
+  const pop = document.getElementById('rl-pop');
+  if (!pop || pop.hidden) return;
+  pop.hidden = true;
+  if (rlPopOpener && document.contains(rlPopOpener)) {
+    rlPopOpener.setAttribute('aria-expanded', 'false');
+    rlPopOpener.focus();
+  }
+  rlPopOpener = null;
+}
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-rl-info]');
+  if (btn) {
+    e.stopPropagation();
+    const pop = document.getElementById('rl-pop');
+    if (pop && !pop.hidden && rlPopOpener === btn) closeRateLimitPop();
+    else openRateLimitPop(btn);
+    return;
+  }
+  if (!e.target.closest('#rl-pop')) closeRateLimitPop();
+}, true);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeRateLimitPop(); });
+window.addEventListener('resize', closeRateLimitPop);
+document.addEventListener('scroll', closeRateLimitPop, true);
 
 function providerMark(p, cls = '') {
   // logoTone (module meta) says how a mark drawn for a dark surface is re-inked
@@ -4388,15 +4725,18 @@ function healthDotHTML(p) {
   return `<span class="pv-health pv-health-inline" data-health="${h.state}" title="${escapeHtml(h.text)}"></span>`;
 }
 
+// Integrated cards are a catalogue of what can be connected: who the provider
+// is and a Connect button, nothing operational. Keys, models, pass rate and
+// health belong to the Connected tab, which a provider moves to once it has a
+// working key.
 function providerCardHTML(p, mode) {
   const connected = isConnected(p);
-  const s = providerStats(p);
   const id = escapeHtml(p.id);
   const open = mode === 'connected' && pvExpanded.has(p.id);
   const primary = mode === 'connected'
     ? `<button class="btn ${open ? 'btn-ghost' : 'btn-primary'} pv-primary" type="button" data-kx-toggle="${id}" aria-expanded="${open}">${PV_ICON.keys}${open ? 'Hide keys' : 'Manage keys'}</button>`
     : connected
-      ? `<button class="btn btn-primary pv-primary" type="button" disabled>${PV_ICON.check}Connected</button>`
+      ? `<button class="btn pv-primary pv-primary-done" type="button" disabled aria-disabled="true" title="${escapeHtml(p.name)} is already connected">${PV_ICON.check}Already connected</button>`
       : `<button class="btn btn-primary pv-primary" type="button" data-connect="${id}">${PV_ICON.plug}Connect</button>`;
   const actions = mode === 'connected'
     ? `<button class="pv-link" type="button" data-connect="${id}">${PV_ICON.plus}Add key</button>
@@ -4405,9 +4745,9 @@ function providerCardHTML(p, mode) {
          <button class="pv-icon-btn" type="button" data-manage="${id}" title="Open in Upstream Check" aria-label="Open in Upstream Check">${KX_ICON.external}</button>
        </span>`
     : connected
-      ? `<button class="pv-link" type="button" data-manage="${id}">${PV_ICON.keys}Manage keys</button>
-         <span class="pv-hint">${s.keys} key${s.keys === 1 ? '' : 's'}</span>`
+      ? ''
       : '<span class="pv-hint">Bring an API key to start testing.</span>';
+  const stats = mode === 'connected' ? providerStatsHTML(p) : '';
 
   const types = providerTypes(p);
   return `<article class="pv-card ${connected ? 'is-connected' : ''} ${open ? 'open' : ''}" data-provider="${id}" style="--type-stripe:${typeStripe(types)}">
@@ -4421,8 +4761,17 @@ function providerCardHTML(p, mode) {
       <code title="${escapeHtml(p.baseUrl)}">${escapeHtml(p.baseUrl)}</code>
       <button class="pv-icon-btn" type="button" data-copy="${escapeHtml(p.baseUrl)}" title="Copy base URL" aria-label="Copy base URL">${PV_ICON.copy}</button>
     </div>
-    <div class="pv-tags">${providerTags(p)}</div>
-    <div class="pv-stats">
+    <div class="pv-tags pv-caps">${providerTags(p)}</div>
+    ${stats}
+    ${open ? keysPanelHTML(p) : ''}
+    ${primary}
+    <div class="pv-card-actions${mode === 'connected' ? '' : ' is-centered'}">${actions}</div>
+  </article>`;
+}
+
+function providerStatsHTML(p) {
+  const s = providerStats(p);
+  return `<div class="pv-stats">
       <div class="pv-stat"><span class="pv-stat-label">Keys</span>
         <span class="pv-stat-value ${s.keys ? '' : 'dim'}">${s.keys ? `${s.activeKeys}/${s.keys}` : '0'}</span></div>
       <div class="pv-stat"><span class="pv-stat-label">Models</span>
@@ -4430,12 +4779,8 @@ function providerCardHTML(p, mode) {
       <div class="pv-stat"><span class="pv-stat-label">Pass rate</span>
         <span class="pv-stat-value ${s.rate == null ? 'dim' : ''}">${s.rate == null ? '—' : `${s.rate}%`}</span></div>
       <div class="pv-stats-foot">${providerStatusHTML(p)}</div>
-      ${connected ? `<div class="pv-stats-strip">${keyStripHTML(p)}</div>` : ''}
-    </div>
-    ${open ? keysPanelHTML(p) : ''}
-    ${primary}
-    <div class="pv-card-actions">${actions}</div>
-  </article>`;
+      ${isConnected(p) ? `<div class="pv-stats-strip">${keyStripHTML(p)}</div>` : ''}
+    </div>`;
 }
 
 
@@ -4602,12 +4947,14 @@ function recheckProvider(id) {
   setAct(recheckAct, id, 'running');
   if (currentPage === 'providers') renderProvidersPage();
   checkProviderHealth(id);
+  if (window.KEY_USAGE) KEY_USAGE.refreshProvider(id, { force: true });
 }
 
 // What state a key is in, most important first.
 function keyState(k) {
   if (k.locked) return { id: 'locked', label: 'Locked', hint: 'Encrypted for another machine — re-add it' };
   if (!k.active) return { id: 'off', label: 'Off', hint: 'Switched off — not used in runs' };
+  if (isKeySpent(k)) return { id: 'spent', label: 'Quota used', hint: spentHint(k) };
   const cool = keyCooldownUntil.get(k.id) || 0;
   if (cool > Date.now()) return { id: 'cooling', label: 'Cooling down', hint: `Rate limited — free again in ${Math.ceil((cool - Date.now()) / 1000)} s` };
   const probe = keyProbe.get(k.id);
@@ -4658,8 +5005,33 @@ function keyCheckedHTML(probe) {
   return `<span class="kx-meta-item" title="Last checked ${escapeHtml(new Date(probe.at).toLocaleString())}">${KX_META_ICON.clock}Checked <span data-ago="${probe.at}">${escapeHtml(formatAgo(probe.at))}</span></span>`;
 }
 
+// When a spent key's quota comes back: its own cell in the list view (under
+// the provider's last-run column) and a meta item in the card view. The
+// countdown is kept current by refreshAgoLabels().
+function keyResetHTML(k, { inline = false } = {}) {
+  if (!isKeySpent(k)) return '';
+  const until = k.quotaSpent.until;
+  const title = escapeHtml(spentHint(k));
+  if (inline) {
+    return `<span class="kx-meta kx-reset" title="${title}"><span class="kx-meta-item">${KX_META_ICON.clock}<span>${until ? `Resets in <span data-in="${until}">${escapeHtml(formatIn(until))}</span>` : 'No reset time'}</span></span></span>`;
+  }
+  if (!until) return `<span class="ku-expiry" data-tone="low" title="${title}"><b>No reset time</b></span>`;
+  const when = new Date(until).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return `<span class="ku-expiry" data-tone="low" title="${title}"><b>Resets in <span data-in="${until}">${escapeHtml(formatIn(until))}</span></b><span class="ku-sub">${escapeHtml(when)}</span></span>`;
+}
+
 function refreshAgoLabels() {
   $$('[data-ago]').forEach((el) => { el.textContent = formatAgo(Number(el.dataset.ago)); });
+  // A reset that has come round lifts the key: redraw so its state follows.
+  let lapsed = false;
+  $$('[data-in]').forEach((el) => {
+    const t = Number(el.dataset.in);
+    if (t <= Date.now()) lapsed = true;
+    else el.textContent = formatIn(t);
+  });
+  if (lapsed) {
+    Object.keys(PROVIDERS).forEach((pid) => refreshAfterKeyChange(pid));
+  }
 }
 setInterval(refreshAgoLabels, 30000);
 // A catalogue sync brings fresh per-key model counts.
@@ -4690,7 +5062,13 @@ function keyParts(p, k, i) {
   // The background check covers every active key, so an unprobed active key
   // is only waiting for it — unless live updates are paused.
   let probeHTML;
-  if (probe) {
+  if (isKeySpent(k) && !isTesting) {
+    // The models check may still say OK; the spent quota is what decides
+    // whether this key can serve, so it takes the badge, with the refusal's
+    // status. The reset has its own cell (keyResetHTML).
+    const s = k.quotaSpent;
+    probeHTML = statusPillHTML('spent', `Quota used · ${s.status ? `HTTP ${s.status}` : '—'}`, `${spentHint(k)}${s.message ? `\n\n${s.message}` : ''}`);
+  } else if (probe) {
     const at = probe.at && !isTesting ? `Checked ${new Date(probe.at).toLocaleTimeString()}` : '';
     probeHTML = statusPillHTML(probe.state, probe.text, at);
   } else if (k.locked) {
@@ -4744,6 +5122,8 @@ function keysPanelHTML(p) {
         <div class="kx-id-text">
           ${kp.name}
           <span class="kx-meta">${kp.added ? `<span class="kx-meta-item">Added ${escapeHtml(kp.added)}</span>` : ''}${keyModelsHTML(p, k)}${keyCheckedHTML(kp.probe)}</span>
+          ${keyResetHTML(k, { inline: true })}
+          ${window.KEY_USAGE ? KEY_USAGE.inlineHTML(p, k) : ''}
         </div>
       </div>
       ${kp.secret}
@@ -4782,8 +5162,8 @@ function keyRowsHTML(p) {
       <div class="pv-cell col-status">${kp.probeHTML}</div>
       <div class="pv-cell col-keys"></div>
       <div class="pv-cell dt-num col-models">${models}</div>
-      <div class="pv-cell col-rate"></div>
-      <div class="pv-cell col-last"></div>
+      <div class="pv-cell col-rate">${window.KEY_USAGE ? KEY_USAGE.quotaCellHTML(p, k) : ''}</div>
+      <div class="pv-cell col-last">${keyResetHTML(k) || (window.KEY_USAGE ? KEY_USAGE.expiryCellHTML(p, k) : '')}</div>
       <div class="pv-cell col-actions"><div class="kx-actions-stack"><div class="dt-row-actions">${kp.actions}</div>${checked}</div></div>
     </div>`;
   }).join('');
@@ -4848,6 +5228,25 @@ function refreshAfterKeyChange(pid) {
   if (currentPage === 'providers') renderProvidersPage();
 }
 
+// Checks one key with the provider: a GET on its models endpoint, unless the
+// module declares meta.keyCheck because that endpoint answers without a key
+// and so says nothing about one. Never rejects: a failure comes back as a
+// response.
+async function probeKey(p, apiKey) {
+  const check = p.keyCheck || { endpoint: p.modelsEndpoint || '/models' };
+  try {
+    return await window.electronAPI.apiRequest({
+      url: `${p.baseUrl}${check.endpoint}`,
+      method: check.method || 'GET',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: check.body ? JSON.stringify(check.body) : undefined,
+      timeoutMs: HEALTH_TIMEOUT_MS,
+    });
+  } catch (err) {
+    return { status: 0, networkError: true, error: err.message };
+  }
+}
+
 async function testKey(pid, kid) {
   const p = PROVIDERS[pid];
   const k = p && p.keys.find((x) => x.id === kid);
@@ -4855,17 +5254,11 @@ async function testKey(pid, kid) {
   const startedAt = Date.now();
   keyProbe.set(kid, { state: 'testing', text: 'Testing…', at: startedAt });
   refreshAfterKeyChange(pid);
-  let res;
-  try {
-    res = await window.electronAPI.apiRequest({
-      url: `${p.baseUrl}${p.modelsEndpoint || '/models'}`,
-      method: 'GET',
-      headers: { Authorization: `Bearer ${k.key}`, 'Content-Type': 'application/json' },
-      timeoutMs: HEALTH_TIMEOUT_MS,
-    });
-  } catch (err) {
-    res = { status: 0, networkError: true, error: err.message };
-  }
+  const res = await probeKey(p, k.key);
+  // A models check can't see a spent quota. A module that reports usage is
+  // read here, while the spinner still runs; the reading also settles the
+  // key's spent-quota state (key-usage.js reconcileSpent).
+  if (window.KEY_USAGE && isHealthyResponse(res)) await KEY_USAGE.refresh(pid, kid, { force: true });
   // Same minimum spinner time as Recheck, so an instant answer still reads.
   const hold = startedAt + ACT_MIN_RUNNING_MS - Date.now();
   if (hold > 0) await new Promise((r) => setTimeout(r, hold));
@@ -4898,6 +5291,7 @@ async function deleteKey(pid, kid) {
   const p = PROVIDERS[pid];
   p.keys = p.keys.filter((x) => x.id !== kid);
   keyProbe.delete(kid);
+  if (window.KEY_USAGE) KEY_USAGE.forget(kid);
   if (window.CATALOG) window.CATALOG.forgetKey(kid);
   if (!p.keys.length) pvExpanded.delete(pid);
   await saveProviderConfig(pid);
@@ -4910,6 +5304,8 @@ function togglePvExpanded(pid) {
   pvExpanded.clear();
   if (!wasOpen) pvExpanded.add(pid);
   if (currentPage === 'providers') renderProvidersPage();
+  // Opening a provider's keys brings their usage up to date (if it is stale).
+  if (!wasOpen && window.KEY_USAGE) KEY_USAGE.refreshProvider(pid);
 }
 
 // ============================================
@@ -5116,10 +5512,15 @@ function renderProvidersPage() {
     { label: providersTab === 'connected' ? 'Connected' : 'Integrated' },
   ]);
 
+  // Grouped by auth kind under the same dividers as the Connected tab, in a
+  // denser grid: this tab is a catalogue that grows with every provider added.
   if (providersTab === 'integrated') {
     pvShell = 'integrated';
-    body.innerHTML = providerLegendHTML(all) +
-      `<div class="pv-grid">${all.map((p) => providerCardHTML(p, 'integrated')).join('')}</div>`;
+    const groups = PV_AUTH_GROUPS
+      .map((g) => ({ g, items: all.filter((p) => providerAuthGroup(p) === g) }))
+      .filter((x) => x.items.length);
+    body.innerHTML = providerLegendHTML(all) + groups.map((x) => pvGroupHeadHTML(x.g, x.items.length) +
+      `<div class="pv-grid pv-grid-compact">${x.items.map((p) => providerCardHTML(p, 'integrated')).join('')}</div>`).join('');
     return;
   }
   if (connected.length === 0) {
@@ -5232,7 +5633,9 @@ $('.page-providers').addEventListener('click', async (e) => {
   if (d.go) { showPage(d.go); return; }
   if (d.connect) {
     switchProvider(d.connect);
-    openAddKeyModal(`Connect ${PROVIDERS[d.connect].name}`);
+    const name = PROVIDERS[d.connect].name;
+    if (providersTab === 'integrated') openAddKeyModal(`Connect ${name}`, d.connect);
+    else openAddKeyModal(`Add key to ${name}`);
     return;
   }
   if (d.manage) { switchProvider(d.manage); showPage('check'); return; }

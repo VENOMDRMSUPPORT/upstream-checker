@@ -20,6 +20,12 @@ window.INTEGRATED_PROVIDERS.inception = {
     // above anything a test run does, but stating it means a large catalogue
     // still gets paced correctly rather than relying on the cap being distant.
     rpm: 1000,
+    rateLimits: {
+      lines: [
+        { label: 'Free plan', value: '1,000 requests/min' },
+        { label: 'Pay as you go', value: '3,000 requests/min' },
+      ],
+    },
 
     // A Free plan exists (drives the Free Tier legend colour).
     freeTier: true,
@@ -27,6 +33,15 @@ window.INTEGRATED_PROVIDERS.inception = {
     // Inception's own examples use max_completion_tokens. Declaring it here
     // skips the one rejected request the app would otherwise spend learning it.
     tokenLimitField: 'max_completion_tokens',
+
+    // GET /v1/models answers 200 with any key or none, so a made-up key passed
+    // as valid on Connect. A one-token chat request is refused with 401
+    // invalid_api_key instead. Used when a key is connected or tested.
+    keyCheck: {
+      endpoint: '/chat/completions',
+      method: 'POST',
+      body: { model: 'mercury-2', messages: [{ role: 'user', content: 'hi' }], max_completion_tokens: 1 },
+    },
   },
 
   // Mercury is a family of diffusion LLMs, and not all of them speak
