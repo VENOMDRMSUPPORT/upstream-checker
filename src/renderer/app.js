@@ -1,5 +1,5 @@
 // ============================================
-// UPSTREAM CHECKER — Application Logic v2
+// VENOM ROUTER — Application Logic v2
 // ============================================
 
 const DEFAULT_TEST_PROMPT = 'What is 2+2? Answer in one word.';
@@ -3156,7 +3156,7 @@ function exportFilename(ext) {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, '0');
   const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
-  return `upstream-${slug}-${stamp}.${ext}`;
+  return `venom-router-${slug}-${stamp}.${ext}`;
 }
 
 function downloadFile(content, filename, mimeType) {
@@ -3944,11 +3944,11 @@ const SETTINGS_SECTIONS_META = {
   'sec-schedule': { label: 'Schedule', desc: 'Automatic re-tests, health checks and alerts' },
   'sec-speed': { label: 'Speed & Timeouts', desc: 'Latency colours, and how long a model may take' },
   'sec-reliability': { label: 'Reliability', desc: 'Hedging, models tested at once, and retries' },
-  'sec-catalog': { label: 'Model Catalog', desc: 'How the catalogue syncs, benchmarks and ranks models' },
+  'sec-catalog': { label: 'Model Pool', desc: 'How the model pool syncs, benchmarks and ranks models' },
   'sec-history': { label: 'History', desc: 'How many runs are kept, and exporting them' },
   'sec-logs': { label: 'Diagnostics & Logs', desc: 'What is logged about each request, and where' },
   'sec-data': { label: 'Data Directory', desc: 'Where your settings, keys and history are stored' },
-  'sec-about': { label: 'About Upstream', desc: 'Version, providers and updates' }
+  'sec-about': { label: 'About VENOM Router', desc: 'Version, providers and updates' }
 };
 
 function renderSettingsCrumbs(activeSectionLabel) {
@@ -4150,11 +4150,11 @@ function applyRoute() {
 }
 
 const PAGE_META = {
-  overview: { title: 'Overview', desc: 'Provider health and test activity at a glance.' },
+  overview: { title: 'Overview', desc: 'Routing health — providers, models and test activity at a glance.' },
   providers: { title: 'Providers', desc: 'Connect providers and manage their keys and accounts.' },
-  catalog: { title: 'Model Catalog', desc: 'Every model your connected providers offer, kept live, benchmarked and ranked against the global leaderboard.' },
-  profiles: { title: 'Venom Profiles', desc: 'Three virtual models — Lite, Pro, Max — filled automatically from the catalogue by measured intelligence, speed, reliability and cost.' },
-  check: { title: 'Upstream Check', desc: 'Test every model a provider offers against one prompt.' },
+  catalog: { title: 'Model Pool', desc: 'Every model your connected providers offer — the pool the router draws from, kept live, benchmarked and ranked against the global leaderboard.' },
+  profiles: { title: 'Routing Profiles', desc: 'Three virtual models — Lite, Pro, Max — that route each request to the best real model in the pool by measured intelligence, speed, reliability and cost.' },
+  check: { title: 'Route Test', desc: 'Test every route a provider offers against one prompt.' },
   settings: { title: 'Settings', desc: 'Test prompt, scheduling, appearance and data.' },
 };
 
@@ -4167,7 +4167,7 @@ function renderPageHeader(page) {
   const box = $('#shell-page-icon');
   box.replaceChildren();
   if (icon) box.appendChild(icon.cloneNode(true));
-  document.title = `${meta.title} — Upstream Checker`;
+  document.title = `${meta.title} — VENOM Router`;
 }
 
 function showPage(page) {
@@ -4368,7 +4368,7 @@ function renderOverviewPanels() {
 
   if (runLog.length === 0) {
     const empty = '<div class="ov-empty">No test runs recorded yet.' +
-      '<button class="btn btn-ghost" type="button" data-go="check">Open Upstream Check</button></div>';
+      '<button class="btn btn-ghost" type="button" data-go="check">Open Route Test</button></div>';
     trend.innerHTML = empty;
     activity.innerHTML = empty;
     $('#ov-trend-meta').textContent = '';
@@ -4754,7 +4754,7 @@ function providerCardHTML(p, mode) {
     ? `<button class="pv-link" type="button" data-connect="${id}">${PV_ICON.plus}Add key</button>
        <span class="pv-link-group">
          ${recheckButtonHTML(p, 'link')}
-         <button class="pv-icon-btn" type="button" data-manage="${id}" title="Open in Upstream Check" aria-label="Open in Upstream Check">${KX_ICON.external}</button>
+         <button class="pv-icon-btn" type="button" data-manage="${id}" title="Open in Route Test" aria-label="Open in Route Test">${KX_ICON.external}</button>
        </span>`
     : connected
       ? ''
@@ -5222,7 +5222,7 @@ function pvRowsHTML(groups, stats) {
         <div class="pv-cell col-actions"><div class="dt-row-actions">
           <button class="dt-icon-btn" type="button" data-connect="${id}" title="Add key" aria-label="Add key">${PV_ICON.plus}</button>
           ${recheckButtonHTML(p)}
-          <button class="dt-icon-btn" type="button" data-manage="${id}" title="Open in Upstream Check" aria-label="Open in Upstream Check">${KX_ICON.external}</button>
+          <button class="dt-icon-btn" type="button" data-manage="${id}" title="Open in Route Test" aria-label="Open in Route Test">${KX_ICON.external}</button>
         </div></div>
       </div>${open ? `<div class="pv-rowcard-keys">${keyRowsHTML(p)}</div>` : ''}
     </div>`;

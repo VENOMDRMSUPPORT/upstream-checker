@@ -1,5 +1,5 @@
 // ============================================
-// Model Catalog — live model inventory + benchmark leaderboard
+// Model Pool — live model inventory + benchmark leaderboard
 // ============================================
 // Every model each connected provider currently lists, kept current by a
 // periodic sync: a model the provider adds shows up on the next pass (and is
@@ -161,7 +161,7 @@
   }
 
   // Asks every usable key, unions the answers, and applies the same
-  // normalisation the Upstream Check page applies (dedupe, alias groups,
+  // normalisation the Route Test page applies (dedupe, alias groups,
   // adapter exclusions, kind). Returns null when no key answered, so a
   // transient outage never reads as "the provider removed everything".
   async function discoverAll(p) {
@@ -286,7 +286,7 @@
   }
 
   // Reliability of this model on this provider from every verdict recorded
-  // about it: Upstream Check runs (history.json) and benchmark runs. Recent
+  // about it: Route Test runs (history.json) and benchmark runs. Recent
   // evidence is what a router cares about, so a window is applied.
   function reliability(e, windowMs = 7 * 86400000) {
     const since = Date.now() - windowMs;
@@ -740,7 +740,7 @@
       const cta = benchmarkable(e)
         ? `<p class="mc-muted">Not benchmarked yet. The suite is ${B.TASKS.length} short graded tasks plus two latency probes — ${B.TASKS.length + 2} requests, a few seconds, a fraction of a cent.</p>
            <button class="btn btn-primary" type="button" data-mc-run="${escapeHtml(e.key)}">${ICON.play} Run benchmark</button>`
-        : `<p class="mc-muted">This is a ${escapeHtml(e.kind)} model. The benchmark is a chat suite, so it is listed here but not scored — test it from Upstream Check.</p>`;
+        : `<p class="mc-muted">This is a ${escapeHtml(e.kind)} model. The benchmark is a chat suite, so it is listed here but not scored — test it from Route Test.</p>`;
       return `<div class="mc-detail-grid">
         <div class="mc-panel"><div class="mc-panel-head">Benchmark</div>${cta}</div>
         <div class="mc-side">${globalPanelHTML(e, g, lb)}${readinessPanelHTML(e)}</div>
@@ -958,7 +958,7 @@
   function renderCrumbs() {
     $('#mc-crumbs').innerHTML = breadcrumbHTML([
       { label: 'Overview', page: 'overview' },
-      { label: 'Model Catalog', icon: 'catalog' },
+      { label: 'Model Pool', icon: 'catalog' },
     ]);
   }
 
@@ -973,7 +973,7 @@
       body.innerHTML = `<div class="pv-empty">
         <div class="pv-empty-icon">${ICON.empty}</div>
         <h3>No providers connected</h3>
-        <p>The catalogue lists the models of every provider that has an API key. Connect one and its models appear here within seconds, then stay in step with what the provider offers.</p>
+        <p>The model pool lists the models of every provider that has an API key. Connect one and its models appear here within seconds, then stay in step with what the provider offers.</p>
         <button class="btn btn-primary" type="button" data-go="providers">${ICON.plug}Open Providers</button>
       </div>`;
       return;
@@ -1139,7 +1139,7 @@
       save();
       renderIfShown();
       syncAll({ reason: 'reset' });
-      setStatus('done', 'Catalogue reset — re-syncing');
+      setStatus('done', 'Model pool reset — re-syncing');
     });
   }
 
