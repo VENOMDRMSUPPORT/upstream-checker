@@ -33,12 +33,12 @@ function createApiRequester({ getResolver = () => null, onFinish = () => {}, log
     const a = args && typeof args === 'object' ? args : {};
     const { url, method, headers, body, requestId, timeoutMs } = a;
     const startedAt = now();
-    const resolver = getResolver();
-    const outgoing = resolver ? resolver.resolve({ url, headers, body }) : { url, headers, body };
-    // substitutions holds secrets: it goes to onFinish (the log scrubs with
-    // it) and never into a reply.
-    const refs = Array.isArray(outgoing.refs) ? outgoing.refs : [];
-    const substitutions = Array.isArray(outgoing.substitutions) ? outgoing.substitutions : [];
+
+    // refs/substitutions are filled in once the resolver succeeds; a throw
+    // below (e.g. the key DB closed mid-quit) leaves them at the no-resolver
+    // default so the record still gets written.
+    let refs = [];
+    let substitutions = [];
 
     const report = (fields) => {
       const done = {
@@ -55,6 +55,22 @@ function createApiRequester({ getResolver = () => null, onFinish = () => {}, log
         }
       });
     };
+
+    let outgoing;
+    try {
+      const resolver = getResolver();
+      outgoing = resolver ? resolver.resolve({ url, headers, body }) : { url, headers, body };
+    } catch (err) {
+      // A generic message: the thrown error could carry a raw secret or a
+      // DB path, neither of which belongs in a reply or a log record.
+      const error = 'The request could not be resolved';
+      report({ outcome: 'error', error, elapsed: 0 });
+      return Promise.resolve({ status: 0, body: '', elapsed: 0, headers: {}, networkError: true, error });
+    }
+    // substitutions holds secrets: it goes to onFinish (the log scrubs with
+    // it) and never into a reply.
+    refs = Array.isArray(outgoing.refs) ? outgoing.refs : [];
+    substitutions = Array.isArray(outgoing.substitutions) ? outgoing.substitutions : [];
 
     if (outgoing.blocked) {
       log.warn(outgoing.error);
@@ -87,9 +103,12 @@ function createApiRequester({ getResolver = () => null, onFinish = () => {}, log
         firstTokenMs: response.firstTokenMs,
       } : {});
 
-      const failNetwork = (error, outcome = 'error') => {
+      const failNetwork = (error, outcome = 'error', err) => {
         const e = elapsed();
-        finish({ status: 0, body: '', elapsed: e, headers: {}, networkError: true, error }, { outcome, error, elapsed: e, ...seen() });
+        // The reply keeps the plain message; the record adds the transport
+        // error code when one comes with it, e.g. "(ECONNRESET)".
+        const recordError = err && err.code ? `${error} (${err.code})` : error;
+        finish({ status: 0, body: '', elapsed: e, headers: {}, networkError: true, error }, { outcome, error: recordError, elapsed: e, ...seen() });
       };
       const finishCancelled = () => {
         const e = elapsed();
@@ -144,7 +163,7 @@ function createApiRequester({ getResolver = () => null, onFinish = () => {}, log
         // (ECONNRESET), then 'close'. Either a cancel (hedge loser, Stop,
         // deadline) or the server dropping the connection mid-stream; before
         // finish-once, neither ever resolved the renderer's promise.
-        const cut = () => (entry.cancelReason ? finishCancelled() : failNetwork(CUT_OFF, 'aborted'));
+        const cut = (err) => (entry.cancelReason ? finishCancelled() : failNetwork(CUT_OFF, 'aborted', err));
         res.on('aborted', cut);
         res.on('error', cut);
         res.on('close', () => {
@@ -167,7 +186,7 @@ function createApiRequester({ getResolver = () => null, onFinish = () => {}, log
         if (entry.cancelReason) finishCancelled();
         // A reset after the headers arrived is the body being cut off, the
         // same as res 'aborted', whichever event Node delivers first.
-        else if (response) failNetwork(CUT_OFF, 'aborted');
+        else if (response) failNetwork(CUT_OFF, 'aborted', err);
         else failNetwork(err.message);
       });
       req.on('timeout', () => {

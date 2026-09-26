@@ -227,3 +227,44 @@ test('an unknown cancel reason is recorded as stop', async (t) => {
   await settle();
   assert.strictEqual(finished[0].cancelReason, 'stop');
 });
+
+test('a resolver whose resolve() throws resolves as a network error and reports once', async () => {
+  const resolver = { resolve: () => { throw new Error('leaked sk-super-secret-0001'); } };
+  const { requester, finished } = setup({ resolver });
+  const r = await requester.request({ url: 'http://127.0.0.1:1/x' });
+  assert.deepStrictEqual([r.status, r.networkError], [0, true]);
+  assert.ok(!r.error.includes('sk-super-secret-0001'));
+  await settle();
+  assert.strictEqual(finished.length, 1);
+  assert.strictEqual(finished[0].outcome, 'error');
+  assert.ok(!finished[0].error.includes('sk-super-secret-0001'));
+});
+
+test('an RST after headers resolves aborted, keeps the http status, and the record keeps the transport code', async (t) => {
+  // Give the client time to receive the headers and the chunk before the
+  // reset lands, the same way the "connection dropped mid-stream" test does.
+  const origin = await startServer(t, holdingStream((res) => setTimeout(() => res.socket.resetAndDestroy(), 50)));
+  const { requester, finished } = setup();
+  const r = await requester.request({ url: `${origin}/v1/chat/completions`, method: 'POST', body: '{"stream":true}' });
+  assert.deepStrictEqual([r.status, r.networkError], [0, true]);
+  assert.match(r.error, /closed before the response ended/);
+  assert.ok(!r.error.includes('('));
+  await settle();
+  assert.strictEqual(finished.length, 1);
+  assert.deepStrictEqual([finished[0].outcome, finished[0].httpStatus], ['aborted', 200]);
+  assert.match(finished[0].error, /closed before the response ended \(\w+\)/);
+});
+
+test('a connection refused reports a network error once', async () => {
+  const server = http.createServer(() => {});
+  const origin = await new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${server.address().port}`));
+  });
+  await new Promise((resolve) => server.close(resolve));
+  const { requester, finished } = setup();
+  const r = await requester.request({ url: `${origin}/x` });
+  assert.deepStrictEqual([r.status, r.networkError], [0, true]);
+  await settle();
+  assert.strictEqual(finished.length, 1);
+  assert.strictEqual(finished[0].outcome, 'error');
+});
