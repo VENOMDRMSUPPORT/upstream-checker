@@ -1958,21 +1958,34 @@ const requestTags = new Map();
 // { runId, trigger } of the Route Test run in progress; null between runs.
 let routeRun = null;
 
+// The run and trigger are captured here, once, off the live routeRun — not
+// re-read at send time. tags forwarded from an earlier captured id (a poll
+// or a param-swap retry) already carry their originating request's runId and
+// trigger, so those are kept rather than overwritten with whatever run is
+// current by the time this later id is minted.
 function nextRequestId(tags = null) {
   requestSeq += 1;
   const id = `req_${Date.now()}_${requestSeq}`;
   inflightIds.add(id);
-  if (tags) requestTags.set(id, tags);
+  if (tags) {
+    const runId = tags.runId !== undefined ? tags.runId : (routeRun ? routeRun.runId : undefined);
+    const trigger = tags.trigger !== undefined ? tags.trigger : (routeRun ? routeRun.trigger : undefined);
+    requestTags.set(id, { ...tags, runId, trigger });
+  }
   return id;
 }
 
-// What a Route Test request carries into the request log.
+// What a Route Test request carries into the request log. runId/trigger
+// prefer the id's captured tags (from nextRequestId): the live routeRun is
+// only a fallback for an id that was never tagged, so a straggling request
+// from a run that has since finished (or a new one that has since started)
+// still logs under the run it was actually part of.
 function routeTestTags(requestId) {
   const t = (requestId && requestTags.get(requestId)) || {};
   return {
     source: 'route_test',
-    runId: routeRun ? routeRun.runId : undefined,
-    trigger: routeRun ? routeRun.trigger : undefined,
+    runId: t.runId !== undefined ? t.runId : (routeRun ? routeRun.runId : undefined),
+    trigger: t.trigger !== undefined ? t.trigger : (routeRun ? routeRun.trigger : undefined),
     attempt: t.attempt,
     hedgeIndex: t.hedgeIndex,
     testGroup: t.testGroup,

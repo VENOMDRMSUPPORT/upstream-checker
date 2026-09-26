@@ -661,6 +661,7 @@
     return {
       suite: SUITE_VERSION,
       at: Date.now(),
+      runId,
       provider: provider.id,
       model: model.id,
       items,
