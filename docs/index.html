@@ -1,755 +1,555 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VENOM Router — Phase 2 build index</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VENOM Router Phase 2 — status</title>
 <style>
-  :root {
-    --bg-0: #000000;
-    --bg-1: #0a0a0a;
-    --bg-2: #111111;
-    --bg-3: #1a1a1a;
-    --border-1: #1f1f1f;
-    --border-2: #2e2e2e;
-    --border-3: #454545;
-    --text-0: #ffffff;
-    --text-1: #ededed;
-    --text-2: #a1a1a1;
-    --text-3: #8f8f8f;
-    --text-4: #525252;
-    --accent: #00d4ff;
-    --accent-dim: #0098b8;
-    --pass: #22c55e;
-    --warn: #f59e0b;
-    --held: #8b5cf6;
-    --rail: 2px;
-    --step: 0.9375rem;
+  :root { --fg:#1a1a1a; --bg:#fdfdfd; --accent:#0a6e7d; --warn:#b45309; --red:#b91c1c; --muted:#666; --border:#ddd; --code-bg:#f5f5f5; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg:#e4e4e4; --bg:#1a1a1a; --accent:#22d3ee; --warn:#fbbf24; --red:#f87171; --muted:#999; --border:#333; --code-bg:#262626; }
   }
+  * { box-sizing:border-box; }
+  body { font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--fg); background:var(--bg); max-width:980px; margin:1.5em auto; padding:0 1.5em 3em; }
+  h1,h2,h3,h4 { font-weight:600; margin-top:1.6em; line-height:1.3; }
+  h1 { font-size:1.7em; margin-bottom:.2em; }
+  h2 { font-size:1.35em; border-bottom:1px solid var(--border); padding-bottom:.2em; }
+  h3 { font-size:1.1em; }
+  a { color:var(--accent); }
+  code { background:var(--code-bg); padding:.15em .35em; border-radius:3px; font-size:.92em; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; word-break:break-word; }
+  pre { background:var(--code-bg); padding:1em 1.2em; border-radius:6px; overflow-x:auto; font-size:.87em; line-height:1.5; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  pre code { background:none; padding:0; }
+  .scroll { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; margin:.8em 0; font-size:.93em; }
+  th,td { border:1px solid var(--border); padding:.45em .7em; vertical-align:top; text-align:left; }
+  th { font-weight:600; background:var(--code-bg); }
+  ul { padding-left:1.4em; } li { margin:.25em 0; }
+  details { margin:.5em 0; } details > summary { cursor:pointer; font-weight:600; padding:.4em 0; }
+  hr { border:none; border-top:1px solid var(--border); margin:2em 0; }
+  .meta { color:var(--muted); font-size:.85em; }
+  .sub { color:var(--muted); font-size:.95em; margin-top:.3em; }
+  .status { background:color-mix(in srgb, var(--accent) 12%, var(--bg)); border:1px solid var(--accent); border-radius:8px; padding:.9em 1.2em; margin:1.2em 0; }
+  .status .badge { display:inline-block; background:var(--accent); color:var(--bg); padding:.1em .6em; border-radius:4px; font-size:.78em; font-weight:600; letter-spacing:.02em; }
+  .status .asof { float:right; }
+  .status p { margin:.5em 0 0; font-size:.92em; }
+  .next { border:1px solid var(--warn); border-left:4px solid var(--warn); border-radius:8px; padding:.8em 1.2em; margin:1.2em 0; background:color-mix(in srgb, var(--warn) 8%, var(--bg)); }
+  .next > summary { cursor:pointer; font-weight:600; font-size:1.02em; padding:0; }
+  .next > summary .meta { font-weight:400; }
+  .next ol { margin:.5em 0 .1em 1.3em; padding:0; }
+  .next ol li { margin:.3em 0; }
+  .next .who { font-weight:600; }
+  .pill { display:inline-block; font-size:.78em; padding:.1em .55em; border-radius:10px; background:var(--code-bg); color:var(--muted); margin-left:.4em; vertical-align:1px; white-space:nowrap; }
+  .pill.done { background:var(--accent); color:var(--bg); }
+  .pill.now  { background:var(--warn);   color:var(--bg); }
+  .pill.next { background:var(--code-bg); color:var(--fg); border:1px solid var(--border); }
+  .pill.warn { background:var(--red);    color:var(--bg); }
+  .callout { border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:4px; padding:.7em 1em; margin:1em 0; font-size:.93em; background:color-mix(in srgb, var(--accent) 5%, var(--bg)); }
+  .tabbar { display:flex; flex-wrap:wrap; gap:.2em; border-bottom:2px solid var(--border); margin:1.2em 0 1.5em; }
+  .tabbar .tab { padding:.55em 1em; cursor:pointer; border:1px solid transparent; border-bottom:none; border-radius:6px 6px 0 0; font:inherit; font-weight:500; font-size:.95em; color:var(--muted); background:none; margin-bottom:-2px; }
+  .tabbar .tab:hover { color:var(--fg); }
+  .tabbar .tab.active { color:var(--fg); border-color:var(--border); border-bottom:2px solid var(--bg); background:var(--bg); font-weight:600; }
+  .pane { display:none; } .pane.active { display:block; }
 
-  * { box-sizing: border-box; }
-
-  html { -webkit-text-size-adjust: 100%; }
-
-  body {
-    margin: 0;
-    background: var(--bg-0);
-    color: var(--text-1);
-    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
-    font-size: 16px;
-    line-height: 1.55;
-    font-variant-numeric: tabular-nums;
-    -webkit-font-smoothing: antialiased;
-  }
-
-  .wrap {
-    max-width: 62rem;
-    margin: 0 auto;
-    padding: 3.5rem 1.5rem 6rem;
-  }
-
-  /* ---- masthead ---------------------------------------------------- */
-
-  .masthead {
-    display: flex;
-    align-items: baseline;
-    gap: 0.875rem;
-    padding-bottom: 1.25rem;
-  }
-  .mark { flex: none; width: 26px; height: 26px; align-self: center; }
-  .mark path { fill: var(--accent); }
-  .wordmark {
-    font-size: 1.0625rem;
-    font-weight: 650;
-    letter-spacing: -0.015em;
-    color: var(--text-0);
-    margin: 0;
-  }
-  .masthead .sub {
-    font-size: 0.9375rem;
-    color: var(--text-3);
-    margin: 0;
-  }
-
-  h1 {
-    font-size: clamp(1.75rem, 1.2rem + 2.4vw, 2.75rem);
-    line-height: 1.12;
-    letter-spacing: -0.032em;
-    font-weight: 620;
-    color: var(--text-0);
-    margin: 0 0 0.75rem;
-    max-width: 22ch;
-  }
-  .standfirst {
-    font-size: 1.0625rem;
-    color: var(--text-2);
-    margin: 0 0 2.5rem;
-    max-width: 62ch;
-  }
-  .standfirst b { color: var(--text-1); font-weight: 600; }
-
-  /* ---- the pipeline rail (hero) ------------------------------------ */
-
-  .pipeline { margin: 0 0 3.25rem; }
-
-  .pipe-track {
-    display: flex;
-    gap: 3px;
-    height: 46px;
-    align-items: stretch;
-  }
-  .seg {
-    position: relative;
-    border: 1px solid var(--border-2);
-    background:
-      repeating-linear-gradient(135deg, transparent 0 5px, rgba(255,255,255,.022) 5px 10px);
-    display: flex;
-    align-items: center;
-    padding: 0 0.75rem;
-    overflow: hidden;
-    min-width: 0;
-  }
-  .seg .fill {
-    position: absolute;
-    inset: 0 auto 0 0;
-    width: 0;
-    background: var(--accent);
-    opacity: .16;
-    transition: width 900ms cubic-bezier(.2,.7,.2,1);
-  }
-  .seg[data-state="merged"] { border-color: color-mix(in srgb, var(--pass) 45%, var(--border-2)); }
-  .seg[data-state="merged"] .fill { background: var(--pass); }
-  .seg[data-state="held"] { border-color: color-mix(in srgb, var(--held) 55%, var(--border-2)); }
-  .seg[data-state="held"] .fill { background: var(--held); opacity: .2; }
-  .seg[data-state="open"] { border-style: dashed; border-color: var(--border-2); }
-
-  .seg .tag {
-    position: relative;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: var(--text-2);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .seg[data-state="merged"] .tag { color: var(--pass); }
-  .seg[data-state="held"] .tag { color: #b9a3f7; }
-
-  .pipe-legend {
-    display: flex;
-    justify-content: space-between;
-    gap: 1rem;
-    margin-top: 0.625rem;
-    font-size: 0.8125rem;
-    color: var(--text-4);
-  }
-  .gate-note {
-    color: #b9a3f7;
-    display: flex;
-    align-items: center;
-    gap: 0.4375rem;
-  }
-  .gate-note svg { width: 13px; height: 13px; fill: currentColor; flex: none; }
-
-  .overall {
-    display: flex;
-    align-items: baseline;
-    gap: 0.625rem;
-    margin-bottom: 0.875rem;
-  }
-  .overall .pct {
-    font-size: 2.25rem;
-    font-weight: 300;
-    letter-spacing: -0.04em;
-    color: var(--text-0);
-    line-height: 1;
-  }
-  .overall .of { font-size: 0.9375rem; color: var(--text-3); }
-
-  /* ---- phase sections ---------------------------------------------- */
-
-  .phase {
-    border-top: 1px solid var(--border-1);
-    padding: 2rem 0 0.5rem;
-  }
-  .phase-head {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 0.5rem 1.5rem;
-    align-items: start;
-    margin-bottom: 1.25rem;
-  }
-  .phase h2 {
-    font-size: 1.1875rem;
-    font-weight: 620;
-    letter-spacing: -0.02em;
-    color: var(--text-0);
-    margin: 0;
-  }
-  .phase h2 .letter {
-    display: inline-block;
-    min-width: 1.5rem;
-    color: var(--text-4);
-    font-weight: 500;
-  }
-  .phase .where {
-    font-size: 0.875rem;
-    color: var(--text-3);
-    margin: 0.3125rem 0 0;
-    max-width: 68ch;
-  }
-  .phase .where code {
-    font-family: ui-monospace, 'Cascadia Mono', 'Consolas', monospace;
-    font-size: 0.8125rem;
-    color: var(--text-2);
-    background: var(--bg-2);
-    border: 1px solid var(--border-1);
-    border-radius: 3px;
-    padding: 0.0625rem 0.3125rem;
-  }
-
-  .state {
-    justify-self: end;
-    font-size: 0.75rem;
-    font-weight: 600;
-    padding: 0.1875rem 0.5rem;
-    border: 1px solid;
-    border-radius: 2px;
-    white-space: nowrap;
-  }
-  .state[data-s="merged"] { color: var(--pass); border-color: color-mix(in srgb, var(--pass) 35%, transparent); }
-  .state[data-s="held"]   { color: #b9a3f7; border-color: color-mix(in srgb, var(--held) 45%, transparent); }
-  .state[data-s="open"]   { color: var(--text-3); border-color: var(--border-2); }
-
-  /* ---- meter: one cell per step ------------------------------------ */
-
-  .meter { margin-bottom: 1.5rem; }
-  .meter-cells {
-    display: flex;
-    gap: 2px;
-    height: 10px;
-  }
-  .cell {
-    flex: 1 1 0;
-    background: var(--bg-3);
-    border-radius: 1px;
-    transition: background 200ms ease;
-  }
-  .cell[data-done="1"] { background: var(--accent); }
-  .phase[data-state="merged"] .cell[data-done="1"] { background: var(--pass); }
-  .phase[data-state="held"]   .cell[data-done="1"] { background: var(--held); }
-
-  .meter-scale {
-    display: flex;
-    justify-content: space-between;
-    margin-top: 0.4375rem;
-    font-size: 0.75rem;
-    color: var(--text-4);
-  }
-  .meter-scale .now { color: var(--text-1); font-weight: 600; }
-
-  /* ---- step groups -------------------------------------------------- */
-
-  .group { margin: 0 0 1.5rem; }
-  .group > h3 {
-    font-size: 0.9375rem;
-    font-weight: 600;
-    color: var(--text-1);
-    margin: 0 0 0.625rem;
-  }
-  .group > h3 .count {
-    font-weight: 400;
-    color: var(--text-4);
-    margin-left: 0.5rem;
-  }
-
-  ul.steps { list-style: none; margin: 0; padding: 0; }
-
-  ul.steps li {
-    position: relative;
-    padding-left: 1.75rem;
-    margin-bottom: 0.4375rem;
-  }
-
-  .steps label {
-    display: block;
-    font-size: var(--step);
-    color: var(--text-2);
-    cursor: pointer;
-  }
-  .steps input {
-    position: absolute;
-    left: 0;
-    top: 0.3125rem;
-    width: 15px;
-    height: 15px;
-    margin: 0;
-    appearance: none;
-    background: var(--bg-1);
-    border: 1px solid var(--border-3);
-    border-radius: 2px;
-    cursor: pointer;
-    display: grid;
-    place-content: center;
-  }
-  .steps input:hover { border-color: var(--accent-dim); }
-  .steps input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .steps input::after {
-    content: '';
-    width: 7px;
-    height: 4px;
-    border-left: 2px solid var(--bg-0);
-    border-bottom: 2px solid var(--bg-0);
-    transform: rotate(-45deg) translate(1px, -1px);
-    opacity: 0;
-  }
-  .steps input:checked { background: var(--accent); border-color: var(--accent); }
-  .steps input:checked::after { opacity: 1; }
-  .steps input:checked + span { color: var(--text-4); text-decoration: line-through; text-decoration-color: var(--text-4); }
-
-  .phase[data-state="merged"] .steps input:checked { background: var(--pass); border-color: var(--pass); }
-  .phase[data-state="held"] .steps input:checked { background: var(--held); border-color: var(--held); }
-
-  .steps input:disabled { cursor: default; opacity: 1; }
-  .steps input:disabled + span { cursor: default; }
-
-  .note {
-    display: block;
-    font-size: 0.8125rem;
-    color: var(--warn);
-    margin-top: 0.125rem;
-  }
-  .note.plain { color: var(--text-3); }
-
-  /* ---- folded (finished) phases -------------------------------------- */
-
-  .fold { margin-bottom: 1rem; }
-  .fold > summary {
-    font-size: 0.875rem;
-    color: var(--text-3);
-    cursor: pointer;
-    padding: 0.25rem 0;
-    width: fit-content;
-  }
-  .fold > summary:hover { color: var(--text-1); }
-  .fold > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-  .fold[open] > summary { margin-bottom: 1rem; }
-  .fold > .group:last-child { margin-bottom: 0.5rem; }
-
-  /* ---- footer ------------------------------------------------------- */
-
-  footer {
-    border-top: 1px solid var(--border-1);
-    margin-top: 2.5rem;
-    padding-top: 1.5rem;
-    font-size: 0.8125rem;
-    color: var(--text-4);
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem 1.5rem;
-    align-items: center;
-    justify-content: space-between;
-  }
-  footer p { margin: 0; max-width: 60ch; }
-  button.reset {
-    font: inherit;
-    font-size: 0.8125rem;
-    color: var(--text-3);
-    background: var(--bg-1);
-    border: 1px solid var(--border-2);
-    border-radius: 3px;
-    padding: 0.3125rem 0.75rem;
-    cursor: pointer;
-  }
-  button.reset:hover { color: var(--text-1); border-color: var(--border-3); }
-  button.reset:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-  @media (max-width: 40rem) {
-    .wrap { padding-top: 2.25rem; }
-    .pipe-track { height: 40px; }
-    .seg { padding: 0 0.4375rem; }
-    .seg .tag { font-size: 0.75rem; }
-    .phase-head { grid-template-columns: 1fr; }
-    .state { justify-self: start; }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .seg .fill { transition: none; }
-  }
+  /* progress meter — one cell per step, filled from the checkboxes below it */
+  .meter { display:flex; gap:2px; height:8px; margin:.6em 0 .3em; }
+  .meter i { flex:1 1 0; background:var(--code-bg); border:1px solid var(--border); border-radius:1px; }
+  .meter i.on { background:var(--accent); border-color:var(--accent); }
+  .scale { display:flex; justify-content:space-between; font-size:.78em; color:var(--muted); margin-bottom:1em; }
+  .scale b { color:var(--fg); font-weight:600; }
+  ul.steps { list-style:none; padding-left:0; }
+  ul.steps li { margin:.3em 0; padding-left:1.6em; position:relative; }
+  ul.steps input { position:absolute; left:0; top:.3em; margin:0; accent-color:var(--accent); }
+  ul.steps .why { display:block; font-size:.85em; color:var(--muted); }
+  ul.steps .why.block { color:var(--warn); }
+  ul.steps input:checked + span { color:var(--muted); text-decoration:line-through; }
 </style>
 </head>
 <body>
-<div class="wrap">
 
-  <div class="masthead">
-    <svg class="mark" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M2 3h4.6l5.4 12.2L17.4 3H22l-8.1 18h-1.5l-2.2-4.9 2-4.6L2 3Z"/>
-    </svg>
-    <p class="wordmark">VENOM Router</p>
-    <p class="sub">Phase 2 build index</p>
+<header>
+  <h1>VENOM Router — Phase 2</h1>
+  <div class="sub">A local database and a request log for the desktop router, then the pages that read them.
+    &middot; <a href="https://github.com/VENOMDRMSUPPORT/upstream-checker/blob/main/docs/superpowers/specs/2026-09-26-local-database-design.md">Database design</a>
+    &middot; <a href="https://github.com/VENOMDRMSUPPORT/upstream-checker/blob/main/docs/INDEX.md">Step index</a>
   </div>
+</header>
 
-  <h1>What is left before Phase&nbsp;2 ships</h1>
-  <p class="standfirst">
-    The database is in. The logging system is written and green, but it cannot land on its
-    own — the owner's rule is that it merges <b>together with the log pages</b>, and the log
-    pages have not been started. Tick a step as you finish it; the page remembers.
-  </p>
-
-  <section class="pipeline" aria-label="Phase 2 pipeline">
-    <div class="overall">
-      <span class="pct" id="overall-pct">0%</span>
-      <span class="of" id="overall-of">0 of 0 steps</span>
-    </div>
-    <div class="pipe-track" id="pipe"></div>
-    <div class="pipe-legend">
-      <span>0%</span>
-      <span class="gate-note">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 9V7a5 5 0 0 0-10 0v2H5v12h14V9h-2Zm-8-2a3 3 0 0 1 6 0v2H9V7Zm4 9.7V19h-2v-2.3a2 2 0 1 1 2 0Z"/></svg>
-        Logging waits at the merge gate
-      </span>
-      <span>100%</span>
-    </div>
-  </section>
-
-  <main id="phases"></main>
-
-  <footer>
-    <p>
-      Read from the repository on 27 September 2026 — <code>main</code> at 16b9f89 and branch
-      <code>feat/logging-system</code> at 68bd6de. Commits are the source of truth; the plan
-      files keep their boxes unticked.
-    </p>
-    <button class="reset" type="button" id="reset">Clear my ticks</button>
-  </footer>
-
+<div class="status">
+  <span class="badge">3 OF 5 WORKSTREAMS OPEN</span>
+  <span class="meta asof">As of 2026-09-26 23:51 UTC</span>
+  <p>Lead workstream: <b>C — log pages</b>, not started. 26 of 64 steps done. The logging
+  branch is 37 commits ahead with 268 tests green, but it is gated: it merges only together
+  with the log pages.</p>
 </div>
 
+<details class="next" open>
+  <summary>Next steps <span class="meta">&middot; 3 items</span></summary>
+  <ol>
+    <li><span class="who">Venom</span> — brainstorm the three log pages, then write the design spec
+      <span class="meta">— unblocks all 27 steps of workstream C, and through it the merge gate</span></li>
+    <li><span class="who">Venom</span> — decide whether the three query-API gaps go onto the logging branch before the merge or after
+      <span class="meta">— decides whether C is built against a frozen API or a moving one</span></li>
+    <li><span class="who">Venom</span> — push <code>feat/logging-system</code> to the remote
+      <span class="meta">— 37 commits of finished work exist on one machine only</span></li>
+  </ol>
+</details>
+
+<div class="tabbar">
+  <button class="tab active" data-pane="over">1 &middot; Overview</button>
+  <button class="tab" data-pane="work">2 &middot; Workstreams</button>
+  <button class="tab" data-pane="att">3 &middot; Attention</button>
+  <button class="tab" data-pane="bg">4 &middot; Background</button>
+  <button class="tab" data-pane="plan">5 &middot; Plan</button>
+  <button class="tab" data-pane="risk">6 &middot; Risks &amp; open questions</button>
+  <button class="tab" data-pane="faq">7 &middot; FAQ</button>
+</div>
+
+<main>
+
+  <!-- ─────────────── OVERVIEW ─────────────── -->
+  <section class="pane active" id="over">
+    <div class="callout">VENOM Router is a desktop app that routes model requests across
+    providers and keys. Phase 2 replaces its flat-file storage with SQLite, records every
+    request it makes, and gives the owner pages to read that record. It is one person's
+    project, run on real data from day one.</div>
+
+    <h2>Success criteria</h2>
+
+    <h3>Data safety</h3>
+    <div class="scroll"><table>
+      <tr><th style="width:170px">Criterion</th><th>Statement</th><th style="width:290px">Check</th><th style="width:100px">Status</th></tr>
+      <tr><td>No read failure destroys data</td><td>A corrupt, locked or truncated store never looks like an empty one that a later save overwrites.</td><td>Every path the audit found has a test; the suite is green on <code>main</code>.</td><td><span class="pill done">met</span></td></tr>
+      <tr><td>Keys never leave main</td><td>The renderer sees a placeholder and a display hint, never a secret.</td><td>Secrets are resolved per request, only for the key's own origin; covered by tests.</td><td><span class="pill done">met</span></td></tr>
+      <tr><td>Nothing is lost on close</td><td>Pending saves flush before quit and before an update installs; one instance per data folder.</td><td>Live check quits the app mid-write and reads the rows back.</td><td><span class="pill done">met</span></td></tr>
+    </table></div>
+
+    <h3>Observability</h3>
+    <div class="scroll"><table>
+      <tr><th style="width:170px">Criterion</th><th>Statement</th><th style="width:290px">Check</th><th style="width:100px">Status</th></tr>
+      <tr><td>Every request recorded</td><td>One row per outbound request with timings, tokens, cost and a scrubbed body on failure.</td><td>268 tests plus a live check against a mock provider.</td><td><span class="pill done">met</span></td></tr>
+      <tr><td>Readable without a DB browser</td><td>The owner can answer "what did this run cost" and "why did that fail" inside the app.</td><td>The three log pages exist and answer both from a cold start.</td><td><span class="pill next">not yet</span></td></tr>
+      <tr><td>The log stays small</td><td>Retention holds: 90 days of rows, 7 days of bodies, 12 months of roll-ups.</td><td>Purge and vacuum tested; the settings are reachable from the UI.</td><td><span class="pill warn">half — the UI is missing</span></td></tr>
+    </table></div>
+
+    <h3>Release</h3>
+    <div class="scroll"><table>
+      <tr><th style="width:170px">Criterion</th><th>Statement</th><th style="width:290px">Check</th><th style="width:100px">Status</th></tr>
+      <tr><td>One merge, one version</td><td>Database, logging and log pages reach users together, not in pieces.</td><td>A single version published, auto-update picks it up.</td><td><span class="pill next">not yet</span></td></tr>
+      <tr><td>Existing installs survive</td><td>The rebrand and the data-folder move keep keys and history intact.</td><td>Legacy files are backed up then imported; a locked old folder is left alone and retried.</td><td><span class="pill done">met</span></td></tr>
+    </table></div>
+
+    <h2>Out of scope</h2>
+    <ul>
+      <li>The hosted website that sells subscriptions. Phase 2 only avoids choices that would block it — the log row shape already has the columns a future relay needs, left NULL.</li>
+      <li>Normalising benchmark results into their own tables. Benchmarks keep their JSON blob; only the run id is shared.</li>
+      <li>Scrubbing keys out of responses the renderer displays. Stored log text is scrubbed; the display path is a follow-up.</li>
+    </ul>
+  </section>
+
+  <!-- ─────────────── WORKSTREAMS ─────────────── -->
+  <section class="pane" id="work">
+    <h2>Status</h2>
+    <div class="scroll"><table>
+      <tr><th style="width:60px">ID</th><th>What</th><th style="width:110px">Owner</th><th style="width:100px">Depends on</th><th style="width:170px">Status</th></tr>
+      <tr><td>A</td><td>Local database — SQLite replaces the JSON files, keys move into main</td><td>Venom</td><td>—</td><td><span class="pill done">merged</span></td></tr>
+      <tr><td>B</td><td>Logging system — <code>venom-logs.db</code>, the writer, retention and the query API</td><td>Venom</td><td>after A</td><td><span class="pill done">built</span> <span class="pill warn">gated</span></td></tr>
+      <tr><td>C</td><td>Log pages — Request Log, Runs, Monitoring</td><td>Venom</td><td>after B</td><td><span class="pill next">not started</span></td></tr>
+      <tr><td>M</td><td>Merge gate — B and C land in one merge</td><td>Venom</td><td>after C</td><td><span class="pill warn">blocked by C</span></td></tr>
+      <tr><td>R</td><td>Release — changelog, version, publish, auto-update</td><td>Venom</td><td>after M</td><td><span class="pill next">not started</span></td></tr>
+    </table></div>
+    <p class="meta">Tick a step below as you finish it. The bars are counted from the ticks,
+    so they cannot drift from the lists. Ticks are remembered in this browser only.</p>
+
+    <hr>
+
+    <h2>A — Local database <span class="pill done">merged</span></h2>
+    <p>Merged into <code>main</code> at <code>16b9f89</code>. 133 tests green.</p>
+    <h3>What landed</h3>
+    <ul>
+      <li>SQLite store replaces <code>config.json</code>, <code>catalog.json</code> and <code>history.json</code>; writes are transactional instead of whole-file rewrites.</li>
+      <li>API keys stay in the main process. The renderer holds placeholders; secrets are resolved per request and only for the key's own origin.</li>
+      <li>Every data-loss path the audit found is closed, including the one where a failed <code>config.json</code> read seeded defaults over real keys.</li>
+      <li>A single-instance lock per data folder, and pending saves flushed before close and before an update installs.</li>
+      <li>Legacy JSON files are backed up before import, with a concurrent old instance detected and the import retried.</li>
+    </ul>
+    <h3>How it was verified</h3>
+    <p>133 unit tests, an owner-run read-only count check comparing imported rows against the
+    original JSON, and a live check that drives the packaged app against a synthetic legacy
+    fixture through CDP.</p>
+
+    <hr>
+
+    <h2>B — Logging system <span class="pill done">built</span> <span class="pill warn">waiting at the gate</span></h2>
+    <p>Branch <code>feat/logging-system</code>, in the worktree
+    <code>C:\Users\venom\Desktop\venom-router-logging</code>. 37 commits ahead of <code>main</code>,
+    tree clean, 268 tests green, <code>verify:live</code> passing.
+    <b>Local only — the branch has never been pushed.</b></p>
+    <div class="meter" data-for="b"></div>
+    <div class="scale"><span>0%</span><span><b data-count="b">20 of 20</b></span><span>100%</span></div>
+    <details>
+      <summary>20 tasks, all done</summary>
+      <h3>Log database layer (<code>src/logs</code>)</h3>
+      <ul class="steps" data-group="b">
+        <li><input type="checkbox" id="b0" checked><label for="b0"><span>Schema v1, log settings and test helpers</span></label></li>
+        <li><input type="checkbox" id="b1" checked><label for="b1"><span><code>classify.js</code> — endpoint, model, usage, cost, status</span></label></li>
+        <li><input type="checkbox" id="b2" checked><label for="b2"><span><code>scrub.js</code> — substituted secrets out of stored text</span></label></li>
+        <li><input type="checkbox" id="b3" checked><label for="b3"><span><code>writer.js</code> — batched writes, hourly roll-ups, dropped counter</span></label></li>
+        <li><input type="checkbox" id="b4" checked><label for="b4"><span><code>retention.js</code> — chunked purge, stepped vacuum, scheduler</span></label></li>
+        <li><input type="checkbox" id="b5" checked><label for="b5"><span><code>query.js</code> — list, get, stats, facets, run summary, export, info, clear</span></label></li>
+        <li><input type="checkbox" id="b6" checked><label for="b6"><span><code>index.js</code> — open, pragmas, migrate, tryOpen, close</span></label></li>
+        <li><input type="checkbox" id="b7" checked><label for="b7"><span><code>ipc.js</code> — the eight <code>logs-*</code> channels</span></label></li>
+      </ul>
+      <h3>Capturing every request in main</h3>
+      <ul class="steps" data-group="b">
+        <li><input type="checkbox" id="b8" checked><label for="b8"><span><code>resolve()</code> reports the refs and substitutions it made</span></label></li>
+        <li><input type="checkbox" id="b9" checked><label for="b9"><span>History accepts the renderer's run id</span></label></li>
+        <li><input type="checkbox" id="b10" checked><label for="b10"><span><code>lookups.js</code> and <code>recorder.js</code> build each record</span></label></li>
+        <li><input type="checkbox" id="b11" checked><label for="b11"><span><code>api-request.js</code> — one ending per request, logged after the reply</span></label></li>
+        <li><input type="checkbox" id="b12" checked><label for="b12"><span>Data IPC hooks keep the main-side caches fresh</span></label></li>
+        <li><input type="checkbox" id="b13" checked><label for="b13"><span>Main wiring: requester, <code>startLogs</code>, logs IPC, quit order, smoke test, preload</span></label></li>
+      </ul>
+      <h3>Renderer: run ids, tags, cancel reasons, Settings</h3>
+      <ul class="steps" data-group="b">
+        <li><input type="checkbox" id="b14" checked><label for="b14"><span>ULID helper for run ids</span></label></li>
+        <li><input type="checkbox" id="b15" checked><label for="b15"><span>Route Test tags every request with run, attempt, hedge and test group</span></label></li>
+        <li><input type="checkbox" id="b16" checked><label for="b16"><span>Every other <code>apiRequest</code> call tagged; benchmark run ids and cancel reasons</span></label></li>
+        <li><input type="checkbox" id="b17" checked><label for="b17"><span>Settings copy, the new-install default and the logging-off warning</span></label></li>
+      </ul>
+      <h3>Live check and review round</h3>
+      <ul class="steps" data-group="b">
+        <li><input type="checkbox" id="b18" checked><label for="b18"><span>Live check of the request log on the synthetic fixture</span></label></li>
+        <li><input type="checkbox" id="b19" checked><label for="b19"><span>Review fixes: SQL-side facets and sums, purge scheduler, run-id capture, bounded tags</span></label></li>
+      </ul>
+    </details>
+    <h3>How it was verified</h3>
+    <p>268 unit tests over temp-directory databases, integration tests of the requester against
+    a local HTTP server (normal end, mid-stream cancel, timeout, dropped connection, blocked
+    request — exactly one record each), and a live check confirming a Route Test run writes
+    rows carrying the same run id as its history entry, with tokens and cost from the
+    provider's own usage and bodies scrubbed down to placeholders.</p>
+
+    <hr>
+
+    <h2>C — Log pages <span class="pill next">not started</span></h2>
+    <p>No spec, no plan, no branch. Scope: Request Log in the Test History slot, Runs, and
+    Monitoring, plus the retention settings the logging work deliberately left out.</p>
+    <div class="meter" data-for="c"></div>
+    <div class="scale"><span>0%</span><span><b data-count="c">0 of 27</b></span><span>100%</span></div>
+
+    <h3>Spec and plan</h3>
+    <ul class="steps" data-group="c">
+      <li><input type="checkbox" id="c0"><label for="c0"><span>Brainstorm the three pages — scope, layout, defaults</span></label></li>
+      <li><input type="checkbox" id="c1"><label for="c1"><span>Write the design spec</span></label></li>
+      <li><input type="checkbox" id="c2"><label for="c2"><span>Delegated spec review, apply the required changes</span></label></li>
+      <li><input type="checkbox" id="c3"><label for="c3"><span>Write the implementation plan, one task per commit</span></label></li>
+      <li><input type="checkbox" id="c4"><label for="c4"><span>Branch <code>feat/log-pages</code> in its own worktree</span></label></li>
+    </ul>
+
+    <h3>Request Log</h3>
+    <ul class="steps" data-group="c">
+      <li><input type="checkbox" id="c5"><label for="c5"><span>Request list in the Test History slot, keyset paging through <code>logs-list</code></span></label></li>
+      <li><input type="checkbox" id="c6"><label for="c6"><span>Filter bar from <code>logs-facets</code>: provider, model, source, status, dates, text</span></label></li>
+      <li><input type="checkbox" id="c7"><label for="c7"><span>Row detail drawer from <code>logs-get</code>: timings, tokens, cost, scrubbed body</span></label></li>
+      <li><input type="checkbox" id="c8"><label for="c8"><span>Live tail polls <code>logs-list</code> with <code>afterId</code>, ordered by id</span>
+        <span class="why">Never page a tail with <code>nextCursor</code> — an out-of-order clock reorders arrivals.</span></label></li>
+      <li><input type="checkbox" id="c9"><label for="c9"><span>Sort by latency, TTFT or cost</span>
+        <span class="why block">Gap: <code>logs-list</code> cannot sort yet. Needs a change on the logging branch.</span></label></li>
+      <li><input type="checkbox" id="c10"><label for="c10"><span>Retry-chain view keyed on <code>is_stream</code> and endpoint</span>
+        <span class="why">The non-stream and SSE-recovery copies share test group, attempt and hedge index 0.</span></label></li>
+      <li><input type="checkbox" id="c11"><label for="c11"><span>Export the current filter through <code>logs-export</code></span></label></li>
+    </ul>
+
+    <h3>Runs</h3>
+    <ul class="steps" data-group="c">
+      <li><input type="checkbox" id="c12"><label for="c12"><span>Runs listing</span>
+        <span class="why block">Gap: there is no <code>logs-runs</code> channel. It has to be added on the logging branch.</span></label></li>
+      <li><input type="checkbox" id="c13"><label for="c13"><span>Run summary cards from <code>logs-run-summary</code></span></label></li>
+      <li><input type="checkbox" id="c14"><label for="c14"><span>Add p50, median TTFT and pass rate to the summary</span>
+        <span class="why block">Gap: another addition on the logging branch.</span></label></li>
+      <li><input type="checkbox" id="c15"><label for="c15"><span>Link benchmark results to their log rows through the run id stored in the benchmark JSON</span></label></li>
+      <li><input type="checkbox" id="c16"><label for="c16"><span>Drill from a run into the Request Log, already filtered</span></label></li>
+    </ul>
+
+    <h3>Monitoring</h3>
+    <ul class="steps" data-group="c">
+      <li><input type="checkbox" id="c17"><label for="c17"><span>Charts from <code>logs-stats</code> — hour or day buckets, grouped by source, provider, model or error class</span></label></li>
+      <li><input type="checkbox" id="c18"><label for="c18"><span>Keep the default range short, or guard it</span>
+        <span class="why">Grouping by model over twelve months costs about 1.4 s on the main thread.</span></label></li>
+      <li><input type="checkbox" id="c19"><label for="c19"><span>Render a fallback when a provider name comes back null</span>
+        <span class="why">Facets read the hourly roll-ups; past 90 days the raw rows that carry the name are gone.</span></label></li>
+      <li><input type="checkbox" id="c20"><label for="c20"><span>Map the unknown provider the same way everywhere</span>
+        <span class="why">Empty string in the roll-ups, NULL in the rows.</span></label></li>
+    </ul>
+
+    <h3>Settings and maintenance</h3>
+    <ul class="steps" data-group="c">
+      <li><input type="checkbox" id="c21"><label for="c21"><span>Retention settings: 90 days of rows, 7 days of bodies, 12 months of roll-ups</span></label></li>
+      <li><input type="checkbox" id="c22"><label for="c22"><span>Clear the log with a visible progress state</span></label></li>
+      <li><input type="checkbox" id="c23"><label for="c23"><span>Log health panel from <code>logs-info</code>: path, size, rows, oldest row, dropped rows, last purge</span></label></li>
+    </ul>
+
+    <h3>Verification</h3>
+    <ul class="steps" data-group="c">
+      <li><input type="checkbox" id="c24"><label for="c24"><span>Unit tests per page module</span></label></li>
+      <li><input type="checkbox" id="c25"><label for="c25"><span>Live check driving the real app against the synthetic fixture</span></label></li>
+      <li><input type="checkbox" id="c26"><label for="c26"><span>A reviewer after each task, then a whole-branch review</span></label></li>
+    </ul>
+
+    <hr>
+
+    <h2>M — Merge gate <span class="pill warn">blocked by C</span></h2>
+    <p>The owner's rule: logging and the log pages land in one merge, never separately.</p>
+    <div class="meter" data-for="m"></div>
+    <div class="scale"><span>0%</span><span><b data-count="m">0 of 5</b></span><span>100%</span></div>
+    <ul class="steps" data-group="m">
+      <li><input type="checkbox" id="m0"><label for="m0"><span>Log pages implemented and reviewed on their own branch</span></label></li>
+      <li><input type="checkbox" id="m1"><label for="m1"><span>Rebase <code>feat/logging-system</code> onto current <code>main</code></span></label></li>
+      <li><input type="checkbox" id="m2"><label for="m2"><span>Full suite and <code>npm run verify:live</code> green on the merged tree</span></label></li>
+      <li><input type="checkbox" id="m3"><label for="m3"><span>One merge of logging and the log pages into <code>main</code></span></label></li>
+      <li><input type="checkbox" id="m4"><label for="m4"><span>Remove the <code>venom-router-logging</code> worktree</span></label></li>
+    </ul>
+
+    <hr>
+
+    <h2>R — Release <span class="pill next">not started</span></h2>
+    <p><code>main</code> is 61 commits past tag <code>v1.4.1</code>; the rebrand and the database
+    work still sit under Unreleased in the changelog.</p>
+    <div class="meter" data-for="r"></div>
+    <div class="scale"><span>0%</span><span><b data-count="r">0 of 6</b></span><span>100%</span></div>
+    <ul class="steps" data-group="r">
+      <li><input type="checkbox" id="r0"><label for="r0"><span>Fold the logging and log-page notes into <code>CHANGELOG.md</code></span></label></li>
+      <li><input type="checkbox" id="r1"><label for="r1"><span>Move Unreleased to the new dated version heading</span></label></li>
+      <li><input type="checkbox" id="r2"><label for="r2"><span>Bump the version in <code>package.json</code> and commit</span></label></li>
+      <li><input type="checkbox" id="r3"><label for="r3"><span><code>npm test</code> and <code>npm run verify:live</code> green</span></label></li>
+      <li><input type="checkbox" id="r4"><label for="r4"><span><code>npm run release</code> — smoke-tests the build, tags, publishes, uploads</span></label></li>
+      <li><input type="checkbox" id="r5"><label for="r5"><span>Confirm auto-update picks the release up</span></label></li>
+    </ul>
+  </section>
+
+  <!-- ─────────────── ATTENTION ─────────────── -->
+  <section class="pane" id="att">
+    <h2>Waiting on Venom</h2>
+    <ol>
+      <li><b>Start workstream C.</b> Brainstorm the three pages, then write
+        <code>docs/superpowers/specs/&lt;date&gt;-log-pages-design.md</code> and send it to a
+        delegated reviewer. Nothing else in the project can move until this exists — C blocks
+        the merge gate, which blocks the release.</li>
+      <li><b>Rule on the three query-API gaps.</b> The log pages need a <code>logs-runs</code>
+        listing, sorting by latency/TTFT/cost, and p50 plus median TTFT plus pass rate in the run
+        summary. None of them exist. Decide: add them to <code>feat/logging-system</code> before
+        the merge, or build C against what is there and patch after. Building against a moving
+        API is the expensive answer.</li>
+      <li><b>Push the logging branch.</b> Thirty-seven commits, 268 passing tests and four days of
+        work exist on one disk with no remote copy. One command fixes it.</li>
+    </ol>
+
+    <h2>Automatic once those land</h2>
+    <ul>
+      <li><code>npm run release</code> handles the whole publish chain by itself: it smoke-tests
+        the packaged build, creates the tag on the remote, publishes the release with its notes
+        read out of the changelog, then uploads the installers made from that same tested build.</li>
+      <li>Installed copies pick the release up through electron-updater without anyone being told.</li>
+      <li>This page rebuilds on GitHub Pages within a minute of a push to <code>main</code>.</li>
+    </ul>
+
+    <h2>Waiting on others</h2>
+    <p>Nobody. This is a one-person project with no external dependency, no review queue and no
+    third party to chase.</p>
+  </section>
+
+  <!-- ─────────────── BACKGROUND ─────────────── -->
+  <section class="pane" id="bg">
+    <div class="callout">If you only read one tab, read this one — it is the context the rest assumes.</div>
+
+    <h2>What the app is</h2>
+    <p>VENOM Router (called Upstream Checker until this month) is a Windows desktop app that
+    holds API keys for many model providers and sends requests through whichever key and model
+    the owner picks. It tests keys, tracks quotas, benchmarks models and keeps a history of runs.
+    One person uses it, on their own data, every day.</p>
+
+    <h2>The problem Phase 2 fixes</h2>
+    <p>Everything was stored in flat JSON files that the renderer read and wrote through IPC. An
+    audit found six ways that lost data. The worst: if reading <code>config.json</code> failed for
+    any reason — a corrupt file, antivirus holding a lock, a zero-byte file after a power cut —
+    the app treated it as an empty config, seeded the default providers and wrote them back,
+    destroying every stored key. Closing the window did the same thing a second way. On top of
+    that, two IPC calls doing read-modify-write lost concurrent updates, the 300 KB catalogue was
+    rewritten whole on every sync, write failures were silent, and keys were decrypted on every
+    read and handed to the renderer in plain text.</p>
+
+    <h2>Key ideas</h2>
+    <p><b>Two databases, not one.</b> <code>venom.db</code> holds configuration, the catalogue,
+    keys and run history. <code>venom-logs.db</code> holds the request log. They are separate so
+    that a log that grows to gigabytes, or fails to open at all, never puts the app's real data at
+    risk — if the log database will not open, logging switches off and the app carries on.</p>
+    <p><b>Placeholders instead of secrets.</b> The renderer never receives a key. It receives a
+    placeholder string and a display hint like the last four characters. When a request goes out,
+    the main process swaps the placeholder for the real secret, and only if the request's origin
+    matches the key's own. The log then records which placeholder was used, never the secret.</p>
+    <p><b>Raw rows and roll-ups.</b> Every request writes a row. In parallel, counters are folded
+    into an hourly summary table. Charts read the summaries, which stay cheap for ever; detail
+    views read the rows, which are purged after 90 days. Bodies are the most expensive and the
+    most sensitive part, so only failed requests keep one, for seven days.</p>
+    <p><b>One ending per request.</b> A request can finish by completing, timing out, being
+    cancelled mid-stream, or having its connection dropped — and more than one of those can fire.
+    The requester was rewritten so exactly one of them wins and exactly one log row is written.</p>
+  </section>
+
+  <!-- ─────────────── PLAN ─────────────── -->
+  <section class="pane" id="plan">
+    <h2>Approach</h2>
+    <p>Phase 2 was split into three sub-projects rather than built as one change, because each
+    one has a different risk. A is a storage migration on live data — the dangerous part, done
+    first and alone so it could be verified against real files before anything was layered on
+    it. B is additive: a new database, a new writer, new channels, and an app that still works
+    if the whole thing fails to start. C is user interface over an API that already exists and
+    is already tested.</p>
+    <p>Each sub-project got its own design spec, its own plan with one commit per task, and its
+    own branch in a separate worktree, so the owner's checkout stays on <code>main</code> and
+    stays runnable while work is in flight.</p>
+
+    <h2>Why B and C merge together</h2>
+    <p>Shipping the logging system alone would put a database, a background writer and a purge
+    scheduler into the app with no way for the owner to see any of it — cost with no benefit, and
+    a new failure surface no one would notice. Holding B until C is ready also means C's real
+    needs can still change B's query API, which is exactly what happened: three gaps in that API
+    only became visible once the pages were thought through.</p>
+
+    <h2>Phases</h2>
+    <div class="scroll"><table>
+      <tr><th style="width:150px">Phase</th><th>Goal</th><th style="width:150px">Depends on</th></tr>
+      <tr><td>A — database</td><td>Stop losing data, get the keys out of the renderer</td><td>—</td></tr>
+      <tr><td>B — logging</td><td>Record every request with benchmark-grade detail, and keep it bounded</td><td>after A</td></tr>
+      <tr><td>C — log pages</td><td>Make the record readable and the retention adjustable</td><td>after B</td></tr>
+      <tr><td>M — merge</td><td>One merge so users get logging and its pages together</td><td>after C</td></tr>
+      <tr><td>R — release</td><td>One version carrying the rebrand, the database, the log and its pages</td><td>after M</td></tr>
+    </table></div>
+  </section>
+
+  <!-- ─────────────── RISKS ─────────────── -->
+  <section class="pane" id="risk">
+    <h2>Risks</h2>
+    <div class="scroll"><table>
+      <tr><th>Risk</th><th style="width:130px">Likelihood / impact</th><th>Mitigation</th><th style="width:100px">Owner</th></tr>
+      <tr><td>The logging branch exists on one machine only — never pushed</td><td>Low / severe</td><td>Push it. Four days of finished work currently has no second copy.</td><td>Venom</td></tr>
+      <tr><td>The branch drifts from <code>main</code></td><td>High / medium</td><td>Already 37 commits out, and <code>main</code> keeps moving. Rebase early rather than at merge time.</td><td>Venom</td></tr>
+      <tr><td>The three query-API gaps force changes to B while C is being built</td><td>High / medium</td><td>Settle them in C's spec and land them on the logging branch before C starts.</td><td>Venom</td></tr>
+      <tr><td>Monitoring stalls the UI on wide ranges</td><td>Medium / low</td><td>Grouping by model over twelve months costs ~1.4 s on the main thread. Keep default ranges short, or guard the query.</td><td>Venom</td></tr>
+      <tr><td>Unknown provider is represented two ways</td><td>Medium / low</td><td>Empty string in roll-ups, NULL in rows — filters will silently miss rows. Map it once, in C's data layer.</td><td>Venom</td></tr>
+      <tr><td>The release carries a rebrand and a storage migration at once</td><td>Medium / high</td><td>Both already have live checks against real and synthetic data; the data-folder move retries rather than forcing when an old instance is running.</td><td>Venom</td></tr>
+    </table></div>
+
+    <h4 style="color:var(--red)">⚠ The honest caveat</h4>
+    <p>The logging system is proven by 268 tests and one scripted live check — not by use. It has
+    never run for a week against the owner's real traffic, which is where a batched writer, an
+    hourly roll-up and a purge scheduler usually reveal their problems. The gate that holds it
+    for the log pages is also, by accident, the thing preventing that soak. Running the branch
+    day to day while C is being written would buy real confidence cheaply.</p>
+
+    <h2>Open questions</h2>
+    <ul>
+      <li>Does the Request Log replace Test History outright, or sit beside it? The plan puts it
+        in that slot, but run history and request log are not the same thing.</li>
+      <li>Are the retention defaults right for one person's real usage — 90 days of rows, 7 days of
+        failed bodies, 12 months of roll-ups — or should the log keep more and the bodies less?</li>
+      <li>Does Monitoring need a live tail, or is that only a Request Log feature?</li>
+      <li>Do the three query-API gaps go onto the logging branch before C, or after? Open, and
+        the first thing C's spec has to settle.</li>
+    </ul>
+  </section>
+
+  <!-- ─────────────── FAQ ─────────────── -->
+  <section class="pane" id="faq">
+    <h3>Why is finished, tested work sitting unmerged?</h3>
+    <p>Because on its own it would ship a database, a background writer and a purge scheduler
+    with nothing in the app that reads them. The owner decided the logging system and the pages
+    that display it reach users in the same release. That decision is also why three gaps in the
+    query API were caught before they shipped rather than after.</p>
+
+    <h3>Why SQLite instead of fixing the JSON files?</h3>
+    <p>Most of the data loss came from the shape of flat files, not from bugs on top of them:
+    whole-file rewrites, read-modify-write across two IPC calls, and a failed read that is
+    indistinguishable from an empty file. Transactions and a schema remove the whole class.
+    The engine is pinned and runs only in the main process.</p>
+
+    <h3>Why do the keys stay in the main process?</h3>
+    <p>So a renderer bug, an extension or a stray log line cannot leak one. The renderer works
+    with placeholders; the main process substitutes the real secret per request, and only when
+    the request's origin matches the key's own. Opaque-origin matches are refused outright.</p>
+
+    <h3>Why not release the rebrand now and the rest later?</h3>
+    <p>The rebrand moves the app's data folder. Shipping that alone, then shipping a storage
+    migration a week later, gives every install two risky upgrades instead of one. They ride
+    together, behind one smoke-tested build.</p>
+
+    <h3>What does done look like?</h3>
+    <p>One published version in which the owner opens the app, clicks Request Log, sees every
+    request the app has made with its cost and timing, filters to the failures, reads a scrubbed
+    body, and adjusts how long any of it is kept — on a data folder that has survived the move
+    from the old name with every key intact.</p>
+  </section>
+
+</main>
+
+<script type="application/json" id="artifact-state">
+{"as_of": "2026-09-26 23:51 UTC",
+ "project": "venom-router-phase-2",
+ "totals": {"steps": 58, "done": 20},
+ "refs": {"main": "bff4dd0", "logging_branch": "68bd6de", "logging_ahead": 37, "last_tag": "v1.4.1"},
+ "workstreams": [
+  {"id": "A", "name": "Local database", "status": "merged", "owner": "Venom", "steps": 0, "done": 0, "ref": "16b9f89"},
+  {"id": "B", "name": "Logging system", "status": "built-gated", "owner": "Venom", "steps": 20, "done": 20, "branch": "feat/logging-system", "pushed": false},
+  {"id": "C", "name": "Log pages", "status": "not-started", "owner": "Venom", "steps": 27, "done": 0},
+  {"id": "M", "name": "Merge gate", "status": "blocked", "owner": "Venom", "steps": 5, "done": 0, "blocked_by": "C"},
+  {"id": "R", "name": "Release", "status": "not-started", "owner": "Venom", "steps": 6, "done": 0}
+ ]}
+</script>
+
 <script>
-const PHASES = [
-  {
-    id: 'A', key: 'db', name: 'Local database', state: 'merged',
-    badge: 'Merged',
-    where: 'Merged into <code>main</code> at 16b9f89. 133 tests green.',
-    groups: [{
-      title: 'Shipped',
-      steps: [
-        { t: 'SQLite store replaces config.json, catalog.json and history.json', done: true },
-        { t: 'API keys stay in the main process; the renderer only sees placeholders', done: true },
-        { t: 'Every data-loss path the audit found is closed', done: true },
-        { t: 'Single-instance lock per data folder', done: true },
-        { t: 'Pending saves flush before close and before an update installs', done: true },
-        { t: 'Legacy JSON files backed up, then imported', done: true }
-      ]
-    }]
-  },
-  {
-    id: 'B', key: 'logs', name: 'Logging system', state: 'held',
-    badge: 'Built, waiting',
-    where: 'Branch <code>feat/logging-system</code> in <code>C:\\Users\\venom\\Desktop\\venom-router-logging</code> — 37 commits ahead, tree clean, 268 tests green.',
-    groups: [
-      {
-        title: 'Log database layer (src/logs)',
-        steps: [
-          { t: 'Schema v1, log settings and test helpers', done: true },
-          { t: 'classify.js — endpoint, model, usage, cost, status', done: true },
-          { t: 'scrub.js — substituted secrets out of stored text', done: true },
-          { t: 'writer.js — batched writes, roll-ups, dropped counter', done: true },
-          { t: 'retention.js — chunked purge, stepped vacuum, scheduler', done: true },
-          { t: 'query.js — list, get, stats, facets, run summary, export, info, clear', done: true },
-          { t: 'index.js — open, pragmas, migrate, tryOpen, close', done: true },
-          { t: 'ipc.js — the eight logs-* channels', done: true }
-        ]
-      },
-      {
-        title: 'Capturing every request in main',
-        steps: [
-          { t: 'resolve() reports the refs and substitutions it made', done: true },
-          { t: 'History accepts the renderer\u2019s run id', done: true },
-          { t: 'lookups.js and recorder.js build each record', done: true },
-          { t: 'api-request.js — one ending per request, logged after the reply', done: true },
-          { t: 'Data IPC hooks keep the main-side caches fresh', done: true },
-          { t: 'Main wiring: requester, startLogs, logs IPC, quit order, smoke test, preload', done: true }
-        ]
-      },
-      {
-        title: 'Renderer: run ids, tags, cancel reasons, Settings',
-        steps: [
-          { t: 'ULID helper for run ids', done: true },
-          { t: 'Route Test tags every request with run, attempt, hedge and test group', done: true },
-          { t: 'Every other apiRequest call tagged; benchmark run ids and cancel reasons', done: true },
-          { t: 'Settings copy, the new-install default and the logging-off warning', done: true }
-        ]
-      },
-      {
-        title: 'Live check and review round',
-        steps: [
-          { t: 'Live check of the request log on the synthetic fixture', done: true },
-          { t: 'Review fixes: SQL-side facets and sums, purge scheduler, run-id capture, bounded tags', done: true }
-        ]
-      }
-    ]
-  },
-  {
-    id: 'C', key: 'pages', name: 'Log pages', state: 'open',
-    badge: 'Not started',
-    where: 'No spec, no plan, no branch yet. Scope: Request Log (in the Test History slot), Runs, Monitoring.',
-    groups: [
-      {
-        title: 'Spec and plan',
-        steps: [
-          { t: 'Brainstorm the three pages with the owner — scope, layout, defaults' },
-          { t: 'Write the design spec' },
-          { t: 'Delegated spec review, apply the required changes' },
-          { t: 'Write the implementation plan, one task per commit' },
-          { t: 'Branch feat/log-pages in its own worktree' }
-        ]
-      },
-      {
-        title: 'Request Log',
-        steps: [
-          { t: 'Request list in the Test History slot, keyset paging through logs-list' },
-          { t: 'Filter bar from logs-facets: provider, model, source, status, dates, text' },
-          { t: 'Row detail drawer from logs-get: timings, tokens, cost, scrubbed body' },
-          { t: 'Live tail polls logs-list with afterId, ordered by id', note: 'Never page a tail with nextCursor — a stale clock reorders arrivals.' },
-          { t: 'Sort by latency, TTFT or cost', blocks: 1, note: 'logs-list cannot sort yet — needs a change on the B side.' },
-          { t: 'Retry-chain view keyed on is_stream and endpoint', note: 'Non-stream and SSE-recovery copies share testGroup, attempt and hedgeIndex 0.' },
-          { t: 'Export the current filter through logs-export' }
-        ]
-      },
-      {
-        title: 'Runs',
-        steps: [
-          { t: 'Runs listing', blocks: 1, note: 'There is no logs-runs channel — it has to be added on the B side.' },
-          { t: 'Run summary cards from logs-run-summary' },
-          { t: 'Add p50, median TTFT and pass rate to the summary', blocks: 1, note: 'Another B-side addition.' },
-          { t: 'Link benchmark results to their log rows through the run id in bench_json' },
-          { t: 'Drill from a run into the Request Log, already filtered' }
-        ]
-      },
-      {
-        title: 'Monitoring',
-        steps: [
-          { t: 'Charts from logs-stats — hour or day buckets, grouped by source, provider, model or error class' },
-          { t: 'Keep the default range short, or guard it', note: 'Grouping by model over 12 months costs about 1.4 s on the main thread.' },
-          { t: 'Render a fallback when a provider name comes back null', note: 'Facets read usage_hourly; past 90 days the raw rows are gone.' },
-          { t: 'Map the unknown provider the same way everywhere', note: 'Empty string in the roll-ups, NULL in the rows.' }
-        ]
-      },
-      {
-        title: 'Settings and maintenance',
-        steps: [
-          { t: 'Retention settings: 90 days of rows, 7 days of bodies, 12 months of roll-ups' },
-          { t: 'Clear the log with a visible progress state' },
-          { t: 'Log health panel from logs-info: path, size, rows, oldest row, dropped rows, last purge' }
-        ]
-      },
-      {
-        title: 'Verification',
-        steps: [
-          { t: 'Unit tests per page module' },
-          { t: 'Live check driving the real app against the synthetic fixture' },
-          { t: 'A reviewer after each task, then a whole-branch review' }
-        ]
-      }
-    ]
-  },
-  {
-    id: 'M', key: 'gate', name: 'Merge gate', state: 'open',
-    badge: 'Blocked by C',
-    where: 'The owner\u2019s rule: logging and the log pages land in one merge, never separately.',
-    groups: [{
-      title: 'One merge for B and C',
-      steps: [
-        { t: 'Log pages implemented and reviewed on their own branch' },
-        { t: 'Rebase feat/logging-system onto current main' },
-        { t: 'Full suite and npm run verify:live green on the merged tree' },
-        { t: 'Single merge of logging and the log pages into main' },
-        { t: 'Remove the venom-router-logging worktree' }
-      ]
-    }]
-  },
-  {
-    id: 'R', key: 'release', name: 'Release', state: 'open',
-    badge: 'Not started',
-    where: '<code>main</code> is 60 commits past tag v1.4.1; the rebrand and the database work still sit under Unreleased.',
-    groups: [{
-      title: 'Cut the version',
-      steps: [
-        { t: 'Fold the logging and log-page notes into CHANGELOG.md' },
-        { t: 'Move Unreleased to the new dated version heading' },
-        { t: 'Bump version in package.json and commit' },
-        { t: 'npm test and npm run verify:live green' },
-        { t: 'npm run release — smoke-tests the build, tags, publishes, uploads' },
-        { t: 'Confirm auto-update picks the release up' }
-      ]
-    }]
-  }
-];
+function goTab(id){
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.pane === id));
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('active', p.id === id));
+}
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => goTab(t.dataset.pane)));
 
-const FOLLOWUPS = {
-  title: 'Follow-ups, not blocking the release',
-  steps: [
-    { t: 'Scrub provider-echoed keys out of responses shown to the renderer', note: 'Stored log text is already scrubbed. Commit f35d20d was reverted and is the starting point.' },
-    { t: 'Remove the stale worktree .kilo/worktrees/animated-barnyard', note: 'Its commit is an ancestor of main, so nothing is lost.' }
-  ]
+// Step meters: one cell per checkbox, counted from the checkboxes themselves so a bar
+// can never disagree with its list. Ticks persist when the page has storage.
+const KEY = 'venom-phase2-steps';
+const safe = {
+  read(){ try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { return {}; } },
+  write(v){ try { localStorage.setItem(KEY, JSON.stringify(v)); } catch { /* no storage */ } }
 };
+const saved = safe.read();
+document.querySelectorAll('ul.steps input').forEach(b => { if (b.id in saved) b.checked = saved[b.id]; });
 
-// Ticks persist when the page has storage. Opened straight from a data: URL it
-// has none, so every call is wrapped: the page still works, it just forgets.
-const STORE = 'venom-phase2-index';
-const store = {
-  read() { try { return JSON.parse(localStorage.getItem(STORE) || '{}'); } catch { return {}; } },
-  write(v) { try { localStorage.setItem(STORE, JSON.stringify(v)); } catch { /* no storage */ } },
-  clear() { try { localStorage.removeItem(STORE); } catch { /* no storage */ } }
-};
-let ticked = store.read();
+function boxes(group){ return [...document.querySelectorAll(`ul.steps[data-group="${group}"] input`)]; }
 
-const isDone = (id, seed) => (id in ticked ? ticked[id] : !!seed);
-
-/* Build the DOM ----------------------------------------------------- */
-
-const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-const phasesEl = document.getElementById('phases');
-const pipeEl = document.getElementById('pipe');
-
-PHASES.forEach((p) => {
-  let n = 0;
-  p.groups.forEach((g) => g.steps.forEach((s) => { s.id = `${p.key}.${n++}`; }));
-
-  const section = document.createElement('section');
-  section.className = 'phase';
-  section.dataset.state = p.state;
-  section.dataset.phase = p.key;
-
-  const total = n;
-  section.innerHTML = `
-    <div class="phase-head">
-      <div>
-        <h2><span class="letter">${p.id}</span>${esc(p.name)}</h2>
-        <p class="where">${p.where}</p>
-      </div>
-      <span class="state" data-s="${p.state}">${esc(p.badge)}</span>
-    </div>
-    <div class="meter">
-      <div class="meter-cells" role="img" aria-label="${esc(p.name)} progress"></div>
-      <div class="meter-scale"><span>0%</span><span class="now">0 of ${total}</span><span>100%</span></div>
-    </div>`;
-
-  const cells = section.querySelector('.meter-cells');
-  for (let i = 0; i < total; i++) cells.appendChild(document.createElement('div')).className = 'cell';
-
-  // Finished phases fold away: the page is about what is still open.
-  const folded = p.state !== 'open';
-  let host = section;
-  if (folded) {
-    const fold = document.createElement('details');
-    fold.className = 'fold';
-    fold.innerHTML = `<summary>${total} tasks, all done</summary>`;
-    section.appendChild(fold);
-    host = fold;
-  }
-
-  p.groups.forEach((g) => {
-    const box = document.createElement('div');
-    box.className = 'group';
-    const list = g.steps.map((s) => `
-      <li>
-        <label>
-          <input type="checkbox" data-id="${s.id}" ${isDone(s.id, s.done) ? 'checked' : ''}>
-          <span>${esc(s.t)}</span>
-        </label>
-        ${s.note ? `<span class="note${s.blocks ? '' : ' plain'}">${esc(s.note)}</span>` : ''}
-      </li>`).join('');
-    box.innerHTML = `<h3>${esc(g.title)}<span class="count">${g.steps.length}</span></h3>
-      <ul class="steps">${list}</ul>`;
-    host.appendChild(box);
-  });
-
-  phasesEl.appendChild(section);
-
-  const seg = document.createElement('div');
-  seg.className = 'seg';
-  seg.dataset.state = p.state;
-  seg.dataset.phase = p.key;
-  seg.style.flexGrow = String(total);
-  seg.innerHTML = `<span class="fill"></span><span class="tag">${p.id} ${esc(p.name)}</span>`;
-  pipeEl.appendChild(seg);
+document.querySelectorAll('.meter').forEach(m => {
+  const all = boxes(m.dataset.for);
+  all.forEach(() => m.appendChild(document.createElement('i')));
 });
 
-/* Follow-ups sit outside the count ---------------------------------- */
-
-const extra = document.createElement('section');
-extra.className = 'phase';
-extra.dataset.state = 'open';
-extra.innerHTML = `
-  <div class="phase-head">
-    <div><h2><span class="letter">+</span>Loose ends</h2>
-    <p class="where">Worth doing, but nothing below holds the release.</p></div>
-  </div>
-  <div class="group">
-    <ul class="steps">${FOLLOWUPS.steps.map((s, i) => `
-      <li>
-        <label>
-          <input type="checkbox" data-id="extra.${i}" data-uncounted="1" ${isDone(`extra.${i}`, false) ? 'checked' : ''}>
-          <span>${esc(s.t)}</span>
-        </label>
-        <span class="note plain">${esc(s.note)}</span>
-      </li>`).join('')}</ul>
-  </div>`;
-phasesEl.appendChild(extra);
-
-/* Recount ------------------------------------------------------------ */
-
-function recount(animate) {
-  let allDone = 0, allTotal = 0;
-
-  document.querySelectorAll('.phase[data-phase]').forEach((section) => {
-    const boxes = [...section.querySelectorAll('input[type="checkbox"]')];
-    const done = boxes.filter((b) => b.checked).length;
-    const cells = section.querySelectorAll('.cell');
-    cells.forEach((c, i) => { c.dataset.done = i < done ? '1' : '0'; });
-    section.querySelector('.now').textContent = `${done} of ${boxes.length}`;
-
-    const seg = pipeEl.querySelector(`.seg[data-phase="${section.dataset.phase}"] .fill`);
-    const pct = boxes.length ? (done / boxes.length) * 100 : 0;
-    if (animate) requestAnimationFrame(() => { seg.style.width = pct + '%'; });
-    else seg.style.width = pct + '%';
-
-    allDone += done;
-    allTotal += boxes.length;
+function paint(){
+  document.querySelectorAll('.meter').forEach(m => {
+    const group = m.dataset.for;
+    const all = boxes(group);
+    const done = all.filter(b => b.checked).length;
+    [...m.children].forEach((c, i) => c.classList.toggle('on', i < done));
+    const out = document.querySelector(`[data-count="${group}"]`);
+    if (out) out.textContent = `${done} of ${all.length}`;
   });
-
-  const pct = allTotal ? Math.round((allDone / allTotal) * 100) : 0;
-  document.getElementById('overall-pct').textContent = pct + '%';
-  document.getElementById('overall-of').textContent = `${allDone} of ${allTotal} steps across five phases`;
 }
 
-document.addEventListener('change', (e) => {
-  const box = e.target.closest('input[type="checkbox"]');
-  if (!box) return;
-  ticked[box.dataset.id] = box.checked;
-  store.write(ticked);
-  recount(false);
+document.addEventListener('change', e => {
+  const b = e.target.closest('ul.steps input');
+  if (!b) return;
+  saved[b.id] = b.checked;
+  safe.write(saved);
+  paint();
 });
 
-document.getElementById('reset').addEventListener('click', () => {
-  ticked = {};
-  store.clear();
-  document.querySelectorAll('input[type="checkbox"]').forEach((b) => {
-    const phase = PHASES.find((p) => b.dataset.id && b.dataset.id.startsWith(p.key + '.'));
-    let seed = false;
-    if (phase) {
-      const all = phase.groups.flatMap((g) => g.steps);
-      const step = all.find((s) => s.id === b.dataset.id);
-      seed = !!(step && step.done);
-    }
-    b.checked = seed;
-  });
-  recount(false);
-});
-
-recount(true);
+paint();
 </script>
+
 </body>
 </html>
