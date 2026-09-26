@@ -5,7 +5,6 @@ const http = require('http');
 const fs = require('fs');
 const log = require('electron-log');
 const { resolveUserDataDir } = require('./user-data');
-const database = require('./db');
 const { createCipher } = require('./db/cipher');
 const { importLegacy, listImportedFiles, describeImportWarnings, needsReimportPrompt, FILES } = require('./db/import-json');
 const { registerDataIpc } = require('./db/ipc');
@@ -42,9 +41,14 @@ function showStartupError(message, detail) {
 
 async function startDatabase() {
   const dir = app.getPath('userData');
-  const dbPath = path.join(dir, database.DB_FILE);
   const cipher = createCipher(safeStorage);
+  let dbPath = dir;
   try {
+    // Required here, not at module load: a native-module/ABI mismatch throws
+    // on require, and this way it goes through showStartupError below instead
+    // of Electron's generic crash box.
+    const database = require('./db');
+    dbPath = path.join(dir, database.DB_FILE);
     store = await database.open(dir, { cipher, log });
     store.repos.meta.set('app_version', app.getVersion());
   } catch (err) {
@@ -78,9 +82,18 @@ async function startDatabase() {
       detail: `It may have been deleted or moved. The files from the earlier import are still in\n${dir}:\n\n${saved.join('\n')}\n\nRe-import them, or start with no providers, keys or history.`,
       buttons: ['Re-import from the saved files', 'Start empty'],
       defaultId: 0,
-      cancelId: 1,
+      // Neither button's index, so Esc/the dialog's own close button is
+      // distinguishable from an explicit "Start empty" click below.
+      cancelId: 2,
       noLink: true,
     });
+    if (choice === 2) {
+      // Dismissed without deciding: quit without writing anything, so the
+      // offer comes back on the next launch instead of being lost to 'none'.
+      store.close();
+      store = null;
+      return false;
+    }
     if (choice === 0) source = 'imported';
   }
 
@@ -254,12 +267,23 @@ app.whenReady().then(async () => {
     app.quit();
     return;
   }
-  // Keys still reach the renderer as plaintext here; they stay in main once
-  // the renderer works with placeholders.
-  registerDataIpc({ ipcMain, repos: store.repos, log, plaintextKeys: true });
-  initAutoUpdater();
-  createWindow();
-  startUpdateChecks();
+  try {
+    // Keys still reach the renderer as plaintext here; they stay in main once
+    // the renderer works with placeholders.
+    registerDataIpc({ ipcMain, repos: store.repos, log, plaintextKeys: true });
+    initAutoUpdater();
+    createWindow();
+    startUpdateChecks();
+  } catch (err) {
+    // No windowless process may stay alive holding venom.db open.
+    log.error('Startup failed after opening venom.db:', err);
+    showStartupError('VENOM Router could not start, so it will close. Nothing was changed.', err.message);
+    if (store) {
+      store.close();
+      store = null;
+    }
+    app.quit();
+  }
 });
 
 app.on('will-quit', () => {
