@@ -50,8 +50,10 @@ function open(dir, { log = console, migrations = MIGRATIONS, writerOptions = {} 
   const file = dir === ':memory:' ? ':memory:' : path.join(dir, LOGS_FILE);
   const db = new Database(file);
   try {
-    // The version is read before any pragma that writes (journal_mode=WAL
-    // rewrites the header at once), so a newer schema is refused untouched.
+    // busy_timeout precedes the version read because it writes nothing to
+    // the file; the version is read before any pragma that does write
+    // (journal_mode=WAL rewrites the header at once), so a newer schema is
+    // refused untouched.
     db.pragma('busy_timeout = 5000');
     const found = db.pragma('user_version', { simple: true });
     const known = latestVersion(migrations);

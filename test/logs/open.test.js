@@ -65,10 +65,14 @@ test('a migration that throws rolls back and leaves the version', (t) => {
 
 test('downgrade guard: a newer schema is refused and the file is not written', (t) => {
   const dir = tempDir(t);
-  const first = logsDb.open(dir, opts);
-  first.db.pragma('user_version = 9');
-  first.close();
   const file = path.join(dir, 'venom-logs.db');
+  // Plain fixture, default DELETE journal (no WAL): if the guard ran after
+  // the journal_mode switch, that switch alone would rewrite the file and
+  // this test would pass for the wrong reason.
+  const fixture = new Database(file);
+  fixture.exec('CREATE TABLE placeholder (x INTEGER)');
+  fixture.pragma('user_version = 9');
+  fixture.close();
   const before = fs.readFileSync(file);
   assert.throws(() => logsDb.open(dir, opts), (err) => err.code === 'LOGS_DB_TOO_NEW');
   assert.strictEqual(Buffer.compare(before, fs.readFileSync(file)), 0);
