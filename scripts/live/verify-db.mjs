@@ -6,7 +6,7 @@
 // URLs on a local mock), launches a separate VENOM Router on it over CDP,
 // checks the import and what survives a restart, then deletes the folder.
 // The owner's data folder is never read.
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { launch } from './cdp.mjs';
@@ -79,6 +79,53 @@ async function checkImport({ app, dir, mock, fixture }) {
   check('locked, orphaned and disabled keys were never sent', leaked.length === 0, leaked.map((r) => r.url).join(', '));
 }
 
+// ---- keys stay in main ----------------------------------------------------------
+
+async function checkKeysStayInMain({ app, dir, mock }) {
+  const s = await app.evaluate(`(async () => {
+    const cfg = await window.electronAPI.readConfig();
+    const keys = Object.values(PROVIDERS).flatMap((p) => p.keys);
+    const blocked = await window.electronAPI.apiRequest({
+      url: 'http://localhost:${FIXTURE.port}/steal/models', method: 'GET',
+      headers: { Authorization: 'Bearer venomkey:k_dark_1' },
+    });
+    const sent = await window.electronAPI.apiRequest({
+      url: PROVIDERS.darkapi.baseUrl + '/chat/completions', method: 'POST', logLevel: 'all',
+      headers: { Authorization: 'Bearer venomkey:k_dark_1', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'fixture-alpha', api_key: 'venomkey:k_dark_1', messages: [{ role: 'user', content: 'hi' }] }),
+    });
+    let lockedCopy = 'copied';
+    try { await window.electronAPI.copyKey('k_nexum_locked'); } catch (err) { lockedCopy = 'refused'; }
+    CATALOG.fillSettings();
+    return {
+      page: JSON.stringify({ providers: PROVIDERS, settings, cfg }),
+      placeholders: keys.every((k) => (k.locked ? k.key === '' : k.key === 'venomkey:' + k.id)),
+      hint: PROVIDERS.darkapi.keys.find((k) => k.id === 'k_dark_1').hint,
+      aa: settings.aaApiKey,
+      aaField: document.querySelector('#set-aa-key').value,
+      aaSaved: !document.querySelector('#aa-key-saved').hidden,
+      blocked,
+      sentStatus: sent.status,
+      lockedCopy,
+    };
+  })()`);
+  check('no key and no AA key anywhere in the page', !s.page.includes('sk-fixture-') && !s.page.includes(FIXTURE.aaKey));
+  check('every key is its placeholder (a locked key is empty)', s.placeholders);
+  check('the key hint is the old mask', s.hint === 'sk-fixture********0001', s.hint);
+  check('settings.aaApiKey is the placeholder', s.aa === 'venomsecret:aaApiKey', s.aa);
+  check('the AA key field is empty with "Saved" showing', s.aaField === '' && s.aaSaved);
+  check("a key sent to a host that isn't its provider is refused",
+    s.blocked.blocked === true && s.blocked.status === 0 && s.blocked.error === "Key blocked: localhost:47831 is not this key's provider",
+    JSON.stringify(s.blocked));
+  check('the refused request never left the app', !mock.requests.some((r) => r.url.includes('/steal')));
+  const hit = mock.requests.find((r) => r.url.endsWith('/darkapi/v1/chat/completions') && r.body.includes('fixture-alpha'));
+  check('main put the real key in the header and the JSON body',
+    s.sentStatus === 200 && !!hit && hit.authorization === `Bearer ${FIXTURE.keys.dark1}` && JSON.parse(hit.body).api_key === FIXTURE.keys.dark1);
+  const log = existsSync(join(dir, 'requests.log')) ? readFileSync(join(dir, 'requests.log'), 'utf-8') : '';
+  check('requests.log keeps the placeholder, never the key', log.includes('venomkey:k_dark_1') && !log.includes(FIXTURE.keys.dark1));
+  check('copy-key refuses a locked key', s.lockedCopy === 'refused');
+}
+
 // Saved and waited for, so the next run can check it survived.
 async function saveForNextRun({ app }) {
   await app.evaluate(`(async () => {
@@ -120,7 +167,7 @@ async function checkWriteGate({ app }) {
   check('read gate: a settings save is refused and nothing changes on disk', r.direct && r.after === r.before, `${r.before} -> ${r.after}`);
 }
 
-const RUN1 = [checkImport];
+const RUN1 = [checkImport, checkKeysStayInMain];
 const RUN1_END = [saveForNextRun];
 const RUN2 = [checkPersistence];
 const RUN2_END = [checkWriteGate];

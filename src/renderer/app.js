@@ -418,10 +418,26 @@ function providerPayload(id) {
   };
 }
 
+// Main answers with each key as a placeholder and a hint. The objects are
+// updated in place — the Connect flow still holds the one storeKey created —
+// so a key typed a moment ago doesn't stay in the page. Name, active and
+// quotaSpent stay the renderer's: a later edit may already be on its way.
+function adoptSavedKeys(p, saved) {
+  const fresh = new Map(saved.keys.map((k) => [k.id, k]));
+  p.keys.forEach((k) => {
+    const s = fresh.get(k.id);
+    if (!s) return;
+    k.key = s.key;
+    k.hint = s.hint;
+    k.locked = s.locked;
+  });
+}
+
 async function saveProviderConfig(providerId) {
   const p = PROVIDERS[providerId];
   if (!p) return;
-  await persist(`save ${p.name}`, () => window.electronAPI.saveProvider(providerPayload(providerId)));
+  const saved = await persist(`save ${p.name}`, () => window.electronAPI.saveProvider(providerPayload(providerId)));
+  if (saved) adoptSavedKeys(p, saved);
   // Every save is a user edit to keys or the base URL, so the verdict is stale.
   checkProviderHealth(providerId);
   if (currentPage === 'providers') renderProvidersPage();
@@ -1118,7 +1134,7 @@ function renderKeysList() {
       </div>
       <div class="key-value">
         <span class="key-masked ${k.locked ? 'unreadable' : ''}">${
-          k.locked ? 'Encrypted for another machine — re-add it' : maskKey(k.key)
+          k.locked ? 'Encrypted for another machine — re-add it' : escapeHtml(k.hint || '')
         }</span>
         <button class="key-icon-btn key-copy-btn" data-key-id="${k.id}" title="Copy key" ${k.locked ? 'disabled' : ''}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1156,25 +1172,21 @@ function renderKeysList() {
   });
 }
 
-// The key is only ever shown masked. Copy is the one way the full value leaves
-// the app, so it can't be shoulder-surfed off the screen.
-// A key flagged `locked` came out of config.json as ciphertext this machine
-// can't open, so there is nothing to send — it is excluded from every run.
+// The page never holds a key: k.key is a venomkey:<id> placeholder that main
+// swaps for the secret per request, and k.hint is the masked form main
+// computed. Copy is the one way the full value leaves the app, and main
+// writes it to the clipboard itself.
+// A key flagged `locked` is ciphertext this machine can't open, so there is
+// nothing to send — it is excluded from every run.
 function usableKeys(p) {
   return p.keys.filter((k) => k.active && !k.locked);
 }
 
-function maskKey(key) {
-  if (!key) return '';
-  const head = key.length <= 12 ? 6 : 10;
-  return key.slice(0, head) + '********' + key.slice(-4);
-}
-
 async function copyKey(keyId, btn) {
   const key = PROVIDERS[activeProvider].keys.find((k) => k.id === keyId);
-  if (!key) return;
+  if (!key || key.locked) return;
   try {
-    await navigator.clipboard.writeText(key.key);
+    await window.electronAPI.copyKey(keyId);
     btn.classList.add('copied');
     btn.title = 'Copied';
     setTimeout(() => {
@@ -5203,7 +5215,7 @@ function keyParts(p, k, i) {
           : ''
     }</span>`,
     secret: `<div class="kx-secret">
-        <code>${k.locked ? 'encrypted' : escapeHtml(maskKey(k.key))}</code>
+        <code>${k.locked ? 'encrypted' : escapeHtml(k.hint || '')}</code>
         ${k.locked ? '' : `<button class="pv-icon-btn" type="button" data-kx-copy="${pid}|${kid}" title="Copy key" aria-label="Copy key">${PV_ICON.copy}</button>`}
       </div>`,
     probeHTML,
@@ -5691,12 +5703,14 @@ $('.page-providers').addEventListener('click', async (e) => {
     else if (kx.dataset.kxDel) deleteKey(pid, kid);
     else {
       const k = PROVIDERS[pid]?.keys.find((x) => x.id === kid);
-      if (k) {
+      if (k && !k.locked) {
         try {
-          await navigator.clipboard.writeText(k.key);
+          await window.electronAPI.copyKey(kid);
           kx.classList.add('copied');
           setTimeout(() => kx.classList.remove('copied'), 1200);
-        } catch (_) {}
+        } catch (err) {
+          setStatus('error', 'Could not copy the key to the clipboard');
+        }
       }
     }
     return;

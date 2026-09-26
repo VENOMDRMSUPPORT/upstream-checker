@@ -1087,8 +1087,44 @@
     if (sync) sync.value = Math.max(1, Number(settings.catalogSyncMinutes) || 5);
     const auto = $('#set-catalog-autobench');
     if (auto) auto.checked = !!settings.catalogAutoBench;
+    renderAaKey();
+    renderLeaderboardStatus();
+  }
+
+  // The key never comes back to the page: a saved one shows as "Saved" with an
+  // empty field, and typing a new one replaces it.
+  const AA_PLACEHOLDER = 'aa_… (free key from artificialanalysis.ai)';
+  function renderAaKey() {
+    const saved = settings.aaApiKey === 'venomsecret:aaApiKey';
     const key = $('#set-aa-key');
-    if (key) key.value = settings.aaApiKey || '';
+    if (key) {
+      key.value = '';
+      key.placeholder = saved ? 'Saved — type a new key to replace it' : AA_PLACEHOLDER;
+    }
+    const badge = $('#aa-key-saved');
+    if (badge) badge.hidden = !saved;
+    const remove = $('#btn-aa-remove');
+    if (remove) remove.hidden = !saved;
+  }
+
+  // Empty or unchanged text is not a change. New text goes to main, which
+  // encrypts it; the page keeps only the placeholder. On failure the typed
+  // text stays in the field so it can be retried.
+  async function storeAaKey() {
+    const key = $('#set-aa-key');
+    const text = key ? key.value.trim() : '';
+    if (!text || text === settings.aaApiKey) return;
+    const res = await persist('save the Artificial Analysis key', () => window.electronAPI.saveSecret('aaApiKey', text));
+    if (!res) return;
+    settings.aaApiKey = res.placeholder;
+    renderAaKey();
+  }
+
+  async function removeAaKey() {
+    const res = await persist('remove the Artificial Analysis key', () => window.electronAPI.saveSecret('aaApiKey', ''));
+    if (!res) return;
+    settings.aaApiKey = '';
+    renderAaKey();
     renderLeaderboardStatus();
   }
 
@@ -1123,15 +1159,12 @@
     const auto = $('#set-catalog-autobench');
     if (auto) auto.addEventListener('change', () => { settings.catalogAutoBench = auto.checked; queueSettingsSave(); });
     const key = $('#set-aa-key');
-    // The key is a saved secret, encrypted in main; save-settings drops it.
-    const saveAaKey = () => {
-      settings.aaApiKey = key.value.trim();
-      return persist('save the Artificial Analysis key', () => window.electronAPI.saveSecret('aaApiKey', settings.aaApiKey));
-    };
-    if (key) key.addEventListener('change', saveAaKey);
+    if (key) key.addEventListener('change', storeAaKey);
+    const removeKey = $('#btn-aa-remove');
+    if (removeKey) removeKey.addEventListener('click', removeAaKey);
     const refresh = $('#btn-aa-refresh');
     if (refresh) refresh.addEventListener('click', async () => {
-      if (key) await saveAaKey();
+      await storeAaKey();
       refresh.disabled = true;
       const el = $('#aa-status');
       if (el) el.textContent = 'Refreshing…';

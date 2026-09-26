@@ -6634,6 +6634,7 @@ img[data-tone] { filter: var(--logo-tone, none); }
   min-width: 0;
 }
 .settings-row-field > .settings-actions { margin-top: 0; }
+.settings-actions .btn[hidden] { display: none; }
 
 .settings-row-badge {
   width: 34px;
