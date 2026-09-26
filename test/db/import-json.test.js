@@ -358,6 +358,20 @@ test('a fresh install with no legacy files creates no backup folder', async (t) 
   assert.deepStrictEqual(ls(dir), []);
 });
 
+test('a taken backup folder name gets a numeric suffix instead of being reused', async (t) => {
+  const { dir, run } = await setup(t, { files: all() });
+  fs.mkdirSync(path.join(dir, `backup-before-database-${NOW}`));
+  const report = await run();
+  assert.strictEqual(report.status, 'imported');
+  assert.strictEqual(report.backupDir, path.join(dir, `backup-before-database-${NOW}-1`));
+  assert.ok(fs.existsSync(report.backupDir));
+  Object.entries(all()).forEach(([name, content]) => {
+    assert.strictEqual(fs.readFileSync(path.join(report.backupDir, name), 'utf-8'), JSON.stringify(content));
+  });
+  // The pre-existing (empty) folder is untouched, not reused.
+  assert.deepStrictEqual(ls(path.join(dir, `backup-before-database-${NOW}`)), []);
+});
+
 test('a legacy file that changed by the time it is backed up aborts with IMPORT_CHANGED', async (t) => {
   // Simulates another running copy of the app (no single-instance lock
   // without --user-data-dir, an older build saving with tmp+rename) writing
@@ -400,7 +414,45 @@ test('a legacy file that changed after commit is left in place, not renamed, and
   assert.ok(!fs.existsSync(path.join(dir, 'history.imported.json')));
   assert.ok(fs.existsSync(path.join(dir, 'config.imported.json')));
   assert.ok(fs.existsSync(path.join(dir, 'catalog.imported.json')));
-  assert.match(describeImportWarnings(report), /history\.json changed after it was imported/);
+  assert.strictEqual(
+    describeImportWarnings(report),
+    'history.json was changed by another running copy of VENOM Router after the import. Those later changes are NOT in this app and will not be imported. Close the other copy. The file was left in ' + dir + '.',
+  );
+  assert.strictEqual(count(store, 'test_runs'), 2); // still imported into venom.db
+});
+
+test('a file that keeps failing to read before renaming is reported, not treated as changed', async (t) => {
+  // The initial read (the 1st call) and the backup's own read-back (excluded
+  // by directory) both succeed; every call from the 2nd on - the pre-rename
+  // check's own retries - fails, so it never recovers.
+  let calls = 0;
+  const flaky = {
+    ...fs,
+    readFileSync(file, enc) {
+      if (path.basename(file) === 'history.json' && !path.dirname(file).includes('backup-before-database')) {
+        calls += 1;
+        if (calls > 1) {
+          const e = new Error('EBUSY: resource busy or locked');
+          e.code = 'EBUSY';
+          throw e;
+        }
+      }
+      return fs.readFileSync(file, enc);
+    },
+  };
+  const { dir, store, run } = await setup(t, { files: all(), fsImpl: flaky });
+  const report = await run();
+  assert.strictEqual(report.status, 'imported');
+  assert.deepStrictEqual(report.changedAfterImport, []);
+  assert.strictEqual(report.recheckFailed.length, 1);
+  assert.strictEqual(report.recheckFailed[0].name, 'history.json');
+  assert.match(report.recheckFailed[0].error, /EBUSY/);
+  assert.ok(fs.existsSync(path.join(dir, 'history.json')));
+  assert.ok(!fs.existsSync(path.join(dir, 'history.imported.json')));
+  assert.strictEqual(
+    describeImportWarnings(report),
+    `history.json could not be re-checked before renaming (${report.recheckFailed[0].error}); it was left in ${dir}.`,
+  );
   assert.strictEqual(count(store, 'test_runs'), 2); // still imported into venom.db
 });
 

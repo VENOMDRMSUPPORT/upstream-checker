@@ -241,6 +241,7 @@ async function importLegacy({
   const report = {
     status: 'imported',
     source,
+    dir,
     files: names,
     unreadable: [],
     skipped: { keys: 0, catalogEntries: 0, runs: 0, results: 0 },
@@ -248,6 +249,7 @@ async function importLegacy({
     renamed: [],
     renameFailed: [],
     changedAfterImport: [],
+    recheckFailed: [],
   };
 
   let config = null;
@@ -348,27 +350,30 @@ async function importLegacy({
 
   // A re-import leaves the *.imported.json copies where they are.
   if (source === 'legacy') {
-    Object.keys(FILES).forEach((kind) => {
-      if (texts[kind] === null) return;
+    for (const kind of Object.keys(FILES)) {
+      if (texts[kind] === null) continue;
       const name = names[kind];
-      // Re-read right before renaming: if another running copy of the app
-      // saved this file after we read it (see the backup check above), the
-      // file on disk now differs from what venom.db actually has. Renaming it
-      // away would make that write look imported when it never was, so it is
+      // Re-read right before renaming, with the same retries as the initial
+      // read: another running copy of the app (no single-instance lock
+      // without --user-data-dir, and older builds save with tmp+rename) can
+      // still be writing this file. Renaming it away then would make that
+      // write look imported when it never was, so a file that changed is
       // left in place instead and reported.
       let current;
       try {
-        current = fs.readFileSync(path.join(dir, name), 'utf-8');
+        current = await readWithRetry(path.join(dir, name), fs, sleep);
       } catch (err) {
-        current = null;
+        report.recheckFailed.push({ name, error: err.message });
+        log.warn(`${name} could not be re-checked before renaming (${err.message}); it was left in ${dir}.`);
+        continue;
       }
       if (current !== texts[kind]) {
         report.changedAfterImport.push(name);
-        log.warn(`${name} changed after it was imported into venom.db; it was left in place, not renamed.`);
-        return;
+        log.warn(`${name} was changed by another running copy of VENOM Router after the import. Those later changes are NOT in this app and will not be imported. Close the other copy. The file was left in ${dir}.`);
+        continue;
       }
       renameAside(dir, name, report.unreadable.includes(kind) ? 'unreadable' : 'imported', { fs, now, report, log });
-    });
+    }
   }
   log.info(`Imported ${names.config}, ${names.catalog}, ${names.history} into venom.db` +
     (report.backupDir ? ` (backed up to ${report.backupDir})` : '') + ':',
@@ -385,6 +390,12 @@ function describeImportWarnings(report) {
     const moved = report.renamed.find((r) => r.from === name);
     lines.push(moved ? `${name} is damaged and was not imported. It was renamed ${moved.to}.` : `${name} is damaged and was not imported.`);
   });
+  report.changedAfterImport.forEach((name) => lines.push(
+    `${name} was changed by another running copy of VENOM Router after the import. Those later changes are NOT in this app and will not be imported. Close the other copy. The file was left in ${report.dir}.`,
+  ));
+  report.recheckFailed.forEach(({ name, error }) => lines.push(
+    `${name} could not be re-checked before renaming (${error}); it was left in ${report.dir}.`,
+  ));
   const s = report.skipped;
   if (s.keys) lines.push(`${plural(s.keys, 'key had no value and was skipped', 'keys had no value and were skipped')}.`);
   if (s.catalogEntries) lines.push(`${plural(s.catalogEntries, 'damaged model pool entry was skipped', 'damaged model pool entries were skipped')}.`);
@@ -394,7 +405,6 @@ function describeImportWarnings(report) {
     lines.push(`${plural(report.reassignedKeys, 'key had a duplicate or unusable id and got a new one', 'keys had a duplicate or unusable id and got a new one')}.`);
   }
   report.renameFailed.forEach((name) => lines.push(`${name} was imported but could not be renamed; it is ignored from now on.`));
-  report.changedAfterImport.forEach((name) => lines.push(`${name} changed after it was imported and was left in place, not renamed.`));
   return lines.join('\n');
 }
 
