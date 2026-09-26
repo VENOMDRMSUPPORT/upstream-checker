@@ -166,7 +166,7 @@ const DEFAULT_SETTINGS = {
   // traffic of an authenticated API, even with the key stripped out of it.
   logLevel: 'off',
 
-  // Model Catalog. The catalogue re-reads every connected provider's model
+  // Model Pool. The pool re-reads every connected provider's model
   // list on this cadence; a model that appears is benchmarked straight away
   // when catalogAutoBench is on (the first sync of a provider is a baseline —
   // nothing is auto-run then). aaApiKey unlocks the live Artificial Analysis
@@ -361,14 +361,14 @@ async function saveProviderConfig(providerId) {
   // Every save is a user edit to keys or the base URL, so the verdict is stale.
   checkProviderHealth(providerId);
   if (currentPage === 'providers') renderProvidersPage();
-  // The Model Catalog shows a provider's models only while it has a key.
+  // The Model Pool shows a provider's models only while it has a key.
   window.dispatchEvent(new CustomEvent('providers-changed', { detail: { providerId } }));
 }
 
 // ============================================
 // Run history — uptime, regressions, scheduling
 // ============================================
-// Answers the question the tool's name implies: not "does this model work right
+// Answers the question a router has to ask: not "does this model work right
 // now" but "is it reliable". Keyed per provider, because the same model id can
 // be solid on one router and flaky on another.
 const MIN_RUNS_FOR_UPTIME = 2; // one data point is not a rate

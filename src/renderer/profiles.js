@@ -1,5 +1,5 @@
 // ============================================
-// Venom profiles — three exits in front of the whole catalogue
+// Routing profiles — three exits in front of the whole model pool
 // ============================================
 // venom-lite, venom-pro and venom-max are virtual models. Each has a policy:
 // hard requirements a model must meet to serve it, and weights that order the
@@ -288,8 +288,8 @@
     return result;
   }
 
-  // The cached result goes stale by time too: cooldowns expire and Upstream
-  // Check runs add verdicts without touching the catalogue file.
+  // The cached result goes stale by time too: cooldowns expire and Route
+  // Test runs add verdicts without touching the catalog file.
   const RESULT_TTL_MS = 30000;
   function current() {
     if (state.result && Date.now() - state.result.at < RESULT_TTL_MS) return state.result;

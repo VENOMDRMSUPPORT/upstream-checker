@@ -155,7 +155,7 @@ function appendRun(run, maxRuns) {
 }
 
 // ============================================
-// Model catalog — catalog.json
+// Model pool — catalog.json
 // ============================================
 // Every model each connected provider has ever listed, with when it was first
 // and last seen, whether it has since disappeared, and its benchmark results.
