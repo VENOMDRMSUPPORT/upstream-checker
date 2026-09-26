@@ -323,6 +323,21 @@ html, body {
 .shell-page[hidden] {
   display: none;
 }
+
+/* Saved data could not be read at startup; every write is refused (app.js persist). */
+.store-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--fail-bg);
+  border-bottom: 1px solid var(--fail);
+  color: var(--text-1);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.store-error[hidden] { display: none; }
+.store-error svg { flex: none; color: var(--fail); }
 .shell-page.page-check {
   overflow: hidden;
 }
@@ -6619,6 +6634,7 @@ img[data-tone] { filter: var(--logo-tone, none); }
   min-width: 0;
 }
 .settings-row-field > .settings-actions { margin-top: 0; }
+.settings-actions .btn[hidden] { display: none; }
 
 .settings-row-badge {
   width: 34px;

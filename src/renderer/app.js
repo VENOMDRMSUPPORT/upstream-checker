@@ -266,22 +266,21 @@ function toggleTheme() {
 
 let settings = { ...DEFAULT_SETTINGS };
 
+// A failed read throws to init(), which shows it and blocks every write.
 async function loadSettings() {
-  try {
-    const data = await window.electronAPI.readConfig();
-    if (data.settings && typeof data.settings === 'object') {
-      Object.keys(DEFAULT_SETTINGS).forEach((k) => {
-        const v = data.settings[k];
-        if (typeof v === typeof DEFAULT_SETTINGS[k]) settings[k] = v;
-      });
-      // One prompt used to drive both generators; it seeds both of their own.
-      const legacy = data.settings.mediaPrompt;
-      if (typeof legacy === 'string' && legacy.trim()) {
-        if (typeof data.settings.imagePrompt !== 'string') settings.imagePrompt = legacy;
-        if (typeof data.settings.videoPrompt !== 'string') settings.videoPrompt = legacy;
-      }
+  const data = await window.electronAPI.readConfig();
+  if (data.settings && typeof data.settings === 'object') {
+    Object.keys(DEFAULT_SETTINGS).forEach((k) => {
+      const v = data.settings[k];
+      if (typeof v === typeof DEFAULT_SETTINGS[k]) settings[k] = v;
+    });
+    // One prompt used to drive both generators; it seeds both of their own.
+    const legacy = data.settings.mediaPrompt;
+    if (typeof legacy === 'string' && legacy.trim()) {
+      if (typeof data.settings.imagePrompt !== 'string') settings.imagePrompt = legacy;
+      if (typeof data.settings.videoPrompt !== 'string') settings.videoPrompt = legacy;
     }
-  } catch (_) {}
+  }
   // Themes that no longer exist (Deep Space, Midnight, Carbon, AMOLED, Nord)
   // were all dark, so they land on Dark.
   if (!THEMES.some((t) => t.id === settings.theme)) settings.theme = 'vercel';
@@ -291,18 +290,19 @@ async function loadSettings() {
   if (!HEX_COLOR.test(settings.customAccent)) settings.customAccent = DEFAULT_SETTINGS.customAccent;
 }
 
+// One row, written on its own: no read-modify-write, so it can't undo a key
+// or provider change made meanwhile. aaApiKey is dropped by main (the key is
+// a secret, saved with saveSecret).
 let saveSettingsTimer = null;
+function saveSettingsNow() {
+  clearTimeout(saveSettingsTimer);
+  saveSettingsTimer = null;
+  return persist('save settings', () => window.electronAPI.saveSettings({ ...settings }));
+}
+
 function queueSettingsSave() {
   clearTimeout(saveSettingsTimer);
-  saveSettingsTimer = setTimeout(async () => {
-    try {
-      const data = await window.electronAPI.readConfig();
-      data.settings = { ...settings };
-      await window.electronAPI.writeConfig(data);
-    } catch (err) {
-      console.warn('Failed to persist settings:', err);
-    }
-  }, 350);
+  saveSettingsTimer = setTimeout(saveSettingsNow, 350);
 }
 
 // Set app version from main process
@@ -349,20 +349,125 @@ const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
 // ============================================
-// Persistence — JSON config file
+// Saving — every write goes through persist()
 // ============================================
+// Writes are small typed calls into main (venom.db). A failure is shown in the
+// status bar, never swallowed. If saved data could not be read at startup,
+// every write is refused for the rest of the session: the app is then showing
+// defaults, and saving them would overwrite the real data.
+let storeReadError = null;
+const pendingSaves = new Set();
+// Set the moment any persist() call is refused or fails, so init() can tell a
+// startup write went wrong even though it awaited each one and moved on —
+// without this, the final "Ready" status would overwrite the error persist()
+// already put in the status bar.
+let writeFailed = false;
+
+// "Error invoking remote method 'save-settings': TypeError: …" → "…"
+function ipcMessage(err) {
+  return String((err && err.message) || err).replace(/^Error invoking remote method '[^']+': (?:[A-Za-z]*Error: )?/, '');
+}
+
+function failStartupRead(what, err) {
+  console.error(`Could not read ${what} at startup:`, err);
+  if (!storeReadError) storeReadError = `${what}: ${ipcMessage(err)}`;
+  const banner = $('#store-error');
+  if (banner) {
+    banner.hidden = false;
+    $('#store-error-text').textContent = `Saved data could not be read (${storeReadError}). Nothing will be saved this session — close VENOM Router and open it again.`;
+  }
+  setStatus('error', 'Saved data could not be read — changes are not being saved');
+}
+
+// Runs one write. Resolves with its result, or undefined when it was refused
+// or failed (already reported).
+async function persist(what, call) {
+  if (storeReadError) {
+    writeFailed = true;
+    setStatus('error', `Couldn't ${what}: saved data could not be read at startup, so nothing is saved this session`);
+    return undefined;
+  }
+  const job = Promise.resolve().then(call);
+  pendingSaves.add(job);
+  try {
+    return await job;
+  } catch (err) {
+    writeFailed = true;
+    console.error(`Couldn't ${what}:`, err);
+    setStatus('error', `Couldn't ${what}: ${ipcMessage(err)}`);
+    return undefined;
+  } finally {
+    pendingSaves.delete(job);
+  }
+}
+
+// Close handshake (main's flush-pending, sent before the window closes and
+// before an update installs): debounced writes go out now instead of being
+// dropped, writes already in flight are waited for, then main is told.
+async function flushPendingSaves() {
+  const writes = [];
+  if (saveSettingsTimer) writes.push(saveSettingsNow());
+  if (saveTestTimer) writes.push(saveTestDefinition());
+  if (window.CATALOG) writes.push(window.CATALOG.flush());
+  await Promise.allSettled(writes);
+  await Promise.allSettled([...pendingSaves]);
+}
+
+window.electronAPI.onFlushPending(async (token) => {
+  try {
+    await flushPendingSaves();
+  } finally {
+    window.electronAPI.flushDone(token);
+  }
+});
+
+// ============================================
+// Providers — each saved on its own (save-provider)
+// ============================================
+// The provider as save-provider takes it. A key's `key` is what the user
+// typed, the key's placeholder, or '' for a key main holds but can't read
+// here (locked); main keeps the stored secret for the last two.
+function providerPayload(id) {
+  const p = PROVIDERS[id];
+  return {
+    id,
+    name: p.name,
+    baseUrl: p.baseUrl,
+    rpm: p.rpm ?? null,
+    keys: p.keys.map((k) => ({ id: k.id, name: k.name, key: k.key || '', active: k.active !== false, quotaSpent: k.quotaSpent || null })),
+  };
+}
+
+// Main answers with each key as a placeholder and a hint. The objects are
+// updated in place — the Connect flow still holds the one storeKey created —
+// so a key typed a moment ago doesn't stay in the page. Name, active and
+// quotaSpent stay the renderer's: a later edit may already be on its way.
+function adoptSavedKeys(p, saved) {
+  const fresh = new Map(saved.keys.map((k) => [k.id, k]));
+  p.keys.forEach((k) => {
+    const s = fresh.get(k.id);
+    if (!s) return;
+    k.key = s.key;
+    k.hint = s.hint;
+    k.locked = s.locked;
+  });
+}
+
+// Returns whether the save actually landed (persist()'s result, truthy on
+// success, undefined when refused or failed — already reported by persist).
+// Callers that show their own "done" status must skip it when this is false,
+// or the save's error in the status bar gets overwritten by a false success.
 async function saveProviderConfig(providerId) {
   const p = PROVIDERS[providerId];
-  if (!p) return;
-  const data = await window.electronAPI.readConfig();
-  if (!data.providers) data.providers = {};
-  data.providers[providerId] = { name: p.name, baseUrl: p.baseUrl, keys: p.keys, rpm: p.rpm ?? null };
-  await window.electronAPI.writeConfig(data);
+  if (!p) return false;
+  const saved = await persist(`save ${p.name}`, () => window.electronAPI.saveProvider(providerPayload(providerId)));
+  if (saved) adoptSavedKeys(p, saved);
   // Every save is a user edit to keys or the base URL, so the verdict is stale.
   checkProviderHealth(providerId);
   if (currentPage === 'providers') renderProvidersPage();
   // The Model Pool shows a provider's models only while it has a key.
   window.dispatchEvent(new CustomEvent('providers-changed', { detail: { providerId } }));
+  return !!saved;
 }
 
 // ============================================
@@ -395,19 +500,46 @@ function historyKey(providerId, modelId) {
   return `${providerId}::${modelId}`;
 }
 
+// A failed read throws to init() (startup) or to the Clear button's handler.
 async function loadHistory() {
   history = new Map();
-  let data = { runs: [] };
-  try {
-    data = await window.electronAPI.readHistory();
-  } catch (_) {}
-  runLog = (data.runs || []).map(summariseRun);
-  (data.runs || []).forEach((run) => {
-    (run.results || []).forEach((r) => {
-      const key = historyKey(run.provider, r.model);
-      if (!history.has(key)) history.set(key, []);
-      history.get(key).push({ at: run.at, ok: r.status === 'pass' });
-    });
+  runLog = [];
+  const data = await window.electronAPI.readHistory();
+  (data.runs || []).forEach(foldRun);
+  capHistory();
+}
+
+// Every run gets a sequence number, so capping can drop whole runs from both
+// indexes at once.
+let runSeq = 0;
+function foldRun(run) {
+  runSeq += 1;
+  const seq = runSeq;
+  runLog.push({ ...summariseRun(run), seq });
+  (run.results || []).forEach((r) => {
+    const key = historyKey(run.provider, r.model);
+    if (!history.has(key)) history.set(key, []);
+    history.get(key).push({ at: run.at, ok: r.status === 'pass', seq });
+  });
+}
+
+// Same cap as main applies on disk (historyMaxRuns, at most 5000), so a long
+// session doesn't grow memory without bound and uptime reads the same runs
+// the disk keeps.
+function historyCap() {
+  const n = Number(settings.historyMaxRuns);
+  return n > 0 ? Math.min(Math.floor(n), 5000) : 300;
+}
+
+function capHistory() {
+  const excess = runLog.length - historyCap();
+  if (excess <= 0) return;
+  const cutoff = runLog[excess - 1].seq;
+  runLog = runLog.slice(excess);
+  history.forEach((list, key) => {
+    const kept = list.filter((e) => e.seq > cutoff);
+    if (kept.length) history.set(key, kept);
+    else history.delete(key);
   });
 }
 
@@ -430,8 +562,11 @@ function previousStatus(modelId) {
   return h[h.length - 2].ok;
 }
 
+// Returns whether the run was saved (false when persist() refused it or the
+// write failed — already reported by persist; the caller shows it too, since
+// renderRunSummary's status would otherwise overwrite that report).
 async function recordRun(providerId, providerName, results) {
-  if (results.length === 0) return;
+  if (results.length === 0) return true;
   const run = {
     at: Date.now(),
     provider: providerId,
@@ -447,19 +582,12 @@ async function recordRun(providerId, providerName, results) {
       correct: isCorrect(r, modelById(r.model)),
     })),
   };
-  try {
-    await window.electronAPI.appendRun(run, settings.historyMaxRuns);
-  } catch (err) {
-    console.warn('Failed to record run history:', err);
-  }
+  const saved = await persist('record the run', () => window.electronAPI.appendRun(run, settings.historyMaxRuns));
   // Fold into the in-memory index so the table reflects it immediately.
-  run.results.forEach((r) => {
-    const key = historyKey(providerId, r.model);
-    if (!history.has(key)) history.set(key, []);
-    history.get(key).push({ at: run.at, ok: r.status === 'pass' });
-  });
-  runLog.push(summariseRun(run));
+  foldRun(run);
+  capHistory();
   renderQuickStats();
+  return !!saved;
 }
 
 // Compares this run against each model's previous recorded outcome. Called after
@@ -481,6 +609,7 @@ function runRegressions() {
 // ============================================
 // Test definition — prompt + expected answer
 // ============================================
+// The inputs are filled either way; a failed read then throws to init().
 async function loadTestDefinition() {
   try {
     const data = await window.electronAPI.readConfig();
@@ -490,25 +619,23 @@ async function loadTestDefinition() {
     // falls back to the default.
     if (typeof t.expected === 'string') expectedAnswer = t.expected;
     if (Number.isFinite(t.autoMinutes)) autoTestMinutes = t.autoMinutes;
-  } catch (_) {}
-  $('#prompt-input').value = testPrompt;
-  $('#expected-input').value = expectedAnswer;
-  $('#auto-test-select').value = String(autoTestMinutes);
-  applyAutoTestSchedule();
-}
-
-async function saveTestDefinition() {
-  try {
-    const data = await window.electronAPI.readConfig();
-    data.test = { prompt: testPrompt, expected: expectedAnswer, autoMinutes: autoTestMinutes };
-    await window.electronAPI.writeConfig(data);
-  } catch (err) {
-    console.warn('Failed to persist test definition:', err);
+  } finally {
+    $('#prompt-input').value = testPrompt;
+    $('#expected-input').value = expectedAnswer;
+    $('#auto-test-select').value = String(autoTestMinutes);
+    applyAutoTestSchedule();
   }
 }
 
-// Typing fires per keystroke, and a save now costs an OS keystore round trip for
-// every stored key plus a full config rewrite. Coalesce the writes.
+function saveTestDefinition() {
+  clearTimeout(saveTestTimer);
+  saveTestTimer = null;
+  return persist('save the test prompt', () => window.electronAPI.saveTestDefinition({
+    prompt: testPrompt, expected: expectedAnswer, autoMinutes: autoTestMinutes,
+  }));
+}
+
+// Typing fires per keystroke; coalesce the writes.
 let saveTestTimer = null;
 function queueTestDefinitionSave() {
   clearTimeout(saveTestTimer);
@@ -585,20 +712,21 @@ function isCorrect(result, model) {
 }
 
 async function loadAllProviders() {
-  let data = { providers: {} };
+  let stored = {};
+  let readError = null;
   try {
-    data = await window.electronAPI.readConfig();
-  } catch (_) {}
-  data.providers = data.providers || {};
-  const stored = data.providers;
+    stored = (await window.electronAPI.readConfig()).providers || {};
+  } catch (err) {
+    readError = err;
+  }
   const norm = (u) => (u || '').trim().replace(/\/+$/, '').toLowerCase();
-  let dirty = false;
 
   PROVIDERS = {};
 
-  // Built-ins: code template with config name/baseUrl/keys overlaid (config wins).
-  // A newly-shipped built-in that isn't in config yet is seeded so its name/baseUrl
-  // are visible and editable.
+  // Built-ins: code template with the stored name/baseUrl/keys overlaid (the
+  // store wins). A newly-shipped built-in the store doesn't have yet is seeded
+  // below so its name and baseUrl are visible and editable.
+  const missing = [];
   Object.values(BUILTIN_PROVIDERS).forEach((def) => {
     const p = makeRuntimeProvider(def);
     const s = stored[def.id];
@@ -610,49 +738,36 @@ async function loadAllProviders() {
       if (s.rpm != null) p.rpm = s.rpm;
       p.keys = s.keys || [];
     } else {
-      stored[def.id] = { name: p.name, baseUrl: p.baseUrl, keys: p.keys, rpm: p.rpm ?? null };
-      dirty = true;
+      missing.push(def.id);
     }
     PROVIDERS[def.id] = p;
   });
 
-  // The app only runs its integrated providers. A custom provider left in an
-  // older config is migrated into the built-in with the same baseUrl (its keys
-  // move over); one with no built-in twin and no keys is removed. One that still
-  // holds keys is left in the file untouched, so no key is ever thrown away, but
-  // it is not loaded.
-  Object.entries(stored).forEach(([id, s]) => {
-    if (!s.custom || PROVIDERS[id]) return;
+  // Nothing below may write when the store could not be read: PROVIDERS is
+  // then the bare templates, without a single key. init() shows the error.
+  if (readError) throw readError;
+
+  // Seeded one at a time, so seeding never rewrites another provider.
+  for (const id of missing) {
+    await persist(`add ${PROVIDERS[id].name}`, () => window.electronAPI.saveProvider(providerPayload(id)));
+  }
+
+  // The app only runs its integrated providers. A custom provider left by an
+  // older version is merged in main into the built-in with the same baseUrl
+  // (keys move over, duplicates are dropped by value — by ciphertext for keys
+  // this machine can't read); one with no built-in twin and no keys is
+  // removed. One that still holds keys stays in the store untouched, so no key
+  // is ever thrown away, but it is not loaded.
+  for (const [id, s] of Object.entries(stored)) {
+    if (!s.custom || PROVIDERS[id]) continue;
     const builtin = Object.values(PROVIDERS).find((p) => !p.custom && norm(p.baseUrl) === norm(s.baseUrl));
     if (builtin) {
-      // Undecryptable keys all read as '', so identify by ciphertext when present
-      // — otherwise merging would silently drop all but the first of them.
-      const identity = (k) => k.cipher || k.key;
-      const have = new Set(builtin.keys.map(identity));
-      (s.keys || []).forEach((k) => {
-        if (!have.has(identity(k))) {
-          builtin.keys.push(k);
-          have.add(identity(k));
-        }
-      });
-      delete stored[id];
-      stored[builtin.id] = { name: builtin.name, baseUrl: builtin.baseUrl, keys: builtin.keys, rpm: builtin.rpm ?? null };
-      dirty = true;
-      return;
-    }
-    if (!(s.keys || []).length) {
-      delete stored[id];
-      dirty = true;
+      const merged = await persist(`merge ${s.name || id} into ${builtin.name}`, () => window.electronAPI.mergeProvider(id, builtin.id));
+      if (merged) builtin.keys = merged.keys;
+    } else if (!(s.keys || []).length) {
+      await persist(`remove ${s.name || id}`, () => window.electronAPI.deleteProvider(id));
     } else {
-      console.warn(`Custom provider "${s.name || id}" still holds keys; left in config, not loaded.`);
-    }
-  });
-
-  if (dirty) {
-    try {
-      await window.electronAPI.writeConfig(data);
-    } catch (err) {
-      console.warn('Failed to persist providers:', err);
+      console.warn(`Custom provider "${s.name || id}" still holds keys; kept in the store, not loaded.`);
     }
   }
 }
@@ -1044,7 +1159,9 @@ function renderKeysList() {
       </div>
       <div class="key-value">
         <span class="key-masked ${k.locked ? 'unreadable' : ''}">${
-          k.locked ? 'Encrypted for another machine — re-add it' : maskKey(k.key)
+          // No hint and not locked means the save that should have produced
+          // one never landed: the key still sits here as plaintext, unsaved.
+          k.locked ? 'Encrypted for another machine — re-add it' : (k.hint ? escapeHtml(k.hint) : 'not saved')
         }</span>
         <button class="key-icon-btn key-copy-btn" data-key-id="${k.id}" title="Copy key" ${k.locked ? 'disabled' : ''}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1082,25 +1199,21 @@ function renderKeysList() {
   });
 }
 
-// The key is only ever shown masked. Copy is the one way the full value leaves
-// the app, so it can't be shoulder-surfed off the screen.
-// A key flagged `locked` came out of config.json as ciphertext this machine
-// can't open, so there is nothing to send — it is excluded from every run.
+// The page never holds a key: k.key is a venomkey:<id> placeholder that main
+// swaps for the secret per request, and k.hint is the masked form main
+// computed. Copy is the one way the full value leaves the app, and main
+// writes it to the clipboard itself.
+// A key flagged `locked` is ciphertext this machine can't open, so there is
+// nothing to send — it is excluded from every run.
 function usableKeys(p) {
   return p.keys.filter((k) => k.active && !k.locked);
 }
 
-function maskKey(key) {
-  if (!key) return '';
-  const head = key.length <= 12 ? 6 : 10;
-  return key.slice(0, head) + '********' + key.slice(-4);
-}
-
 async function copyKey(keyId, btn) {
   const key = PROVIDERS[activeProvider].keys.find((k) => k.id === keyId);
-  if (!key) return;
+  if (!key || key.locked) return;
   try {
-    await navigator.clipboard.writeText(key.key);
+    await window.electronAPI.copyKey(keyId);
     btn.classList.add('copied');
     btn.title = 'Copied';
     setTimeout(() => {
@@ -1130,11 +1243,14 @@ async function removeKey(keyId) {
   updateTestAllButton();
 }
 
+// Returns { k, saved }: saved is false when saveProviderConfig's persist()
+// failed — the key stays in the page (still plaintext, no hint) so the key
+// rows can show it as "not saved" instead of quietly losing it.
 async function storeKey(pid, name, key) {
   const k = { id: `key_${Date.now()}`, name: name || `Key ${Date.now()}`, key, active: true };
   PROVIDERS[pid].keys.push(k);
-  await saveProviderConfig(pid);
-  return k;
+  const saved = await saveProviderConfig(pid);
+  return { k, saved };
 }
 
 async function addKey() {
@@ -1150,10 +1266,12 @@ async function addKey() {
 
   nameInput.value = '';
   keyInput.value = '';
-  await storeKey(activeProvider, name, key);
+  const { saved } = await storeKey(activeProvider, name, key);
   renderKeysList();
   updateTestAllButton();
-  setStatus('done', `Key "${name}" added`);
+  // A failed save already left its error in the status bar (persist()); a
+  // "done" here would overwrite it and hide that the key wasn't saved.
+  if (saved) setStatus('done', `Key "${name}" added`);
 }
 
 // ============================================
@@ -2625,8 +2743,8 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
   updateTestAllButton();
   updateStats();
 
-  await recordRun(p.id, p.name, testResults);
-  lastRun = { done, total: list.length, stopped: abortTesting, changes: runRegressions() };
+  const saved = await recordRun(p.id, p.name, testResults);
+  lastRun = { done, total: list.length, stopped: abortTesting, changes: runRegressions(), saved };
   renderResultsTable(); // uptime cells now include this run
   renderRunSummary();
   announceRegressions(lastRun.changes, scheduled);
@@ -2675,11 +2793,19 @@ function renderRunSummary() {
   if (c.recovered.length) moved.push(`${c.recovered.length} recovered`);
   const delta = moved.length ? ` · ${moved.join(', ')}` : '';
 
+  let state;
+  let message;
   if (lastRun.stopped) {
-    setStatus('idle', `Stopped — ${lastRun.done}/${lastRun.total} tested (${passed} passed, ${failed} failed)${answers}${delta}`);
-  } else if (failed === 0) setStatus('done', `All ${passed} models passed${answers}${delta}`);
-  else if (passed === 0) setStatus('error', `All ${failed} models failed${delta}`);
-  else setStatus(c.broke.length ? 'error' : 'done', `Done: ${passed} passed, ${failed} failed${answers}${delta}`);
+    state = 'idle';
+    message = `Stopped — ${lastRun.done}/${lastRun.total} tested (${passed} passed, ${failed} failed)${answers}${delta}`;
+  } else if (failed === 0) { state = 'done'; message = `All ${passed} models passed${answers}${delta}`; }
+  else if (passed === 0) { state = 'error'; message = `All ${failed} models failed${delta}`; }
+  else { state = c.broke.length ? 'error' : 'done'; message = `Done: ${passed} passed, ${failed} failed${answers}${delta}`; }
+
+  // A failed history write must stay visible: persist() already reported it,
+  // but this status runs right after and would otherwise overwrite it.
+  if (lastRun.saved === false) { state = 'error'; message += ' · run not saved'; }
+  setStatus(state, message);
 }
 
 // ============================================
@@ -3502,10 +3628,12 @@ async function connectWithKey({ unverified = false } = {}) {
     }
   }
 
-  const k = await storeKey(pid, name, key);
+  const { k, saved } = await storeKey(pid, name, key);
   if (res) keyProbe.set(k.id, keyProbeResult(res));
   closeAddKeyModal();
-  setStatus('done', `${p.name} connected`);
+  // A failed save already left its error in the status bar (persist()); a
+  // "done" here would overwrite it and hide that the key wasn't saved.
+  if (saved) setStatus('done', `${p.name} connected`);
   // Connected now: the provider is shown there, with its keys open.
   providersTab = 'connected';
   pvShell = null;
@@ -3582,10 +3710,13 @@ async function updateProvider(id, { name, baseUrl, rpm }) {
   p.name = name;
   p.baseUrl = baseUrl;
   p.rpm = Number.isFinite(rpm) && rpm > 0 ? rpm : null;
-  await saveProviderConfig(id);
+  const saved = await saveProviderConfig(id);
   renderProviderTabs();
-  setStatus('done', `Provider "${name}" updated`);
-  return true;
+  // A failed save already left its error in the status bar (persist()); a
+  // "done" here would overwrite it, and the caller keeps the modal open
+  // (below) instead of hiding the failure behind a closed dialog.
+  if (saved) setStatus('done', `Provider "${name}" updated`);
+  return saved;
 }
 
 function closeAddProviderModal() {
@@ -4045,8 +4176,14 @@ $('#btn-export-history').addEventListener('click', async () => {
 });
 
 $('#btn-clear-history').addEventListener('click', async () => {
-  await window.electronAPI.clearHistory();
-  await loadHistory();
+  const cleared = await persist('clear the run history', () => window.electronAPI.clearHistory());
+  if (!cleared) return;
+  try {
+    await loadHistory();
+  } catch (err) {
+    setStatus('error', `Couldn't reload the run history: ${ipcMessage(err)}`);
+    return;
+  }
   if (tableRows.length > 0) renderResultsTable();
   setStatus('done', 'History cleared');
 });
@@ -4054,7 +4191,8 @@ $('#btn-clear-history').addEventListener('click', async () => {
 $('#btn-open-data').addEventListener('click', () => window.electronAPI.openDataFolder());
 
 $('#btn-reset-settings').addEventListener('click', () => {
-  settings = { ...DEFAULT_SETTINGS };
+  // The Artificial Analysis key is a saved secret, not a setting: a reset keeps it.
+  settings = { ...DEFAULT_SETTINGS, aaApiKey: settings.aaApiKey };
   applyAppearance();
   applySidebarWidth(settings.sidebarWidth);
   queueSettingsSave();
@@ -5113,8 +5251,10 @@ function keyParts(p, k, i) {
           ? `<span class="kx-flag" title="Disabled by the admin — this key is not used in runs">${KX_ICON.lock}</span>`
           : ''
     }</span>`,
+    // No hint and not locked means the save that should have produced one
+    // never landed: the key still sits here as plaintext, unsaved.
     secret: `<div class="kx-secret">
-        <code>${k.locked ? 'encrypted' : escapeHtml(maskKey(k.key))}</code>
+        <code>${k.locked ? 'encrypted' : (k.hint ? escapeHtml(k.hint) : 'not saved')}</code>
         ${k.locked ? '' : `<button class="pv-icon-btn" type="button" data-kx-copy="${pid}|${kid}" title="Copy key" aria-label="Copy key">${PV_ICON.copy}</button>`}
       </div>`,
     probeHTML,
@@ -5602,12 +5742,14 @@ $('.page-providers').addEventListener('click', async (e) => {
     else if (kx.dataset.kxDel) deleteKey(pid, kid);
     else {
       const k = PROVIDERS[pid]?.keys.find((x) => x.id === kid);
-      if (k) {
+      if (k && !k.locked) {
         try {
-          await navigator.clipboard.writeText(k.key);
+          await window.electronAPI.copyKey(kid);
           kx.classList.add('copied');
           setTimeout(() => kx.classList.remove('copied'), 1200);
-        } catch (_) {}
+        } catch (err) {
+          setStatus('error', 'Could not copy the key to the clipboard');
+        }
       }
     }
     return;
@@ -5664,21 +5806,24 @@ $('.page-providers').addEventListener('click', async (e) => {
 bindShell();
 
 async function init() {
-  await loadSettings();
+  // Startup read gate: a read that fails is shown and blocks every write for
+  // the session (see persist), instead of becoming defaults that a later save
+  // would write over the real data.
+  try { await loadSettings(); } catch (err) { failStartupRead('settings', err); }
   applyAppearance();
   applySidebarWidth(clampSidebar(settings.sidebarWidth));
   bindSettingsForm();
   window.electronAPI.getDataPath().then((dir) => { $('#settings-path').textContent = dir; });
-  await loadTestDefinition();
-  await loadHistory();
-  await loadAllProviders();
+  try { await loadTestDefinition(); } catch (err) { failStartupRead('the test prompt', err); }
+  try { await loadHistory(); } catch (err) { failStartupRead('run history', err); }
+  try { await loadAllProviders(); } catch (err) { failStartupRead('providers', err); }
   if (!PROVIDERS[activeProvider]) {
     activeProvider = Object.keys(PROVIDERS)[0];
   }
   renderProviderTabs();
   renderKeysList();
   renderModelsList();
-  setStatus('idle', 'Ready — add an API key to begin');
+  if (!storeReadError && !writeFailed) setStatus('idle', 'Ready — add an API key to begin');
   setupUpdateListeners();
   startHealthMonitor();
   renderQuickStats();

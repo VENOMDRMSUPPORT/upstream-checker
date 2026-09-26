@@ -12,7 +12,9 @@
 // than silently losing the key.
 const { safeStorage } = require('electron');
 
-const ENC_PREFIX = 'enc:v1:';
+// The envelope is owned by src/db/cipher.js now; this file only serves
+// scripts/keystore-check.js.
+const { ENC_PREFIX } = require('./db/cipher');
 
 function decryptKeyEntry(k, log = console) {
   const stored = k.key;

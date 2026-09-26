@@ -10,7 +10,10 @@
     "publish": "electron-builder --win --x64 --publish always",
     "release": "node scripts/release.mjs",
     "check:keystore": "electron scripts/keystore-check.js",
-    "test": "node --test \"test/**/*.test.js\""
+    "postinstall": "electron-builder install-app-deps",
+    "verify:live": "node scripts/live/verify-db.mjs",
+    "check:import": "node scripts/check-import-counts.js",
+    "test": "node scripts/run-tests.js"
   },
   "build": {
     "publish": {
@@ -55,6 +58,7 @@
     ]
   },
   "dependencies": {
+    "better-sqlite3": "~12.11.1",
     "electron-log": "^5.2.0",
     "electron-updater": "^6.3.0",
     "node-fetch": "^3.3.2"
@@ -63,5 +67,8 @@
     "electron": "^33.0.0",
     "electron-builder": "^26.15.3",
     "sharp": "^0.35.4"
+  },
+  "allowScripts": {
+    "better-sqlite3": true
   }
 }

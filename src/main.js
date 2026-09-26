@@ -1,20 +1,26 @@
-const { app, BrowserWindow, ipcMain, Notification, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, shell, dialog, safeStorage, clipboard } = require('electron');
 const path = require('path');
 const https = require('https');
 const http = require('http');
 const fs = require('fs');
 const log = require('electron-log');
-const {
-  ENC_PREFIX,
-  decryptKeyEntry,
-  encryptKeyEntry,
-  eachStoredKey,
-  countPlaintextKeys,
-} = require('./keystore');
 const { resolveUserDataDir } = require('./user-data');
+const { createCipher } = require('./db/cipher');
+const { importLegacy, listImportedFiles, describeImportWarnings, needsReimportPrompt, FILES } = require('./db/import-json');
+const { registerDataIpc } = require('./db/ipc');
+const { createKeyResolver } = require('./db/keys');
+const { requestFlush } = require('./flush');
+
+// --smoke-test only ever runs on an explicit scratch folder: refused here,
+// before the real data folder is resolved, moved or locked.
+if (app.commandLine.hasSwitch('smoke-test') && !app.commandLine.hasSwitch('user-data-dir')) {
+  console.error('SMOKE FAILED: --smoke-test needs --user-data-dir');
+  process.exit(2);
+}
 
 // Settled before anything reads a path or writes a log. An explicit
-// --user-data-dir (dev and test instances) is used as given.
+// --user-data-dir (dev and test instances) is used as given; otherwise a
+// packaged run and an unpackaged run resolve the same real data folder.
 if (!app.commandLine.hasSwitch('user-data-dir')) {
   const userData = resolveUserDataDir(app.getPath('appData'), fs);
   app.setPath('userData', userData.dir);
@@ -22,201 +28,188 @@ if (!app.commandLine.hasSwitch('user-data-dir')) {
   if (userData.error) log.warn('Could not move the old app data folder, still using it:', userData.error.message);
 }
 
+// One instance per data folder (the lock is per userData, so it comes right
+// after setPath and before the database opens). A second instance would run
+// every timer twice and race the first one's writes; it hands over to the
+// window that is already open and quits.
+const isPrimary = app.requestSingleInstanceLock();
+if (!isPrimary) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+}
+
 let autoUpdater; // Lazy load after app ready
 let updateCheckInterval;
-let configPath;
 
-const CONFIG_VERSION = 1;
+// ============================================
+// Local database — venom.db (src/db)
+// ============================================
+// Opened once, before the window, and closed on quit. A failure to open or to
+// import stops the app with the reason on screen: carrying on with an empty
+// store is how keys used to get overwritten.
+let store = null;
+let importReport = null;
+// Swaps key placeholders for secrets in api-request (src/db/keys.js).
+let keyResolver = null;
 
-function getDefaultConfig() {
-  return { version: CONFIG_VERSION, providers: {} };
+function showStartupError(message, detail) {
+  dialog.showErrorBox('VENOM Router', `${message}\n\n${detail}`);
 }
 
-
-// Config file helpers
-function getConfigPath() {
-  if (!configPath) {
-    configPath = path.join(app.getPath('userData'), 'config.json');
-  }
-  return configPath;
-}
-
-function readConfig() {
+async function startDatabase() {
+  const dir = app.getPath('userData');
+  const cipher = createCipher(safeStorage);
+  let dbPath = dir;
   try {
-    const cp = getConfigPath();
-    if (!fs.existsSync(cp)) {
-      writeConfig(getDefaultConfig());
-      return getDefaultConfig();
+    // Required here, not at module load: a native-module/ABI mismatch throws
+    // on require, and this way it goes through showStartupError below instead
+    // of Electron's generic crash box.
+    const database = require('./db');
+    dbPath = path.join(dir, database.DB_FILE);
+    store = await database.open(dir, { cipher, log });
+    store.repos.meta.set('app_version', app.getVersion());
+  } catch (err) {
+    log.error('Could not open venom.db:', err);
+    showStartupError(
+      err.code === 'DB_TOO_NEW'
+        ? 'This data was written by a newer VENOM Router. Update the app to open it.'
+        : 'VENOM Router could not open its database, so it will close. Nothing was changed.',
+      `${dbPath}\n\n${err.message}`,
+    );
+    if (store) store.close();
+    store = null;
+    return false;
+  }
+
+  // Nothing imported yet, no legacy JSON left, but saved copies from an
+  // earlier import: the database was deleted or moved, or a re-import
+  // aborted. Starting empty without asking would look like every key had
+  // been lost.
+  let source = 'legacy';
+  const saved = listImportedFiles(dir);
+  if (needsReimportPrompt({
+    importedAt: store.repos.meta.get('imported_from_json_at'),
+    legacyPresent: Object.values(FILES).some((name) => fs.existsSync(path.join(dir, name))),
+    savedCopies: saved.length,
+  })) {
+    const choice = dialog.showMessageBoxSync({
+      type: 'warning',
+      title: 'VENOM Router',
+      message: 'The VENOM Router database is missing.',
+      detail: `It may have been deleted or moved. The files from the earlier import are still in\n${dir}:\n\n${saved.join('\n')}\n\nRe-import them, or start with no providers, keys or history.`,
+      buttons: ['Re-import from the saved files', 'Start empty'],
+      defaultId: 0,
+      // Neither button's index, so Esc/the dialog's own close button is
+      // distinguishable from an explicit "Start empty" click below.
+      cancelId: 2,
+      noLink: true,
+    });
+    if (choice === 2) {
+      // Dismissed without deciding: quit without writing anything, so the
+      // offer comes back on the next launch instead of being lost to 'none'.
+      store.close();
+      store = null;
+      return false;
     }
-    const parsed = JSON.parse(fs.readFileSync(cp, 'utf-8'));
-    if (typeof parsed.version !== 'number') parsed.version = CONFIG_VERSION;
-    if (!parsed.providers || typeof parsed.providers !== 'object') parsed.providers = {};
-    return eachStoredKey(parsed, (k) => decryptKeyEntry(k, log));
-  } catch (err) {
-    log.error('Failed to read config:', err);
-    return getDefaultConfig();
+    if (choice === 0) source = 'imported';
   }
-}
 
-function ensureConfig() {
-  const cp = getConfigPath();
-  if (!fs.existsSync(cp)) writeConfig(getDefaultConfig());
-}
-
-// Encrypt keys written by an older build. Without this, existing keys would stay
-// readable on disk until the user happened to save something.
-function migrateConfigSecrets() {
   try {
-    const cp = getConfigPath();
-    if (!fs.existsSync(cp)) return;
-    const raw = JSON.parse(fs.readFileSync(cp, 'utf-8'));
-    const plaintext = countPlaintextKeys(raw);
-    if (plaintext === 0) return;
-    log.info(`Encrypting ${plaintext} API key(s) previously stored as plaintext`);
-    writeConfig(readConfig());
+    importReport = await importLegacy({ dir, db: store.db, repos: store.repos, cipher, log, source, fs });
   } catch (err) {
-    log.error('Failed to migrate stored keys:', err);
+    log.error('Import of the saved JSON files failed:', err);
+    // A damaged config.json is the one failure the owner can work around
+    // without our help: it's the only file the importer insists on, so
+    // moving it out of the data folder lets the app start — but without the
+    // providers and keys that file held. That is not a deferred import:
+    // once startup succeeds without it, imported_from_json_at is set and a
+    // config.json that turns up later is never imported.
+    const workaround = err.code === 'IMPORT_CONFIG_PARSE'
+      ? '\n\nMoving this file out of the data folder lets VENOM Router start, but WITHOUT the providers and keys in that file. Nothing is deleted; keep the moved file safe.'
+      : '';
+    showStartupError(
+      `VENOM Router could not import its saved data, so it will close.\n\n${err.message}`,
+      `${err.file || dir}\n\nThe import runs again the next time VENOM Router starts.${workaround}`,
+    );
+    store.close();
+    store = null;
+    return false;
   }
+  return true;
 }
 
-function writeConfig(data) {
+// Release check (scripts/release.mjs): the packaged app is started with
+// --smoke-test --user-data-dir=<temp>. It opens the database, writes and reads
+// back a row, and exits 0 — proof that the native SQLite module loads from
+// app.asar.unpacked. No window, no import, no network. (A run without
+// --user-data-dir was already refused at the top of this file.)
+async function runSmokeTest() {
+  let code = 1;
   try {
-    const cp = getConfigPath();
-    const dir = path.dirname(cp);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    // Encrypt a copy — the caller keeps working with the plaintext it passed in.
-    const onDisk = eachStoredKey(structuredClone(data), (k) => encryptKeyEntry(k, log));
-    // Written to a temp file and renamed over the real one. A crash partway
-    // through an in-place write would truncate config.json, and now that the keys
-    // are encrypted there is no readable copy left to recover them from — the
-    // rename is atomic, so the file is either the old config or the new one.
-    const tmp = `${cp}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(onDisk, null, 2), 'utf-8');
-    fs.renameSync(tmp, cp);
-    return { success: true };
+    // Same lazy require as startDatabase(): an ABI mismatch throws here, not at
+    // module load, and lands in the catch below either way.
+    const database = require('./db');
+    const smoke = await database.open(app.getPath('userData'), { cipher: createCipher(safeStorage), log });
+    const stamp = `smoke-${Date.now()}`;
+    smoke.repos.settings.set('smoke', { stamp });
+    const back = smoke.repos.settings.get('smoke');
+    smoke.close();
+    code = back && back.stamp === stamp ? 0 : 1;
+    console.log(code === 0 ? 'SMOKE OK' : 'SMOKE FAILED: the row read back differs');
   } catch (err) {
-    log.error('Failed to write config:', err);
-    return { success: false, error: err.message };
+    console.error('SMOKE FAILED:', (err && err.stack) || err);
   }
-}
-
-// ============================================
-// Run history
-// ============================================
-// Kept out of config.json so the settings file stays small and a corrupt or
-// pruned history can never cost the user their providers or keys. Only the
-// verdict of each test is stored — never the response text, which would grow the
-// file without bound for no benefit.
-const HISTORY_VERSION = 1;
-const MAX_RUNS = 300; // fallback when the renderer sends no cap
-
-let historyPath;
-function getHistoryPath() {
-  if (!historyPath) historyPath = path.join(app.getPath('userData'), 'history.json');
-  return historyPath;
-}
-
-function readHistory() {
-  try {
-    const hp = getHistoryPath();
-    if (!fs.existsSync(hp)) return { version: HISTORY_VERSION, runs: [] };
-    const parsed = JSON.parse(fs.readFileSync(hp, 'utf-8'));
-    if (!Array.isArray(parsed.runs)) parsed.runs = [];
-    return parsed;
-  } catch (err) {
-    // A damaged history is an inconvenience, not a reason to fail the app.
-    log.error('Failed to read history:', err);
-    return { version: HISTORY_VERSION, runs: [] };
-  }
-}
-
-function writeHistory(data) {
-  const hp = getHistoryPath();
-  const tmp = `${hp}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(data), 'utf-8');
-  fs.renameSync(tmp, hp);
-}
-
-function appendRun(run, maxRuns) {
-  try {
-    const cap = Number(maxRuns) > 0 ? Math.min(Number(maxRuns), 5000) : MAX_RUNS;
-    const data = readHistory();
-    data.version = HISTORY_VERSION;
-    data.runs.push(run);
-    if (data.runs.length > cap) data.runs = data.runs.slice(-cap);
-    writeHistory(data);
-    return { success: true, runs: data.runs.length };
-  } catch (err) {
-    log.error('Failed to append run to history:', err);
-    return { success: false, error: err.message };
-  }
-}
-
-// ============================================
-// Model pool — catalog.json
-// ============================================
-// Every model each connected provider has ever listed, with when it was first
-// and last seen, whether it has since disappeared, and its benchmark results.
-// Kept apart from history.json (per-run verdicts) and config.json (keys), so a
-// growing catalogue never slows either of those down.
-const CATALOG_VERSION = 1;
-
-let catalogPath;
-function getCatalogPath() {
-  if (!catalogPath) catalogPath = path.join(app.getPath('userData'), 'catalog.json');
-  return catalogPath;
-}
-
-function emptyCatalog() {
-  return { version: CATALOG_VERSION, models: {}, lastSync: {}, leaderboard: null };
-}
-
-function readCatalog() {
-  try {
-    const cp = getCatalogPath();
-    if (!fs.existsSync(cp)) return emptyCatalog();
-    const parsed = JSON.parse(fs.readFileSync(cp, 'utf-8'));
-    if (!parsed || typeof parsed !== 'object') return emptyCatalog();
-    if (!parsed.models || typeof parsed.models !== 'object') parsed.models = {};
-    if (!parsed.lastSync || typeof parsed.lastSync !== 'object') parsed.lastSync = {};
-    return parsed;
-  } catch (err) {
-    log.error('Failed to read catalog:', err);
-    return emptyCatalog();
-  }
-}
-
-function writeCatalog(data) {
-  try {
-    const cp = getCatalogPath();
-    const tmp = `${cp}.tmp`;
-    data.version = CATALOG_VERSION;
-    fs.writeFileSync(tmp, JSON.stringify(data), 'utf-8');
-    fs.renameSync(tmp, cp);
-    return { success: true };
-  } catch (err) {
-    log.error('Failed to write catalog:', err);
-    return { success: false, error: err.message };
-  }
+  app.exit(code);
 }
 
 let mainWindow;
 
+// Damaged files and skipped rows from the import, said once the window is up.
+function showImportWarnings() {
+  const detail = describeImportWarnings(importReport);
+  importReport = null;
+  if (!detail || !mainWindow) return;
+  dialog.showMessageBox(mainWindow, { type: 'warning', title: 'VENOM Router', message: 'Some saved data could not be imported.', detail });
+}
+
+// The renderer's pending saves go out before the window closes or an update
+// installs (src/flush.js). One flush per window, shared: a second click on
+// the X, or the update path, waits on the same one.
+let flushPromise = null;
+let flushed = false;
+function flushBeforeClose() {
+  if (!flushPromise) {
+    const asked = mainWindow && !mainWindow.isDestroyed()
+      ? requestFlush({ webContents: mainWindow.webContents, ipcMain })
+      : Promise.resolve('skipped');
+    flushPromise = asked.then((how) => {
+      if (how === 'timeout') log.warn('The window did not confirm its pending saves within 2 s; closing anyway');
+      saveWindowState();
+      flushed = true;
+    });
+  }
+  return flushPromise;
+}
+
 function saveWindowState() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (!mainWindow || mainWindow.isDestroyed() || !store) return;
   try {
-    const data = readConfig();
-    data.window = { ...mainWindow.getNormalBounds(), maximized: mainWindow.isMaximized() };
-    writeConfig(data);
+    store.repos.settings.set('window', { ...mainWindow.getNormalBounds(), maximized: mainWindow.isMaximized() });
   } catch (err) {
     log.warn('Could not save window state:', err.message);
   }
 }
 
 function createWindow() {
-  const saved = (readConfig().window) || {};
+  flushPromise = null;
+  flushed = false;
+  const saved = (store && store.repos.settings.get('window')) || {};
   mainWindow = new BrowserWindow({
     width: saved.width || 1400,
     height: saved.height || 900,
@@ -243,9 +236,19 @@ function createWindow() {
   // Send app version to renderer after load
   mainWindow.webContents.on('did-finish-load', () => {
     mainWindow.webContents.send('app-version', app.getVersion());
+    showImportWarnings();
   });
 
-  mainWindow.on('close', saveWindowState);
+  // The X button, Alt+F4 and the title-bar close all land here. The first
+  // close waits for the renderer's pending saves (at most 2 s) and the window
+  // row, then destroys the window; destroy() does not fire 'close' again.
+  mainWindow.on('close', (event) => {
+    if (flushed) return;
+    event.preventDefault();
+    flushBeforeClose().then(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy();
+    });
+  });
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -316,6 +319,14 @@ function initAutoUpdater() {
   autoUpdater.on('error', (err) => {
     log.error('Update error:', err);
     mainWindow?.webContents.send('update-error', { message: err.message });
+    // install-update flushes before quitAndInstall(), which marks the flush
+    // done so a second click on the X doesn't wait again. When quitAndInstall
+    // itself fails, the app keeps running with flushed stuck true — the next
+    // real close would skip the flush and the window row entirely. An update
+    // error can only mean the flush already ran for a close that never
+    // followed through, so it's always safe to make the next close redo it.
+    flushPromise = null;
+    flushed = false;
   });
 
   autoUpdater.on('download-progress', (progressObj) => {
@@ -345,16 +356,40 @@ function stopUpdateChecks() {
   }
 }
 
-app.whenReady().then(() => {
-  ensureConfig();
-  migrateConfigSecrets();
-  initAutoUpdater();
-  createWindow();
-  startUpdateChecks();
+app.whenReady().then(async () => {
+  if (!isPrimary) return;
+  if (app.commandLine.hasSwitch('smoke-test')) {
+    await runSmokeTest();
+    return;
+  }
+  if (!(await startDatabase())) {
+    app.quit();
+    return;
+  }
+  try {
+    registerDataIpc({ ipcMain, repos: store.repos, clipboard, log });
+    keyResolver = createKeyResolver({ providers: store.repos.providers, secrets: store.repos.secrets });
+    initAutoUpdater();
+    createWindow();
+    startUpdateChecks();
+  } catch (err) {
+    // No windowless process may stay alive holding venom.db open.
+    log.error('Startup failed after opening venom.db:', err);
+    showStartupError('VENOM Router could not start, so it will close. Nothing was changed.', err.message);
+    if (store) {
+      store.close();
+      store = null;
+    }
+    app.quit();
+  }
 });
 
 app.on('will-quit', () => {
   stopUpdateChecks();
+  if (store) {
+    store.close();
+    store = null;
+  }
 });
 
 app.on('window-all-closed', () => {
@@ -386,9 +421,18 @@ const CONTENT_TOKEN = /"(?:content|text|reasoning_content|reasoning)"\s*:\s*"[^"
 // message buried and every other field — notably the elapsed time — gone, so a
 // failed model showed a meaningless error and 0.0s.
 ipcMain.handle('api-request', async (event, { url, method, headers, body, requestId, timeoutMs, logLevel }) => {
+  // The renderer holds placeholders (venomkey:<id>, venomsecret:<name>), not
+  // keys. They become the real secret here, only for the origin that secret
+  // belongs to; anything else is refused without sending. The request log
+  // below records the request as the renderer sent it, placeholders and all.
+  const outgoing = keyResolver ? keyResolver.resolve({ url, headers, body }) : { url, headers, body };
+  if (outgoing.blocked) {
+    log.warn(outgoing.error);
+    return { status: 0, body: '', elapsed: 0, headers: {}, blocked: true, error: outgoing.error };
+  }
   return new Promise((resolve) => {
     const startTime = Date.now();
-    const urlObj = new URL(url);
+    const urlObj = new URL(outgoing.url);
     const isHttps = urlObj.protocol === 'https:';
     const client = isHttps ? https : http;
 
@@ -397,7 +441,7 @@ ipcMain.handle('api-request', async (event, { url, method, headers, body, reques
       port: urlObj.port || (isHttps ? 443 : 80),
       path: urlObj.pathname + urlObj.search,
       method: method || 'GET',
-      headers: headers || {},
+      headers: outgoing.headers || {},
       // Socket inactivity timeout. A video generator sends nothing for minutes
       // while it works, so a fixed 60s here would kill it regardless of the
       // deadline the caller set for that kind of model.
@@ -478,7 +522,7 @@ ipcMain.handle('api-request', async (event, { url, method, headers, body, reques
                 error: `No response for ${Math.round(options.timeout / 1000)}s` });
     });
 
-    if (body) req.write(typeof body === 'string' ? body : JSON.stringify(body));
+    if (outgoing.body) req.write(typeof outgoing.body === 'string' ? outgoing.body : JSON.stringify(outgoing.body));
     req.end();
   });
 });
@@ -568,23 +612,6 @@ ipcMain.handle('clear-request-log', () => {
   }
 });
 
-// History IPC handlers
-ipcMain.handle('read-history', () => readHistory());
-ipcMain.handle('append-run', (event, run, maxRuns) => appendRun(run, maxRuns));
-ipcMain.handle('clear-history', () => {
-  try {
-    writeHistory({ version: HISTORY_VERSION, runs: [] });
-    return { success: true };
-  } catch (err) {
-    log.error('Failed to clear history:', err);
-    return { success: false, error: err.message };
-  }
-});
-
-// Catalog IPC handlers
-ipcMain.handle('read-catalog', () => readCatalog());
-ipcMain.handle('write-catalog', (event, data) => writeCatalog(data));
-
 // Fired when a scheduled run finds a model that used to pass and no longer does.
 ipcMain.on('notify-regression', (event, { title, body }) => {
   if (!Notification.isSupported()) return;
@@ -607,15 +634,6 @@ ipcMain.handle('open-external', async (_e, url) => {
   }
 });
 
-// Config IPC handlers
-ipcMain.handle('read-config', () => {
-  return readConfig();
-});
-
-ipcMain.handle('write-config', (event, data) => {
-  return writeConfig(data);
-});
-
 // Update IPC handlers
 ipcMain.on('download-update', () => {
   log.info('User requested update download');
@@ -628,7 +646,10 @@ ipcMain.on('download-update', () => {
 // mode keeps the existing install directory and reopens the app on its own.
 ipcMain.on('install-update', () => {
   log.info('User requested update install');
-  if (autoUpdater) setImmediate(() => autoUpdater.quitAndInstall(true, true));
+  if (!autoUpdater) return;
+  // electron-updater starts the installer before the app quits, so the
+  // renderer's pending saves are written first.
+  flushBeforeClose().then(() => setImmediate(() => autoUpdater.quitAndInstall(true, true)));
 });
 
 ipcMain.on('check-for-updates-manual', () => {

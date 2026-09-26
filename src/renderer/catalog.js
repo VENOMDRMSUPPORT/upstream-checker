@@ -56,7 +56,10 @@
     loadPromise = (async () => {
       try {
         state.data = await window.electronAPI.readCatalog();
-      } catch (_) {
+      } catch (err) {
+        // Shown empty for this session and never saved: the read gate makes
+        // persist() refuse every write.
+        failStartupRead('model pool', err);
         state.data = null;
       }
       if (!state.data || typeof state.data !== 'object') state.data = { version: 1, models: {}, lastSync: {}, leaderboard: null };
@@ -71,14 +74,31 @@
     return loadPromise;
   }
 
+  // Main writes only the rows that changed. It refuses to empty a non-empty
+  // pool unless reset is set, which only the Clear and Reset buttons do; the
+  // flag sticks until the debounced write goes out, because another save()
+  // can land inside the window.
   let saveTimer = null;
-  function save() {
+  let saveReset = false;
+  function save({ reset = false } = {}) {
+    saveReset = saveReset || reset === true;
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-      Promise.resolve(window.electronAPI.writeCatalog(state.data)).catch(() => {});
-      // The profiles are a pure function of the catalogue; tell them it moved.
-      window.dispatchEvent(new CustomEvent('catalog-changed'));
-    }, 300);
+    saveTimer = setTimeout(flushSave, 300);
+  }
+
+  // For the close handshake: the pending write, now, if there is one.
+  function flush() {
+    return saveTimer ? flushSave() : Promise.resolve();
+  }
+
+  function flushSave() {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    const opts = { reset: saveReset };
+    saveReset = false;
+    // The profiles are a pure function of the catalogue; tell them it moved.
+    window.dispatchEvent(new CustomEvent('catalog-changed'));
+    return persist('save the model pool', () => window.electronAPI.writeCatalog(state.data, opts));
   }
 
   // ---- model discovery / sync ----------------------------------------------
@@ -1072,8 +1092,44 @@
     if (sync) sync.value = Math.max(1, Number(settings.catalogSyncMinutes) || 5);
     const auto = $('#set-catalog-autobench');
     if (auto) auto.checked = !!settings.catalogAutoBench;
+    renderAaKey();
+    renderLeaderboardStatus();
+  }
+
+  // The key never comes back to the page: a saved one shows as "Saved" with an
+  // empty field, and typing a new one replaces it.
+  const AA_PLACEHOLDER = 'aa_… (free key from artificialanalysis.ai)';
+  function renderAaKey() {
+    const saved = settings.aaApiKey === 'venomsecret:aaApiKey';
     const key = $('#set-aa-key');
-    if (key) key.value = settings.aaApiKey || '';
+    if (key) {
+      key.value = '';
+      key.placeholder = saved ? 'Saved — type a new key to replace it' : AA_PLACEHOLDER;
+    }
+    const badge = $('#aa-key-saved');
+    if (badge) badge.hidden = !saved;
+    const remove = $('#btn-aa-remove');
+    if (remove) remove.hidden = !saved;
+  }
+
+  // Empty or unchanged text is not a change. New text goes to main, which
+  // encrypts it; the page keeps only the placeholder. On failure the typed
+  // text stays in the field so it can be retried.
+  async function storeAaKey() {
+    const key = $('#set-aa-key');
+    const text = key ? key.value.trim() : '';
+    if (!text || text === settings.aaApiKey) return;
+    const res = await persist('save the Artificial Analysis key', () => window.electronAPI.saveSecret('aaApiKey', text));
+    if (!res) return;
+    settings.aaApiKey = res.placeholder;
+    renderAaKey();
+  }
+
+  async function removeAaKey() {
+    const res = await persist('remove the Artificial Analysis key', () => window.electronAPI.saveSecret('aaApiKey', ''));
+    if (!res) return;
+    settings.aaApiKey = '';
+    renderAaKey();
     renderLeaderboardStatus();
   }
 
@@ -1108,10 +1164,12 @@
     const auto = $('#set-catalog-autobench');
     if (auto) auto.addEventListener('change', () => { settings.catalogAutoBench = auto.checked; queueSettingsSave(); });
     const key = $('#set-aa-key');
-    if (key) key.addEventListener('change', () => { settings.aaApiKey = key.value.trim(); queueSettingsSave(); });
+    if (key) key.addEventListener('change', storeAaKey);
+    const removeKey = $('#btn-aa-remove');
+    if (removeKey) removeKey.addEventListener('click', removeAaKey);
     const refresh = $('#btn-aa-refresh');
     if (refresh) refresh.addEventListener('click', async () => {
-      if (key) { settings.aaApiKey = key.value.trim(); queueSettingsSave(); }
+      await storeAaKey();
       refresh.disabled = true;
       const el = $('#aa-status');
       if (el) el.textContent = 'Refreshing…';
@@ -1127,7 +1185,7 @@
     if (clear) clear.addEventListener('click', () => {
       if (!state.loaded) return;
       Object.values(state.data.models).forEach((e) => { e.bench = null; e.history = []; e.benchError = null; });
-      save();
+      save({ reset: true });
       renderIfShown();
       setStatus('done', 'Benchmark results cleared');
     });
@@ -1136,7 +1194,7 @@
       if (!state.loaded) return;
       state.data.models = {};
       state.data.lastSync = {};
-      save();
+      save({ reset: true });
       renderIfShown();
       syncAll({ reason: 'reset' });
       setStatus('done', 'Model pool reset — re-syncing');
@@ -1156,6 +1214,7 @@
 
   window.CATALOG = {
     init,
+    flush,
     render,
     renderIfShown,
     syncAll,

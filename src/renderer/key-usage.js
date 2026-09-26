@@ -22,7 +22,7 @@
 //                       items: [{ at, model, ok, status, inputTokens,
 //                                 outputTokens, totalTokens, cost }] }
 //
-// Loaded after app.js and uses its globals (PROVIDERS, escapeHtml, maskKey,
+// Loaded after app.js and uses its globals (PROVIDERS, escapeHtml,
 // providerLogoHTML, formatAgo, refreshAfterKeyChange, and the spent-quota
 // helpers isKeySpent / isKeySpentFor / markKeySpent / clearKeySpent).
 window.KEY_USAGE = (() => {
@@ -468,7 +468,7 @@ window.KEY_USAGE = (() => {
     head.innerHTML = `${providerLogoHTML(p)}
       <div class="ku-head-text">
         <h3 id="ku-title">${escapeHtml(k.name)}</h3>
-        <span class="ku-head-sub">${escapeHtml(p.name)} · <code>${escapeHtml(maskKey(k.key))}</code></span>
+        <span class="ku-head-sub">${escapeHtml(p.name)} · <code>${escapeHtml(k.hint || '')}</code></span>
       </div>`;
     const refreshBtn = document.getElementById('ku-refresh');
     refreshBtn.disabled = loading;
