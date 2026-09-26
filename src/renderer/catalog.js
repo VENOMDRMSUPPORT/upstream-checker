@@ -86,6 +86,11 @@
     saveTimer = setTimeout(flushSave, 300);
   }
 
+  // For the close handshake: the pending write, now, if there is one.
+  function flush() {
+    return saveTimer ? flushSave() : Promise.resolve();
+  }
+
   function flushSave() {
     clearTimeout(saveTimer);
     saveTimer = null;
@@ -1209,6 +1214,7 @@
 
   window.CATALOG = {
     init,
+    flush,
     render,
     renderIfShown,
     syncAll,

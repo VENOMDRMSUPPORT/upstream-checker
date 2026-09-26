@@ -401,6 +401,26 @@ async function persist(what, call) {
   }
 }
 
+// Close handshake (main's flush-pending, sent before the window closes and
+// before an update installs): debounced writes go out now instead of being
+// dropped, writes already in flight are waited for, then main is told.
+async function flushPendingSaves() {
+  const writes = [];
+  if (saveSettingsTimer) writes.push(saveSettingsNow());
+  if (saveTestTimer) writes.push(saveTestDefinition());
+  if (window.CATALOG) writes.push(window.CATALOG.flush());
+  await Promise.allSettled(writes);
+  await Promise.allSettled([...pendingSaves]);
+}
+
+window.electronAPI.onFlushPending(async (token) => {
+  try {
+    await flushPendingSaves();
+  } finally {
+    window.electronAPI.flushDone(token);
+  }
+});
+
 // ============================================
 // Providers — each saved on its own (save-provider)
 // ============================================

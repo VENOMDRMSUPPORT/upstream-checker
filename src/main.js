@@ -9,6 +9,7 @@ const { createCipher } = require('./db/cipher');
 const { importLegacy, listImportedFiles, describeImportWarnings, needsReimportPrompt, FILES } = require('./db/import-json');
 const { registerDataIpc } = require('./db/ipc');
 const { createKeyResolver } = require('./db/keys');
+const { requestFlush } = require('./flush');
 
 // Settled before anything reads a path or writes a log. An explicit
 // --user-data-dir (dev and test instances) is used as given.
@@ -141,6 +142,25 @@ function showImportWarnings() {
   dialog.showMessageBox(mainWindow, { type: 'warning', title: 'VENOM Router', message: 'Some saved data could not be imported.', detail });
 }
 
+// The renderer's pending saves go out before the window closes or an update
+// installs (src/flush.js). One flush per window, shared: a second click on
+// the X, or the update path, waits on the same one.
+let flushPromise = null;
+let flushed = false;
+function flushBeforeClose() {
+  if (!flushPromise) {
+    const asked = mainWindow && !mainWindow.isDestroyed()
+      ? requestFlush({ webContents: mainWindow.webContents, ipcMain })
+      : Promise.resolve('skipped');
+    flushPromise = asked.then((how) => {
+      if (how === 'timeout') log.warn('The window did not confirm its pending saves within 2 s; closing anyway');
+      saveWindowState();
+      flushed = true;
+    });
+  }
+  return flushPromise;
+}
+
 function saveWindowState() {
   if (!mainWindow || mainWindow.isDestroyed() || !store) return;
   try {
@@ -151,6 +171,8 @@ function saveWindowState() {
 }
 
 function createWindow() {
+  flushPromise = null;
+  flushed = false;
   const saved = (store && store.repos.settings.get('window')) || {};
   mainWindow = new BrowserWindow({
     width: saved.width || 1400,
@@ -181,7 +203,16 @@ function createWindow() {
     showImportWarnings();
   });
 
-  mainWindow.on('close', saveWindowState);
+  // The X button, Alt+F4 and the title-bar close all land here. The first
+  // close waits for the renderer's pending saves (at most 2 s) and the window
+  // row, then destroys the window; destroy() does not fire 'close' again.
+  mainWindow.on('close', (event) => {
+    if (flushed) return;
+    event.preventDefault();
+    flushBeforeClose().then(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy();
+    });
+  });
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -567,7 +598,10 @@ ipcMain.on('download-update', () => {
 // mode keeps the existing install directory and reopens the app on its own.
 ipcMain.on('install-update', () => {
   log.info('User requested update install');
-  if (autoUpdater) setImmediate(() => autoUpdater.quitAndInstall(true, true));
+  if (!autoUpdater) return;
+  // electron-updater starts the installer before the app quits, so the
+  // renderer's pending saves are written first.
+  flushBeforeClose().then(() => setImmediate(() => autoUpdater.quitAndInstall(true, true)));
 });
 
 ipcMain.on('check-for-updates-manual', () => {

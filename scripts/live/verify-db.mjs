@@ -137,7 +137,17 @@ async function saveForNextRun({ app }) {
   })()`);
 }
 
+// Queued and NOT waited for: the close that follows must still write it.
+async function queueSaveThenClose({ app }) {
+  await app.evaluate('settings.hedgeStepMs = 2345; queueSettingsSave(); true');
+}
+
 // ---- run 2: relaunch on the same folder -----------------------------------------
+
+async function checkFlushOnClose({ app }) {
+  const v = await app.evaluate('settings.hedgeStepMs');
+  check('a save queued right before closing was written by the close handshake', v === 2345, String(v));
+}
 
 async function checkPersistence({ app, dir }) {
   const s = await app.evaluate(`({
@@ -179,8 +189,8 @@ async function checkWriteGate({ app }) {
 }
 
 const RUN1 = [checkImport, checkKeysStayInMain];
-const RUN1_END = [saveForNextRun];
-const RUN2 = [checkPersistence, checkSingleInstance];
+const RUN1_END = [saveForNextRun, queueSaveThenClose];
+const RUN2 = [checkPersistence, checkFlushOnClose, checkSingleInstance];
 const RUN2_END = [checkWriteGate];
 
 async function session(ctx, steps) {

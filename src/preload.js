@@ -15,6 +15,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('app-version', (_, version) => callback(version));
   },
 
+  // Close handshake: main asks for pending saves before the window closes or
+  // an update installs; the renderer answers once they are written.
+  onFlushPending: (callback) => ipcRenderer.on('flush-pending', (_, token) => callback(token)),
+  flushDone: (token) => ipcRenderer.send('flush-done', token),
+
   // Saved data (venom.db, owned by main). Each call writes one thing.
   readConfig: () => ipcRenderer.invoke('read-config'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
