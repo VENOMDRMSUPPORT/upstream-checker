@@ -453,9 +453,13 @@ function adoptSavedKeys(p, saved) {
   });
 }
 
+// Returns whether the save actually landed (persist()'s result, truthy on
+// success, undefined when refused or failed — already reported by persist).
+// Callers that show their own "done" status must skip it when this is false,
+// or the save's error in the status bar gets overwritten by a false success.
 async function saveProviderConfig(providerId) {
   const p = PROVIDERS[providerId];
-  if (!p) return;
+  if (!p) return false;
   const saved = await persist(`save ${p.name}`, () => window.electronAPI.saveProvider(providerPayload(providerId)));
   if (saved) adoptSavedKeys(p, saved);
   // Every save is a user edit to keys or the base URL, so the verdict is stale.
@@ -463,6 +467,7 @@ async function saveProviderConfig(providerId) {
   if (currentPage === 'providers') renderProvidersPage();
   // The Model Pool shows a provider's models only while it has a key.
   window.dispatchEvent(new CustomEvent('providers-changed', { detail: { providerId } }));
+  return !!saved;
 }
 
 // ============================================
@@ -1154,7 +1159,9 @@ function renderKeysList() {
       </div>
       <div class="key-value">
         <span class="key-masked ${k.locked ? 'unreadable' : ''}">${
-          k.locked ? 'Encrypted for another machine — re-add it' : escapeHtml(k.hint || '')
+          // No hint and not locked means the save that should have produced
+          // one never landed: the key still sits here as plaintext, unsaved.
+          k.locked ? 'Encrypted for another machine — re-add it' : (k.hint ? escapeHtml(k.hint) : 'not saved')
         }</span>
         <button class="key-icon-btn key-copy-btn" data-key-id="${k.id}" title="Copy key" ${k.locked ? 'disabled' : ''}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1236,11 +1243,14 @@ async function removeKey(keyId) {
   updateTestAllButton();
 }
 
+// Returns { k, saved }: saved is false when saveProviderConfig's persist()
+// failed — the key stays in the page (still plaintext, no hint) so the key
+// rows can show it as "not saved" instead of quietly losing it.
 async function storeKey(pid, name, key) {
   const k = { id: `key_${Date.now()}`, name: name || `Key ${Date.now()}`, key, active: true };
   PROVIDERS[pid].keys.push(k);
-  await saveProviderConfig(pid);
-  return k;
+  const saved = await saveProviderConfig(pid);
+  return { k, saved };
 }
 
 async function addKey() {
@@ -1256,10 +1266,12 @@ async function addKey() {
 
   nameInput.value = '';
   keyInput.value = '';
-  await storeKey(activeProvider, name, key);
+  const { saved } = await storeKey(activeProvider, name, key);
   renderKeysList();
   updateTestAllButton();
-  setStatus('done', `Key "${name}" added`);
+  // A failed save already left its error in the status bar (persist()); a
+  // "done" here would overwrite it and hide that the key wasn't saved.
+  if (saved) setStatus('done', `Key "${name}" added`);
 }
 
 // ============================================
@@ -3616,10 +3628,12 @@ async function connectWithKey({ unverified = false } = {}) {
     }
   }
 
-  const k = await storeKey(pid, name, key);
+  const { k, saved } = await storeKey(pid, name, key);
   if (res) keyProbe.set(k.id, keyProbeResult(res));
   closeAddKeyModal();
-  setStatus('done', `${p.name} connected`);
+  // A failed save already left its error in the status bar (persist()); a
+  // "done" here would overwrite it and hide that the key wasn't saved.
+  if (saved) setStatus('done', `${p.name} connected`);
   // Connected now: the provider is shown there, with its keys open.
   providersTab = 'connected';
   pvShell = null;
@@ -3696,10 +3710,13 @@ async function updateProvider(id, { name, baseUrl, rpm }) {
   p.name = name;
   p.baseUrl = baseUrl;
   p.rpm = Number.isFinite(rpm) && rpm > 0 ? rpm : null;
-  await saveProviderConfig(id);
+  const saved = await saveProviderConfig(id);
   renderProviderTabs();
-  setStatus('done', `Provider "${name}" updated`);
-  return true;
+  // A failed save already left its error in the status bar (persist()); a
+  // "done" here would overwrite it, and the caller keeps the modal open
+  // (below) instead of hiding the failure behind a closed dialog.
+  if (saved) setStatus('done', `Provider "${name}" updated`);
+  return saved;
 }
 
 function closeAddProviderModal() {
@@ -5234,8 +5251,10 @@ function keyParts(p, k, i) {
           ? `<span class="kx-flag" title="Disabled by the admin — this key is not used in runs">${KX_ICON.lock}</span>`
           : ''
     }</span>`,
+    // No hint and not locked means the save that should have produced one
+    // never landed: the key still sits here as plaintext, unsaved.
     secret: `<div class="kx-secret">
-        <code>${k.locked ? 'encrypted' : escapeHtml(k.hint || '')}</code>
+        <code>${k.locked ? 'encrypted' : (k.hint ? escapeHtml(k.hint) : 'not saved')}</code>
         ${k.locked ? '' : `<button class="pv-icon-btn" type="button" data-kx-copy="${pid}|${kid}" title="Copy key" aria-label="Copy key">${PV_ICON.copy}</button>`}
       </div>`,
     probeHTML,
