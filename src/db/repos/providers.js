@@ -10,6 +10,12 @@ const { ENC_PREFIX, revealCached } = require('../cipher');
 const KEY_PLACEHOLDER = 'venomkey:';
 const ANY_PLACEHOLDER = /^venom(?:key|secret):/;
 
+// The one place a key id's shape is defined. It must stay resolvable as a
+// venomkey:<id> placeholder (src/db/keys.js's TOKEN caps a run at the same 64
+// chars) and importable as a JSON property; src/db/import-json.js reuses this
+// constant for ids read from a legacy config.json instead of duplicating it.
+const KEY_ID = /^[A-Za-z0-9_.-]{1,64}$/;
+
 // The display mask the renderer has always shown, computed from the plaintext
 // at read time. Never stored: it still holds real characters of the key.
 function maskKey(key) {
@@ -137,6 +143,7 @@ function createProvidersRepo(db, cipher, cache, log = console) {
     const seen = new Set();
     keys.forEach((k, position) => {
       if (!k || typeof k.id !== 'string' || !k.id) throw new TypeError(`A key of "${p.id}" has no id`);
+      if (!KEY_ID.test(k.id)) throw new TypeError(`Key id "${k.id}" of "${p.id}" is not a usable id`);
       if (seen.has(k.id)) throw new Error(`Key ${k.id} is listed twice`);
       seen.add(k.id);
       const owner = q.key.get(k.id);
@@ -240,4 +247,4 @@ function createProvidersRepo(db, cipher, cache, log = console) {
   return { list, get, save, merge, remove, keyRecord, revealKey, importProvider };
 }
 
-module.exports = { createProvidersRepo, maskKey, KEY_PLACEHOLDER };
+module.exports = { createProvidersRepo, maskKey, KEY_PLACEHOLDER, KEY_ID };

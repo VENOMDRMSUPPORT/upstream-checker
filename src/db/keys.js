@@ -11,9 +11,10 @@
 // host by mistake or through an injected URL.
 const { SECRET_ORIGINS } = require('./repos/secrets');
 
-// A key id is at most 64 chars (src/db/repos/providers.js), so a token run is
-// capped at 64 too: an attacker-supplied header can't turn one substitution
-// into thousands of lookups, and an "unknown key" error can't quote megabytes.
+// A key id is at most 64 chars (KEY_ID in src/db/repos/providers.js, enforced
+// on every save-provider and reused by the importer), so a token run is capped
+// at 64 too: an attacker-supplied header can't turn one substitution into
+// thousands of lookups, and an "unknown key" error can't quote megabytes.
 const TOKEN = /venom(key|secret):([A-Za-z0-9_.-]{1,64})/g;
 const HAS_TOKEN = /venom(?:key|secret):/;
 

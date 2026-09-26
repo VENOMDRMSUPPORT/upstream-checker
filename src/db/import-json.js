@@ -16,12 +16,13 @@
 const nodeFs = require('fs');
 const path = require('path');
 const { ENC_PREFIX } = require('./cipher');
+// The single definition of what a key id may look like (src/db/repos/providers.js);
+// the providers repo's save-provider path enforces the same pattern.
+const { KEY_ID } = require('./repos/providers');
 
 const FILES = { config: 'config.json', catalog: 'catalog.json', history: 'history.json' };
 const READ_ATTEMPTS = 3;
 const READ_GAP_MS = 200;
-// Key ids must stay resolvable as venomkey:<id> placeholders (src/db/keys.js).
-const KEY_ID = /^[A-Za-z0-9_.-]{1,64}$/;
 
 class ImportAbort extends Error {
   constructor(code, message, file = null) {

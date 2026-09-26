@@ -233,6 +233,15 @@ test('a placeholder copying a different key onto this id drops the old cached se
   assert.strictEqual(store.repos.providers.revealKey('key_3'), 'sk-B');
 });
 
+test('a key id outside KEY_ID (import-json.js\'s pattern) is refused and writes nothing', async (t) => {
+  const store = await memoryStore(t);
+  const attempt = (id) => () => store.repos.providers.save(nara([{ id, name: 'Bad', key: 'sk-1', active: true }]));
+  assert.throws(attempt('has a space'), { name: 'TypeError', message: /not a usable id/ });
+  assert.throws(attempt('semicolon;here'), { name: 'TypeError', message: /not a usable id/ });
+  assert.throws(attempt('a'.repeat(65)), { name: 'TypeError', message: /not a usable id/ });
+  assert.strictEqual(store.repos.providers.get('nara'), null);
+});
+
 test('save-provider without a keys array throws and changes nothing', async (t) => {
   const store = await memoryStore(t);
   store.repos.providers.save(nara([{ id: 'key_1', name: 'Main', key: 'sk-1', active: true }]));
