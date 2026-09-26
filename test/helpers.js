@@ -141,7 +141,14 @@ function fakeTimers() {
   };
 }
 
+// An opened in-memory request log (src/logs), closed after the test.
+function logsStore(t, opts = {}) {
+  const logs = require('../src/logs').open(':memory:', { log: quietLog, ...opts });
+  t.after(() => logs.close());
+  return logs;
+}
+
 module.exports = {
   quietLog, fakeSafeStorage, fakeCipher, encFake, LOCKED_BLOB, tempDir, memoryStore,
-  migratedLogsDb, logRow, countRows, fakeTimers,
+  migratedLogsDb, logRow, countRows, fakeTimers, logsStore,
 };
