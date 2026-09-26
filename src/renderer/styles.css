@@ -447,7 +447,7 @@ html, body {
   flex-shrink: 0;
   border-radius: 8px;
   background: var(--accent);
-  color: #0a0a0a;
+  color: var(--on-accent);
   box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 .shell-brand-text {

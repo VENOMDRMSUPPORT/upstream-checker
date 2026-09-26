@@ -232,7 +232,9 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
-    icon: path.join(__dirname, 'assets', 'icon.png'),
+    // The .ico carries the hand-hinted 16/32/48 px frames for the taskbar and
+    // Alt-Tab; the 512 px PNG would be shrunk into a blur there.
+    icon: path.join(__dirname, 'assets', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
   });
 
   if (saved.maximized) mainWindow.maximize();
