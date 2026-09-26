@@ -351,12 +351,17 @@ function createQuery(db, { file = null, meta, droppedRows = () => 0 } = {}) {
   }
 
   // Rows (and their bodies) older than `before`, and the roll-ups whose whole
-  // hour lies before it (hour_start + 1 h <= before); everything when omitted.
+  // hour lies before it (hour_start + 1 h <= before); everything when `before`
+  // is absent. A present but non-finite `before` (NaN, a string, null, a
+  // Date...) throws and deletes nothing, rather than silently clearing all.
   async function clear(opts, { yieldFn = defaultYield } = {}) {
-    const before = opts && Number.isFinite(opts.before) ? opts.before : null;
-    const logs = await purgeLogsBefore(db, before === null ? EVERYTHING : before, { yieldFn });
-    const rollups = await purgeRollupsBefore(db, before === null ? EVERYTHING : before - HOUR + 1, { yieldFn });
+    const hasBefore = !!opts && opts.before !== undefined;
+    if (hasBefore && !Number.isFinite(opts.before)) throw new TypeError('clear({ before }) needs a finite number, or no before at all');
+    const before = hasBefore ? opts.before : EVERYTHING;
+    const logs = await purgeLogsBefore(db, before, { yieldFn });
+    const rollups = await purgeRollupsBefore(db, before === EVERYTHING ? EVERYTHING : before - HOUR + 1, { yieldFn });
     await stepVacuum(db, { yieldFn });
+    db.pragma('wal_checkpoint(TRUNCATE)');
     return { rows: logs.rows, bodies: logs.bodies, rollups: rollups.rollups };
   }
 

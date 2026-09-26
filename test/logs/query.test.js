@@ -269,3 +269,26 @@ test('clear with before deletes older rows, bodies and fully covered roll-ups; w
   assert.deepStrictEqual(await query.clear(), { rows: 1, bodies: 1, rollups: 1 });
   assert.deepStrictEqual([countRows(db, 'request_logs'), countRows(db, 'request_bodies'), countRows(db, 'usage_hourly')], [0, 0, 0]);
 });
+
+test('clear({}) clears everything too; a present but non-finite before rejects and deletes nothing', async (t) => {
+  const body = { request_headers_json: '{}', request_body: 'q', response_body: 'r', truncated: 0 };
+  const counts = (db) => [countRows(db, 'request_logs'), countRows(db, 'request_bodies'), countRows(db, 'usage_hourly')];
+  const rows = () => [
+    { row: logRow({ created_at: T0 - 2 * HOUR }), body },
+    { row: logRow({ created_at: T0 + 10 }), body },
+  ];
+
+  const bad1 = setup(t, rows());
+  const before1 = counts(bad1.db);
+  await assert.rejects(bad1.query.clear({ before: 'x' }), TypeError);
+  assert.deepStrictEqual(counts(bad1.db), before1);
+
+  const bad2 = setup(t, rows());
+  const before2 = counts(bad2.db);
+  await assert.rejects(bad2.query.clear({ before: null }), TypeError);
+  assert.deepStrictEqual(counts(bad2.db), before2);
+
+  const { db, query } = setup(t, rows());
+  assert.deepStrictEqual(await query.clear({}), { rows: 2, bodies: 2, rollups: 2 });
+  assert.deepStrictEqual(counts(db), [0, 0, 0]);
+});
