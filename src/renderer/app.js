@@ -503,8 +503,11 @@ function previousStatus(modelId) {
   return h[h.length - 2].ok;
 }
 
+// Returns whether the run was saved (false when persist() refused it or the
+// write failed — already reported by persist; the caller shows it too, since
+// renderRunSummary's status would otherwise overwrite that report).
 async function recordRun(providerId, providerName, results) {
-  if (results.length === 0) return;
+  if (results.length === 0) return true;
   const run = {
     at: Date.now(),
     provider: providerId,
@@ -520,11 +523,12 @@ async function recordRun(providerId, providerName, results) {
       correct: isCorrect(r, modelById(r.model)),
     })),
   };
-  await persist('record the run', () => window.electronAPI.appendRun(run, settings.historyMaxRuns));
+  const saved = await persist('record the run', () => window.electronAPI.appendRun(run, settings.historyMaxRuns));
   // Fold into the in-memory index so the table reflects it immediately.
   foldRun(run);
   capHistory();
   renderQuickStats();
+  return !!saved;
 }
 
 // Compares this run against each model's previous recorded outcome. Called after
@@ -2689,8 +2693,8 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
   updateTestAllButton();
   updateStats();
 
-  await recordRun(p.id, p.name, testResults);
-  lastRun = { done, total: list.length, stopped: abortTesting, changes: runRegressions() };
+  const saved = await recordRun(p.id, p.name, testResults);
+  lastRun = { done, total: list.length, stopped: abortTesting, changes: runRegressions(), saved };
   renderResultsTable(); // uptime cells now include this run
   renderRunSummary();
   announceRegressions(lastRun.changes, scheduled);
@@ -2739,11 +2743,19 @@ function renderRunSummary() {
   if (c.recovered.length) moved.push(`${c.recovered.length} recovered`);
   const delta = moved.length ? ` · ${moved.join(', ')}` : '';
 
+  let state;
+  let message;
   if (lastRun.stopped) {
-    setStatus('idle', `Stopped — ${lastRun.done}/${lastRun.total} tested (${passed} passed, ${failed} failed)${answers}${delta}`);
-  } else if (failed === 0) setStatus('done', `All ${passed} models passed${answers}${delta}`);
-  else if (passed === 0) setStatus('error', `All ${failed} models failed${delta}`);
-  else setStatus(c.broke.length ? 'error' : 'done', `Done: ${passed} passed, ${failed} failed${answers}${delta}`);
+    state = 'idle';
+    message = `Stopped — ${lastRun.done}/${lastRun.total} tested (${passed} passed, ${failed} failed)${answers}${delta}`;
+  } else if (failed === 0) { state = 'done'; message = `All ${passed} models passed${answers}${delta}`; }
+  else if (passed === 0) { state = 'error'; message = `All ${failed} models failed${delta}`; }
+  else { state = c.broke.length ? 'error' : 'done'; message = `Done: ${passed} passed, ${failed} failed${answers}${delta}`; }
+
+  // A failed history write must stay visible: persist() already reported it,
+  // but this status runs right after and would otherwise overwrite it.
+  if (lastRun.saved === false) { state = 'error'; message += ' · run not saved'; }
+  setStatus(state, message);
 }
 
 // ============================================
