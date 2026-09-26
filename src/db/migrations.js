@@ -25,7 +25,7 @@ module.exports = [
 
         CREATE TABLE secrets (
           name TEXT PRIMARY KEY,
-          cipher TEXT NOT NULL CHECK (cipher LIKE 'enc:v1:_%'),
+          cipher TEXT NOT NULL CHECK (cipher GLOB 'enc:v1:?*'),
           updated_at INTEGER NOT NULL
         );
 
@@ -45,7 +45,7 @@ module.exports = [
           id TEXT PRIMARY KEY,
           provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
           name TEXT NOT NULL,
-          cipher TEXT NOT NULL CHECK (cipher LIKE 'enc:v1:_%'),
+          cipher TEXT NOT NULL CHECK (cipher GLOB 'enc:v1:?*'),
           active INTEGER NOT NULL DEFAULT 1,
           position INTEGER NOT NULL DEFAULT 0,
           quota_spent_json TEXT,

@@ -19,6 +19,26 @@ test('schema v1: user_version, every table, install_id', async (t) => {
   assert.match(store.repos.meta.get('install_id'), /^[0-9a-f-]{36}$/);
 });
 
+test('secrets.cipher and provider_keys.cipher accept only a case-exact enc:v1: envelope', async (t) => {
+  const store = await memoryStore(t);
+  const now = Date.now();
+  const insertSecret = (cipher) => store.db.prepare('INSERT INTO secrets (name, cipher, updated_at) VALUES (?, ?, ?)').run('aaApiKey', cipher, now);
+  // Schema v1 has not shipped: the CHECK is GLOB (case-sensitive), not LIKE
+  // (case-insensitive), so an upper-cased envelope is rejected, not silently let in.
+  assert.throws(() => insertSecret('ENC:V1:x'), /CHECK constraint failed/);
+  assert.throws(() => insertSecret('plain-text'), /CHECK constraint failed/);
+  assert.throws(() => insertSecret('enc:v1:'), /CHECK constraint failed/); // no payload after the prefix
+  insertSecret('enc:v1:x');
+
+  store.db.prepare(`INSERT INTO providers (id, name, base_url, rpm, is_custom, position, created_at, updated_at)
+    VALUES ('p1', 'P', 'https://x', NULL, 0, 0, ?, ?)`).run(now, now);
+  const insertKey = (cipher) => store.db.prepare(`INSERT INTO provider_keys
+    (id, provider_id, name, cipher, active, position, quota_spent_json, created_at, updated_at)
+    VALUES ('k1', 'p1', 'K', ?, 1, 0, NULL, ?, ?)`).run(cipher, now, now);
+  assert.throws(() => insertKey('ENC:V1:x'), /CHECK constraint failed/);
+  insertKey('enc:v1:x');
+});
+
 test('pragmas on a file: WAL, NORMAL, foreign keys, busy timeout, temp store', async (t) => {
   const dir = tempDir(t);
   const store = await database.open(dir, opts());
