@@ -13,6 +13,8 @@ const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
 const MIGRATIONS = require('./migrations');
+const { createSettingsRepo } = require('./repos/settings');
+const { createSecretsRepo } = require('./repos/secrets');
 
 const DB_FILE = 'venom.db';
 const BACKUPS_KEPT = 3;
@@ -94,8 +96,15 @@ function setMeta(db, key, value) {
 }
 
 function createRepos(db, cipher, log) {
+  // Decrypted secrets for this session, keyed 'key:<id>' / 'secret:<name>'.
+  // null marks a value this machine can't open. Entries are dropped when a
+  // secret is replaced or deleted.
+  const cache = new Map();
   return {
+    cache,
     meta: { get: (key) => getMeta(db, key), set: (key, value) => setMeta(db, key, value) },
+    settings: createSettingsRepo(db),
+    secrets: createSecretsRepo(db, cipher, cache),
   };
 }
 
