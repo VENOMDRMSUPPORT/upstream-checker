@@ -98,7 +98,7 @@ function buildRecord(done, { prices = null, providers = [], logLevel = 'errors',
   // in half at the clip can't slip past the scrubber.
   const err = answered && !ok2xx ? C.extractError(clean(responseText) || '') : { code: null, message: done.error || null };
   const { status, errorClass } = C.classifyStatus({
-    outcome: done.outcome, httpStatus: done.httpStatus, cancelReason: done.cancelReason, errorCode: err.code,
+    outcome: done.outcome, httpStatus: done.httpStatus, cancelReason: done.cancelReason, errorCode: err.code, quota: err.quota,
   });
   const isStream = C.isStreamRequest(requestText, done.contentType);
   const who = whoFor(done.refs, args.url, providers);

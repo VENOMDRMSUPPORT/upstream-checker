@@ -194,3 +194,27 @@ test('a record that cannot be built is counted as dropped, never thrown', () => 
   assert.doesNotThrow(() => recorder.record(done()));
   assert.deepStrictEqual(dropped, [[1, 'venom.db is busy']]);
 });
+
+test('a 429 whose body names a quota code is recorded as quota, not rate_limit', () => {
+  const { row } = buildRecord(done({
+    httpStatus: 429,
+    responseText: JSON.stringify({ error: { code: 429, type: 'insufficient_quota' } }),
+  }), opts);
+  assert.deepStrictEqual([row.status, row.error_class], ['error', 'quota']);
+});
+
+test('refs and substitutions both undefined still produce a row without throwing', () => {
+  assert.doesNotThrow(() => {
+    const { row } = buildRecord(done({ refs: undefined, substitutions: undefined }), opts);
+    assert.deepStrictEqual([row.key_id, row.provider_id, row.provider_name], [null, 'nara', 'NaraRouter']);
+  });
+});
+
+test('meta_json.cancelReason is recorded for deadline (timeout) and stop (cancelled)', () => {
+  const deadline = buildRecord(done({ outcome: 'cancelled', cancelReason: 'deadline', httpStatus: null, responseText: '' }), opts).row;
+  assert.strictEqual(deadline.status, 'timeout');
+  assert.strictEqual(JSON.parse(deadline.meta_json).cancelReason, 'deadline');
+  const stop = buildRecord(done({ outcome: 'cancelled', cancelReason: 'stop', httpStatus: null, responseText: '' }), opts).row;
+  assert.strictEqual(stop.status, 'cancelled');
+  assert.strictEqual(JSON.parse(stop.meta_json).cancelReason, 'stop');
+});
