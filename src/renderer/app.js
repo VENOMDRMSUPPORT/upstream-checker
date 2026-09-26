@@ -4152,8 +4152,8 @@ function applyRoute() {
 const PAGE_META = {
   overview: { title: 'Overview', desc: 'Routing health — providers, models and test activity at a glance.' },
   providers: { title: 'Providers', desc: 'Connect providers and manage their keys and accounts.' },
-  catalog: { title: 'Model Pool', desc: 'Every model your connected providers offer — the pool the router draws from, kept live, benchmarked and ranked against the global leaderboard.' },
-  profiles: { title: 'Routing Profiles', desc: 'Three virtual models — Lite, Pro, Max — that route each request to the best real model in the pool by measured intelligence, speed, reliability and cost.' },
+  catalog: { title: 'Model Pool', desc: 'Every model your connected providers offer — the pool the router draws from, benchmarked and ranked.' },
+  profiles: { title: 'Routing Profiles', desc: 'Three virtual models — Lite, Pro, Max — that route each request to the best model in the pool.' },
   check: { title: 'Route Test', desc: 'Test every route a provider offers against one prompt.' },
   settings: { title: 'Settings', desc: 'Test prompt, scheduling, appearance and data.' },
 };
