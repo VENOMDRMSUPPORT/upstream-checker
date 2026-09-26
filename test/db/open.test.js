@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
+const Database = require('better-sqlite3');
 const database = require('../../src/db');
 const { fakeCipher, quietLog, tempDir, memoryStore } = require('../helpers');
 
@@ -107,12 +108,24 @@ test('downgrade guard: a newer schema is refused and the file is not written', a
   assert.strictEqual(Buffer.compare(before, fs.readFileSync(file)), 0);
 });
 
+test('a newer schema on a DELETE-journal file is refused without switching it to WAL', async (t) => {
+  const dir = tempDir(t);
+  const file = path.join(dir, 'venom.db');
+  const fixture = new Database(file);
+  fixture.pragma('journal_mode = DELETE');
+  fixture.pragma('user_version = 9');
+  fixture.close();
+  const before = fs.readFileSync(file);
+  await assert.rejects(database.open(dir, opts()), (err) => err.code === 'DB_TOO_NEW');
+  assert.strictEqual(Buffer.compare(before, fs.readFileSync(file)), 0);
+});
+
 test('a corrupt file is refused and left as it was', async (t) => {
   const dir = tempDir(t);
   const file = path.join(dir, 'venom.db');
   const garbage = Buffer.alloc(4096, 0x41);
   fs.writeFileSync(file, garbage);
-  await assert.rejects(database.open(dir, opts()));
+  await assert.rejects(database.open(dir, opts()), (err) => err instanceof Error && err.message.includes('not a database'));
   assert.strictEqual(Buffer.compare(garbage, fs.readFileSync(file)), 0);
 });
 

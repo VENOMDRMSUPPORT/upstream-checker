@@ -116,6 +116,14 @@ async function open(dir, { cipher = null, log = console, migrations = MIGRATIONS
   const file = dir === ':memory:' ? ':memory:' : path.join(dir, DB_FILE);
   const db = new Database(file);
   try {
+    // busy_timeout doesn't touch the file's on-disk format, but journal_mode=WAL
+    // does (it rewrites header bytes 18/19 immediately, before any migration
+    // runs). Read the version and refuse a newer schema before that pragma, so
+    // a rejected open never leaves a write behind.
+    db.pragma('busy_timeout = 5000');
+    const from = db.pragma('user_version', { simple: true });
+    const to = latestVersion(migrations);
+    if (from > to) throw new DbTooNewError(from, to);
     applyPragmas(db);
     const migration = await migrate(db, { file: file === ':memory:' ? null : file, migrations, log });
     return { db, file, migration, repos: createRepos(db, cipher, log), close: () => close(db) };
