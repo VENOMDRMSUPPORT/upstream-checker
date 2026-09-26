@@ -162,9 +162,11 @@ const DEFAULT_SETTINGS = {
   customAccent: '#a855f7',
   density: 'normal',
 
-  // off | errors | all. Off by default: the log is a file on disk holding the
-  // traffic of an authenticated API, even with the key stripped out of it.
-  logLevel: 'off',
+  // Request bodies in the request log: off | errors (Failed only) | all. The
+  // metadata of every request is recorded whatever this says. Main reads it
+  // from the saved settings row: a row without it (a new install) means
+  // Failed only, and a value already saved is never changed.
+  logLevel: 'errors',
 
   // Model Pool. The pool re-reads every connected provider's model
   // list on this cadence; a model that appears is benchmarked straight away
@@ -5879,6 +5881,13 @@ async function init() {
   renderKeysList();
   renderModelsList();
   if (!storeReadError && !writeFailed) setStatus('idle', 'Ready — add an API key to begin');
+  // Request logging isn't critical: when its database couldn't be opened the
+  // app runs on, and says so once.
+  window.electronAPI.logsInfo()
+    .then((info) => {
+      if (info && info.enabled === false && !storeReadError) setStatus('error', `Request logging is off: ${info.error}`);
+    })
+    .catch((err) => console.error('Could not read the request log status:', err));
   setupUpdateListeners();
   startHealthMonitor();
   renderQuickStats();

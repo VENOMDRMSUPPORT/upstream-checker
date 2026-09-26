@@ -1085,27 +1085,27 @@
 
                 <!-- Diagnostics & Logs -->
                 <section class="settings-section" id="sec-logs" hidden>
-                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>Records what was sent and what came back, so a failed test can be explained after the fact.</p></div>
+                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>Every request VENOM Router sends is recorded in a log database on this machine: when it ran, how long it took, the tokens it used and what it cost.</p></div>
 
                   <div class="settings-rows">
                     <div class="settings-row-item">
                       <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/></svg></div>
                       <div class="settings-row-info">
-                      <label class="settings-row-title" for="set-log-level">Log requests</label>
-                      <div class="settings-row-desc">API keys are never written: the Authorization header is replaced before anything reaches disk. Bodies are clipped at 4,000 characters and the file rotates at 5 MB.</div>
+                      <label class="settings-row-title" for="set-log-level">Request bodies</label>
+                      <div class="settings-row-desc">Also keep what was sent and what came back, for 7 days, so a failed request can be explained after the fact. Keys are never stored: key headers are removed, and a key quoted back in a reply is replaced by its placeholder. Each body is clipped at 8 KB.</div>
                     </div>
                       <div class="settings-row-control"><select class="prompt-input narrow" id="set-log-level">
                       <option value="off">Off</option>
-                      <option value="errors">Failures only</option>
-                      <option value="all">Every request</option>
+                      <option value="errors">Failed only</option>
+                      <option value="all">All</option>
                     </select></div>
                     </div>
                     <div class="settings-row-item vertical">
                       <div class="settings-row-header-inline">
                         <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></div>
                         <div class="settings-row-info">
-                      <div class="settings-row-title">Log file</div>
-                      <div class="settings-row-desc">Where the log is written on this machine.</div>
+                      <div class="settings-row-title">Old log file</div>
+                      <div class="settings-row-desc">requests.log from earlier versions. It is no longer written; clear it once you don't need it.</div>
                     </div>
                       </div>
                       <div class="settings-row-field"><code class="settings-path" id="log-path">...</code>
@@ -1117,10 +1117,10 @@
 
                   <div class="settings-zone">
                     <div class="settings-zone-info">
-                      <div class="settings-zone-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>Clear log</div>
-                      <div class="settings-zone-desc">The log file is emptied.</div>
+                      <div class="settings-zone-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>Clear old log</div>
+                      <div class="settings-zone-desc">The old requests.log is deleted. The request log database is not touched.</div>
                     </div>
-                    <div class="settings-actions"><button class="btn btn-ghost danger" id="btn-clear-log">Clear log</button></div>
+                    <div class="settings-actions"><button class="btn btn-ghost danger" id="btn-clear-log">Clear old log</button></div>
                   </div>
                 </section>
 

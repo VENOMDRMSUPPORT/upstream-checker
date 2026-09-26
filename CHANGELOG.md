@@ -7,7 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Request log. Every request the app sends is recorded in `venom-logs.db`
+  next to `venom.db`: when it ran, how long it took (with time to first
+  token), the tokens it used and what it cost, plus hourly summaries. Rows
+  are kept 90 days and summaries 12 months. Model discovery, key checks,
+  model pool and Artificial Analysis calls are recorded too; they never were
+  before.
+
 ### Changed
+- Settings → Diagnostics & Logs: "Log requests" is now "Request bodies"
+  (Off / Failed only / All), kept 7 days. New installs start on Failed only;
+  an existing choice is kept. `requests.log` is no longer written; the old
+  file stays until you clear it.
 - Upstream Checker is now **VENOM Router**, an LLM model router. The app has a
   new name, a new logo (the Viper V) and router vocabulary throughout: Model
   catalog is now Model Pool, Upstream Check is Route Test, and Venom Profiles
