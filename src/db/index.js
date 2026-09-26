@@ -110,7 +110,7 @@ function createRepos(db, cipher, log) {
     secrets: createSecretsRepo(db, cipher, cache),
     providers: createProvidersRepo(db, cipher, cache, log),
     catalog: createCatalogRepo(db),
-    history: createHistoryRepo(db),
+    history: createHistoryRepo(db, { log }),
   };
 }
 
