@@ -397,13 +397,24 @@ async function persist(what, call) {
 // ============================================
 // Providers — each saved on its own (save-provider)
 // ============================================
+// The provider as save-provider takes it. A key's `key` is what the user
+// typed, the key's placeholder, or '' for a key main holds but can't read
+// here (locked); main keeps the stored secret for the last two.
+function providerPayload(id) {
+  const p = PROVIDERS[id];
+  return {
+    id,
+    name: p.name,
+    baseUrl: p.baseUrl,
+    rpm: p.rpm ?? null,
+    keys: p.keys.map((k) => ({ id: k.id, name: k.name, key: k.key || '', active: k.active !== false, quotaSpent: k.quotaSpent || null })),
+  };
+}
+
 async function saveProviderConfig(providerId) {
   const p = PROVIDERS[providerId];
   if (!p) return;
-  const data = await window.electronAPI.readConfig();
-  if (!data.providers) data.providers = {};
-  data.providers[providerId] = { name: p.name, baseUrl: p.baseUrl, keys: p.keys, rpm: p.rpm ?? null };
-  await window.electronAPI.writeConfig(data);
+  await persist(`save ${p.name}`, () => window.electronAPI.saveProvider(providerPayload(providerId)));
   // Every save is a user edit to keys or the base URL, so the verdict is stale.
   checkProviderHealth(providerId);
   if (currentPage === 'providers') renderProvidersPage();
@@ -653,20 +664,21 @@ function isCorrect(result, model) {
 }
 
 async function loadAllProviders() {
-  let data = { providers: {} };
+  let stored = {};
+  let readError = null;
   try {
-    data = await window.electronAPI.readConfig();
-  } catch (_) {}
-  data.providers = data.providers || {};
-  const stored = data.providers;
+    stored = (await window.electronAPI.readConfig()).providers || {};
+  } catch (err) {
+    readError = err;
+  }
   const norm = (u) => (u || '').trim().replace(/\/+$/, '').toLowerCase();
-  let dirty = false;
 
   PROVIDERS = {};
 
-  // Built-ins: code template with config name/baseUrl/keys overlaid (config wins).
-  // A newly-shipped built-in that isn't in config yet is seeded so its name/baseUrl
-  // are visible and editable.
+  // Built-ins: code template with the stored name/baseUrl/keys overlaid (the
+  // store wins). A newly-shipped built-in the store doesn't have yet is seeded
+  // below so its name and baseUrl are visible and editable.
+  const missing = [];
   Object.values(BUILTIN_PROVIDERS).forEach((def) => {
     const p = makeRuntimeProvider(def);
     const s = stored[def.id];
@@ -678,49 +690,36 @@ async function loadAllProviders() {
       if (s.rpm != null) p.rpm = s.rpm;
       p.keys = s.keys || [];
     } else {
-      stored[def.id] = { name: p.name, baseUrl: p.baseUrl, keys: p.keys, rpm: p.rpm ?? null };
-      dirty = true;
+      missing.push(def.id);
     }
     PROVIDERS[def.id] = p;
   });
 
-  // The app only runs its integrated providers. A custom provider left in an
-  // older config is migrated into the built-in with the same baseUrl (its keys
-  // move over); one with no built-in twin and no keys is removed. One that still
-  // holds keys is left in the file untouched, so no key is ever thrown away, but
-  // it is not loaded.
-  Object.entries(stored).forEach(([id, s]) => {
-    if (!s.custom || PROVIDERS[id]) return;
+  // Nothing below may write when the store could not be read: PROVIDERS is
+  // then the bare templates, without a single key. init() shows the error.
+  if (readError) throw readError;
+
+  // Seeded one at a time, so seeding never rewrites another provider.
+  for (const id of missing) {
+    await persist(`add ${PROVIDERS[id].name}`, () => window.electronAPI.saveProvider(providerPayload(id)));
+  }
+
+  // The app only runs its integrated providers. A custom provider left by an
+  // older version is merged in main into the built-in with the same baseUrl
+  // (keys move over, duplicates are dropped by value — by ciphertext for keys
+  // this machine can't read); one with no built-in twin and no keys is
+  // removed. One that still holds keys stays in the store untouched, so no key
+  // is ever thrown away, but it is not loaded.
+  for (const [id, s] of Object.entries(stored)) {
+    if (!s.custom || PROVIDERS[id]) continue;
     const builtin = Object.values(PROVIDERS).find((p) => !p.custom && norm(p.baseUrl) === norm(s.baseUrl));
     if (builtin) {
-      // Undecryptable keys all read as '', so identify by ciphertext when present
-      // — otherwise merging would silently drop all but the first of them.
-      const identity = (k) => k.cipher || k.key;
-      const have = new Set(builtin.keys.map(identity));
-      (s.keys || []).forEach((k) => {
-        if (!have.has(identity(k))) {
-          builtin.keys.push(k);
-          have.add(identity(k));
-        }
-      });
-      delete stored[id];
-      stored[builtin.id] = { name: builtin.name, baseUrl: builtin.baseUrl, keys: builtin.keys, rpm: builtin.rpm ?? null };
-      dirty = true;
-      return;
-    }
-    if (!(s.keys || []).length) {
-      delete stored[id];
-      dirty = true;
+      const merged = await persist(`merge ${s.name || id} into ${builtin.name}`, () => window.electronAPI.mergeProvider(id, builtin.id));
+      if (merged) builtin.keys = merged.keys;
+    } else if (!(s.keys || []).length) {
+      await persist(`remove ${s.name || id}`, () => window.electronAPI.deleteProvider(id));
     } else {
-      console.warn(`Custom provider "${s.name || id}" still holds keys; left in config, not loaded.`);
-    }
-  });
-
-  if (dirty) {
-    try {
-      await window.electronAPI.writeConfig(data);
-    } catch (err) {
-      console.warn('Failed to persist providers:', err);
+      console.warn(`Custom provider "${s.name || id}" still holds keys; kept in the store, not loaded.`);
     }
   }
 }
@@ -5757,7 +5756,7 @@ async function init() {
   window.electronAPI.getDataPath().then((dir) => { $('#settings-path').textContent = dir; });
   try { await loadTestDefinition(); } catch (err) { failStartupRead('the test prompt', err); }
   try { await loadHistory(); } catch (err) { failStartupRead('run history', err); }
-  await loadAllProviders();
+  try { await loadAllProviders(); } catch (err) { failStartupRead('providers', err); }
   if (!PROVIDERS[activeProvider]) {
     activeProvider = Object.keys(PROVIDERS)[0];
   }

@@ -56,7 +56,10 @@
     loadPromise = (async () => {
       try {
         state.data = await window.electronAPI.readCatalog();
-      } catch (_) {
+      } catch (err) {
+        // Shown empty for this session and never saved: the read gate makes
+        // persist() refuse every write.
+        failStartupRead('model pool', err);
         state.data = null;
       }
       if (!state.data || typeof state.data !== 'object') state.data = { version: 1, models: {}, lastSync: {}, leaderboard: null };
@@ -71,14 +74,26 @@
     return loadPromise;
   }
 
+  // Main writes only the rows that changed. It refuses to empty a non-empty
+  // pool unless reset is set, which only the Clear and Reset buttons do; the
+  // flag sticks until the debounced write goes out, because another save()
+  // can land inside the window.
   let saveTimer = null;
-  function save() {
+  let saveReset = false;
+  function save({ reset = false } = {}) {
+    saveReset = saveReset || reset === true;
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-      Promise.resolve(window.electronAPI.writeCatalog(state.data)).catch(() => {});
-      // The profiles are a pure function of the catalogue; tell them it moved.
-      window.dispatchEvent(new CustomEvent('catalog-changed'));
-    }, 300);
+    saveTimer = setTimeout(flushSave, 300);
+  }
+
+  function flushSave() {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    const opts = { reset: saveReset };
+    saveReset = false;
+    // The profiles are a pure function of the catalogue; tell them it moved.
+    window.dispatchEvent(new CustomEvent('catalog-changed'));
+    return persist('save the model pool', () => window.electronAPI.writeCatalog(state.data, opts));
   }
 
   // ---- model discovery / sync ----------------------------------------------
@@ -1132,7 +1147,7 @@
     if (clear) clear.addEventListener('click', () => {
       if (!state.loaded) return;
       Object.values(state.data.models).forEach((e) => { e.bench = null; e.history = []; e.benchError = null; });
-      save();
+      save({ reset: true });
       renderIfShown();
       setStatus('done', 'Benchmark results cleared');
     });
@@ -1141,7 +1156,7 @@
       if (!state.loaded) return;
       state.data.models = {};
       state.data.lastSync = {};
-      save();
+      save({ reset: true });
       renderIfShown();
       syncAll({ reason: 'reset' });
       setStatus('done', 'Model pool reset — re-syncing');
