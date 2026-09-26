@@ -50,7 +50,9 @@ not built now. This spec only avoids choices that would block it (see "Future se
 ### Files and settings
 
 - `venom.db` in the app data folder (`app.getPath('userData')`, resolved by
-  `src/user-data.js`).
+  `src/user-data.js`). `npm start` (unpackaged) resolves this the same way a packaged
+  run does — the real `%APPDATA%\venom-router`, not a separate dev folder — per owner
+  decision 2026-09-26: the owner runs and tests the app on real data.
 - Opened once in main inside `app.whenReady()` (safeStorage and dialogs need it), before
   the window is created. Pragmas on open: `journal_mode=WAL`, `synchronous=NORMAL`,
   `foreign_keys=ON`, `busy_timeout=5000`, `temp_store=MEMORY`. WAL with

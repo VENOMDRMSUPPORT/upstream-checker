@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-26-local-database-design.md` (rev 2, approved). Supporting research: `docs/superpowers/research/2026-09-26-new-api/06-venom-current-persistence.md`, `07-verification.md`, `02-data-model.md`.
 
-**Execution notes:** work on branch `feat/local-database` (created in Task 1). One commit per task. Never push. Run a review subagent after each phase (Tasks 1-14, 15-17, 18-19, 20) and a whole-branch review at the end. Phases are not released on their own. `npm start` on this branch uses %APPDATA%\venom-router-dev; the real folder is imported only by the installed release. Before installing it, copy %APPDATA%\venom-router somewhere safe yourself. Agents must not launch the app without `--user-data-dir` to test that guard; it is reviewed in code.
+**Execution notes:** work on branch `feat/local-database` (created in Task 1). One commit per task. Never push. Run a review subagent after each phase (Tasks 1-14, 15-17, 18-19, 20) and a whole-branch review at the end. Phases are not released on their own. `npm start` on this branch uses the real data folder, %APPDATA%\venom-router, same as a packaged run (owner decision 2026-09-26). Before running it against real data, copy %APPDATA%\venom-router somewhere safe yourself. Agents must not launch the app without an explicit `--user-data-dir` pointed at a scratch folder.
 
 ## Global Constraints
 

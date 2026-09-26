@@ -19,17 +19,13 @@ if (app.commandLine.hasSwitch('smoke-test') && !app.commandLine.hasSwitch('user-
 }
 
 // Settled before anything reads a path or writes a log. An explicit
-// --user-data-dir (dev and test instances) is used as given.
+// --user-data-dir (dev and test instances) is used as given; otherwise a
+// packaged run and an unpackaged run resolve the same real data folder.
 if (!app.commandLine.hasSwitch('user-data-dir')) {
-  if (!app.isPackaged) {
-    // A dev build never touches the installed app's data folder.
-    app.setPath('userData', path.join(app.getPath('appData'), 'venom-router-dev'));
-  } else {
-    const userData = resolveUserDataDir(app.getPath('appData'), fs);
-    app.setPath('userData', userData.dir);
-    if (userData.migrated) log.info('Moved app data to', userData.dir);
-    if (userData.error) log.warn('Could not move the old app data folder, still using it:', userData.error.message);
-  }
+  const userData = resolveUserDataDir(app.getPath('appData'), fs);
+  app.setPath('userData', userData.dir);
+  if (userData.migrated) log.info('Moved app data to', userData.dir);
+  if (userData.error) log.warn('Could not move the old app data folder, still using it:', userData.error.message);
 }
 
 // One instance per data folder (the lock is per userData, so it comes right
@@ -125,7 +121,7 @@ async function startDatabase() {
   }
 
   try {
-    importReport = await importLegacy({ dir, db: store.db, repos: store.repos, cipher, log, source });
+    importReport = await importLegacy({ dir, db: store.db, repos: store.repos, cipher, log, source, fs });
   } catch (err) {
     log.error('Import of the saved JSON files failed:', err);
     // A damaged config.json is the one failure the owner can work around
