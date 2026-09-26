@@ -120,7 +120,28 @@ function logRow(overrides = {}) {
 
 const countRows = (db, table) => db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n;
 
+// Stands in for setTimeout/clearTimeout: nothing fires until fire() is called.
+function fakeTimers() {
+  const pending = new Set();
+  return {
+    setTimer: (fn, ms) => {
+      const handle = { fn, ms };
+      pending.add(handle);
+      return handle;
+    },
+    clearTimer: (handle) => {
+      pending.delete(handle);
+    },
+    delays: () => [...pending].map((h) => h.ms),
+    fire: () => {
+      const due = [...pending];
+      pending.clear();
+      due.forEach((h) => h.fn());
+    },
+  };
+}
+
 module.exports = {
   quietLog, fakeSafeStorage, fakeCipher, encFake, LOCKED_BLOB, tempDir, memoryStore,
-  migratedLogsDb, logRow, countRows,
+  migratedLogsDb, logRow, countRows, fakeTimers,
 };
