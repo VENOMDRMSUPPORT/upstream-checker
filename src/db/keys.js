@@ -11,34 +11,48 @@
 // host by mistake or through an injected URL.
 const { SECRET_ORIGINS } = require('./repos/secrets');
 
-const TOKEN = /venom(key|secret):([A-Za-z0-9_.-]+)/g;
+// A key id is at most 64 chars (src/db/repos/providers.js), so a token run is
+// capped at 64 too: an attacker-supplied header can't turn one substitution
+// into thousands of lookups, and an "unknown key" error can't quote megabytes.
+const TOKEN = /venom(key|secret):([A-Za-z0-9_.-]{1,64})/g;
 const HAS_TOKEN = /venom(?:key|secret):/;
 
+// Only http/https have a real origin. Every other scheme — no scheme at all
+// ("localhost:8080/v1"), a typo'd scheme ("htps://…"), or a deliberately
+// invented one ("x://…") — gets the opaque origin "null" from the platform
+// URL parser, and two opaque origins are indistinguishable from each other.
+// Returning null here (not the string "null") for anything non-http(s) means
+// such a pair can never satisfy the `hit.origin === target` check below.
 function originOf(url) {
   try {
-    return new URL(url).origin;
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    return u.origin;
   } catch (_) {
     return null;
   }
 }
 
 function createKeyResolver({ providers, secrets }) {
-  // A token's secret and the one origin it may go to. For keys the longest key
-  // id that starts the token wins, so venomkey:key_12 is key_12, never key_1
-  // followed by a "2".
-  function lookup(kind, run) {
+  // A token's secret, resolved only after its one allowed origin is confirmed
+  // to match the request's target — so a wrong-host request never reaches the
+  // cipher. For keys the longest key id that starts the token wins, so
+  // venomkey:key_12 is key_12, never key_1 followed by a "2".
+  function lookup(kind, run, target) {
     if (kind === 'secret') {
       if (!Object.prototype.hasOwnProperty.call(SECRET_ORIGINS, run)) return { error: `Key blocked: unknown secret "${run}"` };
+      if (!target || SECRET_ORIGINS[run] !== target) return { mismatch: true };
       const secret = secrets.reveal(run);
       if (secret === null) return { error: `Key blocked: the ${run} secret is not set or can't be read on this machine` };
-      return { secret, origin: SECRET_ORIGINS[run], used: run.length };
+      return { secret, used: run.length };
     }
     for (let len = run.length; len > 0; len -= 1) {
       const record = providers.keyRecord(run.slice(0, len));
       if (!record) continue;
+      if (!target || originOf(record.baseUrl) !== target) return { mismatch: true };
       const secret = providers.revealKey(record.id);
       if (secret === null) return { error: `Key blocked: "${record.name}" can't be read on this machine` };
-      return { secret, origin: originOf(record.baseUrl), used: len };
+      return { secret, used: len };
     }
     return { error: `Key blocked: unknown key "${run}"` };
   }
@@ -47,13 +61,13 @@ function createKeyResolver({ providers, secrets }) {
     let error = null;
     const out = text.replace(TOKEN, (match, kind, run) => {
       if (error) return match;
-      const hit = lookup(kind, run);
-      if (hit.error) {
-        error = hit.error;
+      const hit = lookup(kind, run, target);
+      if (hit.mismatch) {
+        error = `Key blocked: ${host} is not this key's provider`;
         return match;
       }
-      if (!target || hit.origin !== target) {
-        error = `Key blocked: ${host} is not this key's provider`;
+      if (hit.error) {
+        error = hit.error;
         return match;
       }
       return encode(hit.secret) + run.slice(hit.used);

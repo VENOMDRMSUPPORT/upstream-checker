@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { createKeyResolver } = require('../../src/db/keys');
-const { memoryStore, LOCKED_BLOB } = require('../helpers');
+const { memoryStore, LOCKED_BLOB, fakeCipher } = require('../helpers');
 
 const NARA = 'https://router.bynara.id/v1';
 const MIRAI = 'https://api.miraiapi.com/v1';
@@ -112,4 +112,58 @@ test('a replaced key is sent with its new value', async (t) => {
   assert.strictEqual(resolver.resolve({ url: `${NARA}/m`, headers: { A: 'venomkey:key_1' } }).headers.A, 'sk-nara-1');
   store.repos.providers.save({ id: 'nara', name: 'NaraRouter', baseUrl: NARA, rpm: null, keys: [{ id: 'key_1', name: 'One', key: 'sk-nara-rotated', active: true }] });
   assert.strictEqual(resolver.resolve({ url: `${NARA}/m`, headers: { A: 'venomkey:key_1' } }).headers.A, 'sk-nara-rotated');
+});
+
+// A non-http(s) URL's "origin" is the opaque string "null" from the platform
+// parser: two of them must never be treated as the same origin, whichever
+// side (the provider's base_url or the request URL) is opaque.
+test('an opaque origin on either side of the comparison is refused, never matched', async (t) => {
+  const store = await memoryStore(t);
+  const providers = store.repos.providers;
+  providers.save({ id: 'noscheme', name: 'NoScheme', baseUrl: 'localhost:8080/v1', rpm: null,
+    keys: [{ id: 'key_ns', name: 'NS', key: 'sk-noscheme', active: true }] });
+  providers.save({ id: 'typo', name: 'Typo', baseUrl: 'htps://router.bynara.id', rpm: null,
+    keys: [{ id: 'key_typo', name: 'Typo', key: 'sk-typo', active: true }] });
+  providers.save({ id: 'nara', name: 'NaraRouter', baseUrl: NARA, rpm: null,
+    keys: [{ id: 'key_1', name: 'One', key: 'sk-nara-1', active: true }] });
+  const resolver = createKeyResolver({ providers, secrets: store.repos.secrets });
+
+  // Provider base_url has no recognizable scheme; request URL is also opaque.
+  assert.strictEqual(resolver.resolve({ url: 'x://evil.test/k', headers: { A: 'venomkey:key_ns' } }).blocked, true);
+  // Provider base_url has a typo'd scheme; request URL is a different opaque scheme.
+  assert.strictEqual(resolver.resolve({ url: 'foo://evil.test/', headers: { A: 'venomkey:key_typo' } }).blocked, true);
+  // Userinfo trick: host is evil.test even though the string starts with the real host.
+  assert.strictEqual(resolver.resolve({ url: 'https://router.bynara.id@evil.test/', headers: { A: 'venomkey:key_1' } }).blocked, true);
+  // Unparsable request URL.
+  assert.strictEqual(resolver.resolve({ url: 'not a url at all', headers: { A: 'venomkey:key_ns' } }).blocked, true);
+});
+
+test('an oversized token run is refused quickly with a short error', async (t) => {
+  const { resolver } = await setup(t);
+  const long = 'a'.repeat(20000);
+  const start = Date.now();
+  const out = resolver.resolve({ url: `${NARA}/m`, headers: { A: `venomkey:${long}` } });
+  const elapsed = Date.now() - start;
+  assert.strictEqual(out.blocked, true);
+  assert.ok(out.error.length < 200, `error should be bounded, was ${out.error.length} chars`);
+  assert.ok(elapsed < 1000, `should resolve quickly, took ${elapsed}ms`);
+});
+
+test('a placeholder refused for the wrong host never reaches the cipher', async (t) => {
+  const cipher = fakeCipher();
+  const store = await memoryStore(t, { cipher });
+  const providers = store.repos.providers;
+  providers.save({ id: 'nara', name: 'NaraRouter', baseUrl: NARA, rpm: null, keys: [{ id: 'key_1', name: 'One', key: 'sk-nara-1', active: true }] });
+  store.repos.secrets.save('aaApiKey', 'aa-secret');
+  const resolver = createKeyResolver({ providers, secrets: store.repos.secrets });
+
+  const before = cipher.calls.decrypt;
+  const out = resolver.resolve({ url: `${MIRAI}/models`, headers: { Authorization: 'Bearer venomkey:key_1' } });
+  assert.strictEqual(out.blocked, true);
+  assert.strictEqual(cipher.calls.decrypt, before);
+
+  const before2 = cipher.calls.decrypt;
+  const out2 = resolver.resolve({ url: `${NARA}/models`, headers: { 'x-api-key': 'venomsecret:aaApiKey' } });
+  assert.strictEqual(out2.blocked, true);
+  assert.strictEqual(cipher.calls.decrypt, before2);
 });
