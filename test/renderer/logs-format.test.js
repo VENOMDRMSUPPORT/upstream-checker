@@ -82,12 +82,15 @@ test('passRateText: a fraction becomes a percentage, null stays unknown', () => 
 
 test('rangePreset: every preset ends now and starts before it', () => {
   const now = Date.UTC(2026, 8, 27, 12);
-  ['24h', '7d', '30d'].forEach((key) => {
+  // The two long ranges are Monitoring's only; they are offered there when
+  // nothing is grouped, where the roll-ups collapse to one row an hour.
+  ['24h', '7d', '30d', '90d', '12m'].forEach((key) => {
     const r = F.rangePreset(key, now);
     assert.strictEqual(r.to, now + 1, `${key}: to is exclusive, so it must pass now`);
     assert.ok(r.from < now, `${key}: from must precede now`);
   });
   assert.strictEqual(F.rangePreset('24h', now).from, now - 24 * 3600000);
+  assert.strictEqual(F.rangePreset('90d', now).from, now - 90 * 24 * 3600000);
   assert.throws(() => F.rangePreset('forever', now), /Unknown range/);
 });
 

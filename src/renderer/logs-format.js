@@ -6,7 +6,17 @@
 // it the way test/renderer-ulid.test.js does with ulid.js. Everything here
 // takes values and returns values: no DOM, no IPC, no state.
 
-const LOGS_RANGES = { '24h': 24 * 3600000, '7d': 7 * 24 * 3600000, '30d': 30 * 24 * 3600000 };
+// The three short ranges are offered everywhere. The two long ones are
+// Monitoring's alone, and only when nothing is grouped: the request list
+// cannot sort by an unindexed column over them, and a grouped chart over a
+// year costs about 1.4 s on the main thread.
+const LOGS_RANGES = {
+  '24h': 24 * 3600000,
+  '7d': 7 * 24 * 3600000,
+  '30d': 30 * 24 * 3600000,
+  '90d': 90 * 24 * 3600000,
+  '12m': 365 * 24 * 3600000,
+};
 
 // Model ids, provider names and error messages are a provider's own text and
 // all of them land in innerHTML. Everything that reaches the page goes

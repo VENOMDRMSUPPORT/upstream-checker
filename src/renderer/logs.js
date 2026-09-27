@@ -69,14 +69,14 @@
     else await renderRequests();
   }
 
-  async function renderMonitor() {
+  async function renderMonitor(note) {
     await loadInfo();
     if (!state.info.enabled) {
       el('monitor-filters').innerHTML = '';
       el('monitor-body').innerHTML = loggingOffMarkup();
       return;
     }
-    await renderCharts();
+    await renderCharts(note);
   }
 
   function renderTabs() {
@@ -537,7 +537,136 @@
     const runRow = e.target.closest('.log-run');
     if (runRow) expandRun(runRow, runRow.dataset.run);
   });
-  async function renderCharts() { el('monitor-body').innerHTML = emptyState('Monitoring', 'Coming in the next task.'); }
+  // ---- monitoring ------------------------------------------------------
+
+  const MONITOR_GROUPS = {
+    none: 'No grouping', source: 'By source', provider: 'By provider',
+    model: 'By model', error_class: 'By error class',
+  };
+  const MONITOR_BUCKETS = { hour: 'By hour', day: 'By day' };
+  // Grouping by model over a year costs about 1.4 s on the main thread. So a
+  // grouped view offers the three short ranges only; the long ones are
+  // available ungrouped, where the roll-ups collapse to one row an hour.
+  const MONITOR_RANGES_GROUPED = ['24h', '7d', '30d'];
+  const MONITOR_RANGES_PLAIN = ['24h', '7d', '30d', '90d', '12m'];
+  const MONITOR_RANGE_LABELS = {
+    '24h': 'Last 24 hours', '7d': 'Last 7 days', '30d': 'Last 30 days',
+    '90d': 'Last 90 days', '12m': 'Last 12 months',
+  };
+
+  function monitorRangeKeys() {
+    return state.monitor.groupBy === 'none' ? MONITOR_RANGES_PLAIN : MONITOR_RANGES_GROUPED;
+  }
+
+  function renderMonitorFilters(note) {
+    const keys = monitorRangeKeys();
+    const opt = (v, label, sel) => `<option value="${logEscape(v)}"${sel === v ? ' selected' : ''}>${logEscape(label)}</option>`;
+    el('monitor-filters').innerHTML = `
+      <select class="prompt-input narrow" id="monitor-range">
+        ${keys.map((k) => opt(k, MONITOR_RANGE_LABELS[k], state.monitor.range)).join('')}
+      </select>
+      <select class="prompt-input narrow" id="monitor-bucket">
+        ${Object.entries(MONITOR_BUCKETS).map(([k, l]) => opt(k, l, state.monitor.bucket)).join('')}
+      </select>
+      <select class="prompt-input narrow" id="monitor-group">
+        ${Object.entries(MONITOR_GROUPS).map(([k, l]) => opt(k, l, state.monitor.groupBy)).join('')}
+      </select>
+      ${note ? `<span class="log-note">${note}</span>` : ''}`;
+  }
+
+  document.addEventListener('change', (e) => {
+    const t = e.target;
+    if (!t || !t.id || !el('monitor-filters') || !el('monitor-filters').contains(t)) return;
+    let note = '';
+    if (t.id === 'monitor-range') state.monitor.range = t.value;
+    else if (t.id === 'monitor-bucket') state.monitor.bucket = t.value;
+    else if (t.id === 'monitor-group') {
+      state.monitor.groupBy = t.value;
+      // A long range with a grouping is the slow combination; fall back and
+      // say so rather than freezing the window.
+      if (!monitorRangeKeys().includes(state.monitor.range)) {
+        state.monitor.range = '30d';
+        note = 'Grouped charts go back 30 days. Choose no grouping for longer.';
+      }
+    } else return;
+    renderMonitor(note);
+  });
+
+  async function renderCharts(note) {
+    renderMonitorFilters(note);
+    const { from, to } = rangePreset(state.monitor.range);
+    let stats;
+    try {
+      stats = await window.electronAPI.logsStats({ from, to }, state.monitor.bucket, state.monitor.groupBy);
+    } catch (err) {
+      el('monitor-body').innerHTML = emptyState('Monitoring could not be read', logEscape(err && err.message ? err.message : String(err)));
+      return;
+    }
+    if (!stats.series.length) {
+      el('monitor-body').innerHTML = emptyState('Nothing recorded in this range', 'Widen the range, or send a request.');
+      return;
+    }
+    // Grouping by error class is a different series shape. stats() emits
+    // { bucket, group, count } for it — no requests, no avgLatencyMs, no
+    // costMicros — so the three normal charts would all flatten to zero. It
+    // gets one chart of its own instead.
+    el('monitor-body').innerHTML = state.monitor.groupBy === 'error_class'
+      ? `${totalsMarkup(stats.totals)}
+         ${chartMarkup('Errors by class', stats.series, (p) => p.count)}`
+      : `${totalsMarkup(stats.totals)}
+         ${chartMarkup('Requests', stats.series, (p) => p.requests)}
+         ${chartMarkup('Average latency', stats.series, (p) => p.avgLatencyMs)}
+         ${chartMarkup('Cost', stats.series, (p) => (p.costMicros || 0) / 1e6)}`;
+  }
+
+  function totalsMarkup(t) {
+    const tile = (label, value) => `<div class="log-tile"><span class="log-tile-value">${value}</span><span class="log-tile-label">${label}</span></div>`;
+    return `<div class="log-tiles">
+      ${tile('Requests', formatTokens(t.requests))}
+      ${tile('Passed', passRateText(Number.isFinite(t.okPct) ? t.okPct / 100 : null))}
+      ${tile('Average latency', formatDuration(t.avgLatencyMs))}
+      ${tile('p95 latency', formatDuration(t.p95LatencyMs))}
+      ${tile('Tokens', formatTokens(t.tokens))}
+      ${tile('Cost', formatCost(t.costMicros))}
+    </div>`;
+  }
+
+  // Hand-drawn, on currentColor, the way key-usage.js and catalog.js already
+  // draw their series. No charting dependency is added.
+  function chartMarkup(title, series, pick) {
+    const groups = new Map();
+    series.forEach((p) => {
+      const key = p.group === undefined || p.group === null ? 'all' : normalizeProvider(p.group);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push([p.bucket, Number(pick(p)) || 0]);
+    });
+    const all = [...groups.values()].flat();
+    const max = Math.max(1, ...all.map(([, v]) => v));
+    const buckets = [...new Set(all.map(([b]) => b))].sort((a, b) => (a > b ? 1 : -1));
+    const x = (b) => (buckets.indexOf(b) / Math.max(1, buckets.length - 1)) * 100;
+    const y = (v) => 40 - (v / max) * 38;
+    const lines = [...groups.entries()].map(([, pts], i) => {
+      const sorted = pts.slice().sort((a, b) => (a[0] > b[0] ? 1 : -1));
+      // One point draws nothing as a polyline, so it gets a dot.
+      if (sorted.length === 1) {
+        return `<circle class="log-series s${i % 6}" cx="${x(sorted[0][0]).toFixed(2)}" cy="${y(sorted[0][1]).toFixed(2)}" r="1.2" fill="currentColor"/>`;
+      }
+      const d = sorted.map(([b, v]) => `${x(b).toFixed(2)},${y(v).toFixed(2)}`).join(' ');
+      return `<polyline class="log-series s${i % 6}" points="${d}" fill="none" stroke="currentColor" stroke-width="0.6"/>`;
+    }).join('');
+    const legend = groups.size > 1
+      ? `<ul class="log-legend">${[...groups.keys()].map((k, i) => `<li class="log-series s${i % 6}">${k === 'unknown' ? 'Unknown provider' : logEscape(k)}</li>`).join('')}</ul>`
+      : '';
+    return `<section class="log-chart"><h4>${title}</h4>
+      <svg viewBox="0 0 100 42" preserveAspectRatio="none" role="img" aria-label="${title}">${lines}</svg>
+      <div class="log-chart-axis"><span>${bucketLabel(buckets[0])}</span><span>${bucketLabel(buckets[buckets.length - 1])}</span></div>
+      ${legend}</section>`;
+  }
+
+  // A day bucket is already a local date string; an hour bucket is a time.
+  function bucketLabel(b) {
+    return typeof b === 'string' ? logEscape(b) : formatWhen(b);
+  }
 
   // `tab` is what syncRoute reads to build #/history/<sub>. Without it the
   // app would append the string "undefined" to the hash.
