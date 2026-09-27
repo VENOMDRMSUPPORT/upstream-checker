@@ -450,8 +450,93 @@
   // drawer already has to tell the tail to stop and start.
   function syncTail() {}
 
-  // Replaced in the tasks that follow.
-  async function renderRuns() { el('log-body').innerHTML = emptyState('Runs', 'Coming in the next task.'); }
+  // ---- the runs table --------------------------------------------------
+
+  async function renderRuns() {
+    const facets = await loadFacets();
+    renderFilters(facets);
+    const names = {};
+    facets.providers.forEach((p) => { names[normalizeProvider(p.id)] = p.name; });
+    state.providerNames = names;
+    let page;
+    try {
+      page = await window.electronAPI.logsRuns(queryFilters(), state.cursor, 50);
+      state.stale = null;
+    } catch (err) {
+      state.stale = err && err.message ? err.message : String(err);
+      renderStaleBanner();
+      return;
+    }
+    state.rows = state.cursor ? state.rows.concat(page.rows) : page.rows;
+    state.cursor = page.nextCursor;
+    if (!state.rows.length) {
+      el('log-body').innerHTML = emptyState('No runs in this range', 'A Route Test or a benchmark creates a run. Widen the range, or clear a filter.');
+      return;
+    }
+    const body = state.rows.map((r) => {
+      // The table shows the average latency, which is what the SQL can
+      // produce; the expanded row shows the true median from the run summary.
+      const attempted = r.requests - (r.cancelled || 0);
+      const rate = attempted > 0 ? r.ok / attempted : null;
+      return `<tr class="log-run" data-run="${logEscape(r.run_id)}">
+        <td>${formatWhen(r.started_at)}</td>
+        <td>${logEscape(r.source)}</td>
+        <td>${r.requests}</td>
+        <td>${passRateText(rate)}</td>
+        <td>${r.models}</td>
+        <td>${formatDuration(r.avg_latency_ms)}</td>
+        <td>${formatCost(r.cost_micros)}</td>
+      </tr>`;
+    }).join('');
+    el('log-body').innerHTML = `<div class="log-scroll"><table class="log-table">
+      <thead><tr><th>Started</th><th>Source</th><th>Requests</th><th>Passed</th><th>Models</th>
+      <th>Avg latency</th><th>Cost</th></tr></thead>
+      <tbody>${body}</tbody></table></div>
+      ${state.cursor ? '<button class="btn btn-ghost" type="button" id="log-more">Show more</button>' : ''}`;
+  }
+
+  async function expandRun(tr, runId) {
+    const existing = tr.nextElementSibling;
+    if (existing && existing.classList.contains('log-run-detail')) { existing.remove(); return; }
+    const cells = tr.children.length;
+    tr.insertAdjacentHTML('afterend', `<tr class="log-run-detail"><td colspan="${cells}">Loading…</td></tr>`);
+    const host = tr.nextElementSibling.firstElementChild;
+    let s;
+    try {
+      s = await window.electronAPI.logsRunSummary(runId);
+    } catch (err) {
+      host.textContent = `That run could not be read: ${err && err.message ? err.message : err}`;
+      return;
+    }
+    const errors = Object.entries(s.errorsByClass).filter(([, n]) => n > 0)
+      .map(([cls, n]) => `${logEscape(cls)} ${n}`).join(' · ') || 'none';
+    host.innerHTML = `<div class="log-detail">
+      ${field('Requests', `${s.count} · ${s.ok} passed · ${s.cancelled} cancelled`)}
+      ${field('Pass rate', passRateText(s.passRate))}
+      ${field('Median latency', formatDuration(s.medianLatencyMs))}
+      ${field('Median first token', formatDuration(s.medianTtftMs))}
+      ${field('Cost', formatCost(s.costMicros))}
+      ${field('Models', logEscape(s.models.join(', ')) || '—')}
+      ${field('Errors', errors)}
+      </div>
+      <button class="btn btn-ghost" type="button" data-see-requests="${logEscape(runId)}">See its requests</button>`;
+  }
+
+  document.addEventListener('click', (e) => {
+    const see = e.target.closest('[data-see-requests]');
+    if (see) {
+      // A filter change inside the page, not a navigation.
+      state.filters.runId = see.dataset.seeRequests;
+      state.tab = 'requests';
+      state.cursor = null;
+      state.rows = [];
+      if (typeof syncRoute === 'function') syncRoute();
+      render();
+      return;
+    }
+    const runRow = e.target.closest('.log-run');
+    if (runRow) expandRun(runRow, runRow.dataset.run);
+  });
   async function renderCharts() { el('monitor-body').innerHTML = emptyState('Monitoring', 'Coming in the next task.'); }
 
   // `tab` is what syncRoute reads to build #/history/<sub>. Without it the

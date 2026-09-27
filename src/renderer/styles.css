@@ -7975,3 +7975,6 @@ button.ku-cell:hover {
   background: var(--accent-bg);
   color: var(--text-1);
 }
+
+.log-run-detail > td { background: var(--bg-1); padding: 14px 16px; white-space: normal; }
+.log-run-detail .log-detail { margin-bottom: 12px; max-width: 520px; }
