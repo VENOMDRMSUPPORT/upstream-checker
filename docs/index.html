@@ -76,21 +76,20 @@
 
 <div class="status">
   <span class="badge">3 OF 5 WORKSTREAMS OPEN</span>
-  <span class="meta asof">As of 2026-09-26 23:51 UTC</span>
-  <p>Lead workstream: <b>C — log pages</b>, not started. A is merged; of the 58 steps left
-  across B, C, M and R, 20 are done. The logging branch is 37 commits ahead with 268 tests
-  green, but it is gated: it merges only together with the log pages.</p>
+  <span class="meta asof">As of 2026-09-27 01:20 UTC</span>
+  <p>Lead workstream: <b>C — log pages</b>, now started — spec written and in review on
+  <code>feat/log-pages</code>. A is merged; of the 58 steps left across B, C, M and R, 22 are
+  done. The logging branch is pushed and 37 commits ahead with 268 tests green, still gated
+  behind the log pages.</p>
 </div>
 
 <details class="next" open>
-  <summary>Next steps <span class="meta">&middot; 3 items</span></summary>
+  <summary>Next steps <span class="meta">&middot; 2 items</span></summary>
   <ol>
-    <li><span class="who">Venom</span> — brainstorm the three log pages, then write the design spec
-      <span class="meta">— unblocks all 27 steps of workstream C, and through it the merge gate</span></li>
-    <li><span class="who">Venom</span> — decide whether the three query-API gaps go onto the logging branch before the merge or after
-      <span class="meta">— decides whether C is built against a frozen API or a moving one</span></li>
-    <li><span class="who">Venom</span> — push <code>feat/logging-system</code> to the remote
-      <span class="meta">— 37 commits of finished work exist on one machine only</span></li>
+    <li><span class="who">Venom</span> — write the implementation plan for the log pages, one task per commit
+      <span class="meta">— the spec is written and reviewed; the plan is the last thing between here and code</span></li>
+    <li><span class="who">Venom</span> — start with Task 0, the three query-API additions
+      <span class="meta">— closing them first freezes the API the three pages are built against</span></li>
   </ol>
 </details>
 
@@ -153,7 +152,7 @@
       <tr><th style="width:60px">ID</th><th>What</th><th style="width:110px">Owner</th><th style="width:100px">Depends on</th><th style="width:170px">Status</th></tr>
       <tr><td>A</td><td>Local database — SQLite replaces the JSON files, keys move into main</td><td>Venom</td><td>—</td><td><span class="pill done">merged</span></td></tr>
       <tr><td>B</td><td>Logging system — <code>venom-logs.db</code>, the writer, retention and the query API</td><td>Venom</td><td>after A</td><td><span class="pill done">built</span> <span class="pill warn">gated</span></td></tr>
-      <tr><td>C</td><td>Log pages — Request Log, Runs, Monitoring</td><td>Venom</td><td>after B</td><td><span class="pill next">not started</span></td></tr>
+      <tr><td>C</td><td>Log pages — Request Log, Runs, Monitoring</td><td>Venom</td><td>after B</td><td><span class="pill now">spec written</span></td></tr>
       <tr><td>M</td><td>Merge gate — B and C land in one merge</td><td>Venom</td><td>after C</td><td><span class="pill warn">blocked by C</span></td></tr>
       <tr><td>R</td><td>Release — changelog, version, publish, auto-update</td><td>Venom</td><td>after M</td><td><span class="pill next">not started</span></td></tr>
     </table></div>
@@ -238,8 +237,8 @@
 
     <h3>Spec and plan</h3>
     <ul class="steps" data-group="c">
-      <li><input type="checkbox" id="c0"><label for="c0"><span>Brainstorm the three pages — scope, layout, defaults</span></label></li>
-      <li><input type="checkbox" id="c1"><label for="c1"><span>Write the design spec</span></label></li>
+      <li><input type="checkbox" id="c0" checked><label for="c0"><span>Brainstorm the three pages — scope, layout, defaults</span></label></li>
+      <li><input type="checkbox" id="c1" checked><label for="c1"><span>Write the design spec</span></label></li>
       <li><input type="checkbox" id="c2"><label for="c2"><span>Delegated spec review, apply the required changes</span></label></li>
       <li><input type="checkbox" id="c3"><label for="c3"><span>Write the implementation plan, one task per commit</span></label></li>
       <li><input type="checkbox" id="c4"><label for="c4"><span>Branch <code>feat/log-pages</code> in its own worktree</span></label></li>
@@ -492,14 +491,14 @@
 </main>
 
 <script type="application/json" id="artifact-state">
-{"as_of": "2026-09-26 23:51 UTC",
+{"as_of": "2026-09-27 01:20 UTC",
  "project": "venom-router-phase-2",
- "totals": {"steps": 58, "done": 20},
- "refs": {"main": "bff4dd0", "logging_branch": "68bd6de", "logging_ahead": 37, "last_tag": "v1.4.1"},
+ "totals": {"steps": 58, "done": 22},
+ "refs": {"main": "3609d55", "logging_branch": "68bd6de", "logging_ahead": 37, "last_tag": "v1.4.1", "pages_branch": "feat/log-pages", "pages_head": "7efc703"},
  "workstreams": [
   {"id": "A", "name": "Local database", "status": "merged", "owner": "Venom", "steps": 0, "done": 0, "ref": "16b9f89"},
-  {"id": "B", "name": "Logging system", "status": "built-gated", "owner": "Venom", "steps": 20, "done": 20, "branch": "feat/logging-system", "pushed": false},
-  {"id": "C", "name": "Log pages", "status": "not-started", "owner": "Venom", "steps": 27, "done": 0},
+  {"id": "B", "name": "Logging system", "status": "built-gated", "owner": "Venom", "steps": 20, "done": 20, "branch": "feat/logging-system", "pushed": true},
+  {"id": "C", "name": "Log pages", "status": "spec-approved", "owner": "Venom", "steps": 27, "done": 2, "branch": "feat/log-pages"},
   {"id": "M", "name": "Merge gate", "status": "blocked", "owner": "Venom", "steps": 5, "done": 0, "blocked_by": "C"},
   {"id": "R", "name": "Release", "status": "not-started", "owner": "Venom", "steps": 6, "done": 0}
  ]}
