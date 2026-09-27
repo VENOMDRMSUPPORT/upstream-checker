@@ -288,6 +288,141 @@ async function checkFailedBodyScrubbed({ app }) {
   check('nothing stored for that request holds the key', !!full && !JSON.stringify(full).includes(FIXTURE.keys.dark1));
 }
 
+// ---- the log pages read what the run just wrote ------------------------------
+
+async function checkRunsPage({ app }) {
+  const s = await app.evaluate(`(async () => {
+    const wait = async (fn, ms) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end) {
+        if (fn()) return true;
+        await new Promise((r) => setTimeout(r, 120));
+      }
+      return false;
+    };
+    const hist = await window.electronAPI.readHistory();
+    const runUid = hist.runs[hist.runs.length - 1].runUid;
+    document.querySelector('.shell-nav-item[data-page=history]').click();
+    const shown = await wait(() => document.querySelectorAll('.log-run').length > 0, 15000);
+    const rows = [...document.querySelectorAll('.log-run')].map((tr) => tr.dataset.run);
+    const header = [...document.querySelectorAll('.log-table th')].map((t) => t.textContent).join('|');
+    // Expand the run this session's Route Test created.
+    const tr = [...document.querySelectorAll('.log-run')].find((x) => x.dataset.run === runUid);
+    if (tr) tr.click();
+    const opened = await wait(() => {
+      const d = document.querySelector('.log-run-detail');
+      return d && !d.textContent.includes('Loading');
+    }, 15000);
+    return { shown, rows, runUid, header, opened, detail: (document.querySelector('.log-run-detail') || {}).textContent || '' };
+  })()`, 45000);
+  check('the Runs tab lists at least one run', s.shown && s.rows.length > 0, String(s.rows.length));
+  check("the Route Test's run is one of them", s.rows.includes(s.runUid), `${s.runUid} not in ${s.rows.join(',')}`);
+  check('the runs table offers the average latency, not a median it cannot compute', s.header.includes('Avg latency'), s.header);
+  check('a run expands into its summary', s.opened, s.detail.slice(0, 80));
+  check('the summary carries both medians and a pass rate',
+    s.detail.includes('Median latency') && s.detail.includes('Median first token') && s.detail.includes('Pass rate'),
+    s.detail.slice(0, 120));
+}
+
+async function checkRequestsPageAndDrawer({ app }) {
+  const s = await app.evaluate(`(async () => {
+    const wait = async (fn, ms) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end) {
+        if (fn()) return true;
+        await new Promise((r) => setTimeout(r, 120));
+      }
+      return false;
+    };
+    // Drill from the run into its requests: a filter change, not a navigation.
+    const see = document.querySelector('[data-see-requests]');
+    if (see) see.click();
+    const filtered = await wait(() => !!document.getElementById('log-clear-run') && document.querySelectorAll('.log-row').length > 0, 15000);
+    const chip = (document.querySelector('.log-chip') || {}).textContent || '';
+    const tab = window.LOGS.tab();
+    // Clear the filter, then open the failed echo-key request.
+    document.getElementById('log-clear-run').click();
+    await wait(() => !document.getElementById('log-clear-run'), 10000);
+    const rows = (await window.electronAPI.logsList({ status: ['error'] }, null, 50)).rows;
+    const failed = rows.find((r) => r.endpoint.endsWith('/echo-key'));
+    if (failed) {
+      const tr = [...document.querySelectorAll('.log-row')].find((x) => Number(x.dataset.id) === failed.id);
+      if (tr) tr.click();
+    }
+    const opened = await wait(() => {
+      const d = document.getElementById('log-drawer');
+      return d && !d.hidden && !document.getElementById('log-drawer-body').textContent.includes('Loading');
+    }, 15000);
+    const body = document.getElementById('log-drawer-body').textContent;
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await wait(() => document.getElementById('log-drawer').hidden, 5000);
+    return { filtered, chip, tab, opened, body, closed: document.getElementById('log-drawer').hidden };
+  })()`, 60000);
+  check("seeing a run's requests switches to the Requests tab", s.tab === 'requests', s.tab);
+  check('the list is filtered to that run, with a chip naming it', s.filtered && /^Run\s+\S+/.test(s.chip), s.chip);
+  check('a failed request opens in the drawer', s.opened, s.body.slice(0, 80));
+  check('the drawer shows the outcome, the endpoint and the stored bodies',
+    s.body.includes('Outcome') && s.body.includes('Endpoint') && s.body.includes('Response'), s.body.slice(0, 120));
+  check('the drawer shows the placeholder and never the key',
+    s.body.includes('venomkey:k_dark_1') && !s.body.includes(FIXTURE.keys.dark1));
+  check('Escape closes the drawer', s.closed);
+}
+
+async function checkMonitoringPage({ app }) {
+  const s = await app.evaluate(`(async () => {
+    const wait = async (fn, ms) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end) {
+        if (fn()) return true;
+        await new Promise((r) => setTimeout(r, 120));
+      }
+      return false;
+    };
+    document.querySelector('.shell-nav-item[data-page=monitor]').click();
+    const drawn = await wait(() => document.querySelectorAll('.log-chart').length > 0, 20000);
+    const charts = document.querySelectorAll('.log-chart').length;
+    const marks = document.querySelectorAll('.log-chart polyline, .log-chart circle').length;
+    const tiles = [...document.querySelectorAll('.log-tile')].map((t) => t.textContent).join('|');
+    return { drawn, charts, marks, tiles };
+  })()`, 45000);
+  check('Monitoring draws its charts', s.drawn && s.charts === 3, String(s.charts));
+  check('the charts have data, not empty axes', s.marks > 0, String(s.marks));
+  check('the totals tiles count the run', s.tiles.includes('Requests'), s.tiles.slice(0, 80));
+}
+
+async function checkRetentionSettings({ app }) {
+  const s = await app.evaluate(`(async () => {
+    const wait = async (fn, ms) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end) {
+        if (fn()) return true;
+        await new Promise((r) => setTimeout(r, 120));
+      }
+      return false;
+    };
+    document.querySelector('.shell-nav-item[data-page=settings]').click();
+    document.querySelector('#settings-nav .settings-nav-item[data-section=sec-logs]').click();
+    await wait(() => !!document.getElementById('set-log-retention'), 10000);
+    const defaults = [
+      document.getElementById('set-log-retention').value,
+      document.getElementById('set-body-retention').value,
+      document.getElementById('set-stats-retention').value,
+    ].join(',');
+    const healthy = await wait(() => document.getElementById('logs-db-health').textContent.includes('requests'), 15000);
+    const health = document.getElementById('logs-db-health').textContent;
+    // SETTING_INPUTS binds non-boolean fields on input, not change.
+    const input = document.getElementById('set-log-retention');
+    input.value = '45';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 2500));
+    const stored = (await window.electronAPI.readConfig()).settings.logRetentionDays;
+    return { defaults, healthy, health, stored };
+  })()`, 45000);
+  check('the retention fields open on their defaults', s.defaults === '90,7,12', s.defaults);
+  check('the log health block shows the number of rows and the size on disk', s.healthy && s.health.includes('on disk'), s.health.trim().slice(0, 70));
+  check('a changed retention value round-trips to the database', s.stored === 45, String(s.stored));
+}
+
 async function checkNoRequestsLog({ dir }) {
   check('requests.log was not written', !existsSync(join(dir, 'requests.log')) && !existsSync(join(dir, 'requests.log.1')));
 }
@@ -297,6 +432,8 @@ const RUN1_END = [saveForNextRun, logRightBeforeClose, queueSaveThenClose];
 const RUN2 = [
   checkPersistence, checkFlushOnClose, checkQueuedRowSurvivedQuit, checkSingleInstance,
   checkLoggingOn, checkRouteTestLogged, checkFailedBodyScrubbed, checkNoRequestsLog,
+  // The pages read what the checks above just wrote, so they run after them.
+  checkRunsPage, checkRequestsPageAndDrawer, checkMonitoringPage, checkRetentionSettings,
 ];
 const RUN2_END = [checkWriteGate];
 
