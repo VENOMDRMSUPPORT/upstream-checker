@@ -1,7 +1,9 @@
 # Log pages (sub-project C) — design
 
 Date: 2026-09-27
-Status: revised after a delegated design review (rev 2 — all seven required changes applied)
+Status: rev 3 — two delegated reviews applied: seven changes from the design review, six from
+the spec review (descending-only sorts, an average latency the SQL can produce, runs filters
+narrowed to a fixed subset, no filter in the route, a second drawer element, its own tab class)
 Depends on: sub-project B (`docs/superpowers/specs/2026-09-26-logging-system-design.md`), on
 branch `feat/logging-system`, unmerged
 Branch: `feat/log-pages`, cut from `feat/logging-system`, worktree
@@ -48,6 +50,17 @@ export and break that loop. **`exportTo` always pages in time order** and ignore
 `sort` is one of `'time' | 'latency' | 'ttft' | 'cost'`, mapping to `created_at`,
 `latency_ms`, `ttft_ms`, `cost_micros`; anything else throws, like the existing `bucket`
 and `groupBy` guards. Default `'time'`, which keeps today's exact behaviour.
+
+**Every sort is descending.** There is no ascending option and no direction argument: a log
+is read worst-first — the slowest request, the most expensive one, the longest wait for a
+first token. A second click on a sorted column header returns to time order rather than
+reversing it. Ascending order would need its own `ORDER BY` and its own mirrored predicate,
+and doubles the keyset test matrix for a view nobody asked for; if it is ever wanted, it is
+a separate change, not a variation this spec leaves open.
+
+**Changing `sort` resets the cursor.** The cursor shape differs per sort (§1.1, §1.2) and
+`page()` ignores one of the wrong shape, which would silently restart the list at page one
+mid-scroll. The renderer drops its cursor whenever the sort changes.
 
 **Non-time sorts require a bounded range.** `from` and `to` must both be set, spanning at
 most 31 days, or `list` throws. There is no index on `latency_ms`, `ttft_ms` or
@@ -104,6 +117,7 @@ SELECT run_id,
        SUM(status = 'ok')             AS ok,
        SUM(status = 'cancelled')      AS cancelled,
        SUM(cost_micros)               AS cost_micros,
+       AVG(latency_ms)                AS avg_latency_ms,
        COUNT(DISTINCT model_requested) AS models,
        MIN(source)                    AS source
 FROM request_logs
@@ -122,10 +136,21 @@ predicate mirrors the row keyset:
 `(started_at < :startedAt OR (started_at = :startedAt AND run_id < :runId))`, applied as a
 `HAVING` clause since `started_at` is an aggregate.
 
-Filters accepted: `from`, `to`, `source[]`, `providerId[]`, `model`, `text` (matching
-`run_id`), reusing `rowFilters`. `from`/`to` bound `created_at`, so a run whose first
-request falls outside the range is excluded — the same rule a time-filtered request list
-follows.
+`AVG(latency_ms)` is there because SQLite has no median. The Runs table shows the average;
+the true median is `medianLatencyMs` from `logs-run-summary`, which computes it in JS and is
+what the expanded row shows. The two are labelled differently in the UI — "avg" in the
+table, "median" in the summary — so neither is mistaken for the other.
+
+**`runs` does not reuse `rowFilters`.** It builds its own condition set from a fixed subset:
+`from`, `to`, `source[]`, `providerId[]`, `model`, and `text` matching `run_id`. The keys
+`rowFilters` also understands — `status`, `runId`, `afterId` — are ignored, because they
+filter *rows* and would corrupt the aggregates: a `status` filter would make `ok` equal
+`requests` by construction.
+
+`from`/`to` bound `created_at`, which prunes **rows, not groups**. A run whose first request
+falls before `from` still appears, with `started_at` clamped to its first in-range request
+and its counters covering only the in-range part. The UI labels the range so this is
+readable rather than surprising; a run is never silently dropped for straddling the edge.
 
 **No new index.** Measured on a seeded 60 000-row database (40 000 rows carrying a run id,
 2 400 runs): the planner uses `request_logs_by_time` for the range and a temp B-tree for the
@@ -142,9 +167,11 @@ are added:
 - `medianTtftMs` — the median of `ttft_ms` over rows where `is_stream = 1` and `ttft_ms` is
   set. Non-stream rows have no TTFT and must not be counted as zero. **The `runSummary`
   SELECT must widen to include `ttft_ms` and `is_stream`**, which it does not read today.
-- `passRate` — `ok / (count - cancelled)`, or `null` when that denominator is zero. A
-  cancelled request is neither a pass nor a failure. This is derivable from fields the
-  summary already returns; it is added so every caller computes it the same way.
+- `passRate` — `ok / (count - cancelled - errorsByClass.blocked)`, or `null` when that
+  denominator is zero. Cancelled and blocked requests are neither passes nor failures; the
+  denominator is deliberately the same `attempted` that `summarize()` uses for `okPct`
+  (`requests - cancelled - blocked`). Leaving `blocked` in would give the app two different
+  pass rates — one on the Runs table, one on Monitoring — for the same traffic.
 
 ## 2. Files
 
@@ -155,8 +182,8 @@ are added:
 | `src/preload.js` | `logsList` gains `sort`; new `logsRuns` |
 | `src/renderer/logs-format.js` | **new** — pure helpers, no DOM, loadable by a node test |
 | `src/renderer/logs.js` | **new** — the three views, as an IIFE exposing `window.LOGS` |
-| `src/renderer/index.html` | Two `data-page` attributes, two `<section class="shell-page">` blocks, the retention rows in `sec-logs`, two `<script>` tags |
-| `src/renderer/app.js` | Two `PAGES` entries, two `PAGE_META` entries, two `showPage` hooks, retention settings wiring |
+| `src/renderer/index.html` | Two `data-page` attributes, two `<section class="shell-page">` blocks, the `#log-drawer` element, the retention rows in `sec-logs`, two `<script>` tags |
+| `src/renderer/app.js` | Two `PAGES` entries, two `PAGE_META` entries, two `showPage` hooks, retention settings wiring. **No route grammar change** (§3.3) |
 | `src/renderer/styles.css` | Log table, filter bar, chart and drawer rules |
 | `test/logs/query.test.js` | Cases for the three additions |
 | `test/renderer/logs-format.test.js` | **new** — the pure helpers |
@@ -186,12 +213,15 @@ It must therefore touch neither `window` nor `document` at evaluation time. It h
 ### 3.2 Pages and views
 
 **Test History** (`data-page="history"`) — a tab strip in the page header, `Runs` (default)
-and `Requests`, using the existing `settings-nav-item` tab pattern.
+and `Requests`. The strip gets its **own class, `log-tab`**, visually matching the settings
+tabs but not reusing `settings-nav-item`: `renderCostEstimate()` selects that class
+unscoped, and a Test History tab appearing earlier in the DOM would silently take over the
+element it writes the settings cost estimate into.
 
-*Runs* — a table from `logs-runs`: started, source, requests, pass rate, models, median
-latency, cost. A row expands into its summary from `logs-run-summary`. "See requests" sets
-the Requests tab's filter to that `runId` and switches tab — a filter change inside the
-page, not a navigation.
+*Runs* — a table from `logs-runs`: started, source, requests, pass rate, models, average
+latency, cost. A row expands into its summary from `logs-run-summary`, which is where the
+median latency and median TTFT appear. "See requests" sets the Requests tab's filter to that
+`runId` and switches tab — a filter change inside the page, not a navigation.
 
 *Requests* — a table from `logs-list`: time, source, provider, model, status, latency, TTFT,
 tokens, cost. The filter bar is built from `logs-facets`: provider, model, source, status,
@@ -201,14 +231,22 @@ a date range and a text box. Column headers for latency, TTFT and cost are sort 
 cleared, only widened, up to 31 days. This is what makes §1.1's bounded-range rule invisible
 to the user rather than an error they can trigger.
 
-Clicking a row opens the detail **drawer** — the same right-hand drawer markup and CSS that
-`key-usage.js` already uses — showing timings, token breakdown, cost with its price
-snapshot, the error, and the scrubbed request and response bodies when `has_body` is set.
+Clicking a row opens the detail **drawer**, showing timings, token breakdown, cost with its
+price snapshot, the error, and the scrubbed request and response bodies when `has_body` is
+set.
+
+The drawer is a **second element**, `#log-drawer`, added to `index.html` with its own ids
+and its own open/close and Escape handling inside `logs.js`. It reuses the existing
+`.ku-drawer` / `.ku-scrim` / `.ku-panel` CSS, which is generic, but not `#ku-drawer` itself:
+that element is a singleton whose ids and handlers belong to `key-usage.js` and are bound to
+key state. Nothing in `key-usage.js` is touched.
 
 The drawer also carries the **retry chain**: other rows sharing this row's `run_id` and
 `meta_json.testGroup`, keyed on `is_stream` and `endpoint`. The non-stream attempt and the
 SSE-recovery attempt both carry attempt 1 and hedge index 0, so those two fields alone
-cannot tell them apart.
+cannot tell them apart. The chain needs no API addition: the drawer fetches the run's rows
+with the existing `runId` filter and groups them in the renderer, since `list` returns
+`meta_json` with every row.
 
 **Monitoring** (`data-page="monitor"`) — charts from `logs-stats`: requests over time with
 ok/error split, latency and approximate p95, tokens, and cost. Bucket is hour or day; group
@@ -222,11 +260,15 @@ already draw their series. No charting dependency is added.
 
 ### 3.3 Filter state and the route
 
-Each view owns a plain `filters` object. `syncRoute()` uses `history.replaceState` and the
-app listens for neither `hashchange` nor `popstate`; `applyRoute()` runs once, at startup.
-So the hash is a **deep link restored on reload, not browser history**: the filter is
-written into the hash so a reload returns to the same view, and Back is not expected to
-restore it. C adds no `pushState` and no `popstate` handler.
+Each view owns a plain `filters` object, held **in memory for the session**. It is not
+written into the route.
+
+The route grammar today is `#/<page>/<sub>`, `syncRoute()` writes it with
+`history.replaceState`, the app listens for neither `hashchange` nor `popstate`, and
+`applyRoute()` runs once at startup. Teaching it a filter segment means a new grammar, a new
+parser and a new writer in `app.js` — a change to shared routing code for a feature nobody
+asked for. C therefore uses the existing grammar unchanged: the hash records which page and
+which tab, so a reload returns to the Requests tab, with filters back at their defaults.
 
 Facets are fetched once per range change and cached against that range. `logs-facets` reads
 `usage_hourly`, which buckets to whole hours, so a provider first used minutes ago may not
@@ -266,18 +308,24 @@ The existing `sec-logs` section gains:
   and offers a retry. It never replaces real rows with an empty table.
 - **Unknown provider.** `usage_hourly` stores the unknown provider as `''`, `request_logs`
   as `NULL`. `normalizeProvider()` in `logs-format.js` maps both to the single token
-  `'unknown'` before anything is rendered or compared, and back to the right one when
-  building a filter. Every provider comparison in `logs.js` goes through it.
+  `'unknown'` before anything is rendered or compared, so a chart series and a table row for
+  the same unknown traffic line up. It is a **display-side** mapping only: `facets` filters
+  out `provider_id != ''`, so "unknown" never appears in the dropdown and can never be
+  chosen as a filter. Every provider comparison in `logs.js` goes through it.
 - **A missing body.** `has_body = 0` means the body was never kept or has aged out past
   `bodyRetentionDays`. The drawer says which, from the row's age.
 
 ## 6. Verification
 
-- **Unit, `test/logs/query.test.js`:** each sort in both directions; a keyset page that
-  crosses the NULL boundary returning every row exactly once; a non-time sort without a
-  range throwing; `runs` excluding null run ids, its counters, its cursor across a
-  `started_at` tie; `medianTtftMs` ignoring non-stream rows; `passRate` excluding cancelled
-  requests and returning null when every request was cancelled.
+- **Unit, `test/logs/query.test.js`:** each of the four sorts, descending, paged to the end
+  and asserted to return every row exactly once — including the page that crosses from the
+  valued block into the NULL block, and ties inside each block; a non-time sort with no
+  range, or a range wider than 31 days, throwing; an unknown sort name throwing; `exportTo`
+  staying in time order when the caller's filters came from a sorted view; `runs` excluding
+  null run ids, its counters, its own cursor across a `started_at` tie, and a run straddling
+  `from` appearing with clamped `started_at`; `runs` ignoring a `status` key;
+  `medianTtftMs` ignoring non-stream rows; `passRate` excluding cancelled and blocked
+  requests and returning null when nothing was attempted.
 - **Unit, `test/renderer/logs-format.test.js`:** every pure helper, including
   `normalizeProvider` on `''`, `null` and a real id, and the formatters on null input.
 - **Live check, `scripts/live/verify-db.mjs`:** drive the packaged app, run a Route Test,
