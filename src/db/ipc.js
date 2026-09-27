@@ -19,7 +19,19 @@ function readConfig(repos) {
   return data;
 }
 
-function registerDataIpc({ ipcMain, repos, clipboard, log = console }) {
+function registerDataIpc({ ipcMain, repos, clipboard, log = console, hooks = {} }) {
+  // Main-side caches that follow the saved data (the request log's body
+  // setting and retention limits, its price cache). The save itself already
+  // succeeded, so a hook that fails is logged, not thrown.
+  const notify = (name, ...args) => {
+    if (typeof hooks[name] !== 'function') return;
+    try {
+      hooks[name](...args);
+    } catch (err) {
+      log.warn(`${name} failed:`, err.message);
+    }
+  };
+
   const handle = (channel, fn) => {
     ipcMain.handle(channel, (_event, ...args) => {
       try {
@@ -33,7 +45,8 @@ function registerDataIpc({ ipcMain, repos, clipboard, log = console }) {
 
   handle('read-config', () => readConfig(repos));
   handle('save-settings', (settings) => {
-    repos.settings.saveSettings(settings);
+    const merged = repos.settings.saveSettings(settings);
+    notify('onSettingsSaved', merged);
     return { success: true };
   });
   handle('save-secret', (name, value) => ({ placeholder: repos.secrets.save(name, value) ? `venomsecret:${name}` : '' }));
@@ -52,7 +65,11 @@ function registerDataIpc({ ipcMain, repos, clipboard, log = console }) {
     return { copied: true };
   });
   handle('read-catalog', () => repos.catalog.read());
-  handle('write-catalog', (catalog, writeOpts) => repos.catalog.write(catalog, { reset: !!writeOpts && writeOpts.reset === true }));
+  handle('write-catalog', (catalog, writeOpts) => {
+    const out = repos.catalog.write(catalog, { reset: !!writeOpts && writeOpts.reset === true });
+    notify('onCatalogWritten');
+    return out;
+  });
   handle('read-history', () => repos.history.read());
   handle('append-run', (run, maxRuns) => repos.history.append(run, maxRuns));
   handle('clear-history', () => {

@@ -104,11 +104,11 @@
           <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h10M4 18h6"/><circle cx="18" cy="16" r="3"/><path d="M20.5 18.5 22 20"/></svg>
           <span>Routing Profiles</span>
         </button>
-        <button class="shell-nav-item" type="button" disabled title="Coming soon">
+        <button class="shell-nav-item" type="button" data-page="history">
           <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>
           <span>Test History</span>
         </button>
-        <button class="shell-nav-item" type="button" disabled title="Coming soon">
+        <button class="shell-nav-item" type="button" data-page="monitor">
           <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="20" x2="6" y2="12"/><line x1="12" y1="20" x2="12" y2="6"/><line x1="18" y1="20" x2="18" y2="14"/></svg>
           <span>Monitoring</span>
         </button>
@@ -495,6 +495,20 @@
                 </div>
               </main>
             </div>
+        </section>
+
+        <section class="shell-page page-history" data-page="history" hidden>
+          <div class="log-tabs" role="tablist">
+            <button class="log-tab active" type="button" data-tab="runs" role="tab" aria-selected="true">Runs</button>
+            <button class="log-tab" type="button" data-tab="requests" role="tab" aria-selected="false">Requests</button>
+          </div>
+          <div class="log-filters" id="log-filters"></div>
+          <div class="log-body" id="log-body"></div>
+        </section>
+
+        <section class="shell-page page-monitor" data-page="monitor" hidden>
+          <div class="log-filters" id="monitor-filters"></div>
+          <div class="log-body" id="monitor-body"></div>
         </section>
 
         <section class="shell-page page-settings" data-page="settings" hidden>
@@ -1085,27 +1099,51 @@
 
                 <!-- Diagnostics & Logs -->
                 <section class="settings-section" id="sec-logs" hidden>
-                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>Records what was sent and what came back, so a failed test can be explained after the fact.</p></div>
+                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>Every request VENOM Router sends is recorded in a log database on this machine: when it ran, how long it took, the tokens it used and what it cost.</p></div>
 
                   <div class="settings-rows">
                     <div class="settings-row-item">
                       <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/></svg></div>
                       <div class="settings-row-info">
-                      <label class="settings-row-title" for="set-log-level">Log requests</label>
-                      <div class="settings-row-desc">API keys are never written: the Authorization header is replaced before anything reaches disk. Bodies are clipped at 4,000 characters and the file rotates at 5 MB.</div>
+                      <label class="settings-row-title" for="set-log-level">Request bodies</label>
+                      <div class="settings-row-desc">Also keep what was sent and what came back, for 7 days, so a failed request can be explained after the fact. Keys are never stored: key headers are removed, and a key quoted back in a reply is replaced by its placeholder. Each body is clipped at 8 KB.</div>
                     </div>
                       <div class="settings-row-control"><select class="prompt-input narrow" id="set-log-level">
                       <option value="off">Off</option>
-                      <option value="errors">Failures only</option>
-                      <option value="all">Every request</option>
+                      <option value="errors">Failed only</option>
+                      <option value="all">All</option>
                     </select></div>
+                    </div>
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+                      <div class="settings-row-info">
+                      <label class="settings-row-title" for="set-log-retention">Keep requests for</label>
+                      <div class="settings-row-desc">How long a request row is kept. Older rows are removed in the background, a chunk at a time.</div>
+                    </div>
+                      <div class="settings-row-control"><input class="prompt-input narrow" type="number" min="1" max="3650" step="1" id="set-log-retention"><span class="settings-unit">days</span></div>
+                    </div>
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg></div>
+                      <div class="settings-row-info">
+                      <label class="settings-row-title" for="set-body-retention">Keep bodies for</label>
+                      <div class="settings-row-desc">How long a failed request’s bodies are kept. They are the largest part of the log.</div>
+                    </div>
+                      <div class="settings-row-control"><input class="prompt-input narrow" type="number" min="1" max="3650" step="1" id="set-body-retention"><span class="settings-unit">days</span></div>
+                    </div>
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="20" x2="6" y2="12"/><line x1="12" y1="20" x2="12" y2="6"/><line x1="18" y1="20" x2="18" y2="14"/></svg></div>
+                      <div class="settings-row-info">
+                      <label class="settings-row-title" for="set-stats-retention">Keep summaries for</label>
+                      <div class="settings-row-desc">How long the hourly summaries Monitoring reads are kept. They are small, and they are all that is left once the rows above are gone.</div>
+                    </div>
+                      <div class="settings-row-control"><input class="prompt-input narrow" type="number" min="1" max="120" step="1" id="set-stats-retention"><span class="settings-unit">months</span></div>
                     </div>
                     <div class="settings-row-item vertical">
                       <div class="settings-row-header-inline">
                         <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></div>
                         <div class="settings-row-info">
-                      <div class="settings-row-title">Log file</div>
-                      <div class="settings-row-desc">Where the log is written on this machine.</div>
+                      <div class="settings-row-title">Old log file</div>
+                      <div class="settings-row-desc">requests.log from earlier versions. It is no longer written; clear it once you don't need it.</div>
                     </div>
                       </div>
                       <div class="settings-row-field"><code class="settings-path" id="log-path">...</code>
@@ -1115,12 +1153,34 @@
                     </div>
                   </div>
 
+                  <div class="settings-rows">
+                    <div class="settings-row-item vertical">
+                      <div class="settings-row-header-inline">
+                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg></div>
+                        <div class="settings-row-info">
+                      <div class="settings-row-title">Log database</div>
+                      <div class="settings-row-desc">Where the request log lives and how much it has grown.</div>
+                    </div>
+                      </div>
+                      <div class="settings-row-field"><code class="settings-path" id="logs-db-path">…</code>
+                    <div class="log-health" id="logs-db-health"></div></div>
+                    </div>
+                  </div>
+
                   <div class="settings-zone">
                     <div class="settings-zone-info">
-                      <div class="settings-zone-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>Clear log</div>
-                      <div class="settings-zone-desc">The log file is emptied.</div>
+                      <div class="settings-zone-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>Clear the request log</div>
+                      <div class="settings-zone-desc">Deletes every recorded request, its bodies and its summaries. The app keeps logging afterwards. This is not the old requests.log below.</div>
                     </div>
-                    <div class="settings-actions"><button class="btn btn-ghost danger" id="btn-clear-log">Clear log</button></div>
+                    <div class="settings-actions"><button class="btn btn-ghost danger" id="btn-clear-logs-db">Clear the request log</button></div>
+                  </div>
+
+                  <div class="settings-zone">
+                    <div class="settings-zone-info">
+                      <div class="settings-zone-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>Clear old log</div>
+                      <div class="settings-zone-desc">The old requests.log is deleted. The request log database is not touched.</div>
+                    </div>
+                    <div class="settings-actions"><button class="btn btn-ghost danger" id="btn-clear-log">Clear old log</button></div>
                   </div>
                 </section>
 
@@ -1353,7 +1413,18 @@
 
   <!-- Key usage drawer (key-usage.js): a key's quota, expiry, last 24 hours
        and request history, for providers whose module reports them. -->
-  <div class="ku-drawer" id="ku-drawer" hidden>
+  <div class="ku-drawer" id="log-drawer" hidden>
+      <div class="ku-scrim" id="log-drawer-scrim"></div>
+      <div class="ku-panel" role="dialog" aria-modal="true" aria-labelledby="log-drawer-title">
+        <div class="ku-head">
+          <h3 id="log-drawer-title">Request</h3>
+          <button class="btn btn-ghost" type="button" id="log-drawer-close" aria-label="Close">&times;</button>
+        </div>
+        <div class="ku-body" id="log-drawer-body"></div>
+      </div>
+    </div>
+
+    <div class="ku-drawer" id="ku-drawer" hidden>
     <div class="ku-scrim" data-ku-close></div>
     <aside class="ku-panel" role="dialog" aria-modal="true" aria-labelledby="ku-title">
       <header class="ku-head">
@@ -1378,10 +1449,13 @@
   <script src="providers/experiential.js"></script>
   <script src="data/leaderboard-snapshot.js"></script>
   <script src="ui-select.js"></script>
+  <script src="ulid.js"></script>
   <script src="app.js"></script>
   <script src="benchmark.js"></script>
   <script src="key-usage.js"></script>
   <script src="catalog.js"></script>
   <script src="profiles.js"></script>
+  <script src="logs-format.js"></script>
+  <script src="logs.js"></script>
 </body>
 </html>

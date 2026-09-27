@@ -162,9 +162,16 @@ const DEFAULT_SETTINGS = {
   customAccent: '#a855f7',
   density: 'normal',
 
-  // off | errors | all. Off by default: the log is a file on disk holding the
-  // traffic of an authenticated API, even with the key stripped out of it.
-  logLevel: 'off',
+  // Request bodies in the request log: off | errors (Failed only) | all. The
+  // metadata of every request is recorded whatever this says. Main reads it
+  // from the saved settings row: a row without it (a new install) means
+  // Failed only, and a value already saved is never changed.
+  logLevel: 'errors',
+  // Mirrors LOG_DEFAULTS in src/logs/settings.js, which main reads back from
+  // the same row. Without them here the retention inputs open empty.
+  logRetentionDays: 90,
+  bodyRetentionDays: 7,
+  statsRetentionMonths: 12,
 
   // Model Pool. The pool re-reads every connected provider's model
   // list on this cadence; a model that appears is benchmarked straight away
@@ -565,9 +572,10 @@ function previousStatus(modelId) {
 // Returns whether the run was saved (false when persist() refused it or the
 // write failed — already reported by persist; the caller shows it too, since
 // renderRunSummary's status would otherwise overwrite that report).
-async function recordRun(providerId, providerName, results) {
+async function recordRun(providerId, providerName, results, runUid) {
   if (results.length === 0) return true;
   const run = {
+    runUid,
     at: Date.now(),
     provider: providerId,
     providerName,
@@ -963,6 +971,7 @@ async function checkProviderHealth(id) {
           method: 'GET',
           headers: { Authorization: `Bearer ${k.key}`, 'Content-Type': 'application/json' },
           timeoutMs: HEALTH_TIMEOUT_MS,
+          source: 'health',
         });
       } catch (err) {
         res = { status: 0, networkError: true, error: err.message };
@@ -1283,6 +1292,17 @@ function getFreeGroupName(code) {
   return code;
 }
 
+// The apiRequest handed to a provider module, tagged for the request log with
+// what its caller is doing. A module's own pricing and plans pages (Nara,
+// Experiential) are tagged 'pricing', whoever asked for them.
+function taggedApiRequest(source, p) {
+  const pricingPages = [p && p.pricingUrl, p && p.plansUrl].filter(Boolean);
+  return (opts) => window.electronAPI.apiRequest({
+    ...opts,
+    source: pricingPages.some((u) => String(opts.url || '').startsWith(u)) ? 'pricing' : source,
+  });
+}
+
 // Discovery for one key. A provider can hand out catalogues that differ per key —
 // one key unlocking the Chinese models and another the Claude/GPT ones is a real
 // arrangement — so this runs once per key and the caller merges the results.
@@ -1294,7 +1314,7 @@ async function discoverModels(p, apiKey) {
       baseUrl: p.baseUrl,
       plansUrl: p.plansUrl,
       pricingUrl: p.pricingUrl,
-      apiRequest: window.electronAPI.apiRequest,
+      apiRequest: taggedApiRequest('discovery', p),
       formatContext,
       getFreeGroupName,
     });
@@ -1305,6 +1325,7 @@ async function discoverModels(p, apiKey) {
     url: `${p.baseUrl}/models`,
     method: 'GET',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    source: 'discovery',
   });
   if (modelsResult.status !== 200) throw new Error(`HTTP ${modelsResult.status}`);
   const rawModels = JSON.parse(modelsResult.body).data || [];
@@ -1934,18 +1955,58 @@ let requestSeq = 0;
 // flight. Without this, hitting Stop still leaves the hedged requests
 // running (and billing) until the 60s request timeout fires.
 const inflightIds = new Set();
+// Request-log tags by request id ({ attempt, hedgeIndex, testGroup, paramSwap }),
+// set when the id is handed out and read when its request goes out, so the
+// round and the hedge index travel with the id instead of through every
+// tester's signature. Never cleared at the start of a run: a straggler from
+// the previous run (a video poll, a delayed retry) still needs its captured
+// tags to log under the run it actually belongs to. Bounded instead — a Map
+// keeps insertion order, so the oldest entries are the first dropped.
+const requestTags = new Map();
+const REQUEST_TAGS_MAX = 2000;
+// { runId, trigger } of the Route Test run in progress; null between runs.
+let routeRun = null;
 
-function nextRequestId() {
+// The run and trigger are captured here, once, off the live routeRun — not
+// re-read at send time. tags forwarded from an earlier captured id (a poll
+// or a param-swap retry) already carry their originating request's runId and
+// trigger, so those are kept rather than overwritten with whatever run is
+// current by the time this later id is minted.
+function nextRequestId(tags = null) {
   requestSeq += 1;
   const id = `req_${Date.now()}_${requestSeq}`;
   inflightIds.add(id);
+  if (tags) {
+    const runId = tags.runId !== undefined ? tags.runId : (routeRun ? routeRun.runId : undefined);
+    const trigger = tags.trigger !== undefined ? tags.trigger : (routeRun ? routeRun.trigger : undefined);
+    requestTags.set(id, { ...tags, runId, trigger });
+    while (requestTags.size > REQUEST_TAGS_MAX) requestTags.delete(requestTags.keys().next().value);
+  }
   return id;
 }
 
+// What a Route Test request carries into the request log. runId/trigger
+// prefer the id's captured tags (from nextRequestId): the live routeRun is
+// only a fallback for an id that was never tagged, so a straggling request
+// from a run that has since finished (or a new one that has since started)
+// still logs under the run it was actually part of.
+function routeTestTags(requestId) {
+  const t = (requestId && requestTags.get(requestId)) || {};
+  return {
+    source: 'route_test',
+    runId: t.runId !== undefined ? t.runId : (routeRun ? routeRun.runId : undefined),
+    trigger: t.trigger !== undefined ? t.trigger : (routeRun ? routeRun.trigger : undefined),
+    attempt: t.attempt,
+    hedgeIndex: t.hedgeIndex,
+    testGroup: t.testGroup,
+    paramSwap: t.paramSwap || undefined,
+  };
+}
+
 // Cancelling an already-finished id is a no-op in the main process, so this can
-// safely fire at every id from the current run.
+// safely fire at every id from the current run. Only Stop calls it.
 function cancelAllInflight() {
-  inflightIds.forEach((id) => window.electronAPI.cancelApiRequest(id));
+  inflightIds.forEach((id) => window.electronAPI.cancelApiRequest(id, 'stop'));
   inflightIds.clear();
 }
 
@@ -2052,14 +2113,15 @@ function extractMediaUrl(text) {
 // one-byte ranged GET for hosts (signed CDN links, mostly) that refuse HEAD.
 // true/false is a verdict; null means the host would not say, and the caller
 // falls back to the link itself.
-async function verifyAsset(url, kind, headers = {}) {
+async function verifyAsset(url, kind, headers = {}, requestId = null) {
   if (!settings.verifyAssets || !url) return null;
   const want = kind === 'video' ? 'video/' : 'image/';
   if (/^data:/i.test(url)) return url.slice(5).toLowerCase().startsWith(want);
   for (const [method, extra] of [['HEAD', {}], ['GET', { Range: 'bytes=0-0' }]]) {
     let res;
     try {
-      res = await window.electronAPI.apiRequest({ url, method, headers: { ...headers, ...extra }, timeoutMs: 20000, logLevel: settings.logLevel });
+      // Logged under the attempt that produced the link (requestId's tags).
+      res = await window.electronAPI.apiRequest({ url, method, headers: { ...headers, ...extra }, timeoutMs: 20000, ...routeTestTags(requestId) });
     } catch (_) {
       continue;
     }
@@ -2075,8 +2137,8 @@ async function verifyAsset(url, kind, headers = {}) {
 
 // Result fields for a generated asset: what the response column shows and, when
 // the check could be made, whether the link really serves that kind of media.
-async function assetResult(url, kind, headers) {
-  const verified = await verifyAsset(url, kind, headers);
+async function assetResult(url, kind, headers, requestId = null) {
+  const verified = await verifyAsset(url, kind, headers, requestId);
   const shown = /^data:/i.test(url) ? `Inline ${kind} · ${Math.round((url.length * 3) / 4 / 1024)} KB` : url;
   return typeof verified === 'boolean' ? { response: shown, assetVerified: verified } : { response: shown };
 }
@@ -2090,7 +2152,7 @@ async function attemptImage(model, provider, key, requestId) {
     body: JSON.stringify({ model: model.id, prompt: settings.imagePrompt, n: 1 }),
     requestId,
     timeoutMs: deadline,
-    logLevel: settings.logLevel,
+    ...routeTestTags(requestId),
   });
   const lost = transportFailure(res, key.id);
   if (lost) return lost;
@@ -2107,7 +2169,7 @@ async function attemptImage(model, provider, key, requestId) {
   }
   const url = item.url || findAssetUrl(data);
   if (!url) return { ...buildEmptyResult(data.usage || {}, res.elapsed), response: 'No image returned by provider', keyId: key.id };
-  return { ...base, ...(await assetResult(url, 'image')) };
+  return { ...base, ...(await assetResult(url, 'image', undefined, requestId)) };
 }
 
 const JOB_DONE = new Set(['completed', 'succeeded', 'success', 'done', 'finished', 'ready']);
@@ -2126,7 +2188,7 @@ async function attemptVideo(model, provider, key, requestId) {
     body: JSON.stringify({ model: model.id, prompt: settings.videoPrompt }),
     requestId,
     timeoutMs: deadline,
-    logLevel: settings.logLevel,
+    ...routeTestTags(requestId),
   });
   const lost = transportFailure(res, key.id);
   if (lost) return lost;
@@ -2148,10 +2210,10 @@ async function attemptVideo(model, provider, key, requestId) {
     const done = JOB_DONE.has(state);
     if (done || (url && !state)) {
       const pass = { keyId: key.id, status: 'pass', isEmpty: false, time: elapsed(), tokens: usageTokens(job.usage) };
-      if (url) return { ...pass, ...(await assetResult(url, 'video')) };
+      if (url) return { ...pass, ...(await assetResult(url, 'video', undefined, requestId)) };
       // Finished without a link: the OpenAI shape serves the file from the job.
       const contentUrl = `${endpoint}/${encodeURIComponent(job.id)}/content`;
-      const verified = await verifyAsset(contentUrl, 'video', { Authorization: `Bearer ${key.key}` });
+      const verified = await verifyAsset(contentUrl, 'video', { Authorization: `Bearer ${key.key}` }, requestId);
       return { ...pass, response: `Video ready · job ${job.id}`, ...(typeof verified === 'boolean' ? { assetVerified: verified } : {}) };
     }
     if (!job.id) return fail('Video job returned neither an id nor an asset');
@@ -2159,13 +2221,15 @@ async function attemptVideo(model, provider, key, requestId) {
     if (elapsed() >= deadline) return fail(`Timed out while the video was ${state || 'pending'}`, { statusCode: 0, timedOut: true });
 
     await sleep(Math.max(1000, settings.videoPollMs));
+    // A poll belongs to the same attempt: it carries the create call's tags.
+    const pollId = nextRequestId(requestTags.get(requestId) || null);
     const poll = await window.electronAPI.apiRequest({
       url: `${endpoint}/${encodeURIComponent(job.id)}`,
       method: 'GET',
       headers: authHeaders(key.key),
-      requestId: nextRequestId(),
+      requestId: pollId,
       timeoutMs: 30000,
-      logLevel: settings.logLevel,
+      ...routeTestTags(pollId),
     });
     if (poll.cancelled) return fail('cancelled', { cancelled: true });
     if (poll.networkError) continue; // one lost poll is not a failed job
@@ -2192,7 +2256,7 @@ async function attemptDecision(model, provider, key, requestId) {
     }),
     requestId,
     timeoutMs: deadline,
-    logLevel: settings.logLevel,
+    ...routeTestTags(requestId),
   });
   const lost = transportFailure(res, key.id);
   if (lost) return lost;
@@ -2275,7 +2339,7 @@ async function attemptChat(model, provider, stream, requestId, key) {
       body: JSON.stringify(payload),
       requestId,
       timeoutMs: deadline,
-      logLevel: settings.logLevel,
+      ...routeTestTags(requestId),
     });
 
     // A cancelled hedge loser (raceAttempts skips those) or a transport failure.
@@ -2302,7 +2366,7 @@ async function attemptChat(model, provider, stream, requestId, key) {
       };
       // A generator answering over chat still has to hand back a real asset.
       if (media) {
-        const verified = await verifyAsset(extractMediaUrl(parsed.content), model.kind);
+        const verified = await verifyAsset(extractMediaUrl(parsed.content), model.kind, {}, requestId);
         if (typeof verified === 'boolean') pass.assetVerified = verified;
       }
       return pass;
@@ -2313,13 +2377,15 @@ async function attemptChat(model, provider, stream, requestId, key) {
 
     // "Unsupported parameter: max_tokens" and friends — switch the field and go
     // again rather than reporting a working model as broken.
+    // A re-send after a rejected parameter is the same attempt, marked as one.
+    const swapId = () => nextRequestId({ ...requestTags.get(requestId), paramSwap: true });
     if (result.status === 400 && /max_tokens|max_completion_tokens/i.test(errMsg)) {
       const swapped = swapTokenLimitField(provider.id);
-      if (swapped) return attemptOnce(model, provider, stream, nextRequestId());
+      if (swapped) return attemptOnce(model, provider, stream, swapId());
     }
     if (result.status === 400 && payload.reasoning_effort && REASONING_REJECTED.test(errMsg)) {
       noReasoningEffort.add(reasoningKey(provider.id, model.id));
-      return attemptOnce(model, provider, stream, nextRequestId());
+      return attemptOnce(model, provider, stream, swapId());
     }
     return failed;
   } catch (err) {
@@ -2336,16 +2402,16 @@ function resultRank(r) {
 
 // Fire `count` parallel attempts; resolve as soon as one returns a non-empty pass
 // (cancelling the rest). If none do, wait for all and resolve with the best result.
-function raceAttempts(model, provider, stream, count) {
+function raceAttempts(model, provider, stream, count, tags = {}) {
   return new Promise((resolve) => {
     const ids = [];
     let pending = count;
     let best = null;
     let settled = false;
-    const cancelRest = () => ids.forEach((id) => window.electronAPI.cancelApiRequest(id));
+    const cancelRest = () => ids.forEach((id) => window.electronAPI.cancelApiRequest(id, 'hedge_lost'));
 
     for (let i = 0; i < count; i++) {
-      const id = nextRequestId();
+      const id = nextRequestId({ ...tags, hedgeIndex: i });
       ids.push(id);
       attemptOnce(model, provider, stream, id).then((r) => {
         pending -= 1;
@@ -2371,7 +2437,7 @@ function raceAttempts(model, provider, stream, count) {
 // non-empty answer wins (cancel the rest). An empty 200 is deterministic per
 // model, so we stop escalating once we see one and resolve with the best result.
 // A hard per-kind deadline prevents a pathologically slow model from hanging.
-function adaptiveNonStream(model, provider) {
+function adaptiveNonStream(model, provider, tags = {}) {
   const { deadline, hedge } = kindLimits(model.kind);
   const maxAttempts = hedge ? Math.max(1, settings.hedgeMax) : 1;
   return new Promise((resolve) => {
@@ -2384,13 +2450,16 @@ function adaptiveNonStream(model, provider) {
     let stepTimer = null;
     let deadlineTimer = null;
 
-    const cancelAll = () => ids.forEach((id) => window.electronAPI.cancelApiRequest(id));
-    const finish = (r) => {
+    // Why the attempts still running are cut, for the request log: a winner
+    // makes them hedge losers, Stop is the user's, and the per-kind deadline
+    // is recorded as a timeout.
+    const cancelAll = (reason) => ids.forEach((id) => window.electronAPI.cancelApiRequest(id, reason));
+    const finish = (r, reason = 'hedge_lost') => {
       if (settled) return;
       settled = true;
       clearTimeout(stepTimer);
       clearTimeout(deadlineTimer);
-      cancelAll();
+      cancelAll(reason);
       resolve(r);
     };
 
@@ -2412,7 +2481,7 @@ function adaptiveNonStream(model, provider) {
       }
       launched += 1;
       inflight += 1;
-      const id = nextRequestId();
+      const id = nextRequestId({ ...tags, hedgeIndex: launched - 1 });
       ids.push(id);
       attemptOnce(model, provider, false, id).then((r) => {
         inflight -= 1;
@@ -2420,7 +2489,7 @@ function adaptiveNonStream(model, provider) {
         // Stop was pressed. Every attempt comes back `cancelled`, which sets
         // neither `stop` nor `best` — without this the promise would hang until
         // the 75s deadline and "Stopping..." would sit there for over a minute.
-        if (abortTesting) return finish(best || { status: 'fail', response: 'Aborted', time: 0, tokens: 0 });
+        if (abortTesting) return finish(best || { status: 'fail', response: 'Aborted', time: 0, tokens: 0 }, 'stop');
         if (r.status === 'pass' && !r.isEmpty) return finish(r); // fastest correct wins
         if (!r.cancelled && (!best || resultRank(r) > resultRank(best))) best = r;
         // A completed non-win result (empty or failure) means the model isn't just
@@ -2437,7 +2506,7 @@ function adaptiveNonStream(model, provider) {
     };
 
     deadlineTimer = setTimeout(
-      () => finish(best || { status: 'fail', response: 'Timed out', time: deadline, tokens: 0, statusCode: 0, timedOut: true }),
+      () => finish(best || { status: 'fail', response: 'Timed out', time: deadline, tokens: 0, statusCode: 0, timedOut: true }, 'deadline'),
       deadline
     );
 
@@ -2449,6 +2518,8 @@ function adaptiveNonStream(model, provider) {
 // Test a single model — adaptive hedge, handles reasoning, empty, rate limits
 // ============================================
 async function testModel(model, provider) {
+  // One id per testModel call, so the log pages can draw its retry chain.
+  const testGroup = newUlid();
   let transientRetries = 0;
   let emptyRetried = false;
   let rateLimitWaits = 0;
@@ -2481,7 +2552,7 @@ async function testModel(model, provider) {
     }
     rounds += 1;
 
-    const r = await adaptiveNonStream(model, provider);
+    const r = await adaptiveNonStream(model, provider, { testGroup, attempt: rounds });
 
     // A key that serves a model it had been refused has quota again (reset
     // early, topped up). Serving another model says nothing: that one may
@@ -2499,7 +2570,7 @@ async function testModel(model, provider) {
       // Empty on the non-streaming endpoint: some models (byNara event-stream)
       // deliver content only over SSE — try streaming.
       if (abortTesting) return done(r);
-      const streamed = await raceAttempts(model, provider, true, STREAM_HEDGE);
+      const streamed = await raceAttempts(model, provider, true, STREAM_HEDGE, { testGroup, attempt: rounds });
       if (streamed.status === 'pass' && !streamed.isEmpty) return done(streamed);
       // Both empty. Empty can be flaky, so retry the whole model once.
       if (!emptyRetried && !abortTesting) {
@@ -2678,6 +2749,11 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
   isTesting = true;
   abortTesting = false;
   inflightIds.clear();
+  // requestTags is intentionally not cleared here: a straggler from the run
+  // that just ended still needs its captured tags (see requestTags above).
+  // The run's id tags every request it sends and names its history run, so
+  // the request log and the history agree on which run a request was part of.
+  routeRun = { runId: newUlid(), trigger: scheduled ? 'scheduled' : 'manual' };
   keyCooldownUntil.clear();
   if (reset) learnedRpm.clear();
   if (reset) deniedPairs.clear();
@@ -2743,7 +2819,11 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
   updateTestAllButton();
   updateStats();
 
-  const saved = await recordRun(p.id, p.name, testResults);
+  // isTesting is already false here, so a new run may start while this one
+  // is saved; it must keep its own routeRun.
+  const finishedRun = routeRun;
+  const saved = await recordRun(p.id, p.name, testResults, finishedRun.runId);
+  if (routeRun === finishedRun) routeRun = null;
   lastRun = { done, total: list.length, stopped: abortTesting, changes: runRegressions(), saved };
   renderResultsTable(); // uptime cells now include this run
   renderRunSummary();
@@ -3809,6 +3889,9 @@ const SETTING_INPUTS = [
   ['#set-notify-regression', 'notifyRegression', 'bool'],
   ['#set-notify-complete', 'notifyRunComplete', 'bool'],
   ['#set-log-level', 'logLevel', 'text'],
+  ['#set-log-retention', 'logRetentionDays', 'int'],
+  ['#set-body-retention', 'bodyRetentionDays', 'int'],
+  ['#set-stats-retention', 'statsRetentionMonths', 'int'],
   ['#set-concurrency', 'concurrency', 'int'],
   ['#set-health-interval', 'healthIntervalMin', 'int'],
 ];
@@ -4102,6 +4185,9 @@ function switchSettingsSection(sectionId) {
     b.setAttribute('aria-selected', String(on));
   });
   $$('.settings-section').forEach((sec) => { sec.hidden = sec.id !== targetId; });
+  // The log's own numbers are read when its section opens, never in the
+  // background.
+  if (targetId === 'sec-logs' && window.LOGS) window.LOGS.health();
 
   // The page scrolls, not the card. A tab picked while scrolled down opens at
   // its own top, with the categories still stuck in place above the fold.
@@ -4258,7 +4344,7 @@ $('#sidebar-restore').addEventListener('click', toggleSidebar);
 
 // App shell. Bound before init() so the nav responds while providers and
 // history are still loading.
-const PAGES = ['overview', 'providers', 'catalog', 'profiles', 'check', 'settings'];
+const PAGES = ['overview', 'providers', 'catalog', 'profiles', 'check', 'history', 'monitor', 'settings'];
 let currentPage = 'overview';
 
 // Routes live in the URL hash (the page is loaded from file://, so real paths
@@ -4275,6 +4361,10 @@ function syncRoute() {
     const btn = $('#settings-nav .settings-nav-item.active');
     if (btn) hash += `/${btn.dataset.section.replace(/^sec-/, '')}`;
   }
+  // Test History's sub-route is its open tab. state.tab is closed over inside
+  // the logs.js IIFE, so the module exposes a getter for it; without one this
+  // would append the string "undefined". Monitoring has no sub-route.
+  if (currentPage === 'history' && window.LOGS) hash += `/${window.LOGS.tab()}`;
   // replaceState: no hashchange event and no history stack to walk back through.
   // window. is required: the run-history Map above shadows the global `history`.
   if (location.hash !== hash) window.history.replaceState(null, '', hash);
@@ -4293,6 +4383,8 @@ const PAGE_META = {
   catalog: { title: 'Model Pool', desc: 'Every model your connected providers offer — the pool the router draws from, benchmarked and ranked.' },
   profiles: { title: 'Routing Profiles', desc: 'Three virtual models — Lite, Pro, Max — that route each request to the best model in the pool.' },
   check: { title: 'Route Test', desc: 'Test every route a provider offers against one prompt.' },
+  history: { title: 'Test History', desc: 'Every request this app has sent, and the runs they belong to.' },
+  monitor: { title: 'Monitoring', desc: 'Requests, errors, latency and cost over time.' },
   settings: { title: 'Settings', desc: 'Test prompt, scheduling, appearance and data.' },
 };
 
@@ -4326,6 +4418,11 @@ function showPage(page) {
   if (page === 'overview') renderQuickStats();
   if (page === 'catalog' && window.CATALOG) window.CATALOG.render();
   if (page === 'profiles' && window.PROFILES) window.PROFILES.render();
+  if (page === 'history' && window.LOGS) window.LOGS.render();
+  if (page === 'monitor' && window.LOGS) window.LOGS.renderMonitor();
+  // Leaving Test History has to stop its live tail; nothing else tells it the
+  // page is gone, and it would keep querying the log every two seconds.
+  if (page !== 'history' && window.LOGS) window.LOGS.sync();
   // The Providers page always opens on what is already connected.
   if (page === 'providers') {
     providersTab = 'connected';
@@ -5393,6 +5490,7 @@ async function probeKey(p, apiKey) {
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: check.body ? JSON.stringify(check.body) : undefined,
       timeoutMs: HEALTH_TIMEOUT_MS,
+      source: 'key_check',
     });
   } catch (err) {
     return { status: 0, networkError: true, error: err.message };
@@ -5824,6 +5922,13 @@ async function init() {
   renderKeysList();
   renderModelsList();
   if (!storeReadError && !writeFailed) setStatus('idle', 'Ready — add an API key to begin');
+  // Request logging isn't critical: when its database couldn't be opened the
+  // app runs on, and says so once.
+  window.electronAPI.logsInfo()
+    .then((info) => {
+      if (info && info.enabled === false && !storeReadError && !writeFailed) setStatus('error', `Request logging is off: ${info.error}`);
+    })
+    .catch((err) => console.error('Could not read the request log status:', err));
   setupUpdateListeners();
   startHealthMonitor();
   renderQuickStats();

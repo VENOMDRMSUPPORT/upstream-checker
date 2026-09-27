@@ -7,7 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Request log. Every request the app sends is recorded in `venom-logs.db`
+  next to `venom.db`: when it ran, how long it took (with time to first
+  token), the tokens it used and what it cost, plus hourly summaries. Rows
+  are kept 90 days and summaries 12 months. Model discovery, key checks,
+  model pool and Artificial Analysis calls are recorded too; they never were
+  before.
+- Test History, where that log is read. The page opens on **Runs** — one row
+  per Route Test or benchmark run, with how many requests it sent, how many
+  passed, the models it touched, its average latency and what it cost.
+  Expanding a run adds its median latency, its median time to first token and
+  the errors by kind; "See its requests" narrows the second tab to that run.
+  The **Requests** tab lists every request with its outcome, timings, tokens
+  and cost; it can be filtered by provider, model, source, outcome, a date
+  range and free text, sorted by latency, time to first token or cost, and
+  exported to CSV. While it is open and in time order, new requests appear on
+  their own within a couple of seconds. Clicking a row opens it in full:
+  every timing, the token and cost breakdown with the prices used, and — for
+  a failed request — the request and reply that were stored, with keys
+  already replaced by their placeholders. When a run retried, the drawer
+  lists the attempts that belong together, telling a streamed attempt from
+  the non-streamed one.
+- Monitoring, reading the hourly summaries: requests over time split into
+  what passed and what failed, latency beside its approximate p95, and cost.
+  Group by source, provider, model or error kind, by hour or by day. The
+  summaries outlive the rows they came from, so the charts still answer for
+  months after the detail has been purged.
+- Settings → Diagnostics & Logs now says how long the log keeps each thing —
+  requests, the bodies of failed requests, and the hourly summaries — shows
+  the log's own size, row count, oldest row and last purge, and can clear it.
+
 ### Changed
+- Settings → Diagnostics & Logs: "Log requests" is now "Request bodies"
+  (Off / Failed only / All), kept 7 days. New installs start on Failed only;
+  an existing choice is kept. `requests.log` is no longer written; the old
+  file stays until you clear it.
 - Upstream Checker is now **VENOM Router**, an LLM model router. The app has a
   new name, a new logo (the Viper V) and router vocabulary throughout: Model
   catalog is now Model Pool, Upstream Check is Route Test, and Venom Profiles

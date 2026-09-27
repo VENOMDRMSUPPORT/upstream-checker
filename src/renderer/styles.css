@@ -7779,3 +7779,278 @@ button.ku-cell:hover {
   color: var(--text-3);
   text-align: right;
 }
+
+/* ============================================
+   Log pages — Runs, Requests, Monitoring
+   ============================================ */
+
+.log-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 0 14px;
+  border-bottom: 1px solid var(--border-1);
+  margin-bottom: 16px;
+}
+.log-tab {
+  appearance: none;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+.log-tab:hover { color: var(--text-1); background: var(--bg-2); }
+.log-tab.active { color: var(--text-0); background: var(--bg-3); border-color: var(--border-2); }
+.log-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.log-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.log-filters:empty { display: none; }
+.log-filters .prompt-input { min-width: 0; }
+.log-filters #log-text { flex: 1 1 200px; max-width: 320px; }
+
+.log-body { min-height: 120px; }
+
+.log-empty {
+  border: 1px dashed var(--border-2);
+  border-radius: 10px;
+  padding: 40px 24px;
+  text-align: center;
+  background: var(--bg-1);
+}
+.log-empty-title { margin: 0 0 6px; font-size: 14px; font-weight: 600; color: var(--text-1); }
+.log-empty-detail { margin: 0; font-size: 13px; color: var(--text-3); }
+
+.log-stale {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--warn);
+  background: var(--warn-bg);
+  border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.log-scroll { overflow-x: auto; border: 1px solid var(--border-1); border-radius: 10px; }
+.log-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.log-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-3);
+  background: var(--bg-2);
+  padding: 9px 12px;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border-1);
+}
+.log-table td {
+  padding: 9px 12px;
+  color: var(--text-2);
+  border-bottom: 1px solid var(--border-1);
+  white-space: nowrap;
+}
+.log-table tbody tr:last-child td { border-bottom: none; }
+.log-table tbody tr.log-row, .log-table tbody tr.log-run { cursor: pointer; }
+.log-table tbody tr.log-row:hover, .log-table tbody tr.log-run:hover { background: var(--bg-hover); }
+
+.log-sort {
+  appearance: none;
+  border: none;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text-3);
+  padding: 0;
+  cursor: pointer;
+}
+.log-sort:hover { color: var(--text-1); }
+.log-sort.active { color: var(--accent-text); }
+.log-sort:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.log-pill {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--bg-3);
+  color: var(--text-3);
+}
+.log-pill.pass { background: var(--pass-bg); color: var(--pass); }
+.log-pill.fail { background: var(--fail-bg); color: var(--fail); }
+.log-pill.warn { background: var(--warn-bg); color: var(--warn); }
+.log-pill.muted { background: var(--bg-3); color: var(--text-3); }
+
+#log-more { margin-top: 12px; }
+
+.log-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--accent-text);
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+  padding: 3px 6px 3px 10px;
+}
+.log-chip-x {
+  appearance: none;
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 3px;
+}
+.log-chip-x:hover { color: var(--text-0); }
+.log-chip-x:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Request drawer — reuses .ku-drawer / .ku-scrim / .ku-panel from key usage. */
+.log-detail { display: grid; gap: 2px; margin-bottom: 18px; }
+.log-field {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 12px;
+  align-items: baseline;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border-1);
+}
+.log-field:last-child { border-bottom: none; }
+.log-field-label { font-size: 12px; color: var(--text-3); }
+.log-field-value { font-size: 13px; color: var(--text-1); word-break: break-word; }
+
+.ku-body h4 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+  margin: 18px 0 6px;
+}
+.log-code {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+  max-height: 260px;
+}
+
+.log-chain-list { list-style: none; margin: 0; padding: 0; }
+.log-chain-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+  padding: 7px 10px;
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  margin-bottom: 4px;
+  cursor: pointer;
+}
+.log-chain-item:hover { background: var(--bg-hover); }
+.log-chain-item.current {
+  cursor: default;
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--text-1);
+}
+
+.log-run-detail > td { background: var(--bg-1); padding: 14px 16px; white-space: normal; }
+.log-run-detail .log-detail { margin-bottom: 12px; max-width: 520px; }
+
+/* Monitoring */
+.log-note { font-size: 12px; color: var(--warn); }
+
+.log-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 1px;
+  background: var(--border-1);
+  border: 1px solid var(--border-1);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+.log-tile { background: var(--bg-1); padding: 14px 16px; display: grid; gap: 4px; }
+.log-tile-value { font-size: 19px; font-weight: 600; color: var(--text-0); letter-spacing: -0.02em; }
+.log-tile-label { font-size: 11px; color: var(--text-3); }
+
+.log-chart { margin-bottom: 22px; }
+.log-chart h4 { font-size: 12px; font-weight: 600; color: var(--text-3); margin: 0 0 8px; }
+.log-chart svg {
+  width: 100%;
+  height: 120px;
+  display: block;
+  background: var(--bg-1);
+  border: 1px solid var(--border-1);
+  border-radius: 10px;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  color: var(--accent);
+}
+.log-chart-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-4);
+  margin-top: 5px;
+}
+
+/* Six series colours: the accent first, then the status hues, so a chart
+   reads the same way a table row does. */
+.log-series.s0 { color: var(--accent); }
+.log-series.s1 { color: var(--pass); }
+.log-series.s2 { color: var(--warn); }
+.log-series.s3 { color: var(--fail); }
+.log-series.s4 { color: var(--running); }
+.log-series.s5 { color: var(--text-3); }
+
+.log-legend {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 11px;
+}
+.log-legend li { display: flex; align-items: center; gap: 5px; color: var(--text-3); }
+.log-legend li::before {
+  content: '';
+  width: 9px;
+  height: 2px;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+.log-health {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.log-health-item b { color: var(--text-1); font-weight: 600; }
+.settings-unit { font-size: 12px; color: var(--text-3); margin-left: 8px; }

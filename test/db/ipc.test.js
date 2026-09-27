@@ -140,3 +140,37 @@ test('a handler that fails rejects the call', async (t) => {
   await assert.rejects(ipc.invoke('save-settings', null), /must be an object/);
   await assert.rejects(ipc.invoke('merge-provider', 'ghost', 'nara'), /not found/);
 });
+
+test('save-settings hands main the merged settings; write-catalog says the pool changed', async (t) => {
+  const store = await memoryStore(t);
+  const ipc = fakeIpcMain();
+  const seen = [];
+  registerDataIpc({
+    ipcMain: ipc, repos: store.repos, clipboard: { writeText() {} }, log: quietLog,
+    hooks: { onSettingsSaved: (s) => seen.push(['settings', s]), onCatalogWritten: () => seen.push(['catalog']) },
+  });
+  await ipc.invoke('save-settings', { theme: 'daylight' });
+  await ipc.invoke('save-settings', { logLevel: 'all', aaApiKey: 'aa-typed' });
+  await ipc.invoke('write-catalog', { models: {} });
+  assert.deepStrictEqual(seen, [
+    ['settings', { theme: 'daylight' }],
+    ['settings', { theme: 'daylight', logLevel: 'all' }],
+    ['catalog'],
+  ]);
+});
+
+test('a hook that throws does not fail the save', async (t) => {
+  const store = await memoryStore(t);
+  const ipc = fakeIpcMain();
+  const warnings = [];
+  registerDataIpc({
+    ipcMain: ipc, repos: store.repos, clipboard: { writeText() {} },
+    log: { ...quietLog, warn: (...a) => warnings.push(a.join(' ')) },
+    hooks: { onSettingsSaved: () => { throw new Error('cache bug'); }, onCatalogWritten: () => { throw new Error('cache bug'); } },
+  });
+  assert.deepStrictEqual(await ipc.invoke('save-settings', { theme: 'daylight' }), { success: true });
+  assert.deepStrictEqual(await ipc.invoke('write-catalog', { models: {} }), { written: 0, deleted: 0 });
+  assert.strictEqual(store.repos.settings.get('settings').theme, 'daylight');
+  assert.strictEqual(warnings.length, 2);
+  assert.match(warnings[0], /onSettingsSaved failed/);
+});

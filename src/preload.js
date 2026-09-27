@@ -8,7 +8,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // API requests
   apiRequest: (opts) => ipcRenderer.invoke('api-request', opts),
-  cancelApiRequest: (requestId) => ipcRenderer.send('cancel-api-request', requestId),
+  // reason: hedge_lost | stop | deadline, recorded in the request log.
+  cancelApiRequest: (requestId, reason) => ipcRenderer.send('cancel-api-request', requestId, reason),
 
   // App info
   onAppVersion: (callback) => {
@@ -46,6 +47,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readLogInfo: () => ipcRenderer.invoke('read-log-info'),
   openRequestLog: () => ipcRenderer.send('open-request-log'),
   clearRequestLog: () => ipcRenderer.invoke('clear-request-log'),
+
+  // Request log (venom-logs.db, owned by main). Read-only except export and clear.
+  logsList: (filters, cursor, limit, sort) => ipcRenderer.invoke('logs-list', filters, cursor, limit, sort),
+  logsGet: (id) => ipcRenderer.invoke('logs-get', id),
+  logsStats: (filters, bucket, groupBy) => ipcRenderer.invoke('logs-stats', filters, bucket, groupBy),
+  logsFacets: (range) => ipcRenderer.invoke('logs-facets', range),
+  logsRuns: (filters, cursor, limit) => ipcRenderer.invoke('logs-runs', filters, cursor, limit),
+  logsRunSummary: (runId) => ipcRenderer.invoke('logs-run-summary', runId),
+  logsExport: (filters, format) => ipcRenderer.invoke('logs-export', filters, format),
+  logsInfo: () => ipcRenderer.invoke('logs-info'),
+  logsClear: (opts) => ipcRenderer.invoke('logs-clear', opts),
   notifyRegression: (payload) => ipcRenderer.send('notify-regression', payload),
 
   // Update API

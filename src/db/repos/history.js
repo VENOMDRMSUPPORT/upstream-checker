@@ -6,6 +6,8 @@
 // uptime, sparklines and regression detection read.
 const { ulid } = require('../ulid');
 
+const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
+
 const DEFAULT_MAX_RUNS = 300;
 const MAX_RUNS_CEILING = 5000;
 
@@ -16,13 +18,14 @@ function historyCap(maxRuns) {
 
 const num = (v) => (Number.isFinite(v) ? v : null);
 
-function createHistoryRepo(db, { newUid = ulid } = {}) {
+function createHistoryRepo(db, { newUid = ulid, log = console } = {}) {
   const q = {
     insertRun: db.prepare('INSERT INTO test_runs (run_uid, at, provider_id, provider_name, prompt) VALUES (?, ?, ?, ?, ?)'),
     insertResult: db.prepare(`INSERT INTO test_results
       (run_id, model_id, status, time_ms, tokens, completion_tokens, attempts, correct) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
     trim: db.prepare('DELETE FROM test_runs WHERE id NOT IN (SELECT id FROM test_runs ORDER BY id DESC LIMIT ?)'),
-    runs: db.prepare('SELECT id, at, provider_id, provider_name, prompt FROM test_runs ORDER BY id'),
+    runs: db.prepare('SELECT id, run_uid, at, provider_id, provider_name, prompt FROM test_runs ORDER BY id'),
+    uidTaken: db.prepare('SELECT 1 FROM test_runs WHERE run_uid = ?'),
     results: db.prepare(`SELECT run_id, model_id, status, time_ms, tokens, completion_tokens, attempts, correct
       FROM test_results ORDER BY run_id, id`),
     clear: db.prepare('DELETE FROM test_runs'),
@@ -38,7 +41,15 @@ function createHistoryRepo(db, { newUid = ulid } = {}) {
         throw new TypeError('A result needs a model and a status');
       }
     });
-    const runUid = newUid();
+    // The renderer names its Route Test run: the same ULID tags the run's
+    // requests in the request log. Anything that isn't a ULID gets a fresh
+    // id, and so does one already taken; the run is kept either way.
+    let runUid = null;
+    if (typeof run.runUid === 'string' && ULID.test(run.runUid)) {
+      if (q.uidTaken.get(run.runUid)) log.warn(`append-run: run id ${run.runUid} is already used; the run is saved under a new id`);
+      else runUid = run.runUid;
+    }
+    if (runUid === null) runUid = newUid();
     const providerName = typeof run.providerName === 'string' && run.providerName ? run.providerName : run.provider;
     const prompt = typeof run.prompt === 'string' ? run.prompt : '';
     const id = Number(q.insertRun.run(runUid, run.at, run.provider, providerName, prompt).lastInsertRowid);
@@ -74,6 +85,7 @@ function createHistoryRepo(db, { newUid = ulid } = {}) {
     });
     const runs = q.runs.all().map((r) => ({
       id: r.id,
+      runUid: r.run_uid,
       at: r.at,
       provider: r.provider_id,
       providerName: r.provider_name,

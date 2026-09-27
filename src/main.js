@@ -1,7 +1,6 @@
 const { app, BrowserWindow, ipcMain, Notification, shell, dialog, safeStorage, clipboard } = require('electron');
 const path = require('path');
 const https = require('https');
-const http = require('http');
 const fs = require('fs');
 const log = require('electron-log');
 const { resolveUserDataDir } = require('./user-data');
@@ -10,6 +9,12 @@ const { importLegacy, listImportedFiles, describeImportWarnings, needsReimportPr
 const { registerDataIpc } = require('./db/ipc');
 const { createKeyResolver } = require('./db/keys');
 const { requestFlush } = require('./flush');
+const { createApiRequester } = require('./api-request');
+const { readLogSettings } = require('./logs/settings');
+const { createRecorder } = require('./logs/recorder');
+const { createPriceBook, createProviderLookup } = require('./logs/lookups');
+const { purge, createPurgeScheduler } = require('./logs/retention');
+const { registerLogsIpc } = require('./logs/ipc');
 
 // --smoke-test only ever runs on an explicit scratch folder: refused here,
 // before the real data folder is resolved, moved or locked.
@@ -57,6 +62,71 @@ let store = null;
 let importReport = null;
 // Swaps key placeholders for secrets in api-request (src/db/keys.js).
 let keyResolver = null;
+
+// ============================================
+// Request log — venom-logs.db (src/logs)
+// ============================================
+// Not critical data. If it can't be opened, logging is off for the session:
+// the reason goes to electron-log and to logs-info, the window shows one
+// warning, and the app carries on.
+let logs = null;
+let logsError = null;
+let recorder = null;
+let priceBook = null;
+let purgeScheduler = null;
+// The body setting and the retention limits, read from the saved settings
+// row at startup and again on every save-settings; a request no longer
+// carries logLevel.
+let logSettings = readLogSettings(null);
+
+function startLogs() {
+  try {
+    logSettings = readLogSettings(store.repos.settings.get('settings'));
+    // Required here, like ./db: a native-module fault turns logging off
+    // instead of stopping the app at module load.
+    const logsDb = require('./logs');
+    const opened = logsDb.tryOpen(app.getPath('userData'), { log });
+    if (!opened.logs) throw opened.error;
+    logs = opened.logs;
+    priceBook = createPriceBook(store.db);
+    recorder = createRecorder({
+      writer: logs.writer,
+      prices: priceBook,
+      providers: createProviderLookup(store.db),
+      getLogLevel: () => logSettings.logLevel,
+    });
+    const purgeIsBusy = () => requester.inFlight() > 0;
+    purgeScheduler = createPurgeScheduler({
+      run: () => purge(logs.db, { now: Date.now(), ...logSettings, meta: logs.repos.meta, isBusy: purgeIsBusy }),
+      isBusy: purgeIsBusy,
+      log,
+    });
+    purgeScheduler.start();
+  } catch (err) {
+    log.error('Request logging is off for this session:', err);
+    logsError = (err && err.message) || String(err);
+    stopLogs();
+  }
+}
+
+// The spec's will-quit order: the purge timer first, then the log DB's own
+// close (flush timer, synchronous flush, close). venom.db closes after this.
+function stopLogs() {
+  if (purgeScheduler) {
+    purgeScheduler.stop();
+    purgeScheduler = null;
+  }
+  recorder = null;
+  priceBook = null;
+  if (logs) {
+    try {
+      logs.close();
+    } catch (err) {
+      log.warn('Could not close venom-logs.db:', err.message);
+    }
+    logs = null;
+  }
+}
 
 function showStartupError(message, detail) {
   dialog.showErrorBox('VENOM Router', `${message}\n\n${detail}`);
@@ -145,10 +215,11 @@ async function startDatabase() {
 }
 
 // Release check (scripts/release.mjs): the packaged app is started with
-// --smoke-test --user-data-dir=<temp>. It opens the database, writes and reads
-// back a row, and exits 0 — proof that the native SQLite module loads from
-// app.asar.unpacked. No window, no import, no network. (A run without
-// --user-data-dir was already refused at the top of this file.)
+// --smoke-test --user-data-dir=<temp>. It opens the database and the request
+// log, writes and reads back a row in each, and exits 0 — proof that the
+// native SQLite module loads from app.asar.unpacked. No window, no import, no
+// network. (A run without --user-data-dir was already refused at the top of
+// this file.)
 async function runSmokeTest() {
   let code = 1;
   try {
@@ -160,8 +231,20 @@ async function runSmokeTest() {
     smoke.repos.settings.set('smoke', { stamp });
     const back = smoke.repos.settings.get('smoke');
     smoke.close();
-    code = back && back.stamp === stamp ? 0 : 1;
-    console.log(code === 0 ? 'SMOKE OK' : 'SMOKE FAILED: the row read back differs');
+    // The request log opens in the same scratch folder, so a packaging fault
+    // in src/logs shows up here, before release, and not as "logging is off"
+    // on the owner's machine later.
+    const logsDb = require('./logs');
+    const smokeLogs = logsDb.open(app.getPath('userData'), { log });
+    const uid = `SMOKE${Date.now()}`;
+    smokeLogs.writer.add({ request_uid: uid, created_at: Date.now(), source: 'other', method: 'GET', endpoint: 'smoke://local', status: 'ok' });
+    smokeLogs.writer.flush();
+    const logged = smokeLogs.repos.query.list({ text: uid }, null, 1).rows[0];
+    smokeLogs.close();
+    const dbOk = !!back && back.stamp === stamp;
+    const logsOk = !!logged && logged.request_uid === uid;
+    code = dbOk && logsOk ? 0 : 1;
+    console.log(code === 0 ? 'SMOKE OK' : `SMOKE FAILED: ${dbOk ? 'the log row' : 'the row'} read back differs`);
   } catch (err) {
     console.error('SMOKE FAILED:', (err && err.stack) || err);
   }
@@ -366,8 +449,24 @@ app.whenReady().then(async () => {
     app.quit();
     return;
   }
+  // Never throws: a log database that won't open turns logging off.
+  startLogs();
   try {
-    registerDataIpc({ ipcMain, repos: store.repos, clipboard, log });
+    registerDataIpc({
+      ipcMain,
+      repos: store.repos,
+      clipboard,
+      log,
+      hooks: {
+        onSettingsSaved: (saved) => {
+          logSettings = readLogSettings(saved);
+        },
+        onCatalogWritten: () => {
+          if (priceBook) priceBook.invalidate();
+        },
+      },
+    });
+    registerLogsIpc({ ipcMain, getState: () => ({ logs, error: logsError }), dialog, getWindow: () => mainWindow, log });
     keyResolver = createKeyResolver({ providers: store.repos.providers, secrets: store.repos.secrets });
     initAutoUpdater();
     createWindow();
@@ -376,6 +475,7 @@ app.whenReady().then(async () => {
     // No windowless process may stay alive holding venom.db open.
     log.error('Startup failed after opening venom.db:', err);
     showStartupError('VENOM Router could not start, so it will close. Nothing was changed.', err.message);
+    stopLogs();
     if (store) {
       store.close();
       store = null;
@@ -386,6 +486,8 @@ app.whenReady().then(async () => {
 
 app.on('will-quit', () => {
   stopUpdateChecks();
+  // The request log first, so its queue is flushed before venom.db closes.
+  stopLogs();
   if (store) {
     store.close();
     store = null;
@@ -408,181 +510,38 @@ ipcMain.on('window-maximize', () => {
 });
 ipcMain.on('window-close', () => mainWindow?.close());
 
-// In-flight API requests by id, so the renderer can cancel hedged losers.
-const activeApiRequests = new Map();
-
-// A chunk that carries model text: a non-empty content/text/reasoning field.
-// Matches both a streamed delta and a whole non-streamed body.
-const CONTENT_TOKEN = /"(?:content|text|reasoning_content|reasoning)"\s*:\s*"[^"\\]/;
-
-// API request handler
-// Failures resolve rather than reject. A rejected ipcMain.handle reaches the
-// renderer as "Error invoking remote method 'api-request': ..." with the real
-// message buried and every other field — notably the elapsed time — gone, so a
-// failed model showed a meaningless error and 0.0s.
-ipcMain.handle('api-request', async (event, { url, method, headers, body, requestId, timeoutMs, logLevel }) => {
-  // The renderer holds placeholders (venomkey:<id>, venomsecret:<name>), not
-  // keys. They become the real secret here, only for the origin that secret
-  // belongs to; anything else is refused without sending. The request log
-  // below records the request as the renderer sent it, placeholders and all.
-  const outgoing = keyResolver ? keyResolver.resolve({ url, headers, body }) : { url, headers, body };
-  if (outgoing.blocked) {
-    log.warn(outgoing.error);
-    return { status: 0, body: '', elapsed: 0, headers: {}, blocked: true, error: outgoing.error };
-  }
-  return new Promise((resolve) => {
-    const startTime = Date.now();
-    const urlObj = new URL(outgoing.url);
-    const isHttps = urlObj.protocol === 'https:';
-    const client = isHttps ? https : http;
-
-    const options = {
-      hostname: urlObj.hostname,
-      port: urlObj.port || (isHttps ? 443 : 80),
-      path: urlObj.pathname + urlObj.search,
-      method: method || 'GET',
-      headers: outgoing.headers || {},
-      // Socket inactivity timeout. A video generator sends nothing for minutes
-      // while it works, so a fixed 60s here would kill it regardless of the
-      // deadline the caller set for that kind of model.
-      timeout: Number(timeoutMs) > 0 ? Number(timeoutMs) : 60000,
-    };
-
-    const cleanup = () => {
-      if (requestId) activeApiRequests.delete(requestId);
-    };
-
-    const req = client.request(options, (res) => {
-      // Collected as Buffers and decoded once at the end. `data += chunk` decodes
-      // each chunk on its own, so any UTF-8 character split across a chunk
-      // boundary comes out mangled — a model answering "Bốn" renders as "Bón".
-      const chunks = [];
-      // Time to first byte of the body. For a streamed completion this is the
-      // time to first token, which the benchmark reports separately from the
-      // total: a model that starts answering in 300ms and streams for 4s feels
-      // very different from one that is silent for 4s.
-      let firstByteMs = null;
-      // Time to the first chunk that carries model text. A proxy can answer
-      // with headers, a keep-alive comment or an empty role delta within a few
-      // milliseconds, which says nothing about the model; the first non-empty
-      // content field does.
-      let firstTokenMs = null;
-      res.on('data', (chunk) => {
-        const now = Date.now() - startTime;
-        if (firstByteMs === null) firstByteMs = now;
-        if (firstTokenMs === null && CONTENT_TOKEN.test(chunk.toString('utf8'))) firstTokenMs = now;
-        chunks.push(chunk);
-      });
-      res.on('end', () => {
-        cleanup();
-        const elapsed = Date.now() - startTime;
-        const text = Buffer.concat(chunks).toString('utf8');
-        if (logLevel === 'all' || (logLevel === 'errors' && res.statusCode !== 200)) {
-          appendRequestLog({
-            at: new Date().toISOString(),
-            url,
-            method: method || 'GET',
-            status: res.statusCode,
-            elapsedMs: elapsed,
-            requestHeaders: redactHeaders(headers),
-            requestBody: clip(body),
-            responseBody: clip(text),
-          });
-        }
-        resolve({ status: res.statusCode, body: text, elapsed, firstByteMs, firstTokenMs, headers: res.headers });
-      });
-    });
-
-    if (requestId) activeApiRequests.set(requestId, req);
-
-    req.on('error', (err) => {
-      cleanup();
-      const elapsed = Date.now() - startTime;
-      // A cancelled hedge loser is expected — resolve quietly so it isn't logged
-      // as an unhandled handler error.
-      if (req.__cancelled) {
-        resolve({ status: 0, body: '', elapsed, headers: {}, cancelled: true });
-        return;
-      }
-      if (logLevel === 'all' || logLevel === 'errors') {
-        appendRequestLog({
-          at: new Date().toISOString(), url, method: method || 'GET', status: 0,
-          elapsedMs: elapsed, requestHeaders: redactHeaders(headers),
-          requestBody: clip(body), error: err.message,
-        });
-      }
-      resolve({ status: 0, body: '', elapsed, headers: {}, networkError: true, error: err.message });
-    });
-
-    req.on('timeout', () => {
-      cleanup();
-      req.destroy();
-      const elapsed = Date.now() - startTime;
-      resolve({ status: 0, body: '', elapsed, headers: {}, networkError: true, timedOut: true,
-                error: `No response for ${Math.round(options.timeout / 1000)}s` });
-    });
-
-    if (outgoing.body) req.write(typeof outgoing.body === 'string' ? outgoing.body : JSON.stringify(outgoing.body));
-    req.end();
-  });
+// ============================================
+// API requests (src/api-request.js)
+// ============================================
+// Every request the renderer asks for goes out here, key placeholders
+// swapped for secrets by keyResolver. Each one is handed to the request log
+// once it has finished and its reply is on its way back.
+const requester = createApiRequester({
+  getResolver: () => keyResolver,
+  onFinish: (done) => {
+    if (recorder) recorder.record(done);
+  },
+  log,
 });
 
-// Cancel an in-flight request (hedged loser) by id.
-ipcMain.on('cancel-api-request', (event, requestId) => {
-  const req = activeApiRequests.get(requestId);
-  if (req) {
-    activeApiRequests.delete(requestId);
-    req.__cancelled = true;
-    req.destroy();
-  }
+ipcMain.handle('api-request', (_event, args) => requester.request(args || {}));
+
+// Cancel an in-flight request by id. reason: hedge_lost (a faster attempt
+// won), stop (the user), deadline (the adaptive per-kind limit).
+ipcMain.on('cancel-api-request', (_event, requestId, reason) => {
+  requester.cancel(requestId, reason);
 });
 
-
 // ============================================
-// Request log
+// Old request log file (requests.log)
 // ============================================
-// Written so a failed test can be explained after the fact: what was sent, what
-// came back. Off by default, because it is a file on disk containing the
-// traffic of an authenticated API.
-//
-// The Authorization header is never written. A log that captures the request
-// faithfully would capture the key with it, which turns a debugging aid into the
-// exact thing the keystore work was meant to prevent.
-const LOG_MAX_BYTES = 5 * 1024 * 1024;
-const REDACTED = '[redacted]';
-
+// Requests are recorded in venom-logs.db now (src/logs) and this file is no
+// longer written. It stays where it is until the owner clears it, so Settings
+// can still show it and delete it.
 let requestLogPath;
 function getRequestLogPath() {
   if (!requestLogPath) requestLogPath = path.join(app.getPath('userData'), 'requests.log');
   return requestLogPath;
-}
-
-function redactHeaders(headers) {
-  const out = {};
-  Object.entries(headers || {}).forEach(([k, v]) => {
-    out[k] = /^(authorization|x-api-key|api-key|cookie)$/i.test(k) ? REDACTED : v;
-  });
-  return out;
-}
-
-function clip(text, max = 4000) {
-  const str = String(text ?? '');
-  return str.length > max ? `${str.slice(0, max)}… [${str.length - max} more chars]` : str;
-}
-
-function appendRequestLog(entry) {
-  try {
-    const lp = getRequestLogPath();
-    // Rotate rather than grow without bound; one previous file is kept.
-    try {
-      if (fs.existsSync(lp) && fs.statSync(lp).size > LOG_MAX_BYTES) {
-        fs.renameSync(lp, `${lp}.1`);
-      }
-    } catch (_) {}
-    fs.appendFileSync(lp, JSON.stringify(entry) + String.fromCharCode(10), 'utf-8');
-  } catch (err) {
-    log.warn('Could not write request log:', err.message);
-  }
 }
 
 ipcMain.handle('read-log-info', () => {

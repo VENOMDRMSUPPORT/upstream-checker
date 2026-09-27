@@ -469,6 +469,7 @@
       method: 'GET',
       headers: { 'x-api-key': settings.aaApiKey.trim(), Accept: 'application/json' },
       timeoutMs: 30000,
+      source: 'leaderboard',
     });
     if (r.status !== 200) {
       const why = r.status === 401 ? 'Invalid API key' : r.status === 429 ? 'Rate limited (1,000 requests/day)' : r.error || `HTTP ${r.status}`;

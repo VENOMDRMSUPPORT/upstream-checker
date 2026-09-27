@@ -29,6 +29,8 @@ test('a header placeholder becomes the key for its own provider', async (t) => {
     url: `${NARA}/models`,
     headers: { Authorization: 'Bearer sk-nara-1', 'Content-Type': 'application/json' },
     body: undefined,
+    refs: [{ kind: 'key', id: 'key_1', providerId: 'nara' }],
+    substitutions: [{ placeholder: 'venomkey:key_1', secret: 'sk-nara-1' }],
   });
 });
 
@@ -70,8 +72,11 @@ test('the longest matching key id wins', async (t) => {
 test("a key sent to another provider's host is refused", async (t) => {
   const { resolver } = await setup(t);
   const auth = { Authorization: 'Bearer venomkey:key_1' };
-  assert.deepStrictEqual(resolver.resolve({ url: `${MIRAI}/models`, headers: auth }),
-    { blocked: true, error: "Key blocked: api.miraiapi.com is not this key's provider" });
+  assert.deepStrictEqual(resolver.resolve({ url: `${MIRAI}/models`, headers: auth }), {
+    blocked: true,
+    error: "Key blocked: api.miraiapi.com is not this key's provider",
+    refs: [{ kind: 'key', id: 'key_1', providerId: 'nara' }],
+  });
   assert.strictEqual(resolver.resolve({ url: 'http://router.bynara.id/v1/models', headers: auth }).blocked, true);
   assert.strictEqual(resolver.resolve({ url: 'https://router.bynara.id:8443/v1/models', headers: auth }).blocked, true);
   assert.strictEqual(resolver.resolve({ url: 'https://evil.test/?u=https://router.bynara.id', headers: auth }).blocked, true);
@@ -81,8 +86,11 @@ test('the Artificial Analysis key goes to artificialanalysis.ai only', async (t)
   const { resolver } = await setup(t);
   const ok = resolver.resolve({ url: 'https://artificialanalysis.ai/api/v2/data/llms/models', headers: { 'x-api-key': 'venomsecret:aaApiKey' } });
   assert.strictEqual(ok.headers['x-api-key'], 'aa-secret');
-  assert.deepStrictEqual(resolver.resolve({ url: `${NARA}/models`, headers: { 'x-api-key': 'venomsecret:aaApiKey' } }),
-    { blocked: true, error: "Key blocked: router.bynara.id is not this key's provider" });
+  assert.deepStrictEqual(resolver.resolve({ url: `${NARA}/models`, headers: { 'x-api-key': 'venomsecret:aaApiKey' } }), {
+    blocked: true,
+    error: "Key blocked: router.bynara.id is not this key's provider",
+    refs: [{ kind: 'secret', id: 'aaApiKey', providerId: null }],
+  });
 });
 
 test('unknown keys, locked keys and unknown secrets are refused', async (t) => {
@@ -166,4 +174,55 @@ test('a placeholder refused for the wrong host never reaches the cipher', async 
   const out2 = resolver.resolve({ url: `${NARA}/models`, headers: { 'x-api-key': 'venomsecret:aaApiKey' } });
   assert.strictEqual(out2.blocked, true);
   assert.strictEqual(cipher.calls.decrypt, before2);
+});
+
+test('resolve reports the key it used and its placeholder/secret pair, once', async (t) => {
+  const { resolver } = await setup(t);
+  const out = resolver.resolve({
+    url: `${MIRAI}/usage?key=venomkey:key_m`,
+    headers: { Authorization: 'Bearer venomkey:key_m' },
+    body: JSON.stringify({ api_key: 'venomkey:key_m' }),
+  });
+  assert.deepStrictEqual(out.refs, [{ kind: 'key', id: 'key_m', providerId: 'mirai' }]);
+  assert.deepStrictEqual(out.substitutions, [{ placeholder: 'venomkey:key_m', secret: TRICKY }]);
+});
+
+test('the Artificial Analysis key is reported as a secret ref', async (t) => {
+  const { resolver } = await setup(t);
+  const out = resolver.resolve({ url: 'https://artificialanalysis.ai/api/v2/data/llms/models', headers: { 'x-api-key': 'venomsecret:aaApiKey' } });
+  assert.deepStrictEqual(out.refs, [{ kind: 'secret', id: 'aaApiKey', providerId: null }]);
+  assert.deepStrictEqual(out.substitutions, [{ placeholder: 'venomsecret:aaApiKey', secret: 'aa-secret' }]);
+});
+
+test('two keys in one request are both reported, by their longest ids', async (t) => {
+  const { resolver } = await setup(t);
+  const out = resolver.resolve({ url: `${NARA}/m`, headers: { A: 'venomkey:key_1', B: 'venomkey:key_12' } });
+  assert.deepStrictEqual(out.refs, [
+    { kind: 'key', id: 'key_1', providerId: 'nara' },
+    { kind: 'key', id: 'key_12', providerId: 'nara' },
+  ]);
+  assert.deepStrictEqual(out.substitutions, [
+    { placeholder: 'venomkey:key_1', secret: 'sk-nara-1' },
+    { placeholder: 'venomkey:key_12', secret: 'sk-nara-12' },
+  ]);
+});
+
+test('a refusal names only the refused key or secret, with its provider when known', async (t) => {
+  const { resolver } = await setup(t);
+  assert.deepStrictEqual(resolver.resolve({ url: `${NARA}/m`, headers: { A: 'venomkey:nope' } }).refs,
+    [{ kind: 'key', id: 'nope', providerId: null }]);
+  assert.deepStrictEqual(resolver.resolve({ url: `${NARA}/m`, headers: { A: 'venomsecret:githubToken' } }).refs,
+    [{ kind: 'secret', id: 'githubToken', providerId: null }]);
+  assert.deepStrictEqual(resolver.resolve({ url: 'https://darkapi.dev/v1/m', headers: { A: 'venomkey:key_locked' } }).refs,
+    [{ kind: 'key', id: 'key_locked', providerId: 'darkapi' }]);
+  // key_1 was substituted before key_m was refused; only the refused one is named.
+  const mixed = resolver.resolve({ url: `${NARA}/m`, headers: { A: 'venomkey:key_1', B: 'venomkey:key_m' } });
+  assert.deepStrictEqual(mixed.refs, [{ kind: 'key', id: 'key_m', providerId: 'mirai' }]);
+  assert.strictEqual(mixed.substitutions, undefined);
+});
+
+test('no placeholders: no refs and no substitutions', async (t) => {
+  const { resolver } = await setup(t);
+  const out = resolver.resolve({ url: `${NARA}/m`, headers: { A: 'plain' } });
+  assert.deepStrictEqual([out.refs, out.substitutions], [[], []]);
 });

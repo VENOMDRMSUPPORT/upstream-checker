@@ -60,4 +60,95 @@ async function memoryStore(t, { cipher = fakeCipher(), log = quietLog } = {}) {
   return store;
 }
 
-module.exports = { quietLog, fakeSafeStorage, fakeCipher, encFake, LOCKED_BLOB, tempDir, memoryStore };
+// A bare in-memory request log database with schema v1 applied, for the
+// modules that take a db handle (writer, retention, query). Closed after the
+// test.
+function migratedLogsDb(t) {
+  const Database = require('better-sqlite3');
+  const db = new Database(':memory:');
+  require('../src/logs/migrations').forEach((m) => m.up(db));
+  t.after(() => {
+    if (db.open) db.close();
+  });
+  return db;
+}
+
+// A complete request_logs row as src/logs/recorder.js builds it (no has_body:
+// the writer sets that). Override what a test needs.
+let logRowSeq = 0;
+function logRow(overrides = {}) {
+  logRowSeq += 1;
+  return {
+    request_uid: `ROW${String(logRowSeq).padStart(23, '0')}`,
+    created_at: 1790000000000,
+    source: 'route_test',
+    run_id: null,
+    attempt: 1,
+    is_hedge: 0,
+    provider_id: 'nara',
+    provider_name: 'NaraRouter',
+    key_id: 'key_1',
+    method: 'POST',
+    endpoint: 'https://router.bynara.id/v1/chat/completions',
+    model_requested: 'm1',
+    model_returned: 'm1',
+    is_stream: 0,
+    status: 'ok',
+    http_status: 200,
+    error_class: null,
+    error_code: null,
+    error_message: null,
+    latency_ms: 800,
+    ttft_ms: null,
+    first_byte_ms: 700,
+    input_tokens: 10,
+    output_tokens: 2,
+    cached_tokens: null,
+    cache_write_tokens: null,
+    reasoning_tokens: null,
+    usage_source: 'reported',
+    cost_micros: 40,
+    price_json: '{"input":2,"output":10}',
+    meta_json: null,
+    user_id: null,
+    token_id: null,
+    subscription_id: null,
+    client_ip: null,
+    ...overrides,
+  };
+}
+
+const countRows = (db, table) => db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n;
+
+// Stands in for setTimeout/clearTimeout: nothing fires until fire() is called.
+function fakeTimers() {
+  const pending = new Set();
+  return {
+    setTimer: (fn, ms) => {
+      const handle = { fn, ms };
+      pending.add(handle);
+      return handle;
+    },
+    clearTimer: (handle) => {
+      pending.delete(handle);
+    },
+    delays: () => [...pending].map((h) => h.ms),
+    fire: () => {
+      const due = [...pending];
+      pending.clear();
+      due.forEach((h) => h.fn());
+    },
+  };
+}
+
+// An opened in-memory request log (src/logs), closed after the test.
+function logsStore(t, opts = {}) {
+  const logs = require('../src/logs').open(':memory:', { log: quietLog, ...opts });
+  t.after(() => logs.close());
+  return logs;
+}
+
+module.exports = {
+  quietLog, fakeSafeStorage, fakeCipher, encFake, LOCKED_BLOB, tempDir, memoryStore,
+  migratedLogsDb, logRow, countRows, fakeTimers, logsStore,
+};
