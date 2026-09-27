@@ -7918,3 +7918,60 @@ button.ku-cell:hover {
 }
 .log-chip-x:hover { color: var(--text-0); }
 .log-chip-x:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Request drawer — reuses .ku-drawer / .ku-scrim / .ku-panel from key usage. */
+.log-detail { display: grid; gap: 2px; margin-bottom: 18px; }
+.log-field {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 12px;
+  align-items: baseline;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border-1);
+}
+.log-field:last-child { border-bottom: none; }
+.log-field-label { font-size: 12px; color: var(--text-3); }
+.log-field-value { font-size: 13px; color: var(--text-1); word-break: break-word; }
+
+.ku-body h4 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+  margin: 18px 0 6px;
+}
+.log-code {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+  max-height: 260px;
+}
+
+.log-chain-list { list-style: none; margin: 0; padding: 0; }
+.log-chain-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+  padding: 7px 10px;
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  margin-bottom: 4px;
+  cursor: pointer;
+}
+.log-chain-item:hover { background: var(--bg-hover); }
+.log-chain-item.current {
+  cursor: default;
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--text-1);
+}

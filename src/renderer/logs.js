@@ -326,10 +326,129 @@
     }
   }
 
-  // Replaced in the task that adds the drawer. It exists now because the
-  // row-click handler above is live the moment this task is committed, and a
-  // bare call would throw on the first click.
-  function openDrawer() {}
+  // ---- the request drawer --------------------------------------------
+
+  // A second drawer element, #log-drawer. key-usage.js's #ku-drawer is a
+  // singleton whose ids and handlers belong to key usage; only its generic
+  // .ku-drawer / .ku-scrim / .ku-panel CSS is shared. Nothing in
+  // key-usage.js is touched.
+  function closeDrawer() {
+    el('log-drawer').hidden = true;
+    document.removeEventListener('keydown', onDrawerKey);
+    syncTail();
+  }
+
+  function onDrawerKey(e) {
+    if (e.key === 'Escape') closeDrawer();
+  }
+
+  async function openDrawer(id) {
+    const drawer = el('log-drawer');
+    const body = el('log-drawer-body');
+    body.innerHTML = '<p class="log-empty-detail">Loading…</p>';
+    drawer.hidden = false;
+    document.addEventListener('keydown', onDrawerKey);
+    syncTail();
+    let row;
+    try {
+      row = await window.electronAPI.logsGet(id);
+    } catch (err) {
+      body.innerHTML = emptyState('That request could not be read', logEscape(err && err.message ? err.message : String(err)));
+      return;
+    }
+    if (!row) {
+      body.innerHTML = emptyState('That request is gone', 'It was purged after the retention window passed.');
+      return;
+    }
+    body.innerHTML = drawerMarkup(row);
+    if (row.run_id) renderChain(row);
+  }
+
+  function field(label, value) {
+    return `<div class="log-field"><span class="log-field-label">${label}</span><span class="log-field-value">${value}</span></div>`;
+  }
+
+  function drawerMarkup(row) {
+    const vm = toViewModel(row, state.providerNames);
+    const price = row.price_json ? `<h4>Price used</h4><pre class="log-code">${logEscape(row.price_json)}</pre>` : '';
+    const bodies = row.body
+      ? `<h4>Request</h4><pre class="log-code">${logEscape(row.body.request_body || '—')}</pre>
+         <h4>Response</h4><pre class="log-code">${logEscape(row.body.response_body || '—')}</pre>
+         ${row.body.truncated ? '<p class="log-empty-detail">Clipped at 8 KB.</p>' : ''}`
+      : bodyMissingNote(row);
+    return `
+      <div class="log-detail">
+        ${field('When', vm.when)}
+        ${field('Outcome', `<span class="log-pill ${vm.tone}">${vm.errorClass || vm.status}</span>`)}
+        ${vm.errorMessage ? field('Error', vm.errorMessage) : ''}
+        ${field('Provider', vm.provider)}
+        ${field('Model', vm.model)}
+        ${field('Endpoint', `${logEscape(row.method)} ${logEscape(row.endpoint)}`)}
+        ${field('Latency', vm.latency)}
+        ${field('First token', vm.ttft)}
+        ${field('Tokens in / out', `${formatTokens(row.input_tokens)} / ${formatTokens(row.output_tokens)}`)}
+        ${field('Cost', vm.cost)}
+        ${price}
+      </div>
+      <div class="log-chain" id="log-chain"></div>
+      <h4>Bodies</h4>${bodies}`;
+  }
+
+  // has_body = 0 means the body was never kept, or it aged out. The row's own
+  // age says which, so the reader is not left guessing.
+  function bodyMissingNote(row) {
+    const days = (Date.now() - row.created_at) / 86400000;
+    return days > 7
+      ? '<p class="log-empty-detail">The bodies for this request have passed their retention window.</p>'
+      : '<p class="log-empty-detail">No bodies were kept for this request. Change what is kept in Settings.</p>';
+  }
+
+  // The attempts that belong together. attempt and hedgeIndex alone cannot
+  // separate the non-stream attempt from the SSE-recovery attempt: both
+  // carry attempt 1 and hedge index 0. is_stream and the endpoint can.
+  //
+  // No API addition is needed — the runId filter already exists and every row
+  // carries meta_json.
+  async function renderChain(row) {
+    const host = el('log-chain');
+    if (!host) return;
+    let page;
+    try {
+      page = await window.electronAPI.logsList({ runId: row.run_id }, null, 200);
+    } catch {
+      return;   // the chain is a nicety; its absence must not break the drawer
+    }
+    const group = metaOf(row).testGroup || null;
+    const siblings = page.rows.filter((r) => (metaOf(r).testGroup || null) === group);
+    if (siblings.length < 2) return;
+    host.innerHTML = `<h4>Attempts in this run</h4><ul class="log-chain-list">${siblings.map((r) => {
+      const vm = toViewModel(r, state.providerNames);
+      const kind = r.is_stream ? 'stream' : 'non-stream';
+      const hedge = r.is_hedge ? ' · hedge' : '';
+      const here = r.id === row.id ? ' current' : '';
+      return `<li class="log-chain-item${here}" data-id="${r.id}">
+        <span class="log-pill ${vm.tone}">${vm.errorClass || vm.status}</span>
+        attempt ${Number(r.attempt) || 1} · ${kind}${hedge} · ${vm.latency}</li>`;
+    }).join('')}</ul>`;
+  }
+
+  function metaOf(row) {
+    if (!row.meta_json) return {};
+    try { return JSON.parse(row.meta_json) || {}; } catch { return {}; }
+  }
+
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('#log-drawer-close') || e.target.closest('#log-drawer-scrim')) {
+      closeDrawer();
+      return;
+    }
+    const chainItem = e.target.closest('.log-chain-item');
+    if (chainItem && !chainItem.classList.contains('current')) openDrawer(Number(chainItem.dataset.id));
+  });
+
+  // Replaced by the live tail. It exists now because opening and closing the
+  // drawer already has to tell the tail to stop and start.
+  function syncTail() {}
 
   // Replaced in the tasks that follow.
   async function renderRuns() { el('log-body').innerHTML = emptyState('Runs', 'Coming in the next task.'); }
