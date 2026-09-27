@@ -456,3 +456,79 @@ test('exportTo: stays in time order even when the caller came from a sorted view
   const written = JSON.parse(fs.readFileSync(file, 'utf8'));
   assert.deepStrictEqual(written.map((r) => r.created_at), [T0 + 3, T0 + 2, T0 + 1]);
 });
+
+test('runs: one row per run, newest first, never a row for untagged traffic', (t) => {
+  const { query } = setup(t, [
+    logRow({ created_at: T0 + 10, run_id: 'RUN_A', status: 'ok', latency_ms: 100, cost_micros: 5 }),
+    logRow({ created_at: T0 + 20, run_id: 'RUN_A', status: 'error', error_class: 'server', latency_ms: 300, cost_micros: 1 }),
+    logRow({ created_at: T0 + 30, run_id: 'RUN_B', status: 'ok', latency_ms: 200, cost_micros: 7 }),
+    logRow({ created_at: T0 + 40, run_id: null, status: 'ok', latency_ms: 50 }),
+    logRow({ created_at: T0 + 50, run_id: null, status: 'ok', latency_ms: 60 }),
+  ]);
+  const { rows } = query.runs({}, null, 50);
+  assert.deepStrictEqual(rows.map((r) => r.run_id), ['RUN_B', 'RUN_A']);
+  const a = rows.find((r) => r.run_id === 'RUN_A');
+  assert.strictEqual(a.requests, 2);
+  assert.strictEqual(a.ok, 1);
+  assert.strictEqual(a.started_at, T0 + 10);
+  assert.strictEqual(a.ended_at, T0 + 20);
+  assert.strictEqual(a.cost_micros, 6);
+  assert.strictEqual(a.avg_latency_ms, 200);
+});
+
+// Review Focus 2: the WHERE prunes rows, not groups.
+test('runs: a run that starts before the range appears, clamped and partial', (t) => {
+  const { query } = setup(t, [
+    logRow({ created_at: T0, run_id: 'RUN_A', status: 'ok' }),
+    logRow({ created_at: T0 + HOUR, run_id: 'RUN_A', status: 'ok' }),
+    logRow({ created_at: T0 + 2 * HOUR, run_id: 'RUN_A', status: 'error', error_class: 'server' }),
+  ]);
+  const { rows } = query.runs({ from: T0 + HOUR, to: T0 + 3 * HOUR }, null, 50);
+  assert.strictEqual(rows.length, 1, 'a straddling run is not dropped');
+  assert.strictEqual(rows[0].started_at, T0 + HOUR, 'started_at is clamped to the first in-range request');
+  assert.strictEqual(rows[0].requests, 2, 'counters cover the in-range part only');
+});
+
+test('runs: pages on its own cursor across a started_at tie', (t) => {
+  const entries = [];
+  for (let i = 0; i < 6; i += 1) {
+    // Three pairs of runs share a start time, so the tiebreak is exercised.
+    entries.push(logRow({ created_at: T0 + Math.floor(i / 2) * 1000, run_id: `RUN_${i}`, status: 'ok' }));
+  }
+  const { query } = setup(t, entries);
+  const all = query.runs({}, null, 50).rows.map((r) => r.run_id);
+  assert.strictEqual(all.length, 6);
+  const paged = [];
+  let cursor = null;
+  let guard = 0;
+  do {
+    const p = query.runs({}, cursor, 2);
+    paged.push(...p.rows.map((r) => r.run_id));
+    cursor = p.nextCursor;
+    guard += 1;
+    assert.ok(guard < 10, 'paging did not terminate');
+  } while (cursor);
+  assert.deepStrictEqual(paged, all);
+});
+
+test('runs: ignores the row filters that would corrupt its aggregates', (t) => {
+  const { query } = setup(t, [
+    logRow({ created_at: T0 + 1, run_id: 'RUN_A', status: 'ok' }),
+    logRow({ created_at: T0 + 2, run_id: 'RUN_A', status: 'error', error_class: 'server' }),
+  ]);
+  // A status filter would make ok === requests by construction.
+  const { rows } = query.runs({ status: ['ok'] }, null, 50);
+  assert.strictEqual(rows[0].requests, 2);
+  assert.strictEqual(rows[0].ok, 1);
+});
+
+test('runs: filters by source, provider, model and run-id text', (t) => {
+  const { query } = setup(t, [
+    logRow({ created_at: T0 + 1, run_id: 'AAA1', source: 'route_test', provider_id: 'p1', model_requested: 'm1', status: 'ok' }),
+    logRow({ created_at: T0 + 2, run_id: 'BBB2', source: 'benchmark', provider_id: 'p2', model_requested: 'm2', status: 'ok' }),
+  ]);
+  assert.deepStrictEqual(query.runs({ source: ['route_test'] }, null, 50).rows.map((r) => r.run_id), ['AAA1']);
+  assert.deepStrictEqual(query.runs({ providerId: ['p2'] }, null, 50).rows.map((r) => r.run_id), ['BBB2']);
+  assert.deepStrictEqual(query.runs({ model: 'm1' }, null, 50).rows.map((r) => r.run_id), ['AAA1']);
+  assert.deepStrictEqual(query.runs({ text: 'BBB' }, null, 50).rows.map((r) => r.run_id), ['BBB2']);
+});

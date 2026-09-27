@@ -6,7 +6,7 @@
 // that fails throws: the renderer's promise rejects and it says so.
 const { emptyStats, emptyRunSummary } = require('./query');
 
-const LOGS_CHANNELS = ['logs-list', 'logs-get', 'logs-stats', 'logs-facets', 'logs-run-summary', 'logs-export', 'logs-info', 'logs-clear'];
+const LOGS_CHANNELS = ['logs-list', 'logs-get', 'logs-stats', 'logs-facets', 'logs-runs', 'logs-run-summary', 'logs-export', 'logs-info', 'logs-clear'];
 const NOT_SAVED = Object.freeze({ saved: false, path: null, rows: 0 });
 
 function offInfo(error) {
@@ -41,6 +41,7 @@ function registerLogsIpc({ ipcMain, getState, dialog, getWindow = () => null, lo
   handle('logs-get', (q, id) => q.get(id), () => null);
   handle('logs-stats', (q, filters, bucket, groupBy) => q.stats(filters, bucket, groupBy), () => emptyStats());
   handle('logs-facets', (q, range) => q.facets(range), () => ({ providers: [], models: [], sources: [] }));
+  handle('logs-runs', (q, filters, cursor, limit) => q.runs(filters, cursor, limit), () => ({ rows: [], nextCursor: null }));
   handle('logs-run-summary', (q, runId) => q.runSummary(runId), (_error, runId) => emptyRunSummary(runId));
   handle('logs-export', async (q, filters, format) => {
     if (format !== 'csv' && format !== 'json') throw new TypeError(`Unknown export format "${format}"`);

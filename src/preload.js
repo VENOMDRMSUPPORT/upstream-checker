@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   logsGet: (id) => ipcRenderer.invoke('logs-get', id),
   logsStats: (filters, bucket, groupBy) => ipcRenderer.invoke('logs-stats', filters, bucket, groupBy),
   logsFacets: (range) => ipcRenderer.invoke('logs-facets', range),
+  logsRuns: (filters, cursor, limit) => ipcRenderer.invoke('logs-runs', filters, cursor, limit),
   logsRunSummary: (runId) => ipcRenderer.invoke('logs-run-summary', runId),
   logsExport: (filters, format) => ipcRenderer.invoke('logs-export', filters, format),
   logsInfo: () => ipcRenderer.invoke('logs-info'),
