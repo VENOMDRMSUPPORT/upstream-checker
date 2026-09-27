@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { registerLogsIpc } = require('../../src/logs/ipc');
+const { registerLogsIpc, LOGS_CHANNELS } = require('../../src/logs/ipc');
 const { logsStore, logRow, tempDir, quietLog } = require('../helpers');
 
 function fakeIpcMain() {
@@ -37,8 +37,11 @@ function setup({ logs = null, error = null, pick = { canceled: true, filePath: '
 
 test('registers exactly the log channels', () => {
   assert.deepStrictEqual(setup().ipc.channels(), [
-    'logs-clear', 'logs-export', 'logs-facets', 'logs-get', 'logs-info', 'logs-list', 'logs-run-summary', 'logs-stats',
+    'logs-clear', 'logs-export', 'logs-facets', 'logs-get', 'logs-info', 'logs-list', 'logs-run-summary', 'logs-runs', 'logs-stats',
   ]);
+  // The exported list is what a caller reads to know what exists; it must not
+  // drift from what was actually registered.
+  assert.deepStrictEqual([...LOGS_CHANNELS].sort(), setup().ipc.channels());
 });
 
 test('with logging on, the reads answer from the database', async (t) => {
@@ -54,6 +57,7 @@ test('with logging on, the reads answer from the database', async (t) => {
   assert.strictEqual((await ipc.invoke('logs-stats', {}, 'hour', 'none')).totals.requests, 1);
   assert.deepStrictEqual((await ipc.invoke('logs-facets', {})).sources, ['route_test']);
   assert.strictEqual((await ipc.invoke('logs-run-summary', 'RUN1')).count, 1);
+  assert.deepStrictEqual((await ipc.invoke('logs-runs', {}, null, 10)).rows.map((r) => r.run_id), ['RUN1']);
   assert.deepStrictEqual(await ipc.invoke('logs-clear', {}), { rows: 1, bodies: 0, rollups: 1 });
 });
 
