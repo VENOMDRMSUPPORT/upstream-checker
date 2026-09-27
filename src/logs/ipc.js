@@ -37,7 +37,7 @@ function registerLogsIpc({ ipcMain, getState, dialog, getWindow = () => null, lo
     });
   };
 
-  handle('logs-list', (q, filters, cursor, limit) => q.list(filters, cursor, limit), () => ({ rows: [], nextCursor: null }));
+  handle('logs-list', (q, filters, cursor, limit, sort) => q.list(filters, cursor, limit, sort), () => ({ rows: [], nextCursor: null }));
   handle('logs-get', (q, id) => q.get(id), () => null);
   handle('logs-stats', (q, filters, bucket, groupBy) => q.stats(filters, bucket, groupBy), () => emptyStats());
   handle('logs-facets', (q, range) => q.facets(range), () => ({ providers: [], models: [], sources: [] }));

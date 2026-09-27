@@ -49,7 +49,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   clearRequestLog: () => ipcRenderer.invoke('clear-request-log'),
 
   // Request log (venom-logs.db, owned by main). Read-only except export and clear.
-  logsList: (filters, cursor, limit) => ipcRenderer.invoke('logs-list', filters, cursor, limit),
+  logsList: (filters, cursor, limit, sort) => ipcRenderer.invoke('logs-list', filters, cursor, limit, sort),
   logsGet: (id) => ipcRenderer.invoke('logs-get', id),
   logsStats: (filters, bucket, groupBy) => ipcRenderer.invoke('logs-stats', filters, bucket, groupBy),
   logsFacets: (range) => ipcRenderer.invoke('logs-facets', range),

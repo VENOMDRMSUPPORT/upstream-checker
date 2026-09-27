@@ -24,6 +24,14 @@ const CLASS_COUNTERS = {
   server: 'e_server', network: 'e_network', other: 'e_other', timeout: 'timeouts', blocked: 'blocked',
 };
 const GROUP_COLUMNS = { none: null, source: 'source', provider: 'provider_id', model: 'model_id' };
+// The four orders the request list offers, all descending. A log is read
+// worst-first: the slowest request, the most expensive, the longest wait for
+// a first token. Ascending would need its own mirrored keyset predicate for a
+// view nobody asked for, so it is not offered at all.
+const SORT_COLUMNS = { time: 'created_at', latency: 'latency_ms', ttft: 'ttft_ms', cost: 'cost_micros' };
+// A sort with no index behind it is only allowed inside a range the
+// created_at index has already narrowed.
+const MAX_SORT_RANGE_MS = 31 * 24 * 3600000;
 const defaultYield = () => new Promise((resolve) => setImmediate(resolve));
 
 const finite = (v) => (Number.isFinite(v) ? v : null);
@@ -220,27 +228,78 @@ function createQuery(db, { file = null, meta, droppedRows = () => 0 } = {}) {
     return s;
   };
 
-  function page(filters, cursor, limit) {
-    const c = rowFilters(filters);
-    if (cursor && Number.isFinite(cursor.createdAt) && Number.isInteger(cursor.id)) {
+  // The order a sorted page uses, and the predicate that continues it.
+  //
+  // time keeps the two-branch cursor it has always had: created_at is NOT
+  // NULL, so a plain comparison is total. The other three columns are all
+  // nullable — a cancelled request has no latency, a non-stream request no
+  // TTFT, a model with no price no cost — and in SQLite a comparison against
+  // NULL is NULL, never true. A two-branch cursor therefore matches nothing
+  // the moment it lands on a NULL row, and the page silently stops there.
+  //
+  // So NULLs are pushed into one block at the end, `(col IS NULL) ASC`, and
+  // the cursor says which block it is in.
+  function sortOrder(sort) {
+    if (sort === 'time') return 'created_at DESC, id DESC';
+    const column = SORT_COLUMNS[sort];
+    return `(${column} IS NULL) ASC, ${column} DESC, id DESC`;
+  }
+
+  function addCursor(c, sort, cursor) {
+    if (!cursor || typeof cursor !== 'object') return;
+    if (sort === 'time') {
+      if (!Number.isFinite(cursor.createdAt) || !Number.isInteger(cursor.id)) return;
       c.add('(created_at < ? OR (created_at = ? AND id < ?))', cursor.createdAt, cursor.createdAt, cursor.id);
+      return;
     }
+    if (!Number.isInteger(cursor.id)) return;
+    const col = SORT_COLUMNS[sort];
+    if (cursor.isNull) {
+      // Inside the NULL block: id strictly decreases, and this can never
+      // re-enter the valued block, so paging terminates.
+      c.add(`(${col} IS NULL AND id < ?)`, cursor.id);
+      return;
+    }
+    if (!Number.isFinite(cursor.value)) return;
+    // The rest of the valued block, then the whole NULL block after it.
+    c.add(`(${col} IS NULL OR ${col} < ? OR (${col} = ? AND id < ?))`, cursor.value, cursor.value, cursor.id);
+  }
+
+  function cursorFor(sort, row) {
+    if (sort === 'time') return { createdAt: row.created_at, id: row.id };
+    const value = row[SORT_COLUMNS[sort]];
+    return { value: value === null ? null : value, isNull: value === null, id: row.id };
+  }
+
+  function page(filters, cursor, limit, sort = 'time') {
+    if (!Object.prototype.hasOwnProperty.call(SORT_COLUMNS, sort)) throw new TypeError(`Unknown sort "${sort}"`);
+    const f = filters && typeof filters === 'object' ? filters : {};
+    if (sort !== 'time') {
+      const from = finite(f.from);
+      const to = finite(f.to);
+      if (from === null || to === null || to - from > MAX_SORT_RANGE_MS) {
+        throw new RangeError(`Sorting by ${sort} needs a from/to range of at most 31 days`);
+      }
+    }
+    const c = rowFilters(f);
+    addCursor(c, sort, cursor);
     // The live tail (afterId set, no cursor) wants rows in the order they
     // arrived, which is what the primary key gives it directly. Ordering by
     // created_at instead would let a request logged out of clock order (or
     // just filed a millisecond late) jump the queue — and would need the
     // planner to sort id > ? results by a different column than the one the
     // filter used. Keyset paging (a cursor) keeps created_at, id: that's the
-    // page order the log list shows.
-    const liveTail = filters && typeof filters === 'object' && Number.isInteger(filters.afterId) && !cursor;
-    const orderBy = liveTail ? 'id DESC' : 'created_at DESC, id DESC';
+    // page order the log list shows. It is only offered on the time sort;
+    // the sorted views are not tails.
+    const liveTail = Number.isInteger(f.afterId) && !cursor && sort === 'time';
+    const orderBy = liveTail ? 'id DESC' : sortOrder(sort);
     const rows = stmt(`SELECT * FROM request_logs ${whereSql(c.where)} ORDER BY ${orderBy} LIMIT ?`).all(...c.params, limit);
     const last = rows[rows.length - 1];
-    return { rows, nextCursor: rows.length === limit ? { createdAt: last.created_at, id: last.id } : null };
+    return { rows, nextCursor: rows.length === limit ? cursorFor(sort, last) : null };
   }
 
-  function list(filters, cursor, limit) {
-    return page(filters, cursor, clampLimit(limit));
+  function list(filters, cursor, limit, sort = 'time') {
+    return page(filters, cursor, clampLimit(limit), sort);
   }
 
   function get(id) {

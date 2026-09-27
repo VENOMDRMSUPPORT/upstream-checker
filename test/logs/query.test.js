@@ -369,3 +369,90 @@ test('clear({}) clears everything too; a present but non-finite before rejects a
   assert.deepStrictEqual(await query.clear({}), { rows: 2, bodies: 2, rollups: 2 });
   assert.deepStrictEqual(counts(db), [0, 0, 0]);
 });
+
+test('list: a non-time sort orders by that column descending, NULLs last', (t) => {
+  const rows = [
+    logRow({ created_at: T0 + 1, latency_ms: 300 }),
+    logRow({ created_at: T0 + 2, latency_ms: null }),
+    logRow({ created_at: T0 + 3, latency_ms: 900 }),
+    logRow({ created_at: T0 + 4, latency_ms: null }),
+    logRow({ created_at: T0 + 5, latency_ms: 100 }),
+  ];
+  const { query } = setup(t, rows);
+  const range = { from: T0, to: T0 + HOUR };
+  const got = query.list(range, null, 200, 'latency').rows.map((r) => r.latency_ms);
+  assert.deepStrictEqual(got, [900, 300, 100, null, null]);
+});
+
+// Review Focus 1: the page boundary falls exactly where the valued rows end.
+test('list: a sorted page that ends on the NULL boundary still returns the NULL block', (t) => {
+  const rows = [
+    logRow({ created_at: T0 + 1, cost_micros: 50 }),
+    logRow({ created_at: T0 + 2, cost_micros: 20 }),
+    logRow({ created_at: T0 + 3, cost_micros: null }),
+    logRow({ created_at: T0 + 4, cost_micros: null }),
+  ];
+  const { query } = setup(t, rows);
+  const range = { from: T0, to: T0 + HOUR };
+  const first = query.list(range, null, 2, 'cost');
+  assert.deepStrictEqual(first.rows.map((r) => r.cost_micros), [50, 20]);
+  assert.ok(first.nextCursor, 'a full page must offer a cursor');
+  const second = query.list(range, first.nextCursor, 2, 'cost');
+  assert.deepStrictEqual(second.rows.map((r) => r.cost_micros), [null, null]);
+});
+
+test('list: every sort pages to the end returning each row exactly once', (t) => {
+  // Ties in the sort column and NULLs on both sides of them.
+  const values = [700, 700, null, 120, 700, null, 40, 120];
+  const { query } = setup(t, values.map((v, i) => logRow({
+    created_at: T0 + i, latency_ms: v, ttft_ms: v, cost_micros: v,
+  })));
+  const range = { from: T0, to: T0 + HOUR };
+  const COLUMN = { latency: 'latency_ms', ttft: 'ttft_ms', cost: 'cost_micros' };
+  ['latency', 'ttft', 'cost'].forEach((sort) => {
+    const oneShot = query.list(range, null, 200, sort).rows;
+    // Without this the rest of the test compares an order against itself and
+    // passes whether or not the sort was applied at all.
+    assert.deepStrictEqual(
+      oneShot.map((r) => r[COLUMN[sort]]),
+      [700, 700, 700, 120, 120, 40, null, null],
+      `${sort}: one-shot order must be the column descending with NULLs last`,
+    );
+    const all = oneShot.map((r) => r.id);
+    const paged = [];
+    let cursor = null;
+    let guard = 0;
+    do {
+      const p = query.list(range, cursor, 3, sort);
+      paged.push(...p.rows.map((r) => r.id));
+      cursor = p.nextCursor;
+      guard += 1;
+      assert.ok(guard < 20, `${sort}: paging did not terminate`);
+    } while (cursor);
+    assert.deepStrictEqual(paged, all, `${sort}: paged order must equal one-shot order`);
+    assert.strictEqual(new Set(paged).size, values.length, `${sort}: a row was repeated or skipped`);
+  });
+});
+
+test('list: a non-time sort needs a bounded range, and rejects an unknown name', (t) => {
+  const { query } = setup(t, [logRow({ created_at: T0 })]);
+  assert.throws(() => query.list({}, null, 50, 'latency'), /range/i);
+  assert.throws(() => query.list({ from: T0 }, null, 50, 'latency'), /range/i);
+  assert.throws(() => query.list({ from: T0, to: T0 + 40 * 24 * HOUR }, null, 50, 'cost'), /range/i);
+  assert.throws(() => query.list({}, null, 50, 'sideways'), /Unknown sort/);
+  // time is unbounded, as it always was
+  assert.strictEqual(query.list({}, null, 50).rows.length, 1);
+  assert.strictEqual(query.list({}, null, 50, 'time').rows.length, 1);
+});
+
+test('exportTo: stays in time order even when the caller came from a sorted view', async (t) => {
+  const { query } = setup(t, [
+    logRow({ created_at: T0 + 1, latency_ms: 10 }),
+    logRow({ created_at: T0 + 2, latency_ms: 900 }),
+    logRow({ created_at: T0 + 3, latency_ms: 50 }),
+  ]);
+  const file = path.join(tempDir(t), 'export.json');
+  await query.exportTo(file, { from: T0, to: T0 + HOUR }, 'json');
+  const written = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.deepStrictEqual(written.map((r) => r.created_at), [T0 + 3, T0 + 2, T0 + 1]);
+});
