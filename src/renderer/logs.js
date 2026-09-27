@@ -668,7 +668,78 @@
     return typeof b === 'string' ? logEscape(b) : formatWhen(b);
   }
 
+  // ---- Settings: log health and clearing -------------------------------
+
+  function formatBytes(n) {
+    if (!Number.isFinite(n)) return '—';
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+    if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  }
+
+  // Called when the Logs settings section opens. With logging off it says so
+  // rather than showing zeroes, which would read as "empty" instead of "not
+  // running".
+  async function renderHealth() {
+    const pathEl = el('logs-db-path');
+    const host = el('logs-db-health');
+    if (!host) return;
+    let info;
+    try {
+      info = await window.electronAPI.logsInfo();
+    } catch (err) {
+      host.innerHTML = `<span class="log-health-item">Could not be read: ${logEscape(err && err.message ? err.message : String(err))}</span>`;
+      return;
+    }
+    if (pathEl) pathEl.textContent = info.path || '—';
+    const clearBtn = el('btn-clear-logs-db');
+    if (!info.enabled) {
+      if (clearBtn) clearBtn.disabled = true;
+      host.innerHTML = `<span class="log-health-item">Logging is off${info.error ? `: ${logEscape(info.error)}` : '.'}</span>`;
+      return;
+    }
+    if (clearBtn) clearBtn.disabled = false;
+    const item = (label, value) => `<span class="log-health-item"><b>${value}</b> ${label}</span>`;
+    host.innerHTML = [
+      item('requests', formatTokens(info.rows)),
+      item('on disk', formatBytes(info.sizeBytes)),
+      info.oldestAt ? item('oldest', formatWhen(info.oldestAt)) : '',
+      info.droppedRows ? item('dropped', formatTokens(info.droppedRows)) : '',
+      info.lastPurgeAt ? item('last purge', formatWhen(info.lastPurgeAt)) : '',
+    ].filter(Boolean).join('');
+  }
+
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('#btn-clear-logs-db');
+    if (!btn) return;
+    let info = null;
+    try { info = await window.electronAPI.logsInfo(); } catch { /* the confirm still asks */ }
+    const many = info && Number.isFinite(info.rows) ? formatTokens(info.rows) : 'every';
+    // eslint-disable-next-line no-alert
+    if (!window.confirm(`Delete ${many} recorded requests, their bodies and their summaries? This cannot be undone.`)) return;
+    const label = btn.textContent;
+    btn.disabled = true;
+    // The call walks the table in chunks and vacuums afterwards, which takes
+    // seconds on a large database. Saying nothing would read as a dead button.
+    btn.textContent = 'Clearing…';
+    try {
+      await window.electronAPI.logsClear({});
+    } catch (err) {
+      btn.textContent = `Failed: ${err && err.message ? err.message : err}`;
+      setTimeout(() => { btn.textContent = label; btn.disabled = false; }, 4000);
+      return;
+    }
+    btn.textContent = label;
+    btn.disabled = false;
+    await renderHealth();
+    // Whatever the log pages are showing is now gone.
+    state.cursor = null;
+    state.rows = [];
+  });
+
   // `tab` is what syncRoute reads to build #/history/<sub>. Without it the
-  // app would append the string "undefined" to the hash.
-  window.LOGS = { render, renderMonitor, tab: () => state.tab };
+  // app would append the string "undefined" to the hash. `health` is called
+  // by app.js when the Logs settings section opens.
+  window.LOGS = { render, renderMonitor, tab: () => state.tab, health: renderHealth };
 }());

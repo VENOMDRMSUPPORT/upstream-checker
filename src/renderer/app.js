@@ -167,6 +167,11 @@ const DEFAULT_SETTINGS = {
   // from the saved settings row: a row without it (a new install) means
   // Failed only, and a value already saved is never changed.
   logLevel: 'errors',
+  // Mirrors LOG_DEFAULTS in src/logs/settings.js, which main reads back from
+  // the same row. Without them here the retention inputs open empty.
+  logRetentionDays: 90,
+  bodyRetentionDays: 7,
+  statsRetentionMonths: 12,
 
   // Model Pool. The pool re-reads every connected provider's model
   // list on this cadence; a model that appears is benchmarked straight away
@@ -3884,6 +3889,9 @@ const SETTING_INPUTS = [
   ['#set-notify-regression', 'notifyRegression', 'bool'],
   ['#set-notify-complete', 'notifyRunComplete', 'bool'],
   ['#set-log-level', 'logLevel', 'text'],
+  ['#set-log-retention', 'logRetentionDays', 'int'],
+  ['#set-body-retention', 'bodyRetentionDays', 'int'],
+  ['#set-stats-retention', 'statsRetentionMonths', 'int'],
   ['#set-concurrency', 'concurrency', 'int'],
   ['#set-health-interval', 'healthIntervalMin', 'int'],
 ];
@@ -4177,6 +4185,9 @@ function switchSettingsSection(sectionId) {
     b.setAttribute('aria-selected', String(on));
   });
   $$('.settings-section').forEach((sec) => { sec.hidden = sec.id !== targetId; });
+  // The log's own numbers are read when its section opens, never in the
+  // background.
+  if (targetId === 'sec-logs' && window.LOGS) window.LOGS.health();
 
   // The page scrolls, not the card. A tab picked while scrolled down opens at
   // its own top, with the categories still stuck in place above the fold.

@@ -1114,6 +1114,30 @@
                       <option value="all">All</option>
                     </select></div>
                     </div>
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+                      <div class="settings-row-info">
+                      <label class="settings-row-title" for="set-log-retention">Keep requests for</label>
+                      <div class="settings-row-desc">How long a request row is kept. Older rows are removed in the background, a chunk at a time.</div>
+                    </div>
+                      <div class="settings-row-control"><input class="prompt-input narrow" type="number" min="1" max="3650" step="1" id="set-log-retention"><span class="settings-unit">days</span></div>
+                    </div>
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg></div>
+                      <div class="settings-row-info">
+                      <label class="settings-row-title" for="set-body-retention">Keep bodies for</label>
+                      <div class="settings-row-desc">How long a failed request’s bodies are kept. They are the largest part of the log.</div>
+                    </div>
+                      <div class="settings-row-control"><input class="prompt-input narrow" type="number" min="1" max="3650" step="1" id="set-body-retention"><span class="settings-unit">days</span></div>
+                    </div>
+                    <div class="settings-row-item">
+                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="20" x2="6" y2="12"/><line x1="12" y1="20" x2="12" y2="6"/><line x1="18" y1="20" x2="18" y2="14"/></svg></div>
+                      <div class="settings-row-info">
+                      <label class="settings-row-title" for="set-stats-retention">Keep summaries for</label>
+                      <div class="settings-row-desc">How long the hourly summaries Monitoring reads are kept. They are small, and they are all that is left once the rows above are gone.</div>
+                    </div>
+                      <div class="settings-row-control"><input class="prompt-input narrow" type="number" min="1" max="120" step="1" id="set-stats-retention"><span class="settings-unit">months</span></div>
+                    </div>
                     <div class="settings-row-item vertical">
                       <div class="settings-row-header-inline">
                         <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></div>
@@ -1127,6 +1151,28 @@
                       <button class="btn btn-ghost" id="btn-open-log">Show log file</button>
                     </div></div>
                     </div>
+                  </div>
+
+                  <div class="settings-rows">
+                    <div class="settings-row-item vertical">
+                      <div class="settings-row-header-inline">
+                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg></div>
+                        <div class="settings-row-info">
+                      <div class="settings-row-title">Log database</div>
+                      <div class="settings-row-desc">Where the request log lives and how much it has grown.</div>
+                    </div>
+                      </div>
+                      <div class="settings-row-field"><code class="settings-path" id="logs-db-path">…</code>
+                    <div class="log-health" id="logs-db-health"></div></div>
+                    </div>
+                  </div>
+
+                  <div class="settings-zone">
+                    <div class="settings-zone-info">
+                      <div class="settings-zone-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>Clear the request log</div>
+                      <div class="settings-zone-desc">Deletes every recorded request, its bodies and its summaries. The app keeps logging afterwards. This is not the old requests.log below.</div>
+                    </div>
+                    <div class="settings-actions"><button class="btn btn-ghost danger" id="btn-clear-logs-db">Clear the request log</button></div>
                   </div>
 
                   <div class="settings-zone">
