@@ -207,8 +207,13 @@ const { formatDuration, ... } = new Function(`${source}\nreturn { formatDuration
 ```
 
 It must therefore touch neither `window` nor `document` at evaluation time. It holds:
-`toQuery(filters, sort)`, `toViewModel(row)`, `formatDuration(ms)`, `formatCost(micros)`,
-`formatTokens(n)`, `normalizeProvider(id)`, `statusTone(row)`, `bucketLabel(ms, bucket)`.
+`escapeHtml(s)`, `toViewModel(row, providerNames)`, `formatDuration(ms)`, `formatCost(micros)`,
+`formatTokens(n)`, `formatWhen(ms, now)`, `normalizeProvider(id)`, `providerLabel(id, name)`,
+`statusTone(row)`, `passRateText(rate)` and `rangePreset(key, now)`.
+
+`escapeHtml` is not decoration. A model id, a provider name and an error message are all a
+provider's own text, and all three land in `innerHTML` in a renderer process. `toViewModel`
+escapes every string it returns, so no caller has to remember to.
 
 ### 3.2 Pages and views
 
