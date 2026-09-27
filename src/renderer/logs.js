@@ -30,6 +30,8 @@
   const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)');
   // The element the drawer was opened from, so focus goes back where it was.
   let drawerOpener = null;
+  // The pending hide of the closing drawer, so a reopen can cancel it.
+  let closeTimer = null;
 
   // The existing route grammar, unchanged: #/history/requests. No new parser,
   // no pushState, no popstate — the hash is a deep link restored on reload,
@@ -138,8 +140,8 @@
 
   // Rewriting the whole bar while someone is typing in it replaces the input
   // under their cursor: the focus goes to the body and every keystroke after
-  // the debounce is lost. The bar is only rebuilt when its options actually
-  // change, and the caret is put back when it is.
+  // the debounce is lost. The bar is still rebuilt on every render — putting
+  // the focus and the caret back is what makes that safe.
   function renderFilters(facets, { keepFocus = true } = {}) {
     const active = document.activeElement;
     const host = el('log-filters');
@@ -370,13 +372,19 @@
     const drawer = el('log-drawer');
     if (!drawer || drawer.hidden) return;
     drawer.classList.remove('open');
-    const done = () => { drawer.hidden = true; };
+    const done = () => {
+      closeTimer = null;
+      drawer.hidden = true;
+      // Only now is the drawer really closed. tailWanted() reads
+      // drawer.hidden, so syncing before this point would switch the tail off
+      // and leave nothing to switch it back on.
+      syncTail();
+    };
     if (REDUCED_MOTION.matches) done();
-    else setTimeout(done, 200);
+    else closeTimer = setTimeout(done, 200);
     document.removeEventListener('keydown', onDrawerKey);
     if (drawerOpener && document.contains(drawerOpener)) drawerOpener.focus();
     drawerOpener = null;
-    syncTail();
   }
 
   function onDrawerKey(e) {
@@ -386,6 +394,12 @@
   async function openDrawer(id, opener = null) {
     const drawer = el('log-drawer');
     const body = el('log-drawer-body');
+    // Reopening inside the close animation: without this the pending timer
+    // fires mid-load and hides the drawer that was just opened.
+    if (closeTimer) {
+      clearTimeout(closeTimer);
+      closeTimer = null;
+    }
     body.innerHTML = '<p class="log-empty-detail">Loading…</p>';
     if (drawer.hidden) drawerOpener = opener || document.activeElement;
     drawer.hidden = false;
@@ -682,7 +696,15 @@
     const t = e.target;
     if (!t || !t.id || !el('monitor-filters') || !el('monitor-filters').contains(t)) return;
     let note = '';
-    if (t.id === 'monitor-range') state.monitor.range = t.value;
+    if (t.id === 'monitor-range') {
+      state.monitor.range = t.value;
+      // The mirror of the bucket guard below: a day bucket over 24 hours is
+      // one point either way round.
+      if (t.value === '24h' && state.monitor.bucket === 'day') {
+        state.monitor.bucket = 'hour';
+        note = 'Switched to hourly: a day has one point over 24 hours.';
+      }
+    }
     else if (t.id === 'monitor-bucket') {
       state.monitor.bucket = t.value;
       // A day bucket over 24 hours is one point, which reads as broken.
