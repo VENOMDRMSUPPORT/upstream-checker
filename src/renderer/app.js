@@ -4333,7 +4333,7 @@ $('#sidebar-restore').addEventListener('click', toggleSidebar);
 
 // App shell. Bound before init() so the nav responds while providers and
 // history are still loading.
-const PAGES = ['overview', 'providers', 'catalog', 'profiles', 'check', 'settings'];
+const PAGES = ['overview', 'providers', 'catalog', 'profiles', 'check', 'history', 'monitor', 'settings'];
 let currentPage = 'overview';
 
 // Routes live in the URL hash (the page is loaded from file://, so real paths
@@ -4350,6 +4350,10 @@ function syncRoute() {
     const btn = $('#settings-nav .settings-nav-item.active');
     if (btn) hash += `/${btn.dataset.section.replace(/^sec-/, '')}`;
   }
+  // Test History's sub-route is its open tab. state.tab is closed over inside
+  // the logs.js IIFE, so the module exposes a getter for it; without one this
+  // would append the string "undefined". Monitoring has no sub-route.
+  if (currentPage === 'history' && window.LOGS) hash += `/${window.LOGS.tab()}`;
   // replaceState: no hashchange event and no history stack to walk back through.
   // window. is required: the run-history Map above shadows the global `history`.
   if (location.hash !== hash) window.history.replaceState(null, '', hash);
@@ -4368,6 +4372,8 @@ const PAGE_META = {
   catalog: { title: 'Model Pool', desc: 'Every model your connected providers offer — the pool the router draws from, benchmarked and ranked.' },
   profiles: { title: 'Routing Profiles', desc: 'Three virtual models — Lite, Pro, Max — that route each request to the best model in the pool.' },
   check: { title: 'Route Test', desc: 'Test every route a provider offers against one prompt.' },
+  history: { title: 'Test History', desc: 'Every request this app has sent, and the runs they belong to.' },
+  monitor: { title: 'Monitoring', desc: 'Requests, errors, latency and cost over time.' },
   settings: { title: 'Settings', desc: 'Test prompt, scheduling, appearance and data.' },
 };
 
@@ -4401,6 +4407,8 @@ function showPage(page) {
   if (page === 'overview') renderQuickStats();
   if (page === 'catalog' && window.CATALOG) window.CATALOG.render();
   if (page === 'profiles' && window.PROFILES) window.PROFILES.render();
+  if (page === 'history' && window.LOGS) window.LOGS.render();
+  if (page === 'monitor' && window.LOGS) window.LOGS.renderMonitor();
   // The Providers page always opens on what is already connected.
   if (page === 'providers') {
     providersTab = 'connected';

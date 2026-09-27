@@ -7779,3 +7779,118 @@ button.ku-cell:hover {
   color: var(--text-3);
   text-align: right;
 }
+
+/* ============================================
+   Log pages — Runs, Requests, Monitoring
+   ============================================ */
+
+.log-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 0 14px;
+  border-bottom: 1px solid var(--border-1);
+  margin-bottom: 16px;
+}
+.log-tab {
+  appearance: none;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+.log-tab:hover { color: var(--text-1); background: var(--bg-2); }
+.log-tab.active { color: var(--text-0); background: var(--bg-3); border-color: var(--border-2); }
+.log-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.log-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.log-filters:empty { display: none; }
+.log-filters .prompt-input { min-width: 0; }
+.log-filters #log-text { flex: 1 1 200px; max-width: 320px; }
+
+.log-body { min-height: 120px; }
+
+.log-empty {
+  border: 1px dashed var(--border-2);
+  border-radius: 10px;
+  padding: 40px 24px;
+  text-align: center;
+  background: var(--bg-1);
+}
+.log-empty-title { margin: 0 0 6px; font-size: 14px; font-weight: 600; color: var(--text-1); }
+.log-empty-detail { margin: 0; font-size: 13px; color: var(--text-3); }
+
+.log-stale {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--warn);
+  background: var(--warn-bg);
+  border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.log-scroll { overflow-x: auto; border: 1px solid var(--border-1); border-radius: 10px; }
+.log-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.log-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-3);
+  background: var(--bg-2);
+  padding: 9px 12px;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border-1);
+}
+.log-table td {
+  padding: 9px 12px;
+  color: var(--text-2);
+  border-bottom: 1px solid var(--border-1);
+  white-space: nowrap;
+}
+.log-table tbody tr:last-child td { border-bottom: none; }
+.log-table tbody tr.log-row, .log-table tbody tr.log-run { cursor: pointer; }
+.log-table tbody tr.log-row:hover, .log-table tbody tr.log-run:hover { background: var(--bg-hover); }
+
+.log-sort {
+  appearance: none;
+  border: none;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text-3);
+  padding: 0;
+  cursor: pointer;
+}
+.log-sort:hover { color: var(--text-1); }
+.log-sort.active { color: var(--accent-text); }
+.log-sort:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.log-pill {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--bg-3);
+  color: var(--text-3);
+}
+.log-pill.pass { background: var(--pass-bg); color: var(--pass); }
+.log-pill.fail { background: var(--fail-bg); color: var(--fail); }
+.log-pill.warn { background: var(--warn-bg); color: var(--warn); }
+.log-pill.muted { background: var(--bg-3); color: var(--text-3); }
+
+#log-more { margin-top: 12px; }
