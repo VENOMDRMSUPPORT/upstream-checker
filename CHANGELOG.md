@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-27
+
 ### Added
 - Request log. Every request the app sends is recorded in `venom-logs.db`
   next to `venom.db`: when it ran, how long it took (with time to first
@@ -39,6 +41,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the log's own size, row count, oldest row and last purge, and can clear it.
 
 ### Changed
+- **Everything the app stores now lives in a database.** `config.json`,
+  `catalog.json` and `history.json` are replaced by `venom.db`, a SQLite
+  file in the same folder. Your existing files are backed up and imported on
+  first launch; nothing is asked of you. A save is now a transaction instead
+  of a whole-file rewrite, so a crash, a lock or a full disk in the middle of
+  one can no longer leave a half-written file behind.
+- **API keys never leave the main process.** The window works with
+  placeholders and a hint like the last four characters; the real secret is
+  put in only as a request goes out, and only for the provider that key
+  belongs to. `settings.aaApiKey` was stored in the clear and is now
+  encrypted with the rest.
+- Only one copy of the app can use a data folder at a time, and a second
+  launch says so instead of two copies writing over each other.
+- **Downgrading is not supported.** An older build started after this one
+  will not read `venom.db` and will begin empty. Your data is still there —
+  the old build simply cannot see it. Keep the backup the import made until
+  you are happy on this version.
 - Settings → Diagnostics & Logs: "Log requests" is now "Request bodies"
   (Off / Failed only / All), kept 7 days. New installs start on Failed only;
   an existing choice is kept. `requests.log` is no longer written; the old
@@ -47,6 +66,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   new name, a new logo (the Viper V) and router vocabulary throughout: Model
   catalog is now Model Pool, Upstream Check is Route Test, and Venom Profiles
   are Routing Profiles. No page, feature or setting was removed.
+
+### Fixed
+- **Losing every stored key.** If reading the old `config.json` failed for
+  any reason — a lock held by antivirus or OneDrive, a corrupt file, an empty
+  one after a power cut — the app read it as "no providers yet", wrote the
+  defaults back, and the keys were gone. Closing the window did the same a
+  second way. A failed read is now an error you see, and nothing is written
+  over it.
+- Two settings changed at once no longer overwrite each other, and a failed
+  save now says so instead of failing silently.
+- Work in progress is written before the window closes and before an update
+  installs, rather than being dropped.
+- The model pool is no longer rewritten whole — about 300 KB — on every sync.
 - App data moves from `%APPDATA%\upstream-checker` to `%APPDATA%\venom-router`
   on first launch, keys and history included. If an older version is still
   running, the old folder is kept in use and the move is tried again next time.
