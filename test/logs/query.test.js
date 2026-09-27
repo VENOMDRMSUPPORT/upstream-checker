@@ -289,9 +289,13 @@ test('runSummary: counts, classes, models, providers, cost, first/last and media
     runId: 'RUNA', count: 5, ok: 2, cancelled: 1,
     errorsByClass: { auth: 0, rate_limit: 0, quota: 0, bad_request: 0, server: 1, network: 1, other: 0, timeout: 0, blocked: 0 },
     models: ['m1', 'm2'], providers: ['nara'], costMicros: 50, firstAt: T0, lastAt: T0 + 40, medianLatencyMs: 300,
+    // No row here streams, so there is no first token to take a median of.
+    // Four requests were attempted (five minus the cancelled one), two passed.
+    medianTtftMs: null, passRate: 0.5,
   });
   const empty = query.runSummary('NONE');
   assert.deepStrictEqual([empty.count, empty.costMicros, empty.medianLatencyMs, empty.firstAt], [0, null, null, null]);
+  assert.deepStrictEqual([empty.medianTtftMs, empty.passRate], [null, null]);
   assert.throws(() => query.runSummary(''), /run id/);
 });
 
@@ -531,4 +535,38 @@ test('runs: filters by source, provider, model and run-id text', (t) => {
   assert.deepStrictEqual(query.runs({ providerId: ['p2'] }, null, 50).rows.map((r) => r.run_id), ['BBB2']);
   assert.deepStrictEqual(query.runs({ model: 'm1' }, null, 50).rows.map((r) => r.run_id), ['AAA1']);
   assert.deepStrictEqual(query.runs({ text: 'BBB' }, null, 50).rows.map((r) => r.run_id), ['BBB2']);
+});
+
+test('runSummary: median TTFT counts streaming rows only', (t) => {
+  const { query } = setup(t, [
+    logRow({ created_at: T0 + 1, run_id: 'R', status: 'ok', is_stream: 1, ttft_ms: 100, http_status: 200 }),
+    logRow({ created_at: T0 + 2, run_id: 'R', status: 'ok', is_stream: 1, ttft_ms: 300, http_status: 200 }),
+    logRow({ created_at: T0 + 3, run_id: 'R', status: 'ok', is_stream: 1, ttft_ms: 500, http_status: 200 }),
+    // A non-stream row has no TTFT and must not be counted as zero.
+    logRow({ created_at: T0 + 4, run_id: 'R', status: 'ok', is_stream: 0, ttft_ms: null, http_status: 200 }),
+  ]);
+  assert.strictEqual(query.runSummary('R').medianTtftMs, 300);
+});
+
+test('runSummary: pass rate excludes cancelled and blocked, matching okPct', (t) => {
+  const { query } = setup(t, [
+    logRow({ created_at: T0 + 1, run_id: 'R', status: 'ok', http_status: 200 }),
+    logRow({ created_at: T0 + 2, run_id: 'R', status: 'ok', http_status: 200 }),
+    logRow({ created_at: T0 + 3, run_id: 'R', status: 'error', error_class: 'server', http_status: 500 }),
+    logRow({ created_at: T0 + 4, run_id: 'R', status: 'cancelled' }),
+    logRow({ created_at: T0 + 5, run_id: 'R', status: 'error', error_class: 'blocked' }),
+  ]);
+  // 5 rows, minus 1 cancelled and 1 blocked, leaves 3 attempted, 2 of them ok.
+  assert.strictEqual(query.runSummary('R').passRate, 2 / 3);
+});
+
+// Review Focus 3: nothing was attempted, so there is no rate to report.
+test('runSummary: pass rate is null when every request was cancelled', (t) => {
+  const { query } = setup(t, [
+    logRow({ created_at: T0 + 1, run_id: 'R', status: 'cancelled' }),
+    logRow({ created_at: T0 + 2, run_id: 'R', status: 'cancelled' }),
+  ]);
+  const s = query.runSummary('R');
+  assert.strictEqual(s.passRate, null);
+  assert.strictEqual(s.medianTtftMs, null);
 });

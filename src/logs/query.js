@@ -167,6 +167,7 @@ function summarizeRun(runId, rows) {
   const models = new Set();
   const providers = new Set();
   const latencies = [];
+  const ttfts = [];
   rows.forEach((r) => {
     if (r.status === 'ok') ok += 1;
     else if (r.status === 'cancelled') cancelled += 1;
@@ -176,7 +177,11 @@ function summarizeRun(runId, rows) {
     if (Number.isFinite(r.cost_micros)) cost = (cost || 0) + r.cost_micros;
     const answered = (r.status === 'ok' || r.status === 'error') && Number.isInteger(r.http_status) && r.error_class !== 'network';
     if (answered && Number.isFinite(r.latency_ms)) latencies.push(r.latency_ms);
+    // A non-stream request has no first token to wait for; counting it as
+    // zero would drag the median toward nothing.
+    if (r.is_stream && Number.isFinite(r.ttft_ms)) ttfts.push(r.ttft_ms);
   });
+  const attempted = rows.length - cancelled - errorsByClass.blocked;
   return {
     runId,
     count: rows.length,
@@ -189,6 +194,12 @@ function summarizeRun(runId, rows) {
     firstAt: rows.length ? rows[0].created_at : null,
     lastAt: rows.length ? rows[rows.length - 1].created_at : null,
     medianLatencyMs: median(latencies),
+    medianTtftMs: median(ttfts),
+    // The same denominator summarize() uses for okPct: requests minus the
+    // ones that never got to try. Leaving blocked in would give the app two
+    // different pass rates for the same traffic — one here, one on
+    // Monitoring.
+    passRate: attempted > 0 ? ok / attempted : null,
   };
 }
 
@@ -444,7 +455,7 @@ function createQuery(db, { file = null, meta, droppedRows = () => 0 } = {}) {
 
   function runSummary(runId) {
     if (!nonEmpty(runId)) throw new TypeError('A run id is needed');
-    const rows = stmt(`SELECT created_at, status, error_class, model_requested, provider_id, cost_micros, latency_ms, http_status
+    const rows = stmt(`SELECT created_at, status, error_class, model_requested, provider_id, cost_micros, latency_ms, http_status, ttft_ms, is_stream
       FROM request_logs WHERE run_id = ? ORDER BY created_at, id`).all(runId);
     return summarizeRun(runId, rows);
   }
