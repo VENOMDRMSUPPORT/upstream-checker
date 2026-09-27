@@ -67,6 +67,7 @@
     }
     if (state.tab === 'runs') await renderRuns();
     else await renderRequests();
+    syncTail();
   }
 
   async function renderMonitor(note) {
@@ -277,7 +278,7 @@
       // wrong shape, which would quietly restart the list at page one.
       state.cursor = null;
       state.rows = [];
-      renderRequests();
+      renderRequests().then(syncTail);
       return;
     }
     // "Show more" belongs to whichever tab drew it. Calling renderRequests()
@@ -446,9 +447,56 @@
     if (chainItem && !chainItem.classList.contains('current')) openDrawer(Number(chainItem.dataset.id));
   });
 
-  // Replaced by the live tail. It exists now because opening and closing the
-  // drawer already has to tell the tail to stop and start.
-  function syncTail() {}
+  // ---- the live tail ---------------------------------------------------
+
+  // Only on Requests, only in time order, only while the page is on screen
+  // and the window focused. A tail is polled by afterId and never by
+  // nextCursor: the cursor orders by created_at, so a request logged a
+  // millisecond out of clock order would be skipped for good.
+  const TAIL_MS = 2000;
+  let tailTimer = null;
+
+  function tailWanted() {
+    const page = document.querySelector('.shell-page[data-page="history"]');
+    const drawer = el('log-drawer');
+    return !!(state.info && state.info.enabled)
+      && state.tab === 'requests'
+      && state.sort === 'time'
+      && !state.filters.runId          // a finished run does not grow
+      && !document.hidden
+      && document.hasFocus()
+      && !!page && !page.hidden
+      && !!drawer && drawer.hidden;
+  }
+
+  function syncTail() {
+    const want = tailWanted();
+    if (want && !tailTimer) tailTimer = setInterval(pollTail, TAIL_MS);
+    if (!want && tailTimer) {
+      clearInterval(tailTimer);
+      tailTimer = null;
+    }
+  }
+
+  async function pollTail() {
+    if (!state.rows.length) return;
+    const highest = state.rows.reduce((max, r) => (r.id > max ? r.id : max), 0);
+    if (!highest) return;
+    let page;
+    try {
+      // queryFilters() is recomputed each tick, so `from` slides with the
+      // clock — which is what a tail wants.
+      page = await window.electronAPI.logsList({ ...queryFilters(), afterId: highest }, null, 50);
+    } catch {
+      return;   // a failed poll is not worth a banner; the next one may work
+    }
+    if (!page.rows.length) return;
+    state.rows = page.rows.concat(state.rows);
+    renderRequestRows();
+  }
+
+  ['visibilitychange'].forEach((ev) => document.addEventListener(ev, syncTail));
+  ['focus', 'blur'].forEach((ev) => window.addEventListener(ev, syncTail));
 
   // ---- the runs table --------------------------------------------------
 
