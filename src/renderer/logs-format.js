@@ -67,12 +67,20 @@ function formatTokens(n) {
   return n.toLocaleString('en-US');
 }
 
+// Both halves are local. Taking the date from toISOString() while the time
+// came from toTimeString() showed yesterday's date beside today's time for
+// every row logged between midnight and the UTC offset — and disagreed with
+// localDay() in query.js, which buckets the day charts.
+function logPad(n) {
+  return String(n).padStart(2, '0');
+}
+
 function formatWhen(ms, now = Date.now()) {
   if (!Number.isFinite(ms)) return '—';
   const d = new Date(ms);
-  const time = d.toTimeString().slice(0, 8);
-  const sameDay = new Date(now).toDateString() === d.toDateString();
-  return sameDay ? time : `${d.toISOString().slice(0, 10)} ${time}`;
+  const time = `${logPad(d.getHours())}:${logPad(d.getMinutes())}:${logPad(d.getSeconds())}`;
+  if (new Date(now).toDateString() === d.toDateString()) return time;
+  return `${d.getFullYear()}-${logPad(d.getMonth() + 1)}-${logPad(d.getDate())} ${time}`;
 }
 
 // pass = it worked; warn = the provider said no for a reason that is not a

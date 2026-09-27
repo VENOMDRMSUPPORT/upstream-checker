@@ -570,3 +570,34 @@ test('runSummary: pass rate is null when every request was cancelled', (t) => {
   assert.strictEqual(s.passRate, null);
   assert.strictEqual(s.medianTtftMs, null);
 });
+
+// Found by the whole-branch review: the Runs table computed its pass rate from
+// requests and cancelled alone, while runSummary excludes blocked too. A run
+// whose every request was blocked showed "0% passed" in the table and "—" the
+// moment it was expanded — a rate reported as fact for traffic nobody tried.
+test('runs: counts blocked separately, so a caller can match summarize()\'s attempted', (t) => {
+  const { query } = setup(t, [
+    logRow({ created_at: T0 + 1, run_id: 'R', status: 'ok', http_status: 200 }),
+    logRow({ created_at: T0 + 2, run_id: 'R', status: 'error', error_class: 'blocked' }),
+    logRow({ created_at: T0 + 3, run_id: 'R', status: 'cancelled' }),
+  ]);
+  const row = query.runs({}, null, 50).rows[0];
+  assert.strictEqual(row.requests, 3);
+  assert.strictEqual(row.ok, 1);
+  assert.strictEqual(row.cancelled, 1);
+  assert.strictEqual(row.blocked, 1);
+  // requests - cancelled - blocked === 1 attempted, 1 of them ok: the same
+  // pass rate runSummary reports for the same run.
+  const attempted = row.requests - row.cancelled - row.blocked;
+  assert.strictEqual(row.ok / attempted, query.runSummary('R').passRate);
+});
+
+test('runs: a run in which everything was blocked has no attempts to rate', (t) => {
+  const { query } = setup(t, [
+    logRow({ created_at: T0 + 1, run_id: 'R', status: 'error', error_class: 'blocked' }),
+    logRow({ created_at: T0 + 2, run_id: 'R', status: 'error', error_class: 'blocked' }),
+  ]);
+  const row = query.runs({}, null, 50).rows[0];
+  assert.strictEqual(row.requests - row.cancelled - row.blocked, 0);
+  assert.strictEqual(query.runSummary('R').passRate, null);
+});

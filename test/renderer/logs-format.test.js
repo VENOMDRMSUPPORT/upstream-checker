@@ -112,3 +112,28 @@ test('toViewModel: a row becomes the cells the table renders', () => {
   assert.strictEqual(vm.tone, 'fail');
   assert.strictEqual(vm.hasBody, true);
 });
+
+// Found by the whole-branch review: the date came from toISOString (UTC) while
+// the time came from toTimeString (local), so every row logged between
+// midnight and the UTC offset showed yesterday's date beside today's time.
+// query.js's localDay() is local, so the two calendars disagreed.
+test('formatWhen: the date is the local date, not the UTC one', () => {
+  // 00:30 on the 27th in a UTC+3 zone is still the 26th in UTC.
+  const atLocalMidnightish = new Date(2026, 8, 27, 0, 30, 0).getTime();
+  const twoDaysLater = new Date(2026, 8, 29, 12, 0, 0).getTime();
+  const shown = F.formatWhen(atLocalMidnightish, twoDaysLater);
+  const d = new Date(atLocalMidnightish);
+  const pad = (n) => String(n).padStart(2, '0');
+  const localDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  assert.ok(shown.startsWith(localDate), `${shown} must start with the local date ${localDate}`);
+  assert.ok(shown.endsWith('00:30:00'), shown);
+});
+
+test('formatWhen: today is a bare time, another day carries its date', () => {
+  const now = new Date(2026, 8, 27, 15, 0, 0).getTime();
+  const earlierToday = new Date(2026, 8, 27, 9, 5, 4).getTime();
+  const yesterday = new Date(2026, 8, 26, 9, 5, 4).getTime();
+  assert.strictEqual(F.formatWhen(earlierToday, now), '09:05:04');
+  assert.strictEqual(F.formatWhen(yesterday, now), '2026-09-26 09:05:04');
+  assert.strictEqual(F.formatWhen(null, now), '—');
+});

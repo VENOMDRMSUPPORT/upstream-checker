@@ -27,6 +27,9 @@
   };
 
   const el = (id) => document.getElementById(id);
+  const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)');
+  // The element the drawer was opened from, so focus goes back where it was.
+  let drawerOpener = null;
 
   // The existing route grammar, unchanged: #/history/requests. No new parser,
   // no pushState, no popstate — the hash is a deep link restored on reload,
@@ -63,6 +66,7 @@
     if (!state.info.enabled) {
       el('log-filters').innerHTML = '';
       el('log-body').innerHTML = loggingOffMarkup();
+      syncTail();
       return;
     }
     if (state.tab === 'runs') await renderRuns();
@@ -132,8 +136,32 @@
 
   const RANGE_LABELS = { '24h': 'Last 24 hours', '7d': 'Last 7 days', '30d': 'Last 30 days' };
 
-  function renderFilters(facets) {
+  // Rewriting the whole bar while someone is typing in it replaces the input
+  // under their cursor: the focus goes to the body and every keystroke after
+  // the debounce is lost. The bar is only rebuilt when its options actually
+  // change, and the caret is put back when it is.
+  function renderFilters(facets, { keepFocus = true } = {}) {
+    const active = document.activeElement;
+    const host = el('log-filters');
+    const restore = keepFocus && active && host && host.contains(active) && active.id
+      ? { id: active.id, start: active.selectionStart, end: active.selectionEnd }
+      : null;
+    buildFilters(facets);
+    if (!restore) return;
+    const back = el(restore.id);
+    if (!back) return;
+    back.focus();
+    if (restore.start !== null && restore.start !== undefined && back.setSelectionRange) {
+      try { back.setSelectionRange(restore.start, restore.end); } catch { /* not a text input */ }
+    }
+  }
+
+  function buildFilters(facets) {
     const opt = (v, label, sel) => `<option value="${logEscape(v)}"${String(sel) === String(v) ? ' selected' : ''}>${logEscape(label)}</option>`;
+    // A run listing groups rows, so a row filter such as status would corrupt
+    // its counters — query.js ignores it. Showing a control that does nothing
+    // is worse than not showing it. Export writes requests, not runs.
+    const runsTab = state.tab === 'runs';
     const chip = state.filters.runId
       ? `<span class="log-chip">Run ${logEscape(state.filters.runId)}<button class="log-chip-x" type="button" id="log-clear-run" aria-label="Clear the run filter">&times;</button></span>`
       : '';
@@ -153,13 +181,13 @@
         ${opt('', 'Every source', state.filters.source[0] || '')}
         ${facets.sources.map((s) => opt(s, s, state.filters.source[0] || '')).join('')}
       </select>
-      <select class="prompt-input narrow" id="log-status">
+      ${runsTab ? '' : `<select class="prompt-input narrow" id="log-status">
         ${opt('', 'Any outcome', state.filters.status[0] || '')}
-        ${['ok', 'error', 'cancelled'].map((s) => opt(s, s, state.filters.status[0] || '')).join('')}
-      </select>
-      <input class="prompt-input" id="log-text" placeholder="Search id, run or error" value="${logEscape(state.filters.text)}">
+        ${['ok', 'error', 'cancelled'].map((v) => opt(v, v, state.filters.status[0] || '')).join('')}
+      </select>`}
+      <input class="prompt-input" id="log-text" placeholder="${runsTab ? 'Search run id' : 'Search id, run or error'}" value="${logEscape(state.filters.text)}">
       ${chip}
-      <button class="btn btn-ghost" type="button" id="log-export">Export CSV</button>`;
+      ${runsTab ? '' : '<button class="btn btn-ghost" type="button" id="log-export">Export CSV</button>'}`;
   }
 
   function reload() {
@@ -305,7 +333,7 @@
       return;
     }
     const row = e.target.closest('.log-row');
-    if (row) openDrawer(Number(row.dataset.id));
+    if (row) openDrawer(Number(row.dataset.id), row);
   });
 
   async function exportCurrent() {
@@ -333,9 +361,21 @@
   // singleton whose ids and handlers belong to key usage; only its generic
   // .ku-drawer / .ku-scrim / .ku-panel CSS is shared. Nothing in
   // key-usage.js is touched.
+  // The shared CSS slides .ku-panel in on the `open` class and leaves it at
+  // translateX(100%) without it. Clearing `hidden` alone left the panel off
+  // screen behind a transparent scrim that swallowed the next click: the
+  // drawer was never actually visible. key-usage.js:317 does the same two
+  // steps.
   function closeDrawer() {
-    el('log-drawer').hidden = true;
+    const drawer = el('log-drawer');
+    if (!drawer || drawer.hidden) return;
+    drawer.classList.remove('open');
+    const done = () => { drawer.hidden = true; };
+    if (REDUCED_MOTION.matches) done();
+    else setTimeout(done, 200);
     document.removeEventListener('keydown', onDrawerKey);
+    if (drawerOpener && document.contains(drawerOpener)) drawerOpener.focus();
+    drawerOpener = null;
     syncTail();
   }
 
@@ -343,11 +383,17 @@
     if (e.key === 'Escape') closeDrawer();
   }
 
-  async function openDrawer(id) {
+  async function openDrawer(id, opener = null) {
     const drawer = el('log-drawer');
     const body = el('log-drawer-body');
     body.innerHTML = '<p class="log-empty-detail">Loading…</p>';
+    if (drawer.hidden) drawerOpener = opener || document.activeElement;
     drawer.hidden = false;
+    // The class has to land on a later frame than `hidden`, or the browser
+    // has nothing to transition from.
+    requestAnimationFrame(() => drawer.classList.add('open'));
+    const close = el('log-drawer-close');
+    if (close) close.focus();
     document.addEventListener('keydown', onDrawerKey);
     syncTail();
     let row;
@@ -524,7 +570,11 @@
     const body = state.rows.map((r) => {
       // The table shows the average latency, which is what the SQL can
       // produce; the expanded row shows the true median from the run summary.
-      const attempted = r.requests - (r.cancelled || 0);
+      //
+      // The denominator is the same `attempted` summarizeRun() uses —
+      // requests minus cancelled minus blocked — so the rate here and the one
+      // in the expanded row can never disagree.
+      const attempted = r.requests - (r.cancelled || 0) - (r.blocked || 0);
       const rate = attempted > 0 ? r.ok / attempted : null;
       return `<tr class="log-run" data-run="${logEscape(r.run_id)}">
         <td>${formatWhen(r.started_at)}</td>
@@ -544,6 +594,10 @@
   }
 
   async function expandRun(tr, runId) {
+    // runs() clips its counters to the range; runSummary() reads the whole
+    // run. When the two differ the reader is told, rather than left to
+    // wonder which number is wrong.
+    const listed = state.rows.find((r) => r.run_id === runId);
     const existing = tr.nextElementSibling;
     if (existing && existing.classList.contains('log-run-detail')) { existing.remove(); return; }
     const cells = tr.children.length;
@@ -556,10 +610,12 @@
       host.textContent = `That run could not be read: ${err && err.message ? err.message : err}`;
       return;
     }
+    const clipped = !!listed && listed.requests !== s.count;
     const errors = Object.entries(s.errorsByClass).filter(([, n]) => n > 0)
       .map(([cls, n]) => `${logEscape(cls)} ${n}`).join(' · ') || 'none';
     host.innerHTML = `<div class="log-detail">
       ${field('Requests', `${s.count} · ${s.ok} passed · ${s.cancelled} cancelled`)}
+      ${clipped ? field('', '<span class="log-note">The row above counts the whole run; the table counts only the part inside the chosen range.</span>') : ''}
       ${field('Pass rate', passRateText(s.passRate))}
       ${field('Median latency', formatDuration(s.medianLatencyMs))}
       ${field('Median first token', formatDuration(s.medianTtftMs))}
@@ -627,7 +683,14 @@
     if (!t || !t.id || !el('monitor-filters') || !el('monitor-filters').contains(t)) return;
     let note = '';
     if (t.id === 'monitor-range') state.monitor.range = t.value;
-    else if (t.id === 'monitor-bucket') state.monitor.bucket = t.value;
+    else if (t.id === 'monitor-bucket') {
+      state.monitor.bucket = t.value;
+      // A day bucket over 24 hours is one point, which reads as broken.
+      if (t.value === 'day' && state.monitor.range === '24h') {
+        state.monitor.range = '30d';
+        note = 'Daily charts start at 30 days.';
+      }
+    }
     else if (t.id === 'monitor-group') {
       state.monitor.groupBy = t.value;
       // A long range with a grouping is the slow combination; fall back and
@@ -662,9 +725,36 @@
       ? `${totalsMarkup(stats.totals)}
          ${chartMarkup('Errors by class', stats.series, (p) => p.count)}`
       : `${totalsMarkup(stats.totals)}
-         ${chartMarkup('Requests', stats.series, (p) => p.requests)}
-         ${chartMarkup('Average latency', stats.series, (p) => p.avgLatencyMs)}
+         ${requestsChart(stats.series)}
+         ${latencyChart(stats.series)}
          ${chartMarkup('Cost', stats.series, (p) => (p.costMicros || 0) / 1e6)}`;
+  }
+
+  // The spec asks for requests split into what worked and what did not, and
+  // for latency beside its approximate p95. Both are two series over the same
+  // buckets, so they are built by pairing the one series chartMarkup draws.
+  function pairSeries(series, aPick, bPick, aName, bName) {
+    return series.flatMap((p) => ([
+      { bucket: p.bucket, group: aName, value: aPick(p) },
+      { bucket: p.bucket, group: bName, value: bPick(p) },
+    ]));
+  }
+
+  function requestsChart(series) {
+    // A grouped range already uses `group` for the grouping, so the split is
+    // only drawn when nothing else is grouped.
+    if (state.monitor.groupBy !== 'none') return chartMarkup('Requests', series, (p) => p.requests);
+    const paired = pairSeries(series,
+      (p) => p.ok || 0,
+      (p) => Math.max(0, (p.requests || 0) - (p.ok || 0) - (p.cancelled || 0) - (p.blocked || 0)),
+      'passed', 'failed');
+    return chartMarkup('Requests', paired, (p) => p.value);
+  }
+
+  function latencyChart(series) {
+    if (state.monitor.groupBy !== 'none') return chartMarkup('Average latency', series, (p) => p.avgLatencyMs);
+    const paired = pairSeries(series, (p) => p.avgLatencyMs || 0, (p) => p.p95LatencyMs || 0, 'average', 'p95');
+    return chartMarkup('Latency', paired, (p) => p.value);
   }
 
   function totalsMarkup(t) {
@@ -674,7 +764,7 @@
       ${tile('Passed', passRateText(Number.isFinite(t.okPct) ? t.okPct / 100 : null))}
       ${tile('Average latency', formatDuration(t.avgLatencyMs))}
       ${tile('p95 latency', formatDuration(t.p95LatencyMs))}
-      ${tile('Tokens', formatTokens(t.tokens))}
+      ${tile('Tokens', formatTokens((t.inputTokens || 0) + (t.outputTokens || 0)))}
       ${tile('Cost', formatCost(t.costMicros))}
     </div>`;
   }
@@ -683,15 +773,24 @@
   // draw their series. No charting dependency is added.
   function chartMarkup(title, series, pick) {
     const groups = new Map();
+    // normalizeProvider only means anything when the grouping IS the
+    // provider; a model id of '' is not an unknown provider.
+    const byProvider = state.monitor.groupBy === 'provider';
     series.forEach((p) => {
-      const key = p.group === undefined || p.group === null ? 'all' : normalizeProvider(p.group);
+      let key;
+      if (p.group === undefined || p.group === null) key = 'all';
+      else if (byProvider) key = normalizeProvider(p.group);
+      else key = p.group === '' ? 'unknown' : p.group;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push([p.bucket, Number(pick(p)) || 0]);
     });
     const all = [...groups.values()].flat();
     const max = Math.max(1, ...all.map(([, v]) => v));
     const buckets = [...new Set(all.map(([b]) => b))].sort((a, b) => (a > b ? 1 : -1));
-    const x = (b) => (buckets.indexOf(b) / Math.max(1, buckets.length - 1)) * 100;
+    // A Map, not indexOf: a 12-month hourly range is ~8760 buckets, and one
+    // linear scan per point is 38 million comparisons on the main thread.
+    const at = new Map(buckets.map((b, i) => [b, i]));
+    const x = (b) => (at.get(b) / Math.max(1, buckets.length - 1)) * 100;
     const y = (v) => 40 - (v / max) * 38;
     const lines = [...groups.entries()].map(([, pts], i) => {
       const sorted = pts.slice().sort((a, b) => (a[0] > b[0] ? 1 : -1));
@@ -702,8 +801,13 @@
       const d = sorted.map(([b, v]) => `${x(b).toFixed(2)},${y(v).toFixed(2)}`).join(' ');
       return `<polyline class="log-series s${i % 6}" points="${d}" fill="none" stroke="currentColor" stroke-width="0.6"/>`;
     }).join('');
-    const legend = groups.size > 1
-      ? `<ul class="log-legend">${[...groups.keys()].map((k, i) => `<li class="log-series s${i % 6}">${k === 'unknown' ? 'Unknown provider' : logEscape(k)}</li>`).join('')}</ul>`
+    // A single series still gets a legend when it is the unknown group: a
+    // chart of nothing but unlabelled traffic is the case Review Focus 5 is
+    // about.
+    const keys = [...groups.keys()];
+    const label = (k) => (k === 'unknown' ? (byProvider ? 'Unknown provider' : 'Unknown') : logEscape(k));
+    const legend = keys.length > 1 || keys[0] === 'unknown'
+      ? `<ul class="log-legend">${keys.map((k, i) => `<li class="log-series s${i % 6}">${label(k)}</li>`).join('')}</ul>`
       : '';
     return `<section class="log-chart"><h4>${title}</h4>
       <svg viewBox="0 0 100 42" preserveAspectRatio="none" role="img" aria-label="${title}">${lines}</svg>
@@ -789,5 +893,5 @@
   // `tab` is what syncRoute reads to build #/history/<sub>. Without it the
   // app would append the string "undefined" to the hash. `health` is called
   // by app.js when the Logs settings section opens.
-  window.LOGS = { render, renderMonitor, tab: () => state.tab, health: renderHealth };
+  window.LOGS = { render, renderMonitor, tab: () => state.tab, health: renderHealth, sync: syncTail };
 }());

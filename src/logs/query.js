@@ -440,6 +440,11 @@ function createQuery(db, { file = null, meta, droppedRows = () => 0 } = {}) {
         COUNT(*) AS requests,
         SUM(status = 'ok') AS ok,
         SUM(status = 'cancelled') AS cancelled,
+        -- Blocked is counted apart from ok and cancelled so a caller can use
+        -- the same attempted denominator summarize() and summarizeRun() use:
+        -- requests minus cancelled minus blocked. Without it the runs table
+        -- and the run summary report two different pass rates for one run.
+        SUM(error_class = 'blocked') AS blocked,
         SUM(cost_micros) AS cost_micros,
         AVG(latency_ms) AS avg_latency_ms,
         COUNT(DISTINCT model_requested) AS models,

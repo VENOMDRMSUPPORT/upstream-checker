@@ -353,14 +353,26 @@ async function checkRequestsPageAndDrawer({ app }) {
       const d = document.getElementById('log-drawer');
       return d && !d.hidden && !document.getElementById('log-drawer-body').textContent.includes('Loading');
     }, 15000);
+    // Not hidden is not the same as on screen. The shared drawer CSS parks
+    // .ku-panel at translateX(100%) until the open class lands, so a drawer
+    // that only cleared its hidden attribute sat off screen behind an
+    // invisible scrim that ate the next click. Measure the panel, not text.
+    await new Promise((r) => setTimeout(r, 400));
+    const panel = document.querySelector('#log-drawer .ku-panel');
+    const box = panel ? panel.getBoundingClientRect() : { left: 0, right: 0, width: 0 };
+    const onScreen = box.width > 200 && box.right <= window.innerWidth + 1 && box.left < window.innerWidth;
+    const focused = document.activeElement && document.activeElement.id === 'log-drawer-close';
     const body = document.getElementById('log-drawer-body').textContent;
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     await wait(() => document.getElementById('log-drawer').hidden, 5000);
-    return { filtered, chip, tab, opened, body, closed: document.getElementById('log-drawer').hidden };
+    return { filtered, chip, tab, opened, body, onScreen, focused, box: { left: box.left, right: box.right, width: box.width }, vw: window.innerWidth, closed: document.getElementById('log-drawer').hidden };
   })()`, 60000);
   check("seeing a run's requests switches to the Requests tab", s.tab === 'requests', s.tab);
   check('the list is filtered to that run, with a chip naming it', s.filtered && /^Run\s+\S+/.test(s.chip), s.chip);
   check('a failed request opens in the drawer', s.opened, s.body.slice(0, 80));
+  check('the drawer panel is actually on screen, not parked off the right edge',
+    s.onScreen, `panel ${JSON.stringify(s.box)} in a ${s.vw}px window`);
+  check('focus moves into the drawer', s.focused);
   check('the drawer shows the outcome, the endpoint and the stored bodies',
     s.body.includes('Outcome') && s.body.includes('Endpoint') && s.body.includes('Response'), s.body.slice(0, 120));
   check('the drawer shows the placeholder and never the key',

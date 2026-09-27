@@ -4420,6 +4420,9 @@ function showPage(page) {
   if (page === 'profiles' && window.PROFILES) window.PROFILES.render();
   if (page === 'history' && window.LOGS) window.LOGS.render();
   if (page === 'monitor' && window.LOGS) window.LOGS.renderMonitor();
+  // Leaving Test History has to stop its live tail; nothing else tells it the
+  // page is gone, and it would keep querying the log every two seconds.
+  if (page !== 'history' && window.LOGS) window.LOGS.sync();
   // The Providers page always opens on what is already connected.
   if (page === 'providers') {
     providersTab = 'connected';
