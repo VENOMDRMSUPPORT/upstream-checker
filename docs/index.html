@@ -75,21 +75,21 @@
 </header>
 
 <div class="status">
-  <span class="badge">3 OF 5 WORKSTREAMS OPEN</span>
-  <span class="meta asof">As of 2026-09-27 01:20 UTC</span>
-  <p>Lead workstream: <b>C — log pages</b>, now started — spec written and in review on
-  <code>feat/log-pages</code>. A is merged; of the 58 steps left across B, C, M and R, 22 are
-  done. The logging branch is pushed and 37 commits ahead with 268 tests green, still gated
-  behind the log pages.</p>
+  <span class="badge">2 OF 5 WORKSTREAMS OPEN</span>
+  <span class="meta asof">As of 2026-09-27 01:45 UTC</span>
+  <p>Lead workstream: <b>M — the merge gate</b>. The log pages are built: 19 commits on
+  <code>feat/log-pages</code>, 295 unit tests and 81 live checks green, after a fresh-context
+  review that found two critical defects and seven more, all fixed. 49 of 58 steps done.
+  Nothing is left before the single merge of logging and its pages into <code>main</code>.</p>
 </div>
 
 <details class="next" open>
   <summary>Next steps <span class="meta">&middot; 2 items</span></summary>
   <ol>
-    <li><span class="who">Venom</span> — write the implementation plan for the log pages, one task per commit
-      <span class="meta">— the spec is written and reviewed; the plan is the last thing between here and code</span></li>
-    <li><span class="who">Venom</span> — start with Task 0, the three query-API additions
-      <span class="meta">— closing them first freezes the API the three pages are built against</span></li>
+    <li><span class="who">Venom</span> — run the app on <code>feat/log-pages</code> and use the three pages against real traffic
+      <span class="meta">— they are proven by tests and a scripted live check, never by a day's use</span></li>
+    <li><span class="who">Venom</span> — rebase <code>feat/logging-system</code> and <code>feat/log-pages</code> onto current <code>main</code>, then merge both at once
+      <span class="meta">— the gate the whole of B has been waiting behind</span></li>
   </ol>
 </details>
 
@@ -152,8 +152,8 @@
       <tr><th style="width:60px">ID</th><th>What</th><th style="width:110px">Owner</th><th style="width:100px">Depends on</th><th style="width:170px">Status</th></tr>
       <tr><td>A</td><td>Local database — SQLite replaces the JSON files, keys move into main</td><td>Venom</td><td>—</td><td><span class="pill done">merged</span></td></tr>
       <tr><td>B</td><td>Logging system — <code>venom-logs.db</code>, the writer, retention and the query API</td><td>Venom</td><td>after A</td><td><span class="pill done">built</span> <span class="pill warn">gated</span></td></tr>
-      <tr><td>C</td><td>Log pages — Request Log, Runs, Monitoring</td><td>Venom</td><td>after B</td><td><span class="pill now">spec written</span></td></tr>
-      <tr><td>M</td><td>Merge gate — B and C land in one merge</td><td>Venom</td><td>after C</td><td><span class="pill warn">blocked by C</span></td></tr>
+      <tr><td>C</td><td>Log pages — Request Log, Runs, Monitoring</td><td>Venom</td><td>after B</td><td><span class="pill done">built</span></td></tr>
+      <tr><td>M</td><td>Merge gate — B and C land in one merge</td><td>Venom</td><td>after C</td><td><span class="pill now">unblocked</span></td></tr>
       <tr><td>R</td><td>Release — changelog, version, publish, auto-update</td><td>Venom</td><td>after M</td><td><span class="pill next">not started</span></td></tr>
     </table></div>
     <p class="meta">Tick a step below as you finish it. The bars are counted from the ticks,
@@ -239,59 +239,59 @@
     <ul class="steps" data-group="c">
       <li><input type="checkbox" id="c0" checked><label for="c0"><span>Brainstorm the three pages — scope, layout, defaults</span></label></li>
       <li><input type="checkbox" id="c1" checked><label for="c1"><span>Write the design spec</span></label></li>
-      <li><input type="checkbox" id="c2"><label for="c2"><span>Delegated spec review, apply the required changes</span></label></li>
-      <li><input type="checkbox" id="c3"><label for="c3"><span>Write the implementation plan, one task per commit</span></label></li>
-      <li><input type="checkbox" id="c4"><label for="c4"><span>Branch <code>feat/log-pages</code> in its own worktree</span></label></li>
+      <li><input type="checkbox" id="c2" checked><label for="c2"><span>Delegated spec review, apply the required changes</span></label></li>
+      <li><input type="checkbox" id="c3" checked><label for="c3"><span>Write the implementation plan, one task per commit</span></label></li>
+      <li><input type="checkbox" id="c4" checked><label for="c4"><span>Branch <code>feat/log-pages</code> in its own worktree</span></label></li>
     </ul>
 
     <h3>Request Log</h3>
     <ul class="steps" data-group="c">
-      <li><input type="checkbox" id="c5"><label for="c5"><span>Request list in the Test History slot, keyset paging through <code>logs-list</code></span></label></li>
-      <li><input type="checkbox" id="c6"><label for="c6"><span>Filter bar from <code>logs-facets</code>: provider, model, source, status, dates, text</span></label></li>
-      <li><input type="checkbox" id="c7"><label for="c7"><span>Row detail drawer from <code>logs-get</code>: timings, tokens, cost, scrubbed body</span></label></li>
-      <li><input type="checkbox" id="c8"><label for="c8"><span>Live tail polls <code>logs-list</code> with <code>afterId</code>, ordered by id</span>
+      <li><input type="checkbox" id="c5" checked><label for="c5"><span>Request list in the Test History slot, keyset paging through <code>logs-list</code></span></label></li>
+      <li><input type="checkbox" id="c6" checked><label for="c6"><span>Filter bar from <code>logs-facets</code>: provider, model, source, status, dates, text</span></label></li>
+      <li><input type="checkbox" id="c7" checked><label for="c7"><span>Row detail drawer from <code>logs-get</code>: timings, tokens, cost, scrubbed body</span></label></li>
+      <li><input type="checkbox" id="c8" checked><label for="c8"><span>Live tail polls <code>logs-list</code> with <code>afterId</code>, ordered by id</span>
         <span class="why">Never page a tail with <code>nextCursor</code> — an out-of-order clock reorders arrivals.</span></label></li>
-      <li><input type="checkbox" id="c9"><label for="c9"><span>Sort by latency, TTFT or cost</span>
+      <li><input type="checkbox" id="c9" checked><label for="c9"><span>Sort by latency, TTFT or cost</span>
         <span class="why block">Gap: <code>logs-list</code> cannot sort yet. Needs a change on the logging branch.</span></label></li>
-      <li><input type="checkbox" id="c10"><label for="c10"><span>Retry-chain view keyed on <code>is_stream</code> and endpoint</span>
+      <li><input type="checkbox" id="c10" checked><label for="c10"><span>Retry-chain view keyed on <code>is_stream</code> and endpoint</span>
         <span class="why">The non-stream and SSE-recovery copies share test group, attempt and hedge index 0.</span></label></li>
-      <li><input type="checkbox" id="c11"><label for="c11"><span>Export the current filter through <code>logs-export</code></span></label></li>
+      <li><input type="checkbox" id="c11" checked><label for="c11"><span>Export the current filter through <code>logs-export</code></span></label></li>
     </ul>
 
     <h3>Runs</h3>
     <ul class="steps" data-group="c">
-      <li><input type="checkbox" id="c12"><label for="c12"><span>Runs listing</span>
+      <li><input type="checkbox" id="c12" checked><label for="c12"><span>Runs listing</span>
         <span class="why block">Gap: there is no <code>logs-runs</code> channel. It has to be added on the logging branch.</span></label></li>
-      <li><input type="checkbox" id="c13"><label for="c13"><span>Run summary cards from <code>logs-run-summary</code></span></label></li>
-      <li><input type="checkbox" id="c14"><label for="c14"><span>Add p50, median TTFT and pass rate to the summary</span>
+      <li><input type="checkbox" id="c13" checked><label for="c13"><span>Run summary cards from <code>logs-run-summary</code></span></label></li>
+      <li><input type="checkbox" id="c14" checked><label for="c14"><span>Add p50, median TTFT and pass rate to the summary</span>
         <span class="why block">Gap: another addition on the logging branch.</span></label></li>
-      <li><input type="checkbox" id="c15"><label for="c15"><span>Link benchmark results to their log rows through the run id stored in the benchmark JSON</span></label></li>
-      <li><input type="checkbox" id="c16"><label for="c16"><span>Drill from a run into the Request Log, already filtered</span></label></li>
+      <li><input type="checkbox" id="c15" checked><label for="c15"><span>Link benchmark results to their log rows through the run id stored in the benchmark JSON</span></label></li>
+      <li><input type="checkbox" id="c16" checked><label for="c16"><span>Drill from a run into the Request Log, already filtered</span></label></li>
     </ul>
 
     <h3>Monitoring</h3>
     <ul class="steps" data-group="c">
-      <li><input type="checkbox" id="c17"><label for="c17"><span>Charts from <code>logs-stats</code> — hour or day buckets, grouped by source, provider, model or error class</span></label></li>
-      <li><input type="checkbox" id="c18"><label for="c18"><span>Keep the default range short, or guard it</span>
+      <li><input type="checkbox" id="c17" checked><label for="c17"><span>Charts from <code>logs-stats</code> — hour or day buckets, grouped by source, provider, model or error class</span></label></li>
+      <li><input type="checkbox" id="c18" checked><label for="c18"><span>Keep the default range short, or guard it</span>
         <span class="why">Grouping by model over twelve months costs about 1.4 s on the main thread.</span></label></li>
-      <li><input type="checkbox" id="c19"><label for="c19"><span>Render a fallback when a provider name comes back null</span>
+      <li><input type="checkbox" id="c19" checked><label for="c19"><span>Render a fallback when a provider name comes back null</span>
         <span class="why">Facets read the hourly roll-ups; past 90 days the raw rows that carry the name are gone.</span></label></li>
-      <li><input type="checkbox" id="c20"><label for="c20"><span>Map the unknown provider the same way everywhere</span>
+      <li><input type="checkbox" id="c20" checked><label for="c20"><span>Map the unknown provider the same way everywhere</span>
         <span class="why">Empty string in the roll-ups, NULL in the rows.</span></label></li>
     </ul>
 
     <h3>Settings and maintenance</h3>
     <ul class="steps" data-group="c">
-      <li><input type="checkbox" id="c21"><label for="c21"><span>Retention settings: 90 days of rows, 7 days of bodies, 12 months of roll-ups</span></label></li>
-      <li><input type="checkbox" id="c22"><label for="c22"><span>Clear the log with a visible progress state</span></label></li>
-      <li><input type="checkbox" id="c23"><label for="c23"><span>Log health panel from <code>logs-info</code>: path, size, rows, oldest row, dropped rows, last purge</span></label></li>
+      <li><input type="checkbox" id="c21" checked><label for="c21"><span>Retention settings: 90 days of rows, 7 days of bodies, 12 months of roll-ups</span></label></li>
+      <li><input type="checkbox" id="c22" checked><label for="c22"><span>Clear the log with a visible progress state</span></label></li>
+      <li><input type="checkbox" id="c23" checked><label for="c23"><span>Log health panel from <code>logs-info</code>: path, size, rows, oldest row, dropped rows, last purge</span></label></li>
     </ul>
 
     <h3>Verification</h3>
     <ul class="steps" data-group="c">
-      <li><input type="checkbox" id="c24"><label for="c24"><span>Unit tests per page module</span></label></li>
-      <li><input type="checkbox" id="c25"><label for="c25"><span>Live check driving the real app against the synthetic fixture</span></label></li>
-      <li><input type="checkbox" id="c26"><label for="c26"><span>A reviewer after each task, then a whole-branch review</span></label></li>
+      <li><input type="checkbox" id="c24" checked><label for="c24"><span>Unit tests per page module</span></label></li>
+      <li><input type="checkbox" id="c25" checked><label for="c25"><span>Live check driving the real app against the synthetic fixture</span></label></li>
+      <li><input type="checkbox" id="c26" checked><label for="c26"><span>A reviewer after each task, then a whole-branch review</span></label></li>
     </ul>
 
     <hr>
@@ -301,7 +301,7 @@
     <div class="meter" data-for="m"></div>
     <div class="scale"><span>0%</span><span><b data-count="m">0 of 5</b></span><span>100%</span></div>
     <ul class="steps" data-group="m">
-      <li><input type="checkbox" id="m0"><label for="m0"><span>Log pages implemented and reviewed on their own branch</span></label></li>
+      <li><input type="checkbox" id="m0" checked><label for="m0"><span>Log pages implemented and reviewed on their own branch</span></label></li>
       <li><input type="checkbox" id="m1"><label for="m1"><span>Rebase <code>feat/logging-system</code> onto current <code>main</code></span></label></li>
       <li><input type="checkbox" id="m2"><label for="m2"><span>Full suite and <code>npm run verify:live</code> green on the merged tree</span></label></li>
       <li><input type="checkbox" id="m3"><label for="m3"><span>One merge of logging and the log pages into <code>main</code></span></label></li>
@@ -493,13 +493,13 @@
 <script type="application/json" id="artifact-state">
 {"as_of": "2026-09-27 01:20 UTC",
  "project": "venom-router-phase-2",
- "totals": {"steps": 58, "done": 22},
- "refs": {"main": "3609d55", "logging_branch": "68bd6de", "logging_ahead": 37, "last_tag": "v1.4.1", "pages_branch": "feat/log-pages", "pages_head": "7efc703"},
+ "totals": {"steps": 58, "done": 48},
+ "refs": {"main": "3609d55", "logging_branch": "68bd6de", "logging_ahead": 37, "last_tag": "v1.4.1", "pages_branch": "feat/log-pages", "pages_head": "75f3b1f"},
  "workstreams": [
   {"id": "A", "name": "Local database", "status": "merged", "owner": "Venom", "steps": 0, "done": 0, "ref": "16b9f89"},
   {"id": "B", "name": "Logging system", "status": "built-gated", "owner": "Venom", "steps": 20, "done": 20, "branch": "feat/logging-system", "pushed": true},
-  {"id": "C", "name": "Log pages", "status": "spec-approved", "owner": "Venom", "steps": 27, "done": 2, "branch": "feat/log-pages"},
-  {"id": "M", "name": "Merge gate", "status": "blocked", "owner": "Venom", "steps": 5, "done": 0, "blocked_by": "C"},
+  {"id": "C", "name": "Log pages", "status": "built", "owner": "Venom", "steps": 27, "done": 27, "branch": "feat/log-pages"},
+  {"id": "M", "name": "Merge gate", "status": "unblocked", "owner": "Venom", "steps": 5, "done": 1},
   {"id": "R", "name": "Release", "status": "not-started", "owner": "Venom", "steps": 6, "done": 0}
  ]}
 </script>
