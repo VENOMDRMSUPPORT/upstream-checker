@@ -688,6 +688,7 @@ html, body {
   flex-shrink: 0;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   width: calc(100% + 32px);
   height: var(--shell-footer-height);
@@ -5172,8 +5173,22 @@ img[data-tone] { filter: var(--logo-tone, none); }
   color: var(--accent-text);
   box-shadow: 0 0 28px -8px color-mix(in srgb, var(--accent) 55%, transparent);
 }
+/* The empty state is a surface, not a hole in the page. Without a fill it was
+   the page's own --bg-0 inside a dashed outline, which read as nothing at all
+   on the light theme. One token does not serve both: --bg-1 is white against
+   a grey page in daylight but barely clears black in the dark theme, so the
+   dark canvas lifts to --bg-2 and daylight raises a white card instead. The
+   accent wash sits on top of whichever surface it lands on. */
 .dt-nomatch {
-  background: radial-gradient(360px 180px at 50% 0%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%);
+  background:
+    radial-gradient(360px 180px at 50% 0%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%),
+    var(--bg-2);
+}
+[data-theme="daylight"] .dt-nomatch {
+  background:
+    radial-gradient(360px 180px at 50% 0%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%),
+    var(--bg-1);
+  box-shadow: var(--shadow-md);
 }
 
 /* Stat cards: four across, then two by two — never three and an orphan. */
