@@ -75,21 +75,21 @@
 </header>
 
 <div class="status">
-  <span class="badge">2 OF 5 WORKSTREAMS OPEN</span>
-  <span class="meta asof">As of 2026-09-27 01:45 UTC</span>
-  <p>Lead workstream: <b>M — the merge gate</b>. The log pages are built: 19 commits on
-  <code>feat/log-pages</code>, 295 unit tests and 81 live checks green, after a fresh-context
-  review that found two critical defects and seven more, all fixed. 49 of 58 steps done.
-  Nothing is left before the single merge of logging and its pages into <code>main</code>.</p>
+  <span class="badge">1 OF 5 WORKSTREAMS OPEN</span>
+  <span class="meta asof">As of 2026-09-27 02:15 UTC</span>
+  <p>Lead workstream: <b>R — the release</b>. The gate is cleared: logging and its pages
+  landed on <code>main</code> in one merge (<code>283be27</code>), where 295 unit tests and 81
+  live checks are green. 53 of 58 steps done. What is left is a version: the changelog heading,
+  the bump, and <code>npm run release</code>.</p>
 </div>
 
 <details class="next" open>
   <summary>Next steps <span class="meta">&middot; 2 items</span></summary>
   <ol>
-    <li><span class="who">Venom</span> — run the app on <code>feat/log-pages</code> and use the three pages against real traffic
-      <span class="meta">— they are proven by tests and a scripted live check, never by a day's use</span></li>
-    <li><span class="who">Venom</span> — rebase <code>feat/logging-system</code> and <code>feat/log-pages</code> onto current <code>main</code>, then merge both at once
-      <span class="meta">— the gate the whole of B has been waiting behind</span></li>
+    <li><span class="who">Venom</span> — run <code>main</code> for a normal day against real providers and real keys
+      <span class="meta">— the live check has only ever seen a mock provider; the recorder sits on the request path</span></li>
+    <li><span class="who">Venom</span> — then cut the version: date the changelog heading, bump <code>package.json</code>, <code>npm run release</code>
+      <span class="meta">— the tag is the irreversible step, which is why the soak comes first</span></li>
   </ol>
 </details>
 
@@ -151,9 +151,9 @@
     <div class="scroll"><table>
       <tr><th style="width:60px">ID</th><th>What</th><th style="width:110px">Owner</th><th style="width:100px">Depends on</th><th style="width:170px">Status</th></tr>
       <tr><td>A</td><td>Local database — SQLite replaces the JSON files, keys move into main</td><td>Venom</td><td>—</td><td><span class="pill done">merged</span></td></tr>
-      <tr><td>B</td><td>Logging system — <code>venom-logs.db</code>, the writer, retention and the query API</td><td>Venom</td><td>after A</td><td><span class="pill done">built</span> <span class="pill warn">gated</span></td></tr>
-      <tr><td>C</td><td>Log pages — Request Log, Runs, Monitoring</td><td>Venom</td><td>after B</td><td><span class="pill done">built</span></td></tr>
-      <tr><td>M</td><td>Merge gate — B and C land in one merge</td><td>Venom</td><td>after C</td><td><span class="pill now">unblocked</span></td></tr>
+      <tr><td>B</td><td>Logging system — <code>venom-logs.db</code>, the writer, retention and the query API</td><td>Venom</td><td>after A</td><td><span class="pill done">merged</span></td></tr>
+      <tr><td>C</td><td>Log pages — Test History, Monitoring</td><td>Venom</td><td>after B</td><td><span class="pill done">merged</span></td></tr>
+      <tr><td>M</td><td>Merge gate — B and C land in one merge</td><td>Venom</td><td>after C</td><td><span class="pill done">done</span></td></tr>
       <tr><td>R</td><td>Release — changelog, version, publish, auto-update</td><td>Venom</td><td>after M</td><td><span class="pill next">not started</span></td></tr>
     </table></div>
     <p class="meta">Tick a step below as you finish it. The bars are counted from the ticks,
@@ -302,10 +302,10 @@
     <div class="scale"><span>0%</span><span><b data-count="m">0 of 5</b></span><span>100%</span></div>
     <ul class="steps" data-group="m">
       <li><input type="checkbox" id="m0" checked><label for="m0"><span>Log pages implemented and reviewed on their own branch</span></label></li>
-      <li><input type="checkbox" id="m1"><label for="m1"><span>Rebase <code>feat/logging-system</code> onto current <code>main</code></span></label></li>
-      <li><input type="checkbox" id="m2"><label for="m2"><span>Full suite and <code>npm run verify:live</code> green on the merged tree</span></label></li>
-      <li><input type="checkbox" id="m3"><label for="m3"><span>One merge of logging and the log pages into <code>main</code></span></label></li>
-      <li><input type="checkbox" id="m4"><label for="m4"><span>Remove the <code>venom-router-logging</code> worktree</span></label></li>
+      <li><input type="checkbox" id="m1" checked><label for="m1"><span>Rebase <code>feat/logging-system</code> onto current <code>main</code></span></label></li>
+      <li><input type="checkbox" id="m2" checked><label for="m2"><span>Full suite and <code>npm run verify:live</code> green on the merged tree</span></label></li>
+      <li><input type="checkbox" id="m3" checked><label for="m3"><span>One merge of logging and the log pages into <code>main</code></span></label></li>
+      <li><input type="checkbox" id="m4" checked><label for="m4"><span>Remove the <code>venom-router-logging</code> worktree</span></label></li>
     </ul>
 
     <hr>
@@ -493,13 +493,13 @@
 <script type="application/json" id="artifact-state">
 {"as_of": "2026-09-27 01:20 UTC",
  "project": "venom-router-phase-2",
- "totals": {"steps": 58, "done": 48},
- "refs": {"main": "3609d55", "logging_branch": "68bd6de", "logging_ahead": 37, "last_tag": "v1.4.1", "pages_branch": "feat/log-pages", "pages_head": "75f3b1f"},
+ "totals": {"steps": 58, "done": 53},
+ "refs": {"main": "283be27", "logging_branch": "68bd6de", "logging_ahead": 37, "last_tag": "v1.4.1", "pages_branch": "feat/log-pages", "pages_head": "75f3b1f"},
  "workstreams": [
   {"id": "A", "name": "Local database", "status": "merged", "owner": "Venom", "steps": 0, "done": 0, "ref": "16b9f89"},
-  {"id": "B", "name": "Logging system", "status": "built-gated", "owner": "Venom", "steps": 20, "done": 20, "branch": "feat/logging-system", "pushed": true},
-  {"id": "C", "name": "Log pages", "status": "built", "owner": "Venom", "steps": 27, "done": 27, "branch": "feat/log-pages"},
-  {"id": "M", "name": "Merge gate", "status": "unblocked", "owner": "Venom", "steps": 5, "done": 1},
+  {"id": "B", "name": "Logging system", "status": "merged", "owner": "Venom", "steps": 20, "done": 20, "branch": "feat/logging-system", "merged_as": "283be27"},
+  {"id": "C", "name": "Log pages", "status": "merged", "owner": "Venom", "steps": 27, "done": 27, "branch": "feat/log-pages", "merged_as": "283be27"},
+  {"id": "M", "name": "Merge gate", "status": "done", "owner": "Venom", "steps": 5, "done": 5},
   {"id": "R", "name": "Release", "status": "not-started", "owner": "Venom", "steps": 6, "done": 0}
  ]}
 </script>
