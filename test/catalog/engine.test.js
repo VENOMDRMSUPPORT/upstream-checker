@@ -69,6 +69,16 @@ function fakeSources({ payloads = {}, newest = NEW, fail = {} } = {}) {
       payloads['openrouter-keyed'] = { data: [{ model_permaslug: 'later/two',
         display_name: 'Two', source: 'artificial-analysis', intelligence_index: 30 }] };
     },
+    // Turns one source over from success to failure between two syncs of the SAME
+    // engine, and waits a few milliseconds while doing it. The wait is what makes
+    // "lastAttemptAt advanced" an assertion instead of a coin toss: syncAll stamps
+    // the attempt inside itself, so two syncs run back to back can land in the
+    // same millisecond and read as identical ISO strings.
+    async failSource(id, message) {
+      fail[id] = message;
+      await new Promise((resolve) => { setTimeout(resolve, 5); });
+    },
+    healSource(id) { delete fail[id]; },
   };
   return store;
 }
@@ -110,6 +120,7 @@ test('syncAll stores every payload that arrived and rebuilds', async () => {
   const engine = createEngine({ sources });
   const summary = await engine.syncAll({ force: true });
   assert.equal(summary.catalogCount, 1);
+  assert.equal(summary.syncing, false, 'the object is built after the flag is cleared');
   assert.equal(sources.syncs, 1);
   assert.equal(engine.state.sourceStore['openrouter-public'].stale, false);
   assert.equal(engine.state.sourceStore['openrouter-public'].error, null);
@@ -132,14 +143,67 @@ test('a source that fails after succeeding keeps its payload and reads stale', a
   const sources = fakeSources({ payloads: { 'openrouter-public': OR_ROWS } });
   const engine = createEngine({ sources });
   await engine.syncAll({ force: true });
+  const good = engine.state.sourceStore['openrouter-public'];
+  assert.equal(good.stale, false, 'the source answered, so nothing here is stale');
   assert.equal(sources.readCache('openrouter-public').payload.data.length, 1);
 
+  // The title's second half: the SAME source, failing on the NEXT sync, against
+  // the payload the first sync stored. Spec §8: "its last-good payload stays,
+  // marked stale".
+  await sources.failSource('openrouter-public', 'HTTP 503');
+  await engine.syncAll({ force: true });
+  const after = engine.state.sourceStore['openrouter-public'];
+  assert.equal(after.stale, true, 'a failure over a stored payload is stale, not silence');
+  assert.deepEqual(after.payload, OR_ROWS, 'and the payload it failed to replace is still served');
+  assert.equal(after.error, 'HTTP 503');
+  assert.equal(after.rowCount, 1, 'the row count of the payload still in memory');
+  assert.equal(after.fetchedAt, good.fetchedAt, 'fetchedAt is still the age of those rows');
+  assert.notEqual(after.lastAttemptAt, good.lastAttemptAt, 'the attempt that failed is its own moment');
+  assert.ok(Date.parse(after.lastAttemptAt) > Date.parse(good.lastAttemptAt),
+    'and it is later than the attempt that succeeded');
+  assert.equal(engine.state.catalog.rows.length, 1, 'the reference still builds from the last-good payload');
+
+  // The same through the disk, not only in memory: a restart has to see the
+  // failure as clearly as the engine that recorded it.
+  const onDisk = sources.readCache('openrouter-public');
+  assert.equal(onDisk.meta.stale, true);
+  assert.equal(onDisk.meta.error, 'HTTP 503');
+  assert.equal(onDisk.meta.fetchedAt, good.fetchedAt);
+  assert.ok(onDisk.payload, 'the cache file still holds the payload');
+
+  sources.healSource('openrouter-public');
+  await engine.syncAll({ force: true });
+  assert.equal(engine.state.sourceStore['openrouter-public'].stale, false,
+    'and the source that answers again stops claiming to be stale');
+});
+
+test('a last-good payload whose cached meta records a failed attempt reads back stale', () => {
+  const later = new Date(Date.parse(NEW) + 60000).toISOString();
+  const sources = fakeSources();
+  sources.seed('openrouter-public', OR_ROWS);
+  // What a failed refresh leaves on disk: the payload untouched, the meta marked.
+  sources.writeCacheFailure('openrouter-public', 'HTTP 503', later);
+
+  const engine = createEngine({ sources });
+  engine.loadCache();
+  const entry = engine.state.sourceStore['openrouter-public'];
+  assert.equal(entry.stale, true, 'spec §8 survives the restart, not just the session');
+  assert.equal(entry.error, 'HTTP 503');
+  assert.deepEqual(entry.payload, OR_ROWS, 'the last-good payload is what boots');
+  assert.equal(entry.fetchedAt, NEW, 'fetchedAt stays the age of the rows, not of the failure');
+  assert.equal(entry.lastAttemptAt, later);
+  assert.equal(entry.rowCount, 1);
+  assert.equal(engine.state.catalog.rows.length, 1, 'and the reference is rebuilt from it');
+});
+
+test('a clean cache read from disk is not stale, and the last-good rows survive the restart', () => {
   const dead = fakeSources({});
   dead.seed('openrouter-public', OR_ROWS);
   const after = createEngine({ sources: dead });
   after.loadCache();
   const before = after.state.sourceStore['openrouter-public'];
   assert.equal(before.stale, false, 'loaded from disk, no attempt made yet');
+  assert.equal(before.error, null);
   assert.equal(after.state.catalog.rows.length, 1, 'last-good survives the restart');
 });
 
@@ -152,8 +216,26 @@ test('a second syncAll while one is in flight is refused with SYNC_IN_PROGRESS',
   const first = engine.syncAll({ force: true });
   await assert.rejects(() => engine.syncAll({ force: true }), (e) => e.code === 'SYNC_IN_PROGRESS');
   release();
-  await first;
+  const resolved = await first;
   assert.equal(engine.state.syncing, false, 'the flag is cleared on the happy path too');
+  assert.equal(resolved.syncing, false,
+    'and so it is in the object the caller awaited — the flag clears before the summary is built');
+});
+
+test('syncAll resolves to one shape on either path, with the sync already over', async () => {
+  const fresh = new Date().toISOString();
+  const sources = fakeSources({ payloads: { 'openrouter-public': OR_ROWS }, newest: fresh });
+  const engine = createEngine({ sources });
+
+  const forced = await engine.syncAll({ force: true });
+  assert.equal(forced.syncing, false, 'a caller never sees a finished sync as still running');
+  assert.equal(forced.skipped, false, 'and skipped is present and false, not absent');
+
+  const ttl = await engine.syncAll();
+  assert.equal(ttl.syncing, false);
+  assert.equal(ttl.skipped, true, 'the path that did not download says so in the same field');
+  assert.deepEqual(Object.keys(forced).sort(), Object.keys(ttl).sort(),
+    'one shape either way — a consumer must not have to tell undefined from false');
 });
 
 test('scoreRows reaches the reference through the merge and borrows what the row lacks', async () => {
@@ -191,7 +273,43 @@ test('syncIfUnscored syncs once for an unknown row, then gives up on it', async 
   assert.equal(sources.syncs, 2);
 });
 
-test('an id that later scores clears the unscorable set', async () => {
+test('an id we gave up on survives a later sync that scored other models', async () => {
+  // The fixture the bug needs: a reference that DOES score something. Almost
+  // every real sync has a scored row in it, so a clear keyed on that fact is a
+  // wipe that runs every time — which is why the case above, whose payloads carry
+  // no benchmark source at all, could not see it.
+  const payloads = {
+    'openrouter-public': { data: [
+      { id: 'lab/measured', name: 'Measured', context_length: 1000,
+        architecture: { output_modalities: ['text'] } },
+      { id: 'lab/unmeasured', name: 'Unmeasured', context_length: 1000,
+        architecture: { output_modalities: ['text'] } },
+    ] },
+    'openrouter-keyed': { data: [{ model_permaslug: 'lab/measured', display_name: 'Measured',
+      source: 'artificial-analysis', intelligence_index: 40 }] },
+  };
+  const sources = fakeSources({ payloads });
+  const engine = createEngine({ sources });
+  await engine.syncAll({ force: true });
+  assert.ok(engine.state.catalog.rows.some((r) => r.score != null),
+    'the reference scores one model, and never will score the other');
+  assert.deepEqual(engine.unscoredIds([{ id: 'nowhere/model', name: 'Nowhere' }]), ['nowhere/model']);
+
+  await engine.syncIfUnscored([{ id: 'nowhere/model', name: 'Nowhere' }]);
+  assert.equal(engine.unscorableSize(), 1, 'the id is given up on after one failed hunt');
+  assert.equal(sources.syncs, 2, 'and it cost exactly one four-source download');
+
+  // The 5-minute background timer, or the owner pressing Sync sources. Nothing in
+  // this path is a reason to reopen a verdict.
+  await engine.syncAll({ force: true });
+  assert.equal(sources.syncs, 3);
+  const again = await engine.syncIfUnscored([{ id: 'nowhere/model', name: 'Nowhere' }]);
+  assert.equal(again.synced, false, 'a sync that scored nothing new does not reopen the ids we gave up on');
+  assert.equal(sources.syncs, 3, 'and a permanently unknown model costs the download once, not every timer');
+  assert.equal(engine.unscorableSize(), 1, 'the verdict is still standing');
+});
+
+test('an id that later scores is dropped when a sync shrinks the unscored list', async () => {
   const payloads = { 'openrouter-public': { data: [{ id: 'later/one', name: 'One',
     context_length: 1000, architecture: { output_modalities: ['text'] } }] } };
   const sources = fakeSources({ payloads });
@@ -201,11 +319,22 @@ test('an id that later scores clears the unscorable set', async () => {
   assert.equal(engine.unscorableSize(), 1);
 
   // The reference only scores a row it HAS a row for, and rows come from the
-  // rosters — folding a benchmark entry alone does not create one. So the second
-  // sync must add both the listing and its measurement.
+  // rosters — folding a benchmark entry alone does not create one. So the sync
+  // that changes the verdict must add both the listing and its measurement, and
+  // it has to happen INSIDE the trigger: the trigger is the one place that
+  // compares what stayed unscored against what was unscored before it (ref
+  // poller.js:154-156). A new unknown id is what drags the old one back into that
+  // comparison, exactly as the reference recomputes the list over every provider
+  // rather than only over the ids it had not given up on (poller.js:113-120).
   sources.makeScorable();
-  await engine.syncAll({ force: true });
-  assert.equal(engine.unscorableSize(), 0, 'the signal that made one scoreable may make the next one too');
+  const result = await engine.syncIfUnscored([
+    { id: 'later/two', name: 'Two' },
+    { id: 'later/three', name: 'Three' },
+  ]);
+  assert.equal(result.synced, true);
+  assert.equal(result.scored, 1, 'the id we gave up on scored after all');
+  assert.equal(engine.unscorableSize(), 1,
+    'the set is re-stamped with what is still unscored, so the id that scored is out of it');
   assert.equal(engine.unscoredIds([{ id: 'later/two', name: 'Two' }]).length, 0);
 });
 

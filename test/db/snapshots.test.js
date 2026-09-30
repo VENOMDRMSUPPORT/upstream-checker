@@ -1,3 +1,6 @@
+// The two-table roster repository: what survives a write, what a tombstone is,
+// and which writer is allowed to touch which column — including the one that
+// only records how an attempt ended, and must move no roster row at all.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { memoryStore, countRows } = require('../helpers');
@@ -9,6 +12,18 @@ const base = (over = {}) => ({
 
 const HEALTH = { status: 'healthy', note: 'Responded normally', httpStatus: 200, at: 99,
   latencies: [{ at: 99, ms: 812 }] };
+
+// Every cell of every roster row, in a fixed order: a writer that touched the
+// roster while recording an attempt cannot hide in a column this leaves out.
+const rosterRows = (db) => db.prepare(`
+  SELECT provider_id, model_id, name, first_seen, last_seen, removed_at,
+         summary_json, health_json, updated_at
+  FROM roster_snapshot ORDER BY provider_id, model_id`).all();
+
+// A timestamp from 2009, stamped by hand: it is not what any writer puts in
+// `updated_at` today, so a writer that re-stamped the roster shows up
+// immediately instead of whenever the millisecond happens to differ.
+const SENTINEL = 1234567890000;
 
 test('a provider with no snapshot reads null, not an empty object', async (t) => {
   const store = await memoryStore(t);
@@ -53,36 +68,77 @@ test('two providers never read each other, and a second write replaces the first
 
 test('setLastSync records a failed attempt without touching the rows it failed to replace', async (t) => {
   const store = await memoryStore(t);
-  store.repos.snapshots.write('nara', base({
+  const repo = store.repos.snapshots;
+  repo.write('nara', base({
     fetchedAt: 2,
-    models: { m: { name: 'M', first_seen: 2, last_seen: 2 } },
-    lastGoodRows: [{ id: 'm' }], lastSync: { at: 2, ok: true, warning: null },
+    models: { m: { name: 'M', first_seen: 2, last_seen: 2 }, z: { name: 'Z', first_seen: 1, last_seen: 2 } },
+    lastGoodRows: [{ id: 'm' }, { id: 'z' }],
+    lastSync: { at: 2, ok: true, warning: null },
+    pendingDrop: { count: 3, sha256: 'x'.repeat(64), attempts: 2, firstSeenAt: 5 },
   }));
-  store.repos.snapshots.setLastSync('nara', { at: 3, ok: false, warning: 'HTTP 503' });
-  const read = store.repos.snapshots.read('nara');
+  const stamped = store.db.prepare('UPDATE roster_snapshot SET updated_at = ?').run(SENTINEL);
+  assert.equal(stamped.changes, 2, 'every roster row is stamped by hand before the attempt is recorded');
+  const before = rosterRows(store.db);
+  assert.equal(before.length, 2, 'two roster rows to protect');
+  assert.equal(before[0].updated_at, SENTINEL, 'and every one of them carries the hand stamp');
+
+  assert.equal(repo.setLastSync('nara', { at: 3, ok: false, warning: 'HTTP 503' }), true,
+    'a provider with a snapshot does have something for the attempt to qualify');
+  const read = repo.read('nara');
   assert.deepEqual(read.lastSync, { at: 3, ok: false, warning: 'HTTP 503' });
-  assert.deepEqual(read.lastGoodRows, [{ id: 'm' }]);
+  assert.deepEqual(read.lastGoodRows, [{ id: 'm' }, { id: 'z' }]);
   assert.equal(read.fetchedAt, 2, 'fetchedAt answers "how old are these rows"; lastSync answers "did the last attempt work"');
+  assert.deepEqual(rosterRows(store.db), before,
+    'not one roster row moved, in any column, and above all not its updated_at: a failed fetch did not re-stamp the roster');
+  assert.equal(read.createdAt, base().createdAt, 'the meta keeps the columns this call is not about');
+  assert.equal(read.pendingDrop.attempts, 2, 'and a recorded failure does not lift a quarantine');
+
+  // The other half of the same rule: a SUCCESS recorded this way is still only a
+  // note about an attempt. Real rows arrive through write(), in a transaction.
+  assert.equal(repo.setLastSync('nara', { at: 4, ok: true, warning: null }), true);
+  assert.deepEqual(rosterRows(store.db), before, 'a successful attempt re-stamps the roster no further');
+  assert.deepEqual(repo.read('nara').lastSync, { at: 4, ok: true, warning: null });
 });
 
-test('setLastSync for an unknown provider creates the row so the very first failure is not lost', async (t) => {
+test('setLastSync refuses a provider that has never produced a roster, and invents no row', async (t) => {
   const store = await memoryStore(t);
-  store.repos.snapshots.setLastSync('darkapi', { at: 3, ok: false, warning: 'no route' });
-  assert.deepEqual(store.repos.snapshots.read('darkapi').lastSync,
-    { at: 3, ok: false, warning: 'no route' });
+  const repo = store.repos.snapshots;
+  // Reversed from the brief, which had this case CREATING the meta row so "the
+  // very first failure is not lost". The reference refuses outright: "Nothing is
+  // written when there is no snapshot yet — there is no last-good roster for the
+  // failure to qualify" (providers/index.js:440-442). Recording a failure against
+  // no rows would put a provider on read()'s map that has nothing to serve.
+  assert.equal(repo.setLastSync('darkapi', { at: 3, ok: false, warning: 'no route' }), false,
+    'a clear signal, the same one writeCacheFailure gives when no payload is cached');
+  assert.equal(repo.read('darkapi'), null, 'nothing was written, so nothing reads back');
+  assert.equal(countRows(store.db, 'snapshot_meta'), 0);
+  assert.equal(countRows(store.db, 'roster_snapshot'), 0);
+  assert.deepEqual(repo.listProviderIds(), [], 'an attempt is not a snapshot');
 });
 
 test('a warning longer than 200 characters is clipped, as the reference clips it', async (t) => {
   const store = await memoryStore(t);
-  store.repos.snapshots.setLastSync('nara', { at: 1, ok: false, warning: 'x'.repeat(500) });
-  assert.equal(store.repos.snapshots.read('nara').lastSync.warning.length, 200);
+  const repo = store.repos.snapshots;
+  // Changed from the brief: the provider writes a snapshot first, because
+  // setLastSync now refuses one that has never produced a roster (the case
+  // above). The clipping itself is still what this case pins.
+  repo.write('nara', base({
+    models: { m: { name: 'M', first_seen: 1, last_seen: 2 } }, lastGoodRows: [{ id: 'm' }],
+  }));
+  assert.equal(repo.setLastSync('nara', { at: 1, ok: false, warning: 'x'.repeat(500) }), true);
+  assert.equal(repo.read('nara').lastSync.warning.length, 200);
+  assert.deepEqual(repo.read('nara').lastGoodRows, [{ id: 'm' }]);
 });
 
 test('listProviderIds is the set that has ever produced a snapshot', async (t) => {
   const store = await memoryStore(t);
-  store.repos.snapshots.write('nara', base());
-  store.repos.snapshots.write('mirai', base());
-  assert.deepEqual(store.repos.snapshots.listProviderIds(), ['mirai', 'nara']);
+  const repo = store.repos.snapshots;
+  repo.write('nara', base());
+  repo.write('mirai', base());
+  assert.deepEqual(repo.listProviderIds(), ['mirai', 'nara']);
+  repo.setLastSync('darkapi', { at: 9, ok: false, warning: 'no route' });
+  assert.deepEqual(repo.listProviderIds(), ['mirai', 'nara'],
+    'has ever produced a snapshot, not has ever been attempted — read() would serve this list nothing at all');
 });
 
 // Four cases that only exist because the snapshot is two tables rather than the
@@ -158,8 +214,10 @@ test('a roster rewrite carries the health record forward - it is not this writer
   assert.deepEqual(repo.read('nara').lastGoodRows, [{ id: 'm', name: 'M', context_tokens: 256 }],
     'and the writer still owns every other column on that row');
 
-  // setLastSync goes through the same write, so an attempt that ended in failure
-  // must cost the latency history nothing either.
+  // An attempt that ended in failure is recorded on the meta row alone, so the
+  // latency history cannot be disturbed by it. It used to travel through the same
+  // roster rewrite as a real sync — which is exactly what made this worth pinning,
+  // and the pin still holds for the reason given in the case above.
   repo.setLastSync('nara', { at: 9, ok: false, warning: 'HTTP 503' });
   assert.deepEqual(repo.getHealth('nara', 'm'), health, 'and a failed attempt keeps its measurements');
 

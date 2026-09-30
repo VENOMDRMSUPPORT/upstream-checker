@@ -10,7 +10,9 @@
 // Column ownership is the one rule this file exists to keep: `setHealth` is the
 // only writer of health_json, and the roster writer never touches it. Two tables
 // is what makes that a hazard at all — in the reference both halves lived in one
-// object one writer replaced wholesale.
+// object one writer replaced wholesale. `setLastSync` is the same rule one level
+// up: it answers "how did the last attempt end", so it writes one meta column and
+// no roster row, not even an `updated_at`.
 
 const WARNING_MAX = 200;
 
@@ -132,10 +134,32 @@ function createSnapshotRepo(db) {
     run();
   }
 
-  // How an attempt ended, without touching the rows it failed to replace.
+  // How an attempt ended, written onto the provider's meta row and nowhere else.
+  //
+  // This does not go through `write`, for two reasons. (1) A failure did not
+  // replace any roster, so it must not re-stamp `updated_at` on rows it never
+  // fetched — that would claim the roster is newer than `fetched_at` says it is.
+  // (2) A failure needs something to qualify. With no snapshot there is no
+  // last-good roster for the attempt to be stale about, and the reference
+  // refuses exactly that (providers/index.js:440-442, "Nothing is written when
+  // there is no snapshot yet"). So this answers `false` and invents no provider
+  // row — the same signal `sources.writeCacheFailure` gives when no payload is
+  // cached, and the reason `listProviderIds()` keeps meaning "has ever produced a
+  // snapshot" rather than "has ever been attempted".
   function setLastSync(providerId, { at, ok, warning }) {
-    const current = read(providerId) || { createdAt: at, fetchedAt: null, models: {}, lastGoodRows: [] };
-    write(providerId, { ...current, lastSync: { at, ok: Boolean(ok), warning: clip(warning) } });
+    const meta = readMeta.get(providerId);
+    if (!meta) return false;
+    // writeMeta replaces all four meta columns, so the three that are not about
+    // this attempt are handed back exactly as stored — a quarantine in particular
+    // survives the failure that found nothing to do with it.
+    writeMeta.run({
+      provider_id: providerId,
+      created_at: meta.created_at,
+      fetched_at: meta.fetched_at,
+      last_sync_json: JSON.stringify({ at, ok: Boolean(ok), warning: clip(warning) }),
+      pending_drop_json: meta.pending_drop_json,
+    });
+    return true;
   }
 
   function setHealth(providerId, modelId, health) {

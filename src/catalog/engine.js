@@ -170,13 +170,26 @@ function createEngine({ sources, minAgeMs = SOURCE_SYNC_MIN_AGE_MS, log = () => 
       }
       state.lastSyncAt = started;
       rebuild();
-      // Whatever the reference can now score it could not score before, which is
-      // the signal that the ids we gave up on deserve a second look.
-      if (state.catalog.rows.some((r) => r.score != null)) unscorable.clear();
-      return summary();
+      // Nothing here touches `unscorable`, and that is the whole point of the
+      // set: "the reference scores SOMETHING" is true of almost every sync, so
+      // clearing on it would give a permanently unknown model a fresh four-source
+      // download on every forced sync — the toolbar button and the background
+      // timer included, which is the opposite of the comment above the set. The
+      // reference never had such a line: its `unscorable` lives in the poller and
+      // is revisited only by that comparison (ref lib/poller.js:154-156), so the
+      // port's version of it is the bug and this file keeps only the comparative.
     } finally {
+      // Before the summary is built, not after: the reference returns
+      // summary() from inside the try, so the object its caller awaits says
+      // `syncing: true` for a sync that has already finished. Spec §7's Settings
+      // status block reads that object, so the port does not inherit it.
       state.syncing = false;
     }
+    // Both exits of syncAll have one shape. `skipped` is present and false here
+    // rather than absent, for the reason this file already records about
+    // `stale` and `lastAttemptAt`: a flag that is missing reads as silence, and
+    // Task 10's own engine seam already returns `skipped: !force`.
+    return { ...summary(), skipped: false };
   }
 
   function scoreRows(rows) {
@@ -212,7 +225,9 @@ function createEngine({ sources, minAgeMs = SOURCE_SYNC_MIN_AGE_MS, log = () => 
    * The demand trigger the reference uses instead of a manual source-sync button
    * (ref §11 step 7): a row the reference cannot score is a reason to re-fetch,
    * once. Ids that stay unscored are remembered so a permanently unknown model
-   * costs four downloads and then nothing.
+   * costs four downloads and then nothing — and this comparison is the only
+   * place that verdict is ever revisited, so a sync started by anything else
+   * (the toolbar, the background timer) cannot reopen it.
    */
   async function syncIfUnscored(rows) {
     const before = allUnscoredIds(rows);
