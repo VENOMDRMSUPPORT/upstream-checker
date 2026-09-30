@@ -351,6 +351,7 @@ const FILLABLE_FIELDS = [
   "context_tokens",
   "output_tokens",
   "input_modalities",
+  "output_modalities",
   "tools",
   "reasoning",
   "structured",
