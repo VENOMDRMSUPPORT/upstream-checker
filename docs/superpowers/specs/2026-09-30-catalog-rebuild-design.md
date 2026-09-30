@@ -102,17 +102,28 @@ Rules:
 
 ## 5. Storage
 
-SQLite, not JSON files. One migration:
+SQLite, not JSON files. Split across two migrations because of the ordering decision in §12:
+**v2 (Plan A) is additive**, **v3 (Plan B) is the destructive one**.
 
-- clears `models`, `model_keys`, `catalog_meta` (the catalog starts empty and is rewritten
-  by the next fetch); `providers`, `provider_keys`, `secrets`, `settings`, the logs database
-  are untouched;
-- drops the five bench/caps columns and adds `health_json TEXT`;
-- adds `snapshot_meta` (`provider_id PK, created_at, fetched_at, last_sync_json,
-  pending_drop_json`) for the fields ref §10 kept at file level.
+v3 clears `models`, `model_keys`, `catalog_meta` (the catalog starts empty and is rewritten by the
+next fetch); drops `bench_json`, `history_json`, `bench_error`, `caps_json`, `caps_error`.
+`providers`, `provider_keys`, `secrets`, `settings` and the logs database are untouched in either.
 
-A `models` row is the snapshot entry (ref §10): `first_seen` never rewritten, `last_seen`,
-`removed_at` tombstone kept, `is_new`. `summary_json` holds the provider's own facts only —
+The engine's own rows live in two new tables, not in `models`:
+
+- `snapshot_meta` — one row per provider: `created_at`, `fetched_at`, `last_sync_json`,
+  `pending_drop_json`. The fields ref §10 kept at file level.
+- `roster_snapshot` — one row per provider+model: `name`, `first_seen`, `last_seen`, `removed_at`,
+  `summary_json`, `health_json`.
+
+An earlier draft of this section said a `models` row *is* the snapshot entry. It cannot be: until
+Plan B deletes `read-catalog` / `write-catalog` and `src/db/repos/catalog.js`, that table already
+has an owner, and two writers on it is the failure mode CLAUDE.md's one-channel-per-thing rule
+exists to prevent. `is_new` is a column in neither table — the reference never stored it either,
+because it is `first_seen` inside the 7-day window and therefore computed on read.
+
+A `roster_snapshot` row is the snapshot entry ref §10 describes: `first_seen` never rewritten,
+`last_seen`, `removed_at` tombstone kept, `summary_json` holding the provider's own facts only —
 derived fields (`score, score_source, score_basis, rank, catalog_rank, matched_id, bench_id,
 aa_*, lmarena_*, score_proxy_for, filled_from_catalog`) are stripped on write and recomputed
 on every read against today's reference (ref §10 `providerRowSnapshot`).
@@ -258,13 +269,21 @@ otherwise for their own.
 This is one spec but two implementation plans, split at the point where the app first runs
 both ways:
 
-- **Plan A — the engine (§3-§6, §8, §11).** `src/catalog/*` in main, the §5 migration, the
-  five new IPC channels, ports of `keys`/`scoring`/`catalog`/`snapshot` tests. Green when
-  `npm test` passes with the new suite and the old page still works untouched.
-- **Plan B — the page and the deletion pass (§2, §7, §9).** Models page columns and the three
-  buttons, Fetch models / Test Selected ingest on the Route Test page, then every removal in §2
-  with its tests and CSS. Green when `npm run check` and `npm run verify:live` pass and the
-  owner can point at a scored row in their own app.
+- **Plan A — the engine (§3-§6, §8, §11).** `src/catalog/*` in main, migration **v2** (additive:
+  creates `snapshot_meta` + `roster_snapshot`, registers `openRouterApiKey`), the five IPC channels,
+  ports of `keys`/`scoring`/`catalog`/`snapshot` tests, and a sources status block in Settings so
+  the owner can see it working. Green when `npm test` passes with the new suite and the old page
+  still works untouched.
+- **Plan B — the page and the deletion pass (§2, §7, §9).** Migration **v3** (clears `models` /
+  `model_keys` / `catalog_meta`, drops the five bench/caps columns, deletes `read-catalog` /
+  `write-catalog` and `src/db/repos/catalog.js`), the Models page columns and the three buttons,
+  Fetch models / Test Selected ingest on the Route Test page, then every removal in §2 with its
+  tests and CSS. Green when `npm run check` and `npm run verify:live` pass and the owner can point
+  at a scored row in their own app.
+
+The migration split is not decoration: `db/repos/catalog.js:13-15` reads `bench_json`, so v3
+landing in Plan A would break the page v2 promised to leave alone. Task 7 of the plan asserts
+`bench_json` still exists at the end of Plan A.
 
 Nothing in Plan A is thrown away by Plan B, and Plan A is reviewable on its own — which is the
 reason for the split, not size.
