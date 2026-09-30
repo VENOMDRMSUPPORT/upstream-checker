@@ -7,16 +7,73 @@ const database = require('../../src/db');
 const { fakeCipher, quietLog, tempDir, memoryStore } = require('../helpers');
 
 const opts = () => ({ cipher: fakeCipher(), log: quietLog });
+const V1_TABLES = [
+  'catalog_meta', 'key_model_counts', 'meta', 'model_keys', 'models', 'provider_keys',
+  'provider_sync', 'providers', 'secrets', 'settings', 'test_results', 'test_runs',
+];
+const tablesIn = (db) => db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+  .all().map((r) => r.name);
 
-test('schema v1: user_version, every table, install_id', async (t) => {
+// Migration v2 is additive, so v1's own shape is worth pinning on its own — and it
+// has to be run on a bare handle, because opening a store applies the whole list
+// and createRepos prepares statements over the v2 tables. (Same reason
+// test/logs/schema.test.js runs the log migrations directly.)
+test('schema v1: every table it shipped with, and install_id', (t) => {
+  const db = new Database(':memory:');
+  t.after(() => { if (db.open) db.close(); });
+  assert.strictEqual(database.MIGRATIONS[0].version, 1, 'the entry that shipped is never edited');
+  database.MIGRATIONS[0].up(db);
+  assert.deepStrictEqual(tablesIn(db), V1_TABLES);
+  assert.match(db.prepare("SELECT value FROM meta WHERE key = 'install_id'").get().value, /^[0-9a-f-]{36}$/);
+});
+
+test('schema v2 adds the two snapshot tables and touches models not at all', async (t) => {
   const store = await memoryStore(t);
-  assert.strictEqual(store.db.pragma('user_version', { simple: true }), 1);
-  const tables = store.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map((r) => r.name);
-  assert.deepStrictEqual(tables, [
-    'catalog_meta', 'key_model_counts', 'meta', 'model_keys', 'models', 'provider_keys',
-    'provider_sync', 'providers', 'secrets', 'settings', 'test_results', 'test_runs',
-  ]);
-  assert.match(store.repos.meta.get('install_id'), /^[0-9a-f-]{36}$/);
+  const tables = tablesIn(store.db);
+  assert.ok(tables.includes('snapshot_meta'));
+  assert.ok(tables.includes('roster_snapshot'));
+  V1_TABLES.forEach((name) => assert.ok(tables.includes(name), `v2 drops nothing: ${name} is still there`));
+  const cols = store.db.prepare('PRAGMA table_info(models)').all().map((c) => c.name);
+  assert.ok(cols.includes('bench_json'),
+    'Plan A drops nothing: the current Models page still reads this column');
+  assert.ok(!cols.includes('health_json'),
+    'and adds nothing there either — the legacy page owns that table until Plan B');
+  assert.strictEqual(store.db.pragma('user_version', { simple: true }), 2);
+});
+
+// "Additive" is a claim about the owner's data, not about the DDL: a file that
+// already holds providers, models and catalog_meta comes out of v2 holding them,
+// with the bak-v1 copy taken before anything ran.
+test('a v1 file upgrades to v2 with every row it held', async (t) => {
+  const dir = tempDir(t);
+  const now = Date.now();
+  const fixture = new Database(path.join(dir, 'venom.db'));
+  database.MIGRATIONS[0].up(fixture);
+  fixture.prepare(`INSERT INTO providers (id, name, base_url, rpm, is_custom, position, created_at, updated_at)
+    VALUES ('nara', 'NaraRouter', 'https://router.bynara.id', NULL, 0, 0, ?, ?)`).run(now, now);
+  fixture.prepare(`INSERT INTO models (provider_id, model_id, name, kind, first_seen, last_seen,
+    removed_at, is_new, summary_json, bench_json, history_json, updated_at)
+    VALUES ('nara', 'nara/one', 'One', 'chat', ?, ?, NULL, 0, '{"id":"nara/one"}', '{"iq":1}', NULL, ?)`)
+    .run(now, now, now);
+  fixture.prepare("INSERT INTO catalog_meta (key, value_json) VALUES ('leaderboard', '{\"capturedAt\":\"2026-09-25\"}')").run();
+  fixture.pragma('user_version = 1'); // as `migrate` leaves it: v1 applied, v2 pending
+  fixture.close();
+
+  const store = await database.open(dir, opts());
+  try {
+    assert.deepStrictEqual({ from: store.migration.from, to: store.migration.to }, { from: 1, to: 2 });
+    assert.strictEqual(store.migration.backup, path.join(dir, 'venom.db.bak-v1'));
+    assert.ok(fs.existsSync(store.migration.backup), 'the copy is on disk before the new tables exist');
+    assert.strictEqual(store.db.prepare('SELECT COUNT(*) AS n FROM providers').get().n, 1);
+    assert.strictEqual(store.db.prepare('SELECT COUNT(*) AS n FROM models').get().n, 1);
+    assert.strictEqual(store.db.prepare("SELECT bench_json FROM models WHERE model_id = 'nara/one'").get().bench_json, '{"iq":1}',
+      'the legacy page still reads the column Plan B has not dropped yet');
+    assert.strictEqual(store.db.prepare("SELECT value_json FROM catalog_meta WHERE key = 'leaderboard'").get().value_json,
+      '{"capturedAt":"2026-09-25"}', 'and the meta keys the page reads are still its own');
+    assert.strictEqual(store.db.pragma('user_version', { simple: true }), 2);
+  } finally {
+    store.close();
+  }
 });
 
 test('secrets.cipher and provider_keys.cipher accept only a case-exact enc:v1: envelope', async (t) => {
@@ -65,24 +122,27 @@ test('reopening an up-to-date file runs nothing and makes no backup', async (t) 
   (await database.open(dir, opts())).close();
   const store = await database.open(dir, opts());
   try {
-    assert.deepStrictEqual(store.migration, { from: 1, to: 1, backup: null });
+    assert.deepStrictEqual(store.migration, { from: 2, to: 2, backup: null });
     assert.deepStrictEqual(fs.readdirSync(dir).filter((n) => n.includes('.bak-v')), []);
   } finally {
     store.close();
   }
 });
 
+// The newest shipped version is 2, so a pending migration here is a v3: these
+// three cases are about the migration SEQUENCE, and they read the same whichever
+// version the plan has reached — but their fixtures must sit one above it.
 test('a pending migration backs up first, then runs and bumps user_version', async (t) => {
   const dir = tempDir(t);
   (await database.open(dir, opts())).close();
-  const withV2 = [...database.MIGRATIONS, { version: 2, up(db) { db.exec('CREATE TABLE extra_v2 (x INTEGER)'); } }];
-  const store = await database.open(dir, { ...opts(), migrations: withV2 });
+  const withV3 = [...database.MIGRATIONS, { version: 3, up(db) { db.exec('CREATE TABLE extra_v3 (x INTEGER)'); } }];
+  const store = await database.open(dir, { ...opts(), migrations: withV3 });
   try {
-    assert.strictEqual(store.migration.from, 1);
-    assert.strictEqual(store.migration.to, 2);
-    assert.strictEqual(store.migration.backup, path.join(dir, 'venom.db.bak-v1'));
+    assert.strictEqual(store.migration.from, 2);
+    assert.strictEqual(store.migration.to, 3);
+    assert.strictEqual(store.migration.backup, path.join(dir, 'venom.db.bak-v2'));
     assert.ok(fs.existsSync(store.migration.backup));
-    assert.strictEqual(store.db.pragma('user_version', { simple: true }), 2);
+    assert.strictEqual(store.db.pragma('user_version', { simple: true }), 3);
   } finally {
     store.close();
   }
@@ -92,13 +152,13 @@ test('a migration that throws rolls back and leaves the version', async (t) => {
   const dir = tempDir(t);
   (await database.open(dir, opts())).close();
   const broken = [...database.MIGRATIONS, {
-    version: 2,
+    version: 3,
     up(db) { db.exec('CREATE TABLE half_done (x INTEGER)'); throw new Error('migration bug'); },
   }];
   await assert.rejects(database.open(dir, { ...opts(), migrations: broken }), /migration bug/);
   const store = await database.open(dir, opts());
   try {
-    assert.strictEqual(store.db.pragma('user_version', { simple: true }), 1);
+    assert.strictEqual(store.db.pragma('user_version', { simple: true }), 2);
     assert.strictEqual(store.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'half_done'").get().n, 0);
   } finally {
     store.close();
@@ -109,12 +169,12 @@ test('keeps only the three newest backups', async (t) => {
   const dir = tempDir(t);
   (await database.open(dir, opts())).close();
   const steps = [...database.MIGRATIONS];
-  for (let v = 2; v <= 5; v += 1) {
+  for (let v = 3; v <= 6; v += 1) {
     steps.push({ version: v, up(db) { db.exec(`CREATE TABLE step_${v} (x INTEGER)`); } });
     (await database.open(dir, { ...opts(), migrations: [...steps] })).close();
   }
   const backups = fs.readdirSync(dir).filter((n) => n.startsWith('venom.db.bak-v')).sort();
-  assert.deepStrictEqual(backups, ['venom.db.bak-v2', 'venom.db.bak-v3', 'venom.db.bak-v4']);
+  assert.deepStrictEqual(backups, ['venom.db.bak-v3', 'venom.db.bak-v4', 'venom.db.bak-v5']);
 });
 
 test('downgrade guard: a newer schema is refused and the file is not written', async (t) => {

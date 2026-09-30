@@ -2,7 +2,7 @@
 
 > GENERATED FILE — do not edit by hand. Regenerate with: npm run repo:map
 
-104 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
+106 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
 
 The architecture behind these files — boot order, IPC channels, the two databases, the request lifecycle — is in [ARCHITECTURE.md](ARCHITECTURE.md). Task recipes are in [COOKBOOK.md](COOKBOOK.md).
 
@@ -246,10 +246,10 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `cipher.js` | 49 | Secrets at rest — the enc:v1: envelope | ENC_PREFIX, isEnvelope, createCipher, revealCached |
 | `explorer.js` | 53 | Read-only, bounded database inspection. Identifiers are taken only from | MAX_LIMIT, REDACTED_COLUMN, quoteIdentifier, inspectDatabase |
 | `import-json.js` | 419 | One-shot import of the legacy JSON files | FILES, READ_ATTEMPTS, READ_GAP_MS, ImportAbort, isObject, renamedAs, plural, listImportedFiles, readWithRetry, parse, normaliseConfig, normaliseCatalog, +5 more |
-| `index.js` | 156 | Local database — venom.db | DB_FILE, BACKUPS_KEPT, DbTooNewError, applyPragmas, latestVersion, backupBeforeMigrate, migrate, getMeta, setMeta, createRepos, close, open |
+| `index.js` | 158 | Local database — venom.db | DB_FILE, BACKUPS_KEPT, DbTooNewError, applyPragmas, latestVersion, backupBeforeMigrate, migrate, getMeta, setMeta, createRepos, close, open |
 | `ipc.js` | 92 | Data IPC — the renderer's only way to the database | readConfig, registerDataIpc |
 | `keys.js` | 161 | Placeholders → secrets, for outgoing requests | TOKEN, HAS_TOKEN, originOf, collector, createKeyResolver |
-| `migrations.js` | 133 | Schema migrations |  |
+| `migrations.js` | 174 | Schema migrations |  |
 | `ulid.js` | 23 | ULID: 48-bit millisecond time + 80 random bits in Crockford base32. Sorts by | ALPHABET, ulid |
 
 ### src/db/repos/
@@ -259,8 +259,9 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `catalog.js` | 231 | Model pool — models, key links, sync times, catalogue meta | SUMMARY_KEYS, COLUMN_FIELDS, META_KEYS, HASH_COLUMNS, keyOf, numOrNull, jsonOrNull, textOrNull, entryToRow, entryKeyIds, rowHash, rowToEntry, +1 more |
 | `history.js` | 106 | Run history — test_runs + test_results | ULID, DEFAULT_MAX_RUNS, MAX_RUNS_CEILING, historyCap, num, createHistoryRepo |
 | `providers.js` | 251 | Providers and their API keys | KEY_PLACEHOLDER, ANY_PLACEHOLDER, KEY_ID, maskKey, createProvidersRepo |
-| `secrets.js` | 65 | Named secrets — the Artificial Analysis key | SECRET_ORIGINS, createSecretsRepo |
+| `secrets.js` | 68 | Named secrets — the Artificial Analysis key | SECRET_ORIGINS, createSecretsRepo |
 | `settings.js` | 45 | Settings rows — settings, test, window | createSettingsRepo |
+| `snapshots.js` | 163 | One provider's roster, split across the two tables the reference kept in one | WARNING_MAX, clip, createSnapshotRepo |
 
 ### src/logs/
 
@@ -344,9 +345,10 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `import-json.test.js` | 479 |  | imports every file in one go and renames them, an I/O error that clears on a retry imports normally, malformed catalogue entries and history rows are skipped and counted, a plaintext legacy key is encrypted on the way in, a legacy custom provider is imported as stored, flagged custom, keys without an id, with a duplicate id or an unusable id get fresh ids |
 | `ipc.test.js` | 177 |  | registers exactly the data channels, read-config on an empty database, read-config hands out placeholders and hints, never keys, no reply hands a secret to the renderer, copy-key writes the clipboard in main and refuses a key it cannot read, save-secret answers with the placeholder, or empty after a delete |
 | `keys.test.js` | 229 | Needs escaping in JSON and in a URL. | a header placeholder becomes the key for its own provider, a placeholder in the URL is replaced URL-encoded, inside a JSON body the key is inserted JSON-escaped, a non-JSON string body gets the raw key, an object body is sent as JSON with the key inside, the longest matching key id wins |
-| `open.test.js` | 160 | Schema v1 has not shipped: the CHECK is GLOB (case-sensitive), not LIKE | schema v1: user_version, every table, install_id, pragmas on a file: WAL, NORMAL, foreign keys, busy timeout, temp store, :memory: reports journal_mode memory, reopening an up-to-date file runs nothing and makes no backup, a pending migration backs up first, then runs and bumps user_version, a migration that throws rolls back and leaves the version |
+| `open.test.js` | 220 | Migration v2 is additive, so v1's own shape is worth pinning on its own — and it | schema v1: every table it shipped with, and install_id, schema v2 adds the two snapshot tables and touches models not at all, a v1 file upgrades to v2 with every row it held, pragmas on a file: WAL, NORMAL, foreign keys, busy timeout, temp store, :memory: reports journal_mode memory, reopening an up-to-date file runs nothing and makes no backup |
 | `providers.test.js` | 253 |  | the placeholder of the same key keeps the stored cipher, a new value replaces the secret and the next read sees it, sending the same plaintext back keeps the stored cipher, keys missing from the payload are deleted, a key id that another provider owns is refused, created_at survives updates and position follows payload order |
-| `settings-secrets.test.js` | 87 |  | settings rows round-trip JS types exactly, saveSettings strips aaApiKey and keeps fields the renderer does not know, saveSettings rejects anything but an object, saveTest stores the test row as given, secrets: unknown names are refused, secrets: with OS encryption unavailable nothing is stored |
+| `settings-secrets.test.js` | 104 |  | settings rows round-trip JS types exactly, saveSettings strips aaApiKey and keeps fields the renderer does not know, saveSettings rejects anything but an object, saveTest stores the test row as given, secrets: unknown names are refused, openRouterApiKey is a known secret bound to openrouter.ai |
+| `snapshots.test.js` | 191 |  | a provider with no snapshot reads null, not an empty object, every file-level field the reference kept survives the round trip, pendingDrop is present only while a mass drop is quarantined, listProviderIds is the set that has ever produced a snapshot, forgetting a model deletes its row, so it is not read as a removal, setHealth records a probe without rewriting the summary or the history |
 
 ### test/logs/
 

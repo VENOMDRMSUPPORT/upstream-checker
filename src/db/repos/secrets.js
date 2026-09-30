@@ -5,7 +5,10 @@
 // origin it may be sent to (src/db/keys.js enforces it).
 const { isEnvelope, revealCached } = require('../cipher');
 
-const SECRET_ORIGINS = { aaApiKey: 'https://artificialanalysis.ai' };
+const SECRET_ORIGINS = {
+  aaApiKey: 'https://artificialanalysis.ai',
+  openRouterApiKey: 'https://openrouter.ai',
+};
 
 function createSecretsRepo(db, cipher, cache) {
   const q = {

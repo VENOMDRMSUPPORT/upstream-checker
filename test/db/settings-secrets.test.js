@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { memoryStore, fakeCipher, encFake, LOCKED_BLOB } = require('../helpers');
+const { SECRET_ORIGINS } = require('../../src/db/repos/secrets');
 
 test('settings rows round-trip JS types exactly', async (t) => {
   const { repos } = await memoryStore(t);
@@ -54,6 +55,22 @@ test("secrets: saving '' deletes", async (t) => {
 test('secrets: unknown names are refused', async (t) => {
   const { repos } = await memoryStore(t);
   assert.throws(() => repos.secrets.save('githubToken', 'x'), /Unknown secret/);
+});
+
+// The catalog engine reads this secret through its readKey seam, and SECRET_ORIGINS
+// is what lets it be stored at all: save() refuses any name not in that map.
+test('openRouterApiKey is a known secret bound to openrouter.ai', async (t) => {
+  const store = await memoryStore(t);
+  // save() answers whether one is stored — the placeholder is built in db/ipc.js:62.
+  assert.strictEqual(store.repos.secrets.save('openRouterApiKey', 'sk-or-v1-test'), true);
+  assert.strictEqual(store.repos.secrets.has('openRouterApiKey'), true);
+  assert.strictEqual(store.repos.secrets.reveal('openRouterApiKey'), 'sk-or-v1-test');
+  assert.strictEqual(SECRET_ORIGINS.openRouterApiKey, 'https://openrouter.ai');
+  assert.strictEqual(SECRET_ORIGINS.aaApiKey, 'https://artificialanalysis.ai',
+    'aaApiKey stays registered: the current Settings page still saves it until Plan B');
+  assert.throws(() => store.repos.secrets.save('someOtherKey', 'x'), /Unknown secret/);
+  assert.strictEqual(store.repos.secrets.save('openRouterApiKey', ''), false,
+    'and saving an empty value deletes one, like every other secret');
 });
 
 test('secrets: with OS encryption unavailable nothing is stored', async (t) => {

@@ -129,4 +129,45 @@ module.exports = [
       db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('install_id', crypto.randomUUID());
     },
   },
+  {
+    version: 2,
+    up(db) {
+      db.exec(`
+        -- The roster-level fields the reference kept at file level beside the
+        -- per-model history (ref §10): when the history started, when the rows
+        -- were fetched, how the last attempt ended, and a quarantined mass drop.
+        CREATE TABLE snapshot_meta (
+          provider_id       TEXT PRIMARY KEY,
+          created_at        INTEGER NOT NULL,
+          fetched_at        INTEGER,
+          last_sync_json    TEXT,
+          pending_drop_json TEXT
+        );
+
+        -- One row per provider+model: the snapshot's "models" entry and that
+        -- model's provider-published facts together, so a sync writes history and
+        -- rows in one transaction. Separate from the "models" table on purpose —
+        -- see the two-writers deviation at the top of this plan. summary_json
+        -- carries the provider's own facts with every derived field stripped (ref
+        -- §10 providerRowSnapshot); health_json holds one minimal request's
+        -- verdict and its latency samples: { status, note, httpStatus, at,
+        -- latencies: [{ at, ms }] }, newest sample last. The snapshot writer
+        -- never touches health_json — that column belongs to catalog:health (see
+        -- src/db/repos/snapshots.js, and the case that pins it).
+        CREATE TABLE roster_snapshot (
+          provider_id  TEXT NOT NULL,
+          model_id     TEXT NOT NULL,
+          name         TEXT,
+          first_seen   INTEGER NOT NULL,
+          last_seen    INTEGER NOT NULL,
+          removed_at   INTEGER,
+          summary_json TEXT,
+          health_json  TEXT,
+          updated_at   INTEGER NOT NULL,
+          PRIMARY KEY (provider_id, model_id)
+        );
+        CREATE INDEX roster_by_provider ON roster_snapshot(provider_id, removed_at);
+      `);
+    },
+  },
 ];
