@@ -41,8 +41,6 @@ function createFetcher({
     }
   }
 
-  // The default is read per call, not once at definition, so a timeout the owner
-  // changes in Settings takes effect without a restart.
   async function fetchJson(url, headers = {}, limitMs = timeoutMs) {
     try {
       return await fetchOnce(url, headers, limitMs);

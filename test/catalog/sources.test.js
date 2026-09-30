@@ -24,6 +24,7 @@ test('exactly four sources, in the reference order, with the reference urls', ()
   assert.equal(SOURCES[0].url, 'https://models.dev/api.json');
   assert.equal(SOURCES[1].url, 'https://openrouter.ai/api/v1/models');
   assert.equal(SOURCES[2].url, 'https://openrouter.ai/api/v1/benchmarks');
+  assert.equal(SOURCES[3].url, 'https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset');
   assert.equal(SOURCES[2].auth, true, 'only the benchmark feed is keyed');
   assert.equal(SOURCES[0].auth, false);
 });
@@ -65,6 +66,69 @@ test('LMArena pages 100 rows a time and stops at a short page, not at the 800 ca
   assert.equal(payload.data.length, 205);
   assert.equal(payload.webdev.length, 5);
   assert.equal(seen, 4, 'two text pages plus the short one, plus one webdev page');
+});
+
+test('every arena page is a 100-row datasets-server request and the walk stops at the 800 cap', async (t) => {
+  const pages = [];
+  // Rows keep coming, so only the offset cap can end the walk: without it this
+  // stub would be asked forever.
+  const fetcher = createFetcher({ retryDelayMs: 1, sleep: async () => {}, fetchImpl: async (url) => {
+    pages.push(new URL(url));
+    return { ok: true, status: 200, text: async () => JSON.stringify({
+      rows: Array.from({ length: 100 }, (_, i) => ({
+        row: { model_name: `m${i}`, category: 'overall', rating: 1200, rank: i + 1, vote_count: 5 },
+      })),
+    }) };
+  } });
+  const sources = createSources({ cacheDir: tempDir(t), fetcher, readKey: () => '' });
+  const { payload } = await sources.fetchOne(SOURCES[3]);
+
+  for (const page of pages) {
+    assert.equal(`${page.protocol}//${page.host}${page.pathname}`,
+      'https://datasets-server.huggingface.co/rows', `the rows route, not ${page.origin}`);
+    assert.equal(page.searchParams.get('dataset'), 'lmarena-ai/leaderboard-dataset');
+    assert.equal(page.searchParams.get('split'), 'latest');
+    assert.equal(page.searchParams.get('length'), '100', 'ARENA_PAGE rows per request');
+    assert.ok(Number(page.searchParams.get('offset')) < 800, 'ARENA_MAX_OFFSET: nothing past 800 is asked for');
+  }
+  const offsets = (config) => pages.filter((p) => p.searchParams.get('config') === config)
+    .map((p) => Number(p.searchParams.get('offset')));
+  const walk = [0, 100, 200, 300, 400, 500, 600, 700];
+  assert.deepEqual(offsets('text'), walk, 'the text board walks to 700 and stops before 800');
+  assert.deepEqual(offsets('webdev'), walk, 'the webdev board walks the same way');
+  assert.equal(payload.data.length, 800);
+  assert.equal(payload.webdev.length, 800);
+});
+
+test('both LMArena boards are in flight at once — neither waits for the other to finish', async (t) => {
+  const started = [];
+  let releaseHeldRequest = null;
+  let serialised = false;
+  const fetcher = createFetcher({ retryDelayMs: 1, sleep: async () => {}, fetchImpl: async (url) => {
+    const config = new URL(url).searchParams.get('config');
+    started.push(config);
+    if (started.length === 1) {
+      // The first board's request stays open until the second board asks for a
+      // page of its own. Fetched one after the other, that never happens.
+      await new Promise((resolve) => {
+        releaseHeldRequest = resolve;
+        const bail = setTimeout(() => { serialised = true; resolve(); }, 250);
+        bail.unref && bail.unref();
+      });
+    } else if (releaseHeldRequest) {
+      releaseHeldRequest();
+    }
+    const row = { model_name: `${config}-1`, category: 'overall', rating: 1, rank: 1, vote_count: 1 };
+    return { ok: true, status: 200,
+      text: async () => JSON.stringify({ rows: [{ row }] }) };
+  } });
+  const sources = createSources({ cacheDir: tempDir(t), fetcher, readKey: () => '' });
+  const { payload } = await sources.fetchOne(SOURCES[3]);
+
+  assert.equal(serialised, false, 'the second board reached the transport while the first was still open');
+  assert.deepEqual(started, ['text', 'webdev'], 'one page of each board, both started together');
+  assert.deepEqual(payload.data.map((r) => r.model_name), ['text-1']);
+  assert.deepEqual(payload.webdev.map((r) => r.model_name), ['webdev-1']);
 });
 
 test('a row whose category is not overall ends that board and is not kept', async (t) => {

@@ -42,6 +42,16 @@ test('exactly one retry on any failure, and the answer still arrives', async () 
   assert.equal(s.calls.length, 2, 'a transient blip must not surface as a failure');
 });
 
+test('the retry waits one full RETRY_DELAY_MS before the second attempt', async () => {
+  const delays = [];
+  const s = stub([() => { throw new Error('ECONNRESET'); }, () => json({ ok: true })]);
+  // The default delay, but an injected sleep: the suite proves the fetcher asks
+  // for the retry pause without spending it.
+  const f = createFetcher({ sleep: async (ms) => { delays.push(ms); }, fetchImpl: s.fetchImpl });
+  assert.deepEqual(await f.fetchJson('https://x/y'), { ok: true });
+  assert.deepEqual(delays, [RETRY_DELAY_MS], 'one pause of the built-in delay, not zero and not two');
+});
+
 test('two failures throw the second cause suffixed (retried once) — never a third attempt', async () => {
   const s = stub([() => json({}, false, 500), () => json({}, false, 503)]);
   const f = fast({ fetchImpl: s.fetchImpl });
@@ -70,10 +80,46 @@ test('an abort is reported as a timeout, in seconds', async () => {
   await assert.rejects(() => f.fetchJson('https://x/y'), /timed out after 20s \(retried once\)/);
 });
 
-test('the deadline really is armed and cleared: a slow answer still arrives', async () => {
+test('the transport is handed an AbortSignal for the request', async () => {
   const f = createFetcher({ retryDelayMs: 1, sleep: async () => {}, timeoutMs: 5000,
     fetchImpl: async (url, opts) => { assert.ok(opts.signal, 'the abort signal is passed through'); return json({}); } });
   assert.deepEqual(await f.fetchJson('https://x/y'), {});
+});
+
+test('the deadline is armed at the caller timeout and aborts a request that outlives it', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const signals = [];
+  let attempt = 0;
+  const f = createFetcher({ timeoutMs: 5000, retryDelayMs: 1, sleep: async () => {},
+    fetchImpl: async (url, opts) => {
+      attempt += 1;
+      signals.push(opts.signal);
+      if (attempt === 1) {
+        // Stays open until its own deadline closes it.
+        await new Promise((_, reject) => opts.signal.addEventListener('abort',
+          () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))));
+      }
+      return json({ attempt });
+    } });
+  const pending = f.fetchJson('https://x/y');
+  assert.equal(signals.length, 1, 'the first attempt reached the transport');
+
+  t.mock.timers.tick(4999);
+  assert.equal(signals[0].aborted, false, 'nothing fires before the deadline the caller asked for');
+  t.mock.timers.tick(1);
+  assert.equal(signals[0].aborted, true, 'the deadline fires the abort at exactly timeoutMs');
+  assert.deepEqual(await pending, { attempt: 2 }, 'the retry answers inside its own deadline');
+});
+
+test('the deadline is cleared the moment an answer arrives, so it cannot abort a finished request', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let signal;
+  const f = createFetcher({ timeoutMs: 5000, retryDelayMs: 1, sleep: async () => {},
+    fetchImpl: async (url, opts) => { signal = opts.signal; return json({ answered: true }); } });
+  assert.deepEqual(await f.fetchJson('https://x/y'), { answered: true });
+
+  t.mock.timers.tick(60000);
+  assert.equal(signal.aborted, false, 'the armed deadline was cleared, not left behind to fire');
 });
 
 test('fetchJsonCached shares one in-flight download between concurrent callers', async () => {
@@ -82,6 +128,19 @@ test('fetchJsonCached shares one in-flight download between concurrent callers',
   const [a, b] = await Promise.all([f.fetchJsonCached('https://x/big'), f.fetchJsonCached('https://x/big')]);
   assert.equal(a, b, 'the same object, one download');
   assert.equal(s.calls.length, 1);
+});
+
+test('a cached document is reused inside its ttl and refetched once the ttl has passed', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1760000000000 });
+  const f = createFetcher({ retryDelayMs: 1, sleep: async () => {}, cacheTtlMs: 5000,
+    fetchImpl: async () => json({ fetchedAt: Date.now() }) });
+
+  const first = await f.fetchJsonCached('https://x/doc');
+  t.mock.timers.tick(4999);
+  assert.deepEqual(await f.fetchJsonCached('https://x/doc'), first, 'inside the ttl nothing is downloaded again');
+  t.mock.timers.tick(2);
+  const third = await f.fetchJsonCached('https://x/doc');
+  assert.notDeepEqual(third, first, 'past the ttl the document is fetched again, not served forever');
 });
 
 test('a failed cached fetch is evicted so the next caller retries', async () => {
