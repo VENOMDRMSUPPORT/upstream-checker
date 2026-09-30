@@ -1,38 +1,42 @@
-// Builds every app icon from the brand masters in src/assets/brand/.
-// Small sizes use hand-hinted masters: the full mark's tongue and chamfers
-// turn to noise below 64 px.
+// Builds every brand asset the app uses from the VenomGPT brand pack, kept in
+// assets-src/brand/:
+//
+//   emblem-<accent>.png        the emblem for dark surfaces (neon contour)
+//   emblem-<accent>-light.png  the emblem for light surfaces (platinum body,
+//                              jewel contour)
+//   icons/icon-<n>.png         hand-hinted small sizes of the emerald emblem,
+//                              sharper at 16-48 px than any downscale
+//
+// The pack draws the emblem by hand in each of the five accents, so the app
+// ships one picture per accent and theme instead of recolouring one master.
+//
+// Writes:
+//   src/assets/brand/emblem-*.png  the same ten, 256 px — sharp at the About
+//                                  page's 68 px on a 2x screen. The stylesheet
+//                                  picks one by accent and theme; the taskbar
+//                                  icon (main.js) is the dark one.
+//   src/assets/icon*.png, icon.ico, favicon.png  window, installer and favicon,
+//                                  in the default accent (emerald).
 const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs');
 
-const ASSETS = path.join(__dirname, '..', 'src', 'assets');
-const BRAND = path.join(ASSETS, 'brand');
-const MARK_COLOR = '#00d4ff';
-const TILE_COLOR = '#0b0f17';
+const ROOT = path.join(__dirname, '..');
+const SRC = path.join(ROOT, 'assets-src', 'brand');
+const ASSETS = path.join(ROOT, 'src', 'assets');
+const OUT = path.join(ASSETS, 'brand');
 
-function markPath(file) {
-  const svg = fs.readFileSync(path.join(BRAND, file), 'utf8');
-  const d = svg.match(/\sd="([^"]+)"/);
-  if (!d) throw new Error(`No path in ${file}`);
-  return d[1];
-}
+// Must match ACCENTS / DEFAULT_SETTINGS.accent in src/renderer/app.js.
+const ACCENTS = ['emerald', 'cyan', 'violet', 'crimson', 'amber'];
+const DEFAULT_ACCENT = 'emerald';
 
-// The master for a given pixel size.
-function masterFor(size) {
-  if (size <= 16) return 'mark-16.svg';
-  if (size <= 64) return 'mark-32.svg';
-  return 'mark.svg';
-}
+const UI_SIZE = 256;
+const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256];
 
-function tileSVG(size) {
-  const d = markPath(masterFor(size));
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="${size}" height="${size}">
-  <rect width="512" height="512" rx="112" fill="${TILE_COLOR}"/>
-  <path fill="${MARK_COLOR}" fill-rule="evenodd" d="${d}"/>
-</svg>`;
-}
-
-const png = (size) => sharp(Buffer.from(tileSVG(size))).resize(size, size).png().toBuffer();
+const resize = (file, size) => sharp(file)
+  .resize(size, size, { kernel: sharp.kernel.lanczos3 })
+  .png({ compressionLevel: 9 })
+  .toBuffer();
 
 // ICO container holding PNG frames; a size of 256 is written as 0.
 function buildICO(images) {
@@ -41,31 +45,47 @@ function buildICO(images) {
   header.writeUInt16LE(1, 2);
   header.writeUInt16LE(images.length, 4);
   let offset = 6 + images.length * 16;
-  const entries = [];
-  for (const img of images) {
+  const entries = images.map((img) => {
     const e = Buffer.alloc(16);
     e.writeUInt8(img.size >= 256 ? 0 : img.size, 0);
     e.writeUInt8(img.size >= 256 ? 0 : img.size, 1);
+    e.writeUInt8(0, 2);
+    e.writeUInt8(0, 3);
     e.writeUInt16LE(1, 4);
     e.writeUInt16LE(32, 6);
     e.writeUInt32LE(img.buffer.length, 8);
     e.writeUInt32LE(offset, 12);
-    entries.push(e);
     offset += img.buffer.length;
-  }
+    return e;
+  });
   return Buffer.concat([header, ...entries, ...images.map((i) => i.buffer)]);
 }
 
 async function main() {
-  for (const size of [16, 32, 48, 64, 128, 256, 512]) {
-    fs.writeFileSync(path.join(ASSETS, `icon-${size}.png`), await png(size));
+  fs.mkdirSync(OUT, { recursive: true });
+
+  for (const id of ACCENTS) {
+    for (const suffix of ['', '-light']) {
+      const name = `emblem-${id}${suffix}.png`;
+      fs.writeFileSync(path.join(OUT, name), await resize(path.join(SRC, name), UI_SIZE));
+    }
   }
-  fs.writeFileSync(path.join(ASSETS, 'icon.png'), await png(512));
-  fs.writeFileSync(path.join(ASSETS, 'favicon.png'), await png(32));
-  const ico = [];
-  for (const size of [16, 32, 48, 256]) ico.push({ size, buffer: await png(size) });
-  fs.writeFileSync(path.join(ASSETS, 'icon.ico'), buildICO(ico));
-  console.log('Icons generated from src/assets/brand/.');
+
+  // Window, taskbar and installer icons. The pack's hinted frames where it has
+  // them; 512 is the emerald emblem itself.
+  const frames = {};
+  for (const size of ICO_SIZES) frames[size] = fs.readFileSync(path.join(SRC, 'icons', `icon-${size}.png`));
+  frames[512] = await resize(path.join(SRC, `emblem-${DEFAULT_ACCENT}.png`), 512);
+
+  for (const size of [16, 32, 48, 64, 128, 256, 512]) {
+    fs.writeFileSync(path.join(ASSETS, `icon-${size}.png`), frames[size]);
+  }
+  fs.writeFileSync(path.join(ASSETS, 'icon.png'), frames[512]);
+  fs.writeFileSync(path.join(ASSETS, 'favicon.png'), frames[32]);
+  fs.writeFileSync(path.join(ASSETS, 'icon.ico'),
+    buildICO(ICO_SIZES.map((size) => ({ size, buffer: frames[size] }))));
+
+  console.log('Brand assets generated from assets-src/brand/.');
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });

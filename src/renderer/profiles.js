@@ -18,6 +18,12 @@
 //     single upstream takes everything and rate limits stay out of the way.
 //
 // Loaded after catalog.js.
+// Each profile has one identity colour, defined once as an app-wide token
+// (--profile-lite / --profile-pro / --profile-max in styles.css) and worn
+// wherever a profile is named: the cards below, the stat strip above them, the
+// Catalog's readiness chips and profile dots, and the toolbar legend. The
+// `.pf-<id>` classes set --pf from those tokens, so no colour is hardcoded here
+// and the three stay apart whatever accent the owner picks.
 
 (function () {
   'use strict';
@@ -452,31 +458,57 @@
     </div>`;
   }
 
+  // What the card leads with, derived from the profile's own policy: the
+  // heaviest weight names what it optimises for, and the cost settings name its
+  // strategy. Edit the policy and these words change with it.
+  function modeLabel(p) {
+    const w = p.weights;
+    const top = Object.entries(w).sort((a, b) => b[1] - a[1])[0][0];
+    if (top === 'iq') return w.iq >= 0.6 ? 'Deep reasoning / complex' : 'Balanced / general';
+    if (top === 'speed') return 'Fast / lightweight';
+    if (top === 'cost') return 'Cost-first / economical';
+    return 'Reliability-first / steady';
+  }
+
+  function strategyLabel(p) {
+    if (p.weights.cost === 0) return 'Highest measured score';
+    if (p.preferFree && p.maxPrice != null) return 'Zero-cost priority';
+    if (p.preferFree) return 'Free-tier priority';
+    return 'Cost / quality tradeoff';
+  }
+
   function profileCardHTML(pf, pol) {
     const id = pf.id;
     const sum = policySummary(pf, pol);
     const showExcluded = !!state.showExcluded[id];
     const editing = !!state.editing[id];
     const total = pf.active.length + pf.candidates.length + pf.cooldown.length + pf.excluded.length;
+    const eligiblePct = total ? Math.round((pf.eligible / total) * 100) : 0;
     const cols = '<th class="col-rank">#</th><th>Model</th><th class="col-share">Share</th><th class="col-score">Score</th><th class="col-tier">IQ</th><th>TTFT</th><th>Tok/s</th><th>Rel.</th><th>Conf.</th>';
     const colsNoShare = cols.replace('<th class="col-share">Share</th>', '');
     const table = (rows, showShare, empty) => rows.length
       ? `<div class="dt-table-wrap"><table class="dt-table pf-table"><thead><tr>${showShare ? cols : colsNoShare}</tr></thead><tbody>${rows.map((t) => rowHTML({ ...t, _w: pf.weights }, id, showShare)).join('')}</tbody></table></div>`
       : `<div class="pf-empty">${empty}</div>`;
     return `<section class="pf-card pf-${id}" data-pf="${id}">
-      <header class="pf-head">
-        <span class="pf-icon">${PROFILE_ICON[id]}</span>
-        <div class="pf-title"><h3>${escapeHtml(pf.label)} <code>venom-${id}</code></h3><p>${escapeHtml(pf.desc)}</p></div>
+      <header class="pf-ribbon">
+        <span class="pf-ribbon-icon">${PROFILE_ICON[id]}</span>
+        <h3>${escapeHtml(pf.label)}</h3>
+        <code>venom-${id}</code>
+        <span class="pf-ribbon-sep"></span>
         <span class="pf-tag">${escapeHtml(pf.tag)}</span>
       </header>
-      <div class="pf-stats">
-        <div class="pf-stat"><span class="pf-stat-value">${pf.active.length}</span><span class="pf-stat-label">active</span></div>
-        <div class="pf-stat"><span class="pf-stat-value">${pf.candidates.length}</span><span class="pf-stat-label">candidates</span></div>
-        <div class="pf-stat"><span class="pf-stat-value">${pf.cooldown.length}</span><span class="pf-stat-label">cooling</span></div>
-        <div class="pf-stat"><span class="pf-stat-value">${pf.excluded.length}</span><span class="pf-stat-label">excluded</span></div>
-        <div class="pf-stat"><span class="pf-stat-value">${pf.providersInPlay}</span><span class="pf-stat-label">providers</span></div>
+      <p class="pf-desc">${escapeHtml(pf.desc)}</p>
+      <div class="pf-pool">
+        <div class="pf-pool-row">
+          <span class="pf-pool-label">Eligible Target Pool</span>
+          <span class="pf-pool-count"><b>${pf.eligible}</b> / ${total} in the pool</span>
+        </div>
+        <div class="pf-pool-bar"><span style="width:${eligiblePct}%"></span></div>
       </div>
-      <div class="pf-meter"><span style="width:${total ? Math.round((pf.active.length / total) * 100) : 0}%"></span></div>
+      <div class="pf-meta">
+        <div class="pf-meta-item"><span class="pf-meta-label">Mode:</span><span class="pf-meta-value">${escapeHtml(modeLabel(pol.profiles[id]))}</span></div>
+        <div class="pf-meta-item"><span class="pf-meta-label">Strategy:</span><span class="pf-meta-value">${escapeHtml(strategyLabel(pol.profiles[id]))}</span></div>
+      </div>
       <div class="pf-policy">
         <div class="pf-policy-row"><b>Gate</b><span>${sum.gate.map((g) => `<span class="pf-gate">${escapeHtml(g)}</span>`).join('')}</span></div>
         <div class="pf-policy-row"><b>Order</b><span>${sum.order.map((o, i) => `<span class="pf-order"><i>${i + 1}</i>${escapeHtml(o)}</span>`).join('')}</span></div>
@@ -484,10 +516,10 @@
         <div class="pf-policy-actions"><button class="btn btn-ghost btn-mini" type="button" data-pf-edit="${id}">${ICON.sliders} ${editing ? 'Close policy' : 'Edit policy'}</button></div>
       </div>
       ${editing ? policyEditorHTML(id, pol.profiles[id]) : ''}
-      <div class="pf-section-head">Roster <span class="mc-muted">ranked · shares over the top ${pol.topN}</span></div>
+      <div class="pf-section-head">Roster <span class="mc-muted">${pf.active.length} active · ${pf.providersInPlay} provider${pf.providersInPlay === 1 ? '' : 's'} in play · shares over the top ${pol.topN}</span></div>
       ${table(pf.active, true, pf.excluded.length || pf.candidates.length ? 'Nothing active yet — see candidates and exclusions below.' : 'No models in the pool.')}
-      ${pf.candidates.length ? `<div class="pf-section-head">Candidates <span class="mc-muted">eligible, but not enough evidence to carry traffic (${pol.minRuns}+ runs, ${pol.minVerdicts}+ verdicts)</span></div>${table(pf.candidates, false, '')}` : ''}
-      ${pf.cooldown.length ? `<div class="pf-section-head">Cooling down <span class="mc-muted">${pol.cooldownStreak}+ failures in a row; back after ${pol.cooldownMinutes} min</span></div>${table(pf.cooldown, false, '')}` : ''}
+      ${pf.candidates.length ? `<div class="pf-section-head">Candidates <span class="mc-muted">${pf.candidates.length} · eligible, but not enough evidence to carry traffic (${pol.minRuns}+ runs, ${pol.minVerdicts}+ verdicts)</span></div>${table(pf.candidates, false, '')}` : ''}
+      ${pf.cooldown.length ? `<div class="pf-section-head">Cooling down <span class="mc-muted">${pf.cooldown.length} · ${pol.cooldownStreak}+ failures in a row; back after ${pol.cooldownMinutes} min</span></div>${table(pf.cooldown, false, '')}` : ''}
       <div class="pf-section-head pf-toggle" data-pf-excluded="${id}">${ICON.chevron} Excluded <span class="mc-muted">${pf.excluded.length} · ${pf.reasons.slice(0, 3).map(([r, n]) => `${escapeHtml(r)} (${n})`).join(' · ')}</span></div>
       ${showExcluded ? table(pf.excluded, false, 'Nothing excluded.') : ''}
     </section>`;
@@ -500,7 +532,9 @@
     ];
     PROFILE_IDS.forEach((id) => {
       const p = r.profiles[id];
-      items.push({ label: p.label, value: p.active.length, sub: p.candidates.length ? `+${p.candidates.length} cand.` : '', icon: PROFILE_ICON[id],
+      // `profile` hands the card the profile's own colour — the same token the
+      // card below, the Catalog's readiness chips and the legend use.
+      items.push({ label: p.label, value: p.active.length, sub: p.candidates.length ? `+${p.candidates.length} cand.` : '', icon: PROFILE_ICON[id], profile: id,
         meter: r.sources ? p.active.length / r.sources : 0, foot: p.active.length ? `${p.active[0].name} leads · ${p.providersInPlay} provider${p.providersInPlay === 1 ? '' : 's'} in play` : 'no active source yet' });
     });
     return statCardsHTML(items);

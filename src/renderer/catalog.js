@@ -1,5 +1,5 @@
 // ============================================
-// Model Pool — live model inventory + benchmark leaderboard
+// Models Catalog — live model inventory + benchmark leaderboard
 // ============================================
 // Every model each connected provider currently lists, kept current by a
 // periodic sync: a model the provider adds shows up on the next pass (and is
@@ -558,9 +558,7 @@
     sync: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>',
     box: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>',
     plug: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0z"/><path d="M12 18v4"/></svg>',
-    flag: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22V4a1 1 0 0 1 1-1h13l-3 5 3 5H5"/></svg>',
     trophy: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 6h3v2a3 3 0 0 1-3 3M7 6H4v2a3 3 0 0 0 3 3"/></svg>',
-    globe: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>',
     clock: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
     eye: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
     brain: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4a3 3 0 0 0-3 3v10a3 3 0 0 0 6 0V7a3 3 0 0 0-3-3z"/><path d="M9 9H7a3 3 0 0 0 0 6h2M15 9h2a3 3 0 0 1 0 6h-2"/></svg>',
@@ -624,8 +622,21 @@
     return `<span class="mc-cat ${scoreClass(c.score / 100)}" title="${c.passed} of ${c.answered} answered correct${pts}">${c.score}</span>`;
   }
 
+  // Which routing profiles this model currently serves — one dot per profile in
+  // that profile's own colour, taken from the app-wide --profile-* tokens, so a
+  // model wears the same identity here as on the Profiles page. A model in no
+  // profile shows nothing.
+  function profileDots(e) {
+    const P = window.PROFILES;
+    if (!P || typeof P.membershipOf !== 'function') return '';
+    return P.membershipOf(e).map((m) => `<span class="pf-dot pf-${m.profile}" title="${escapeHtml(m.profile)} · #${m.rank} · ${m.share}% of its traffic"></span>`).join('');
+  }
+
   function badges(e) {
     const out = [];
+    // The profiles serving a model come first: that is the identity it wears
+    // across the app, not a property of the row.
+    out.push(profileDots(e));
     if (e.isNew) out.push('<span class="pv-tag mc-new">NEW</span>');
     if (e.bench && e.bench.suite !== B.SUITE_VERSION) out.push(`<span class="pv-tag t-amber" title="Scored with an older task suite (v${e.bench.suite}); re-run to compare fairly with v${B.SUITE_VERSION} results">old suite</span>`);
     if (e.kind && e.kind !== 'chat') out.push(`<span class="pv-tag t-violet">${escapeHtml(e.kind)}</span>`);
@@ -761,7 +772,7 @@
       const cta = benchmarkable(e)
         ? `<p class="mc-muted">Not benchmarked yet. The suite is ${B.TASKS.length} short graded tasks plus two latency probes — ${B.TASKS.length + 2} requests, a few seconds, a fraction of a cent.</p>
            <button class="btn btn-primary" type="button" data-mc-run="${escapeHtml(e.key)}">${ICON.play} Run benchmark</button>`
-        : `<p class="mc-muted">This is a ${escapeHtml(e.kind)} model. The benchmark is a chat suite, so it is listed here but not scored — test it from Route Test.</p>`;
+        : `<p class="mc-muted">This is a ${escapeHtml(e.kind)} model. The benchmark is a chat suite, so it is listed here but not scored — test it from its provider's page.</p>`;
       return `<div class="mc-detail-grid">
         <div class="mc-panel"><div class="mc-panel-head">Benchmark</div>${cta}</div>
         <div class="mc-side">${globalPanelHTML(e, g, lb)}${readinessPanelHTML(e)}</div>
@@ -896,23 +907,34 @@
 
   function renderKpis(list) {
     const connected = Object.values(PROVIDERS).filter(isConnected);
+    const total = Object.keys(PROVIDERS).length;
     const benched = list.filter((e) => e.bench).length;
-    const fresh = list.filter((e) => e.isNew).length;
     const v = validity(list);
     const removedRecently = Object.values(state.data.models).filter((e) => e.removedAt && Date.now() - e.removedAt < 7 * 86400000).length;
     const lastSync = Object.values(state.data.lastSync).reduce((m, t) => Math.max(m, t || 0), 0);
+    // Four cards, the pool at a glance: how much it holds, who supplies it, how
+    // far the benchmark has got, and when it was last re-read. The count of new
+    // models is on the toolbar's New chip, and the agreement with the global
+    // board rides on the benchmark card (benchFoot) instead of a card of its own.
     $('#mc-kpis').innerHTML = statCardsHTML([
       { label: 'Models', value: list.length, icon: ICON.box, foot: removedRecently ? `${removedRecently} removed this week` : 'listed by connected providers' },
-      { label: 'Providers', value: connected.length, sub: `/ ${Object.keys(PROVIDERS).length}`, icon: ICON.plug,
-        meter: Object.keys(PROVIDERS).length ? connected.length / Object.keys(PROVIDERS).length : 0, foot: 'connected' },
+      { label: 'Providers', value: connected.length, sub: `/ ${total}`, icon: ICON.plug,
+        meter: total ? connected.length / total : 0, foot: 'connected' },
       { label: 'Benchmarked', value: benched, sub: `/ ${list.length}`, icon: ICON.trophy, meter: list.length ? benched / list.length : 0,
-        foot: state.running ? 'running…' : state.queue.length ? `${state.queue.length} queued` : benched ? 'ranked below' : 'press ▶ on a model to start' },
-      { label: 'New models', value: fresh, icon: ICON.flag, foot: fresh ? 'since the last baseline' : 'nothing new since baseline' },
-      { label: 'Validity vs global', value: v.rho == null ? '—' : v.rho.toFixed(2), icon: ICON.globe,
-        meter: v.rho == null ? null : Math.max(0, v.rho), foot: v.n >= 3 ? `${v.label} (ρ, ${v.n} models)` : `needs 3+ benchmarked models on the global board (${v.n})` },
+        foot: benchFoot(benched, v) },
       { label: 'Last sync', value: lastSync ? escapeHtml(formatAgo(lastSync)) : '—', icon: ICON.clock,
         foot: state.syncing ? 'syncing…' : `${state.syncNote || 'every'} · every ${Math.max(1, Number(settings.catalogSyncMinutes) || 5)} min` },
     ]);
+  }
+
+  // The benchmark card's caption: what the run is doing now, else how closely
+  // our ranking agrees with the global board — the ρ figure that used to have a
+  // card of its own, kept where it is read.
+  function benchFoot(benched, v) {
+    if (state.running) return 'running…';
+    if (state.queue.length) return `${state.queue.length} queued`;
+    if (!benched) return 'press ▶ on a model to start';
+    return v.rho != null && v.n >= 3 ? `${v.label} with global (ρ ${v.rho.toFixed(2)})` : 'ranked below';
   }
 
   function providerSelectHTML() {
@@ -979,7 +1001,7 @@
   function renderCrumbs() {
     $('#mc-crumbs').innerHTML = breadcrumbHTML([
       { label: 'Overview', page: 'overview' },
-      { label: 'Model Pool', icon: 'catalog' },
+      { label: 'Models Catalog', icon: 'catalog' },
     ]);
   }
 
@@ -994,7 +1016,7 @@
       body.innerHTML = `<div class="pv-empty">
         <div class="pv-empty-icon">${ICON.empty}</div>
         <h3>No providers connected</h3>
-        <p>The model pool lists the models of every provider that has an API key. Connect one and its models appear here within seconds, then stay in step with what the provider offers.</p>
+        <p>Every model your connected providers offer appears here. Connect one and its models show up within seconds, then stay in step with what the provider offers.</p>
         <button class="btn btn-primary" type="button" data-go="providers">${ICON.plug}Open Providers</button>
       </div>`;
       return;

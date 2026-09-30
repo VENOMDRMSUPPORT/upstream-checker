@@ -391,10 +391,10 @@ async function checkMonitoringPage({ app }) {
       return false;
     };
     document.querySelector('.shell-nav-item[data-page=monitor]').click();
-    const drawn = await wait(() => document.querySelectorAll('.log-chart').length > 0, 20000);
-    const charts = document.querySelectorAll('.log-chart').length;
-    const marks = document.querySelectorAll('.log-chart polyline, .log-chart circle').length;
-    const tiles = [...document.querySelectorAll('.log-tile')].map((t) => t.textContent).join('|');
+    const drawn = await wait(() => document.querySelectorAll('#monitor-body svg[role="img"]').length > 0, 20000);
+    const charts = document.querySelectorAll('#monitor-body svg[role="img"]').length;
+    const marks = document.querySelectorAll('#monitor-body svg[role="img"] polyline, #monitor-body svg[role="img"] circle').length;
+    const tiles = [...document.querySelectorAll('#monitor-body .ov-kpi')].map((t) => t.textContent).join('|');
     return { drawn, charts, marks, tiles };
   })()`, 45000);
   check('Monitoring draws its charts', s.drawn && s.charts === 3, String(s.charts));

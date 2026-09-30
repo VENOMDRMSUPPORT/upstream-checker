@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   minimize: () => ipcRenderer.send('window-minimize'),
   maximize: () => ipcRenderer.send('window-maximize'),
   close: () => ipcRenderer.send('window-close'),
+  // Taskbar icon in the current accent: main knows the emblem by the accent's id.
+  setWindowIcon: (accentId) => ipcRenderer.send('set-window-icon', accentId),
 
   // API requests
   apiRequest: (opts) => ipcRenderer.invoke('api-request', opts),
@@ -15,6 +17,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onAppVersion: (callback) => {
     ipcRenderer.on('app-version', (_, version) => callback(version));
   },
+
+  // Development only: main watches src/renderer and names the stylesheet that
+  // changed, so the page can swap that one without reloading. Never sent from
+  // a packaged build — the watcher there is not started.
+  onDevReloadCss: (callback) => ipcRenderer.on('dev-reload-css', (_, file) => callback(file)),
 
   // Close handshake: main asks for pending saves before the window closes or
   // an update installs; the renderer answers once they are written.

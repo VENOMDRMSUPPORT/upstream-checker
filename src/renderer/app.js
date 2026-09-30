@@ -155,11 +155,10 @@ const DEFAULT_SETTINGS = {
   // Appearance. Every colour in the stylesheet comes from a custom property, so
   // a theme is a block of overrides rather than a second stylesheet.
   // 'vercel' (Dark) or 'daylight' (Light). followSystem overrides it with the
-  // OS setting. accent is a preset id or 'custom', which uses customAccent.
+  // OS setting. accent is one of ACCENTS' ids.
   theme: 'vercel',
   followSystem: false,
-  accent: 'cyan',
-  customAccent: '#a855f7',
+  accent: 'emerald',
   density: 'normal',
 
   // Request bodies in the request log: off | errors (Failed only) | all. The
@@ -173,7 +172,7 @@ const DEFAULT_SETTINGS = {
   bodyRetentionDays: 7,
   statsRetentionMonths: 12,
 
-  // Model Pool. The pool re-reads every connected provider's model
+  // Models Catalog. The pool re-reads every connected provider's model
   // list on this cadence; a model that appears is benchmarked straight away
   // when catalogAutoBench is on (the first sync of a provider is a baseline —
   // nothing is auto-run then). aaApiKey unlocks the live Artificial Analysis
@@ -181,11 +180,6 @@ const DEFAULT_SETTINGS = {
   catalogSyncMinutes: 5,
   catalogAutoBench: true,
   aaApiKey: '',
-
-  // Sidebar width in px; 0 means hidden. Capped at the design width — the
-  // sidebar can be narrowed or shut, never widened, because everything in it is
-  // laid out against that measure.
-  sidebarWidth: 320,
 
   // Models tested at the same time. 1 is the original behaviour. Raising it is
   // the only thing that actually shortens a run — widening the hedge spends more
@@ -198,20 +192,21 @@ const THEMES = [
   { id: 'vercel', name: 'Dark' },
 ];
 
+// The brand pack's five, each with an emblem drawn in its colour (see
+// scripts/generate-icons.js). hex is the swatch; the stylesheet's [data-accent]
+// rules carry the same colour and the shades derived from it.
 const ACCENTS = [
-  { id: 'cyan', hex: '#00d4ff' }, { id: 'violet', hex: '#a78bfa' }, { id: 'green', hex: '#34d399' },
-  { id: 'amber', hex: '#fbbf24' }, { id: 'rose', hex: '#fb7185' }, { id: 'blue', hex: '#60a5fa' },
+  { id: 'emerald', name: 'Emerald', hex: '#10b981' },
+  { id: 'cyan', name: 'Cyan', hex: '#06b6d4' },
+  { id: 'violet', name: 'Violet', hex: '#8b5cf6' },
+  { id: 'crimson', name: 'Crimson', hex: '#f43f5e' },
+  { id: 'amber', name: 'Amber', hex: '#f59e0b' },
 ];
 
-const HEX_COLOR = /^#[0-9a-f]{6}$/i;
-const ACCENT_PROPS = ['--accent', '--accent-dim', '--accent-bg', '--accent-border', '--on-accent'];
+// Accents saved before the brand pack, and the one they became. 'blue' had no
+// counterpart: cyan is the nearest hue.
+const LEGACY_ACCENTS = { green: 'emerald', rose: 'crimson', blue: 'cyan' };
 
-// Relative luminance (WCAG) of a #rrggbb colour.
-function luminance(hex) {
-  const lin = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
-  const n = parseInt(hex.slice(1), 16);
-  return 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
-}
 const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
 
 function effectiveTheme() {
@@ -220,8 +215,7 @@ function effectiveTheme() {
 }
 
 function accentLabel() {
-  if (settings.accent === 'custom') return 'Custom';
-  return settings.accent[0].toUpperCase() + settings.accent.slice(1);
+  return (ACCENTS.find((a) => a.id === settings.accent) || ACCENTS[0]).name;
 }
 
 function applyAppearance() {
@@ -229,22 +223,8 @@ function applyAppearance() {
   const theme = effectiveTheme();
   el.setAttribute('data-theme', theme);
   el.setAttribute('data-density', settings.density);
-
-  // A custom accent is written as inline properties, which outrank the preset
-  // [data-accent] rules; the derived shades are mixed from the one colour.
-  const custom = settings.accent === 'custom' && HEX_COLOR.test(settings.customAccent);
-  el.setAttribute('data-accent', custom ? 'custom' : settings.accent);
-  if (custom) {
-    const hex = settings.customAccent;
-    el.style.setProperty('--accent', hex);
-    el.style.setProperty('--accent-dim', `color-mix(in srgb, ${hex} 78%, black)`);
-    el.style.setProperty('--accent-bg', `color-mix(in srgb, ${hex} 10%, transparent)`);
-    el.style.setProperty('--accent-border', `color-mix(in srgb, ${hex} 26%, transparent)`);
-    // Black text wins on anything lighter than ~mid-grey; white below that.
-    el.style.setProperty('--on-accent', luminance(hex) > 0.18 ? '#0a0a0a' : '#ffffff');
-  } else {
-    ACCENT_PROPS.forEach((p) => el.style.removeProperty(p));
-  }
+  el.setAttribute('data-accent', settings.accent);
+  queueBrandIcon(settings.accent);
 
   const toggle = document.getElementById('btn-theme-toggle');
   if (toggle) {
@@ -252,6 +232,26 @@ function applyAppearance() {
     toggle.title = label;
     toggle.setAttribute('aria-label', label);
   }
+}
+
+// The taskbar icon follows the accent: main sets the window icon to that
+// accent's emblem. Debounced, because a quick run through the swatches would
+// otherwise set it once per click; an unchanged accent is not sent again.
+const brandIcon = { id: null, timer: null };
+
+function queueBrandIcon(id) {
+  if (!window.electronAPI?.setWindowIcon || id === brandIcon.id) return;
+  brandIcon.id = id;
+  clearTimeout(brandIcon.timer);
+  brandIcon.timer = setTimeout(() => window.electronAPI.setWindowIcon(id), 150);
+}
+
+// Every emblem, once, so picking an accent swaps the picture at once instead of
+// showing a gap while the file loads.
+function preloadEmblems() {
+  ACCENTS.forEach((a) => {
+    ['', '-light'].forEach((suffix) => { new Image().src = `../assets/brand/emblem-${a.id}${suffix}.png`; });
+  });
 }
 
 // Windows switching light/dark while the app is open.
@@ -291,10 +291,10 @@ async function loadSettings() {
   // Themes that no longer exist (Deep Space, Midnight, Carbon, AMOLED, Nord)
   // were all dark, so they land on Dark.
   if (!THEMES.some((t) => t.id === settings.theme)) settings.theme = 'vercel';
-  if (settings.accent !== 'custom' && !ACCENTS.some((a) => a.id === settings.accent)) {
-    settings.accent = DEFAULT_SETTINGS.accent;
-  }
-  if (!HEX_COLOR.test(settings.customAccent)) settings.customAccent = DEFAULT_SETTINGS.customAccent;
+  // A custom colour no longer exists; it, and any other unknown id, lands on
+  // the default.
+  settings.accent = LEGACY_ACCENTS[settings.accent] || settings.accent;
+  if (!ACCENTS.some((a) => a.id === settings.accent)) settings.accent = DEFAULT_SETTINGS.accent;
 }
 
 // One row, written on its own: no read-modify-write, so it can't undo a key
@@ -320,6 +320,30 @@ window.electronAPI.onAppVersion((version) => {
   document.querySelectorAll('[data-app-version]').forEach((el) => { el.textContent = `v${version}`; });
 });
 
+// Development only: main names a stylesheet that changed on disk. It is
+// replaced by a fresh link that only takes over once it has loaded — the old
+// sheet stays up until then, so the page never flashes unstyled — and nothing
+// on screen is rebuilt. Keeping the page you are looking at is the whole point
+// of swapping the CSS instead of reloading.
+// The swaps are chained, never concurrent: two sheets reloading at the same
+// moment hang the renderer. The link is looked up inside the chain because an
+// earlier swap may already have replaced it. A packaged build never fires this.
+let cssSwapChain = Promise.resolve();
+window.electronAPI.onDevReloadCss?.((file) => {
+  cssSwapChain = cssSwapChain.then(() => new Promise((done) => {
+    const old = [...document.querySelectorAll('link[rel="stylesheet"]')]
+      .find((l) => (l.getAttribute('href') || '').split('?')[0] === file);
+    if (!old) { done(); return; }
+    const fresh = old.cloneNode();
+    fresh.setAttribute('href', `${file}?t=${Date.now()}`);
+    const finish = () => { old.remove(); done(); };
+    fresh.addEventListener('load', finish, { once: true });
+    fresh.addEventListener('error', finish, { once: true });
+    // Later in the document, so the new rules win the cascade while both are up.
+    old.after(fresh);
+  }));
+});
+
 // Built-in providers register their metadata into window.INTEGRATED_PROVIDERS
 // (see src/renderer/providers/*.js, loaded before this file).
 const BUILTIN_PROVIDERS = {};
@@ -341,7 +365,7 @@ function makeRuntimeProvider(def) {
 // State
 let activeProvider = null; // resolved to the first available provider in init()
 let models = [];
-let modelFilter = ''; // sidebar search box, lowercased
+let modelFilter = ''; // models panel search box, lowercased
 let testResults = [];
 let runTotal = null; // models covered by the current/last run; null = no run yet
 let lastRun = null; // { done, total, stopped } — lets the summary be re-stated
@@ -472,7 +496,7 @@ async function saveProviderConfig(providerId) {
   // Every save is a user edit to keys or the base URL, so the verdict is stale.
   checkProviderHealth(providerId);
   if (currentPage === 'providers') renderProvidersPage();
-  // The Model Pool shows a provider's models only while it has a key.
+  // The Models Catalog shows a provider's models only while it has a key.
   window.dispatchEvent(new CustomEvent('providers-changed', { detail: { providerId } }));
   return !!saved;
 }
@@ -788,70 +812,27 @@ $('#btn-maximize').addEventListener('click', () => window.electronAPI.maximize()
 $('#btn-close').addEventListener('click', () => window.electronAPI.close());
 
 // ============================================
-// Provider tab switching
+// Provider page — header
 // ============================================
-function renderProviderTabs() {
-  const container = $('#provider-tabs');
-  $('#provider-count').textContent = Object.keys(PROVIDERS).length;
-  container.innerHTML = '';
-  Object.values(PROVIDERS).forEach((p) => {
-    const btn = document.createElement('button');
-    btn.className = `provider-btn ${p.id === activeProvider ? 'active' : ''}`;
-    btn.dataset.provider = p.id;
-    const actions =
-      `<span class="provider-action provider-edit" data-provider="${p.id}" title="Edit provider">` +
-      `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>` +
-      `</span>`;
-    // An integrated provider ships a logo (meta.logo); a provider without one
-    // falls back to a coloured dot.
-    btn.innerHTML =
-      `<span class="provider-name">${escapeHtml(p.name)}</span>` +
-      `<span class="provider-actions">${actions}</span>`;
-
-    // Built as a node rather than markup: the onerror attribute this used to
-    // carry was the only inline script in the app and the sole reason the CSP
-    // had to allow 'unsafe-inline'. Setting the dot colour as a property instead
-    // of interpolating it into a style attribute closes the same hole for CSS.
-    let badge;
-    if (p.logo) {
-      badge = document.createElement('img');
-      badge.className = 'provider-logo';
-      badge.alt = '';
-      if (p.logoTone) badge.dataset.tone = p.logoTone;
-      badge.addEventListener('error', () => { badge.style.display = 'none'; });
-      badge.src = p.logo;
-    } else {
-      badge = document.createElement('span');
-      badge.className = 'provider-dot';
-      badge.style.background = p.color;
-    }
-    const mark = document.createElement('span');
-    mark.className = 'provider-mark';
-    mark.appendChild(badge);
-    const pip = document.createElement('span');
-    pip.className = 'provider-health-pip';
-    mark.appendChild(pip);
-    btn.prepend(mark);
-    applyProviderHealth(btn, p.id);
-
-    btn.addEventListener('click', () => switchProvider(p.id));
-    container.appendChild(btn);
-  });
-
-  // The list is rebuilt from scratch on every render, which resets scrollTop, so
-  // pull the active provider back into view when there are enough to scroll.
-  const active = container.querySelector('.provider-btn.active');
-  if (active) {
-    container.scrollTop = active.offsetTop - (container.clientHeight - active.offsetHeight) / 2;
-  }
-
-  $$('.provider-edit').forEach((el) => {
-    el.addEventListener('click', (e) => {
-      e.stopPropagation();
-      openProviderModal(el.dataset.provider);
-    });
-  });
+// The page shows one provider (activeProvider). Its trail, health and title are
+// drawn here; the keys, models and stats each have their own renderer.
+function renderProviderHead() {
+  const p = PROVIDERS[activeProvider];
+  if (!p) return;
+  $('#pt-crumbs').innerHTML = breadcrumbHTML([
+    { label: 'Overview', page: 'overview' },
+    { label: 'Providers', page: 'providers' },
+    { label: p.name, iconHTML: `<span class="crumb-mark">${providerMark(p)}</span>` },
+  ]);
+  $('#pt-health').innerHTML = providerStatusHTML(p);
+  if (currentPage === 'provider') renderPageHeader('provider');
 }
+
+$('.page-provider').addEventListener('click', (e) => {
+  const go = e.target.closest('[data-go]');
+  if (go) showPage(go.dataset.go);
+});
+$('#pt-edit').addEventListener('click', () => openProviderModal(activeProvider));
 
 // ============================================
 // Provider health — a silent background probe of each provider's key
@@ -1014,8 +995,7 @@ function setProviderHealth(id, { state, detail }) {
   providerHealth.set(id, { state, detail, checkedAt: Date.now() });
   // A Recheck the user pressed resolves into its verdict (see recheckProvider).
   if (recheckAct.get(id)?.state === 'running') setAct(recheckAct, id, state);
-  const btn = document.querySelector(`.provider-btn[data-provider="${CSS.escape(id)}"]`);
-  if (btn) applyProviderHealth(btn, id);
+  if (currentPage === 'provider' && id === activeProvider) renderProviderHead();
   renderQuickStats();
   if (currentPage === 'providers') renderProvidersPage();
   // These two show only the state (a dot), and rebuilding them resets open
@@ -1024,15 +1004,6 @@ function setProviderHealth(id, { state, detail }) {
     if (window.CATALOG) window.CATALOG.renderIfShown();
     if (window.PROFILES) window.PROFILES.renderIfShown();
   }
-}
-
-function applyProviderHealth(btn, id) {
-  const h = providerHealth.get(id);
-  btn.dataset.health = h ? h.state : 'pending';
-  const name = PROVIDERS[id] ? PROVIDERS[id].name : id;
-  btn.title = h
-    ? `${name} — ${h.detail} · checked ${new Date(h.checkedAt).toLocaleTimeString()}`
-    : `${name} — checking connection...`;
 }
 
 function checkAllProvidersHealth() {
@@ -1109,12 +1080,29 @@ function switchProvider(providerId) {
   modelFilter = '';
   const search = $('#models-search');
   if (search) search.value = '';
-  renderProviderTabs();
+  renderProviderHead();
   renderKeysList();
   renderModelsList();
   updateTestAllButton();
   updateStats();
-  if (currentPage === 'check') syncRoute();
+  if (currentPage === 'provider') syncRoute();
+}
+
+// The provider whose run fills the results table. The table holds one
+// provider's run at a time; opening another provider's page starts it empty.
+let resultsProvider = null;
+
+// The only way onto the provider page. A run in progress owns the table, so
+// while one is going the page stays on its provider rather than showing that
+// run's rows under another provider's name.
+function openProviderPage(id) {
+  if (!PROVIDERS[id]) return;
+  const target = isTesting && resultsProvider && PROVIDERS[resultsProvider] ? resultsProvider : id;
+  if (!isTesting && resultsProvider !== target) clearResults();
+  resultsProvider = target;
+  switchProvider(target);
+  showPage('provider');
+  if (target !== id) setStatus('running', `${PROVIDERS[target].name} is being tested — stop the run to open ${PROVIDERS[id].name}`);
 }
 
 // ============================================
@@ -1134,14 +1122,16 @@ const ICON_LOCKED = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none"
 function renderKeysList() {
   const p = PROVIDERS[activeProvider];
   const container = $('#keys-list');
+  $('#pt-key-count').textContent = String(p.keys.length);
 
   if (p.keys.length === 0) {
     container.innerHTML = `
       <div class="models-empty">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" opacity="0.5" aria-hidden="true">
           <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
         </svg>
-        <span>No keys added</span>
+        <span>No keys yet</span>
+        <span class="models-empty-hint">Add a key to fetch and test this provider's models.</span>
       </div>`;
     return;
   }
@@ -1275,12 +1265,16 @@ async function addKey() {
 
   nameInput.value = '';
   keyInput.value = '';
-  const { saved } = await storeKey(activeProvider, name, key);
+  const pid = activeProvider;
+  const { k, saved } = await storeKey(pid, name, key);
   renderKeysList();
   updateTestAllButton();
   // A failed save already left its error in the status bar (persist()); a
   // "done" here would overwrite it and hide that the key wasn't saved.
   if (saved) setStatus('done', `Key "${name}" added`);
+  // The new key's quota and expiry are read now, as Connect does. Without
+  // this its usage cells sat on the loading skeleton until the page reloaded.
+  if (window.KEY_USAGE) KEY_USAGE.refresh(pid, k.id, { force: true });
 }
 
 // ============================================
@@ -1435,7 +1429,7 @@ $('#btn-fetch-models').addEventListener('click', async () => {
 // the same model, and counting them as two distorts uptime and makes the list
 // read as twice the catalogue it is.
 //
-// The bare name is recorded as an alias group so the sidebar can say so. They are
+// The bare name is recorded as an alias group so the models list can say so. They are
 // still tested separately: a prefix usually routes to a different pool, and the
 // whole point of the tool is that one can be up while the other is down.
 function tagAliasGroups(list) {
@@ -1493,7 +1487,7 @@ function readsReasoning(m) {
 }
 
 // Returns '' when the provider doesn't report a context window, so callers can
-// decide how to render "unknown" (the table shows NA, the sidebar shows nothing
+// decide how to render "unknown" (the table shows NA, the models list shows nothing
 // rather than a stray dash under every model name).
 function formatContext(ctx) {
   if (!ctx) return '';
@@ -1503,9 +1497,9 @@ function formatContext(ctx) {
 }
 
 // ============================================
-// Render models list in sidebar
+// Render the models list
 // ============================================
-// The models matching the sidebar search box. Filtering is display-only — it
+// The models matching the models panel search box. Filtering is display-only — it
 // never changes which models are selected, so a filtered-out model stays in the
 // run if it was already ticked.
 function visibleModels() {
@@ -1529,7 +1523,7 @@ function renderModelsList() {
           <path d="M8 21h8M12 17v4"/>
         </svg>
         <span>No models loaded</span>
-        <span class="models-empty-hint">Add API key and fetch models</span>
+        <span class="models-empty-hint">${PROVIDERS[activeProvider].keys.length ? 'Fetch models to list what this provider offers.' : 'Add an API key, then fetch models.'}</span>
       </div>`;
     updateTestAllButton();
     return;
@@ -1546,7 +1540,7 @@ function renderModelsList() {
 
   let html = '';
   if (shown[0].noPlans) {
-    // No group label here — the sidebar section header already reads "MODELS <n>".
+    // No group label here — the panel header already reads "Models <n>".
     html += shown.map((m) => buildModelItem(m)).join('');
   } else {
     const free = shown.filter((m) => m.isFree);
@@ -2747,6 +2741,7 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
   }
 
   isTesting = true;
+  resultsProvider = p.id;
   abortTesting = false;
   inflightIds.clear();
   // requestTags is intentionally not cleared here: a straggler from the run
@@ -2904,7 +2899,6 @@ function initResultsTable() {
   sortKey = null;
   sortDir = 1;
   showFailedOnly = false;
-  $('#filter-failed').classList.remove('active');
   $('#results-empty').style.display = 'none';
   $('#results-table').style.display = '';
   $('#results-body').innerHTML = '';
@@ -2974,6 +2968,8 @@ function renderResultsTable() {
 // CONTEXT when no row in the table has anything to put in them.
 function syncColumnVisibility() {
   const table = $('#results-table');
+  table.classList.toggle('hide-type', !table.querySelector('td.cell-type:not(.cell-na)'));
+  table.classList.toggle('hide-context', !table.querySelector('td.cell-context:not(.cell-na)'));
   // Answer checking is a setting, not a property of the provider, so this is the
   // one column that hides — and it hides identically whichever provider is open.
   table.classList.toggle('hide-correct', expectedAnswer.trim() === '');
@@ -2996,10 +2992,19 @@ $('#results-table thead').addEventListener('click', (e) => {
   renderResultsTable();
 });
 
-$('#filter-failed').addEventListener('click', () => {
+function toggleFailedFilter() {
   showFailedOnly = !showFailedOnly;
-  $('#filter-failed').classList.toggle('active', showFailedOnly);
+  updateStats();
   renderResultsTable();
+}
+$('#pt-kpis').addEventListener('click', (e) => {
+  if (e.target.closest('[data-filter-failed]')) toggleFailedFilter();
+});
+$('#pt-kpis').addEventListener('keydown', (e) => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.closest('[data-filter-failed]')) {
+    e.preventDefault();
+    toggleFailedFilter();
+  }
 });
 
 // Matched on the dataset value rather than an attribute selector, because model
@@ -3274,22 +3279,36 @@ function updateStats() {
   // Total = the models this run covers, not every model fetched — otherwise
   // testing 3 of 9 shows "Total 9 / Passed 2 / Failed 1". Before a run it
   // previews the current selection, so Passed + Failed can never exceed it.
-  $('#stat-total').textContent = String(runTotal ?? getSelectedModels().length);
+  const total = runTotal ?? getSelectedModels().length;
   const passed = testResults.filter((r) => r.status === 'pass').length;
   const failed = testResults.filter((r) => r.status === 'fail').length;
-  $('#stat-pass').textContent = String(passed);
-  $('#stat-fail').textContent = String(failed);
 
   // Average latency measures speed, so only completed calls count. A 502 comes
   // back in ~0.3s and would otherwise drag the average down and make the
   // provider look faster than it actually is.
   const times = testResults.filter((r) => r.status === 'pass' && r.time).map((r) => r.time);
-  if (times.length > 0) {
-    const avg = times.reduce((a, b) => a + b, 0) / times.length;
-    $('#stat-avg-time').textContent = `${(avg / 1000).toFixed(1)}s`;
-  } else {
-    $('#stat-avg-time').textContent = NA;
-  }
+  const avg = times.length > 0 ? times.reduce((a, b) => a + b, 0) / times.length : null;
+
+  const fetched = models.length;
+  const finished = passed + failed;
+  $('#pt-kpis').innerHTML = statCardsHTML([
+    { label: 'Models', value: total, sub: fetched ? `/ ${fetched}` : '', icon: KPI_ICON.layers,
+      meter: fetched ? total / fetched : 0,
+      foot: fetched === 0 ? 'fetch models to begin' : runTotal != null ? 'in this run' : 'selected for the next run' },
+    { label: 'Passed', value: passed, sub: finished ? `/ ${finished}` : '', icon: KPI_ICON.check, tone: 'pass',
+      meter: total ? passed / total : 0,
+      foot: finished ? `${Math.round((passed / finished) * 100)}% of finished models` : 'no results yet' },
+    { label: 'Failed', value: failed, sub: finished ? `/ ${finished}` : '', icon: KPI_ICON.cross, tone: 'fail',
+      meter: total ? failed / total : 0,
+      // The card doubles as the filter: it narrows the table to failures and back.
+      attrs: failed || showFailedOnly
+        ? `data-filter-failed role="button" tabindex="0" aria-pressed="${showFailedOnly}" title="Show only failed / empty responses"`
+        : '',
+      active: showFailedOnly,
+      foot: showFailedOnly ? 'showing only failures — click to show all' : failed ? 'click to show only failures' : 'none failed' },
+    { label: 'Average time', value: avg == null ? NA : avg < 1000 ? `${Math.round(avg)} ms` : `${(avg / 1000).toFixed(1)}s`, icon: KPI_ICON.clock,
+      foot: 'passed calls only' },
+  ]);
 
   const retryBtn = $('#btn-retry-failed');
   if (retryBtn) retryBtn.disabled = isTesting || retryableModels().length === 0;
@@ -3336,7 +3355,7 @@ $('#btn-export-json').addEventListener('click', () => {
   downloadFile(JSON.stringify(testResults, null, 2), exportFilename('json'), 'application/json');
 });
 
-$('#btn-clear-results').addEventListener('click', () => {
+function clearResults() {
   testResults = [];
   runTotal = null;
   lastRun = null;
@@ -3344,7 +3363,6 @@ $('#btn-clear-results').addEventListener('click', () => {
   sortKey = null;
   sortDir = 1;
   showFailedOnly = false;
-  $('#filter-failed').classList.remove('active');
   $$('#results-table th').forEach((el) => el.classList.remove('sort-asc', 'sort-desc'));
   $('#results-empty').style.display = '';
   $('#results-table').style.display = 'none';
@@ -3352,7 +3370,8 @@ $('#btn-clear-results').addEventListener('click', () => {
   updateStats();
   setStatus('idle', 'Ready');
   $('#progress-container').style.display = 'none';
-});
+}
+$('#btn-clear-results').addEventListener('click', clearResults);
 
 // Fixed names meant every export after the first landed as "(1)", "(2)" with no
 // way to tell which provider or run it came from.
@@ -3791,7 +3810,7 @@ async function updateProvider(id, { name, baseUrl, rpm }) {
   p.baseUrl = baseUrl;
   p.rpm = Number.isFinite(rpm) && rpm > 0 ? rpm : null;
   const saved = await saveProviderConfig(id);
-  renderProviderTabs();
+  renderProviderHead();
   // A failed save already left its error in the status bar (persist()); a
   // "done" here would overwrite it, and the caller keeps the modal open
   // (below) instead of hiding the failure behind a closed dialog.
@@ -3976,21 +3995,14 @@ function renderCostEstimate() {
   el.textContent = text;
 }
 
-// Swatches for both the Appearance page and the header popover: the presets,
-// then a colour-wheel swatch wrapping a native picker for any colour.
+// Swatches for both the Appearance page and the header popover.
 function accentSwatchesHTML(cls, role) {
-  const presets = ACCENTS.map((a) => {
+  return ACCENTS.map((a) => {
     const on = a.id === settings.accent;
-    const name = a.id[0].toUpperCase() + a.id.slice(1);
     return `<button class="${cls} ${on ? 'active' : ''}" type="button" role="${role}" aria-checked="${on}"
-             data-accent-id="${a.id}" title="${name}" aria-label="${name}"
+             data-accent-id="${a.id}" title="${a.name}" aria-label="${a.name}"
              style="background:${a.hex};color:${a.hex}"></button>`;
   }).join('');
-  const on = settings.accent === 'custom';
-  const hex = settings.customAccent;
-  return presets + `<label class="${cls} swatch-custom ${on ? 'active' : ''}" title="Custom colour"
-             style="--custom:${hex};color:${on ? hex : 'var(--text-2)'}">
-             <input type="color" value="${hex}" aria-label="Custom accent colour"></label>`;
 }
 
 function renderAppearancePickers() {
@@ -4044,38 +4056,21 @@ $('#density-seg').addEventListener('click', (e) => {
 });
 
 $('#btn-reset-appearance').addEventListener('click', () => {
-  ['theme', 'followSystem', 'accent', 'customAccent', 'density'].forEach((k) => { settings[k] = DEFAULT_SETTINGS[k]; });
+  ['theme', 'followSystem', 'accent', 'density'].forEach((k) => { settings[k] = DEFAULT_SETTINGS[k]; });
   saveAppearance();
   if (tableRows.length > 0) renderResultsTable();
 });
 
 function setAccent(id) {
-  if (id !== 'custom' && !ACCENTS.some((a) => a.id === id)) return;
+  if (!ACCENTS.some((a) => a.id === id)) return;
   settings.accent = id;
   saveAppearance();
-}
-
-// Dragging in the native picker fires `input` continuously: the colour is
-// applied live, and the swatches are only rebuilt (and saved) on `change` —
-// rebuilding mid-drag would destroy the input the picker is attached to.
-function setCustomAccent(hex, commit) {
-  if (!HEX_COLOR.test(hex)) return;
-  settings.customAccent = hex;
-  settings.accent = 'custom';
-  if (commit) saveAppearance();
-  else applyAppearance();
 }
 
 function bindAccentSwatches(container) {
   container.addEventListener('click', (e) => {
     const sw = e.target.closest('[data-accent-id]');
     if (sw) setAccent(sw.dataset.accentId);
-  });
-  container.addEventListener('input', (e) => {
-    if (e.target.type === 'color') setCustomAccent(e.target.value, false);
-  });
-  container.addEventListener('change', (e) => {
-    if (e.target.type === 'color') setCustomAccent(e.target.value, true);
   });
 }
 bindAccentSwatches($('#accent-row'));
@@ -4158,7 +4153,7 @@ const SETTINGS_SECTIONS_META = {
   'sec-schedule': { label: 'Schedule', desc: 'Automatic re-tests, health checks and alerts' },
   'sec-speed': { label: 'Speed & Timeouts', desc: 'Latency colours, and how long a model may take' },
   'sec-reliability': { label: 'Reliability', desc: 'Hedging, models tested at once, and retries' },
-  'sec-catalog': { label: 'Model Pool', desc: 'How the model pool syncs, benchmarks and ranks models' },
+  'sec-catalog': { label: 'Models Catalog', desc: 'How the model pool syncs, benchmarks and ranks models' },
   'sec-history': { label: 'History', desc: 'How many runs are kept, and exporting them' },
   'sec-logs': { label: 'Diagnostics & Logs', desc: 'What is logged about each request, and where' },
   'sec-data': { label: 'Data Directory', desc: 'Where your settings, keys and history are stored' },
@@ -4280,7 +4275,6 @@ $('#btn-reset-settings').addEventListener('click', () => {
   // The Artificial Analysis key is a saved secret, not a setting: a reset keeps it.
   settings = { ...DEFAULT_SETTINGS, aaApiKey: settings.aaApiKey };
   applyAppearance();
-  applySidebarWidth(settings.sidebarWidth);
   queueSettingsSave();
   fillSettingsForm();
   renderAppearancePickers();
@@ -4290,65 +4284,13 @@ $('#btn-reset-settings').addEventListener('click', () => {
 });
 
 
-// ============================================
-// Sidebar sizing
-// ============================================
-const SIDEBAR_FULL = 320;  // the width everything in the sidebar is laid out for
-const SIDEBAR_MIN = 190;   // below this the model rows stop being readable
-const SIDEBAR_SHUT = 120;  // dragged past this, it closes rather than cramping
-
-function applySidebarWidth(px) {
-  const hidden = px <= 0;
-  document.documentElement.style.setProperty('--sidebar-width', `${hidden ? 0 : px}px`);
-  document.body.classList.toggle('sidebar-hidden', hidden);
-  $('#sidebar-restore').style.display = hidden ? '' : 'none';
-}
-
-// Snapping happens here rather than in the drag handler so the same rules apply
-// to a restored width read back from settings.
-function clampSidebar(px) {
-  if (px < SIDEBAR_SHUT) return 0;
-  return Math.min(SIDEBAR_FULL, Math.max(SIDEBAR_MIN, px));
-}
-
-let sidebarDragging = false;
-
-$('#sidebar-resizer').addEventListener('mousedown', (e) => {
-  sidebarDragging = true;
-  document.body.classList.add('resizing');
-  e.preventDefault(); // otherwise the drag selects text across the window
-});
-
-window.addEventListener('mousemove', (e) => {
-  if (!sidebarDragging) return;
-  settings.sidebarWidth = clampSidebar(e.clientX - $('#sidebar').getBoundingClientRect().left);
-  applySidebarWidth(settings.sidebarWidth);
-});
-
-window.addEventListener('mouseup', () => {
-  if (!sidebarDragging) return;
-  sidebarDragging = false;
-  document.body.classList.remove('resizing');
-  queueSettingsSave();
-});
-
-function toggleSidebar() {
-  settings.sidebarWidth = settings.sidebarWidth > 0 ? 0 : SIDEBAR_FULL;
-  applySidebarWidth(settings.sidebarWidth);
-  queueSettingsSave();
-}
-
-$('#sidebar-resizer').addEventListener('dblclick', toggleSidebar);
-$('#sidebar-restore').addEventListener('click', toggleSidebar);
-
-
 // App shell. Bound before init() so the nav responds while providers and
 // history are still loading.
-const PAGES = ['overview', 'providers', 'catalog', 'profiles', 'check', 'history', 'monitor', 'settings'];
+const PAGES = ['overview', 'providers', 'provider', 'catalog', 'profiles', 'history', 'monitor', 'settings'];
 let currentPage = 'overview';
 
 // Routes live in the URL hash (the page is loaded from file://, so real paths
-// can't be used) and survive a reload: #/check/<providerId>, #/settings/<section>.
+// can't be used) and survive a reload: #/provider/<providerId>, #/settings/<section>.
 function parseRoute() {
   const [page, sub] = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
   return { page: PAGES.includes(page) ? page : 'overview', sub: sub || '' };
@@ -4356,7 +4298,7 @@ function parseRoute() {
 
 function syncRoute() {
   let hash = `#/${currentPage}`;
-  if (currentPage === 'check' && activeProvider) hash += `/${encodeURIComponent(activeProvider)}`;
+  if (currentPage === 'provider' && activeProvider) hash += `/${encodeURIComponent(activeProvider)}`;
   if (currentPage === 'settings') {
     const btn = $('#settings-nav .settings-nav-item.active');
     if (btn) hash += `/${btn.dataset.section.replace(/^sec-/, '')}`;
@@ -4372,7 +4314,12 @@ function syncRoute() {
 
 function applyRoute() {
   const { page, sub } = parseRoute();
-  if (page === 'check' && sub && PROVIDERS[sub]) switchProvider(sub);
+  // The provider page needs a provider; without one it is the Providers page.
+  if (page === 'provider') {
+    if (sub && PROVIDERS[sub]) openProviderPage(sub);
+    else showPage('providers');
+    return;
+  }
   showPage(page);
   if (page === 'settings' && sub) switchSettingsSection(`sec-${sub}`);
 }
@@ -4380,9 +4327,8 @@ function applyRoute() {
 const PAGE_META = {
   overview: { title: 'Overview', desc: 'Routing health — providers, models and test activity at a glance.' },
   providers: { title: 'Providers', desc: 'Connect providers and manage their keys and accounts.' },
-  catalog: { title: 'Model Pool', desc: 'Every model your connected providers offer — the pool the router draws from, benchmarked and ranked.' },
+  catalog: { title: 'Models Catalog', desc: 'Every model your connected providers offer — the pool the router draws from, benchmarked and ranked.' },
   profiles: { title: 'Routing Profiles', desc: 'Three virtual models — Lite, Pro, Max — that route each request to the best model in the pool.' },
-  check: { title: 'Route Test', desc: 'Test every route a provider offers against one prompt.' },
   history: { title: 'Test History', desc: 'Every request this app has sent, and the runs they belong to.' },
   monitor: { title: 'Monitoring', desc: 'Requests, errors, latency and cost over time.' },
   settings: { title: 'Settings', desc: 'Test prompt, scheduling, appearance and data.' },
@@ -4390,10 +4336,16 @@ const PAGE_META = {
 
 // The header's icon is the page's own nav icon, so the two can't drift apart.
 function renderPageHeader(page) {
-  const meta = PAGE_META[page];
+  // The provider page is a child of Providers: it wears that page's icon, and
+  // its title is the provider it shows.
+  const p = page === 'provider' ? PROVIDERS[activeProvider] : null;
+  const meta = p
+    ? { title: p.name, desc: `Test the models ${p.name} offers, and manage its keys.` }
+    : PAGE_META[page];
   $('#shell-page-title').textContent = meta.title;
   $('#shell-page-desc').textContent = meta.desc;
-  const icon = document.querySelector(`.shell-nav-item[data-page="${page}"] .shell-nav-icon`);
+  const navPage = page === 'provider' ? 'providers' : page;
+  const icon = document.querySelector(`.shell-nav-item[data-page="${navPage}"] .shell-nav-icon`);
   const box = $('#shell-page-icon');
   box.replaceChildren();
   if (icon) box.appendChild(icon.cloneNode(true));
@@ -4405,16 +4357,14 @@ function showPage(page) {
   currentPage = page;
   $$('.shell-page').forEach((el) => { el.hidden = el.dataset.page !== page; });
   $$('.shell-nav-item[data-page]').forEach((el) => {
-    const on = el.dataset.page === page;
+    const on = el.dataset.page === (page === 'provider' ? 'providers' : page);
     el.classList.toggle('active', on);
     if (on) el.setAttribute('aria-current', 'page');
     else el.removeAttribute('aria-current');
   });
   renderPageHeader(page);
   if (page === 'settings') prepareSettingsPage();
-  // The provider list centres the active tab on render, which can't happen
-  // while its page is hidden.
-  if (page === 'check') renderProviderTabs();
+  if (page === 'provider') renderProviderHead();
   if (page === 'overview') renderQuickStats();
   if (page === 'catalog' && window.CATALOG) window.CATALOG.render();
   if (page === 'profiles' && window.PROFILES) window.PROFILES.render();
@@ -4527,7 +4477,7 @@ function bindShell() {
     if (go) showPage(go.dataset.go);
   });
   // The status strip leads to where provider health is shown per provider.
-  $('#shell-status').addEventListener('click', () => showPage('check'));
+  $('#shell-status').addEventListener('click', () => showPage('providers'));
   $$('.shell-nav-item[data-page]').forEach((el) => {
     el.addEventListener('click', () => showPage(el.dataset.page));
   });
@@ -4603,7 +4553,7 @@ function renderOverviewPanels() {
 
   if (runLog.length === 0) {
     const empty = '<div class="ov-empty">No test runs recorded yet.' +
-      '<button class="btn btn-ghost" type="button" data-go="check">Open Route Test</button></div>';
+      '<button class="btn btn-ghost" type="button" data-go="providers">Open Providers</button></div>';
     trend.innerHTML = empty;
     activity.innerHTML = empty;
     $('#ov-trend-meta').textContent = '';
@@ -4710,7 +4660,7 @@ function breadcrumbHTML(items) {
   return items.map((it, i) => {
     const last = i === items.length - 1;
     const iconPage = it.icon || it.page;
-    const inner = (iconPage ? crumbIconHTML(iconPage) : '') + escapeHtml(it.label);
+    const inner = (it.iconHTML || (iconPage ? crumbIconHTML(iconPage) : '')) + escapeHtml(it.label);
     if (last) return `<span class="crumb" aria-current="page">${inner}</span>`;
     const attrs = it.page ? `data-go="${it.page}"` : it.tab ? `data-tab="${it.tab}"` : '';
     return `<button class="crumb" type="button" ${attrs}>${inner}</button>${sep}`;
@@ -4724,7 +4674,11 @@ function breadcrumbHTML(items) {
 let providersTab = 'connected';
 
 const PV_ICON = {
-  copy: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+  // The copy mark and the tick that replaces it are both rendered into the
+  // button; .copied swaps which one is shown (see .pv-icon-btn in styles.css).
+  // A class change beats rewriting innerHTML: the button never reflows and a
+  // second click mid-tick cannot lose the original icon.
+  copy: '<svg class="pv-copy-mark" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="pv-copy-tick" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>',
   plug: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0z"/><path d="M12 18v4"/></svg>',
   check: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
   keys: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/></svg>',
@@ -4734,8 +4688,26 @@ const PV_ICON = {
   spark: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"/></svg>',
   layers: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/></svg>',
   gauge: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/></svg>',
+  flask: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v6.5L4.5 19a2 2 0 0 0 1.8 3h11.4a2 2 0 0 0 1.8-3L14 8.5V2"/><path d="M8.5 2h7"/><path d="M7 16h10"/></svg>',
   empty: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0z"/><path d="M12 18v4"/><path d="M3 3l18 18"/></svg>',
 };
+
+// Turns a copy button into its tick for a moment, and says so in the title for
+// anyone who reads the button rather than sees it. The timer is parked on the
+// element so a second click restarts it — otherwise the first click's timer
+// would clear the tick the second click had just turned on. The original title
+// is remembered the first time, so a restart never saves "Copied" as it.
+function markCopied(el) {
+  const title = el.dataset.copyTitle || el.title;
+  el.dataset.copyTitle = title;
+  el.classList.add('copied');
+  el.title = 'Copied';
+  clearTimeout(Number(el.dataset.copyTimer));
+  el.dataset.copyTimer = String(setTimeout(() => {
+    el.classList.remove('copied');
+    el.title = title;
+  }, 1200));
+}
 
 function isConnected(p) {
   return p.keys.length > 0;
@@ -4804,7 +4776,13 @@ function providerCapabilities(p) {
         ? "Filtered: the model list follows this provider's own rules (free-only models, plan tiers, access grants) instead of everything /models returns."
         : 'Not filtered: every model /models returns is listed.',
     },
-    {
+    // The plan slot. A module that publishes its own billing plan names it
+    // here ("$5.50 / week") instead of the generic "Plans" — one slot, not
+    // two, so every card keeps the same four badges and the 2x2 grid holds.
+    p.billing ? {
+      label: p.billing.plan, icon: PV_ICON.layers, tone: 'amber', on: true,
+      tip: `${p.billing.usageLabel || 'Provider plan'}: ${p.billing.plan}.${p.plansUrl ? ' Each key sees the models of its own plan.' : ''}`,
+    } : {
       label: 'Plans', icon: PV_ICON.layers, tone: 'amber', on: Boolean(p.plansUrl),
       tip: (on) => on
         ? 'Plans: each key sees the models of its own plan, so two keys here can list different models.'
@@ -4813,18 +4791,11 @@ function providerCapabilities(p) {
     {
       label: p.unlimitedUsage ? 'Unlimited' : 'Rate limit', icon: PV_ICON.gauge, tone: p.unlimitedUsage ? 'green' : 'violet', on: p.unlimitedUsage || rpm > 0,
       tip: p.unlimitedUsage
-        ? 'Unlimited usage: the weekly plan has no published request-rate limit. Runs are not paced.'
+        ? 'Unlimited usage: this provider publishes no request-rate limit. Runs are not paced.'
         : rpm > 0
           ? `Rate limit: ${rpm} requests per minute. Test runs are paced to stay under it.`
           : 'No published rate limit: test runs are not paced.',
     },
-    ...(p.billing ? [{
-      label: p.billing.plan,
-      icon: PV_ICON.layers,
-      tone: 'amber',
-      on: true,
-      tip: `${p.billing.usageLabel || 'Provider plan'}: ${p.billing.plan}.`,
-    }] : []),
   ];
 }
 
@@ -4856,7 +4827,7 @@ function rateLimitPopHTML(p) {
   const rpm = rpmOf(p);
   const doc = p.rateLimits || null;
   const pace = p.unlimitedUsage
-    ? '<p class="rl-pace"><b>Unlimited</b> — no request-rate limit is published for the weekly plan.</p>'
+    ? `<p class="rl-pace"><b>Unlimited</b> — no request-rate limit is published for the ${escapeHtml(p.unlimitedUsage.label || 'plan').toLowerCase()}.</p>`
     : rpm
       ? `<p class="rl-pace"><b>${rpm} requests/min</b> per key — runs are paced to stay under it.</p>`
       : '<p class="rl-pace"><b>Not paced</b> — this provider publishes no rate limit.</p>';
@@ -4989,7 +4960,7 @@ function providerCardHTML(p, mode) {
     ? `<button class="pv-link" type="button" data-connect="${id}">${PV_ICON.plus}Add key</button>
        <span class="pv-link-group">
          ${recheckButtonHTML(p, 'link')}
-         <button class="pv-icon-btn" type="button" data-manage="${id}" title="Open in Route Test" aria-label="Open in Route Test">${KX_ICON.external}</button>
+         <button class="pv-icon-btn" type="button" data-manage="${id}" title="Test models" aria-label="Test ${escapeHtml(p.name)} models">${PV_ICON.flask}</button>
        </span>`
     : connected
       ? ''
@@ -5459,7 +5430,7 @@ function pvRowsHTML(groups, stats) {
         <div class="pv-cell col-actions"><div class="dt-row-actions">
           <button class="dt-icon-btn" type="button" data-connect="${id}" title="Add key" aria-label="Add key">${PV_ICON.plus}</button>
           ${recheckButtonHTML(p)}
-          <button class="dt-icon-btn" type="button" data-manage="${id}" title="Open in Route Test" aria-label="Open in Route Test">${KX_ICON.external}</button>
+          <button class="dt-icon-btn dt-icon-go" type="button" data-manage="${id}" title="Test models" aria-label="Test ${escapeHtml(p.name)} models">${PV_ICON.flask}</button>
         </div></div>
       </div>${open ? `<div class="pv-rowcard-keys">${keyRowsHTML(p)}</div>` : ''}
     </div>`;
@@ -5561,10 +5532,12 @@ function togglePvExpanded(pid) {
 // ============================================
 // Stat cards — shared
 // ============================================
-// items: [{ label, value, sub?, foot, icon, meter? (0..1) }]
+// items: [{ label, value, sub?, foot, icon, meter? (0..1), tone? ('pass' | 'fail'),
+//          profile? ('lite' | 'pro' | 'max'), attrs? (raw attributes for a card
+//          that acts as a button), active? }]
 function statCardsHTML(items) {
   return '<div class="ov-kpis">' + items.map((it) => `
-    <div class="ov-kpi">
+    <div class="ov-kpi${it.tone ? ` tone-${it.tone}` : ''}${it.profile ? ` kpi-profile kpi-profile-${it.profile}` : ''}${it.attrs ? ' is-action' : ''}${it.active ? ' active' : ''}" ${it.attrs || ''}>
       <span class="kpi-icon" aria-hidden="true">${it.icon || ''}</span>
       <span class="ov-kpi-label">${escapeHtml(it.label)}</span>
       <span class="ov-kpi-value">${it.value}${it.sub ? `<span class="kpi-value-sub">${it.sub}</span>` : ''}</span>
@@ -5667,6 +5640,10 @@ const KPI_ICON = {
   key: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/></svg>',
   pulse: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>',
   target: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>',
+  layers: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg>',
+  check: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+  cross: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+  clock: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
 };
 
 function pvLastRun(p) {
@@ -5843,8 +5820,7 @@ $('.page-providers').addEventListener('click', async (e) => {
       if (k && !k.locked) {
         try {
           await window.electronAPI.copyKey(kid);
-          kx.classList.add('copied');
-          setTimeout(() => kx.classList.remove('copied'), 1200);
+          markCopied(kx);
         } catch (err) {
           setStatus('error', 'Could not copy the key to the clipboard');
         }
@@ -5890,14 +5866,15 @@ $('.page-providers').addEventListener('click', async (e) => {
     else openAddKeyModal(`Add key to ${name}`);
     return;
   }
-  if (d.manage) { switchProvider(d.manage); showPage('check'); return; }
+  if (d.manage) { openProviderPage(d.manage); return; }
   if (d.recheck) { recheckProvider(d.recheck); return; }
   if (d.copy) {
     try {
       await navigator.clipboard.writeText(d.copy);
-      el.classList.add('copied');
-      setTimeout(() => el.classList.remove('copied'), 1200);
-    } catch (_) {}
+      markCopied(el);
+    } catch (_) {
+      setStatus('error', 'Could not copy to the clipboard');
+    }
   }
 });
 
@@ -5909,7 +5886,7 @@ async function init() {
   // would write over the real data.
   try { await loadSettings(); } catch (err) { failStartupRead('settings', err); }
   applyAppearance();
-  applySidebarWidth(clampSidebar(settings.sidebarWidth));
+  preloadEmblems();
   bindSettingsForm();
   window.electronAPI.getDataPath().then((dir) => { $('#settings-path').textContent = dir; });
   try { await loadTestDefinition(); } catch (err) { failStartupRead('the test prompt', err); }
@@ -5918,7 +5895,8 @@ async function init() {
   if (!PROVIDERS[activeProvider]) {
     activeProvider = Object.keys(PROVIDERS)[0];
   }
-  renderProviderTabs();
+  resultsProvider = activeProvider;
+  renderProviderHead();
   renderKeysList();
   renderModelsList();
   if (!storeReadError && !writeFailed) setStatus('idle', 'Ready — add an API key to begin');

@@ -155,6 +155,7 @@ window.KEY_USAGE = (() => {
 
   function forget(kid) {
     cache.delete(kid);
+    asked.delete(kid);
     if (drawer.kid === kid) closeDrawer();
   }
 
@@ -213,6 +214,17 @@ window.KEY_USAGE = (() => {
 
   // ---------- Key row cells ----------
 
+  // A key shown with no reading at all has never been asked — it was added,
+  // imported or re-enabled by a path that didn't fetch. The skeleton means
+  // "loading", so something has to be loading: ask once, after the render
+  // that noticed (refresh redraws, so it must not run inside the render).
+  const asked = new Set();
+  function ensureRead(p, k) {
+    if (cache.has(k.id) || asked.has(k.id)) return;
+    asked.add(k.id);
+    queueMicrotask(() => { if (!cache.has(k.id)) refresh(p.id, k.id); });
+  }
+
   function openAttrs(p, k, label) {
     return `type="button" data-ku-open="${escapeHtml(p.id)}|${escapeHtml(k.id)}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"`;
   }
@@ -221,6 +233,7 @@ window.KEY_USAGE = (() => {
   // the amount. The cell opens the usage drawer.
   function quotaCellHTML(p, k) {
     if (!supports(p) || k.locked) return '';
+    ensureRead(p, k);
     const c = cache.get(k.id);
     const u = c && c.usage;
     if (!u) {
@@ -277,6 +290,7 @@ window.KEY_USAGE = (() => {
   // The card view's key rows have no columns: both readings on one line.
   function inlineHTML(p, k) {
     if (!supports(p) || k.locked) return '';
+    ensureRead(p, k);
     const c = cache.get(k.id);
     const u = c && c.usage;
     if (!u) {

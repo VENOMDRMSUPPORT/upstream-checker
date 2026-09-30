@@ -679,6 +679,12 @@
   function renderMonitorFilters(note) {
     const keys = monitorRangeKeys();
     const opt = (v, label, sel) => `<option value="${logEscape(v)}"${sel === v ? ' selected' : ''}>${logEscape(label)}</option>`;
+    const crumbs = typeof breadcrumbHTML === 'function' ? breadcrumbHTML([
+      { label: 'Overview', page: 'overview' },
+      { label: 'Monitoring', icon: 'monitor' },
+    ]) : '';
+    const crumbsEl = document.getElementById('monitor-crumbs');
+    if (crumbsEl) crumbsEl.innerHTML = crumbs;
     el('monitor-filters').innerHTML = `
       <select class="prompt-input narrow" id="monitor-range">
         ${keys.map((k) => opt(k, MONITOR_RANGE_LABELS[k], state.monitor.range)).join('')}
@@ -780,14 +786,18 @@
   }
 
   function totalsMarkup(t) {
-    const tile = (label, value) => `<div class="log-tile"><span class="log-tile-value">${value}</span><span class="log-tile-label">${label}</span></div>`;
-    return `<div class="log-tiles">
-      ${tile('Requests', formatTokens(t.requests))}
-      ${tile('Passed', passRateText(Number.isFinite(t.okPct) ? t.okPct / 100 : null))}
-      ${tile('Average latency', formatDuration(t.avgLatencyMs))}
-      ${tile('p95 latency', formatDuration(t.p95LatencyMs))}
-      ${tile('Tokens', formatTokens((t.inputTokens || 0) + (t.outputTokens || 0)))}
-      ${tile('Cost', formatCost(t.costMicros))}
+    const tile = (label, value, foot) => `<div class="ov-kpi">
+      <span class="ov-kpi-label">${label}</span>
+      <span class="ov-kpi-value">${value}</span>
+      ${foot ? `<span class="ov-kpi-foot">${foot}</span>` : ''}
+    </div>`;
+    return `<div class="ov-kpis">
+      ${tile('Requests', formatTokens(t.requests), 'total recorded')}
+      ${tile('Passed', passRateText(Number.isFinite(t.okPct) ? t.okPct / 100 : null), 'success rate')}
+      ${tile('Average latency', formatDuration(t.avgLatencyMs), 'mean response time')}
+      ${tile('p95 latency', formatDuration(t.p95LatencyMs), '95th percentile')}
+      ${tile('Tokens', formatTokens((t.inputTokens || 0) + (t.outputTokens || 0)), 'input + output')}
+      ${tile('Cost', formatCost(t.costMicros), 'total spend')}
     </div>`;
   }
 
@@ -831,10 +841,14 @@
     const legend = keys.length > 1 || keys[0] === 'unknown'
       ? `<ul class="log-legend">${keys.map((k, i) => `<li class="log-series s${i % 6}">${label(k)}</li>`).join('')}</ul>`
       : '';
-    return `<section class="log-chart"><h4>${title}</h4>
-      <svg viewBox="0 0 100 42" preserveAspectRatio="none" role="img" aria-label="${title}">${lines}</svg>
-      <div class="log-chart-axis"><span>${bucketLabel(buckets[0])}</span><span>${bucketLabel(buckets[buckets.length - 1])}</span></div>
-      ${legend}</section>`;
+    return `<section class="ov-panel">
+      <div class="ov-panel-head">${title}</div>
+      <div style="flex: 1; display: flex; flex-direction: column;">
+        <svg viewBox="0 0 100 42" preserveAspectRatio="none" role="img" aria-label="${title}" style="flex: 1; display: block; background: var(--bg-1); padding: 10px 12px; box-sizing: border-box; color: var(--accent);">${lines}</svg>
+        <div class="log-chart-axis"><span>${bucketLabel(buckets[0])}</span><span>${bucketLabel(buckets[buckets.length - 1])}</span></div>
+        ${legend}
+      </div>
+    </section>`;
   }
 
   // A day bucket is already a local date string; an hour bucket is a time.

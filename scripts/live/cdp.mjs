@@ -134,7 +134,7 @@ export async function launch({ userDataDir, port = 9333 }) {
     return code;
   }
 
-  return { child, evaluate, waitFor, close, exited, output: () => output };
+  return { child, evaluate, waitFor, close, exited, send, output: () => output };
 }
 
 // A second, plain instance on the same data folder (no CDP), for the

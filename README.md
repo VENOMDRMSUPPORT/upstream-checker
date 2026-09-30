@@ -28,13 +28,13 @@ update in place and keep their data.
 - **Benchmark** — 21 machine-checked tasks (reasoning & math, coding,
   instruction following, in three difficulty tiers) plus latency and
   throughput probes. Under a minute per model.
-- **Model pool** — live inventory across all connected providers, with
+- **Models catalog** — live inventory across all connected providers, with
   benchmark scores compared against the Artificial Analysis leaderboard.
 - **Routing profiles** — `venom-lite`, `venom-pro` and `venom-max`: virtual models
   that rank and weight real models from measured data on your own providers.
 - **Export** — results as CSV or JSON, history as JSON.
 - **Appearance** — dark and light themes, following the OS or set by hand, with
-  preset or custom accent colours.
+  five accent colours; the logo is redrawn in the one you pick.
 - **Auto-updates** — from GitHub Releases, installed silently.
 
 ## Integrated providers
@@ -56,11 +56,11 @@ All are OpenAI-compatible (`GET /models`, `POST /chat/completions`).
 | Page      | What it does                                                        |
 | --------- | ------------------------------------------------------------------- |
 | Overview  | Summary of recent runs, uptime and regressions                      |
-| Providers | **Connected**: your keys and their health/usage. **Integrated**: available providers to connect |
-| Model Pool | Every model across providers, with benchmark results               |
-| Route Test | Pick models and run tests; results table with export               |
+| Providers | **Connected**: your keys and their health/usage. **Integrated**: available providers to connect. Each connected row opens that provider's page |
+| Models Catalog | Every model across providers, with benchmark results               |
+| Provider (from a Providers row) | One provider's keys and models; pick models, run tests, results table with export |
 | Routing Profiles | venom-lite, venom-pro and venom-max, and the model roster behind each |
-| Settings  | Appearance, Test, Schedule, Speed, Reliability, Model Pool, History, Diagnostics, Data, About |
+| Settings  | Appearance, Test, Schedule, Speed, Reliability, Models Catalog, History, Diagnostics, Data, About |
 
 ## Project structure
 

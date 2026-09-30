@@ -19,7 +19,7 @@
   <div class="titlebar" id="titlebar">
     <div class="titlebar-drag">
       <div class="titlebar-icon">
-        <svg width="15" height="15" viewBox="96 96 320 320" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M96 96 L224 96 L224 160 L192 160 L192 192 L256 256 L320 192 L320 160 L288 160 L288 96 L416 96 L272 416 L240 416 Z"/></svg>
+        <span class="brand-emblem" aria-hidden="true"></span>
       </div>
       <span class="titlebar-text">VENOM ROUTER</span>
     </div>
@@ -67,13 +67,15 @@
       <div class="shell-nav-head">
         <div class="shell-brand">
           <div class="shell-brand-mark">
-            <svg width="19" height="19" viewBox="96 96 320 320" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M96 96 L224 96 L224 160 L192 160 L192 192 L256 256 L320 192 L320 160 L288 160 L288 96 L416 96 L272 416 L240 416 Z"/></svg>
+            <span class="brand-emblem" role="img" aria-label="VENOM Router"></span>
           </div>
           <div class="shell-brand-text">
-            <span class="shell-brand-top">VENOM</span>
-            <span class="shell-brand-bottom">ROUTER</span>
+            <div class="shell-brand-title-row">
+              <span class="shell-brand-title">Venom Router</span>
+              <span class="shell-version" data-app-version>v0.0.0</span>
+            </div>
+            <span class="shell-brand-slogan">Intelligent LLM Gateway</span>
           </div>
-          <span class="shell-version" data-app-version>v0.0.0</span>
           <button class="shell-nav-close" id="shell-nav-close" type="button" title="Close menu" aria-label="Close menu">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
           </button>
@@ -92,14 +94,10 @@
         </button>
         <button class="shell-nav-item" type="button" data-page="catalog">
           <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>
-          <span>Model Pool</span>
+          <span>Models Catalog</span>
         </button>
 
         <span class="shell-nav-group-label">Routing</span>
-        <button class="shell-nav-item" type="button" data-page="check">
-          <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4"/></svg>
-          <span>Route Test</span>
-        </button>
         <button class="shell-nav-item" type="button" data-page="profiles">
           <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h10M4 18h6"/><circle cx="18" cy="16" r="3"/><path d="M20.5 18.5 22 20"/></svg>
           <span>Routing Profiles</span>
@@ -300,201 +298,124 @@
         <section class="shell-page page-profiles" data-page="profiles" hidden>
           <div class="pv-toolbar mc-toolbar">
             <nav class="crumbs" id="pf-crumbs" aria-label="Breadcrumb"></nav>
-            <p class="mc-toolbar-note">venom-lite · venom-pro · venom-max — eligibility by measured facts, traffic spread across the best sources</p>
+            <p class="mc-toolbar-note"><span class="pf-chip pf-lite">venom-lite</span><span class="pf-chip pf-pro">venom-pro</span><span class="pf-chip pf-max">venom-max</span> — eligibility by measured facts, traffic spread across the best sources</p>
           </div>
           <div class="pv-body" id="pf-body"></div>
         </section>
 
-        <section class="shell-page page-check" data-page="check" hidden>
-            <div class="app-layout">
-              <!-- Sidebar -->
-              <aside class="sidebar" id="sidebar">
-                <div class="sidebar-header sidebar-context">
-                  <span class="sidebar-context-title">
-                    Providers <span class="sidebar-context-count" id="provider-count">0</span>
+        <!-- One provider: its keys, its models, and the runs that test them.
+             Reached from the Providers page; there is no nav entry. -->
+        <section class="shell-page page-provider" data-page="provider" hidden>
+          <div class="pv-toolbar pt-toolbar">
+            <nav class="crumbs" id="pt-crumbs" aria-label="Breadcrumb"></nav>
+            <div class="pt-actions">
+              <span class="pt-health" id="pt-health"></span>
+              <button class="btn btn-ghost" id="pt-edit" type="button" title="Edit provider">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>
+                Edit
+              </button>
+              <button class="btn btn-ghost" id="btn-fetch-models" type="button">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="22 2 22 8 16 8"/></svg>
+                Fetch models
+              </button>
+              <button class="btn btn-accent" id="btn-test-all" type="button" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Test Selected
+              </button>
+            </div>
+          </div>
+
+          <div id="pt-kpis"></div>
+
+          <div class="pt-grid">
+            <div class="pt-side">
+              <section class="ov-panel pt-panel pt-keys">
+                <div class="ov-panel-head">
+                  <span>API keys <b class="pt-count" id="pt-key-count">0</b></span>
+                  <button class="section-action-btn" id="btn-add-key" type="button" title="Add API key" aria-label="Add API key">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  </button>
+                </div>
+                <div class="keys-list" id="keys-list"></div>
+              </section>
+
+              <section class="ov-panel pt-panel pt-models">
+                <div class="ov-panel-head">
+                  <span>Models <b class="pt-count" id="model-count">0</b></span>
+                  <span class="models-actions">
+                    <button class="btn-mini" id="btn-select-all" type="button" title="Select all matching models">All</button>
+                    <button class="btn-mini" id="btn-select-none" type="button" title="Deselect all matching models">None</button>
                   </span>
                 </div>
-
-                <!-- Provider Tabs (dynamic) -->
-                <div class="sidebar-section sidebar-section-first">
-                  <div class="provider-selector" id="provider-tabs"></div>
+                <div class="models-toolbar">
+                  <input type="text" class="models-search" id="models-search" placeholder="Filter models…" autocomplete="off" spellcheck="false" aria-label="Filter models">
                 </div>
-
-                <!-- API Keys -->
-                <div class="sidebar-section">
-                  <div class="section-label">
-                    API KEYS
-                    <button class="section-action-btn" id="btn-add-key" title="Add API key">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-                        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-                      </svg>
-                    </button>
-                  </div>
-                  <div class="keys-list" id="keys-list">
-                    <div class="models-empty">
-                      <span>No keys added</span>
-                    </div>
-                  </div>
-                  <button class="btn btn-primary btn-full" id="btn-fetch-models" style="margin-top:10px">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M21 12a9 9 0 11-6.219-8.56"/>
-                      <polyline points="22 2 22 8 16 8"/>
-                    </svg>
-                    Fetch Models
-                  </button>
-                </div>
-
-                <!-- Models List -->
-                <div class="sidebar-section sidebar-section-grow">
-                  <div class="section-label">
-                    MODELS
-                    <span class="model-count" id="model-count">0</span>
-                  </div>
-                  <div class="models-toolbar">
-                    <input type="text" class="models-search" id="models-search" placeholder="Filter…" autocomplete="off" spellcheck="false">
-                    <button class="btn-mini" id="btn-select-all" title="Select all matching models">All</button>
-                    <button class="btn-mini" id="btn-select-none" title="Deselect all matching models">None</button>
-                  </div>
-                  <div class="models-list" id="models-list">
-                    <div class="models-empty">
-                      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3">
-                        <rect x="2" y="3" width="20" height="14" rx="2"/>
-                        <path d="M8 21h8M12 17v4"/>
-                      </svg>
-                      <span>No models loaded</span>
-                      <span class="models-empty-hint">Add API key and fetch models</span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Actions -->
-                <div class="sidebar-footer">
-                  <button class="btn btn-accent btn-full" id="btn-test-all" disabled>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <polygon points="5 3 19 12 5 21 5 3"/>
-                    </svg>
-                    Test Selected
-                  </button>
-                </div>
-
-                <div class="sidebar-resizer" id="sidebar-resizer"
-                     title="Drag to narrow · drag all the way to hide · double-click to toggle"></div>
-              </aside>
-
-              <!-- Main Content -->
-              <main class="main-content">
-                <!-- Status Bar -->
-                <div class="status-bar" id="status-bar">
-                  <div class="status-left">
-                    <button class="sidebar-restore" id="sidebar-restore" title="Show sidebar" style="display:none">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                        <path d="M9 18l6-6-6-6"/>
-                      </svg>
-                    </button>
-                    <div class="status-indicator" id="status-indicator">
-                      <span class="status-dot idle"></span>
-                      <span class="status-text" id="status-text">Ready</span>
-                    </div>
-                  </div>
-                  <div class="status-right">
-                    <div class="stat-item">
-                      <span class="stat-label">Total</span>
-                      <span class="stat-value" id="stat-total">0</span>
-                    </div>
-                    <div class="stat-divider"></div>
-                    <div class="stat-item">
-                      <span class="stat-label">Passed</span>
-                      <span class="stat-value stat-pass" id="stat-pass">0</span>
-                    </div>
-                    <div class="stat-divider"></div>
-                    <!-- Clickable: filters the table down to failures and back. -->
-                    <div class="stat-item stat-item-toggle" id="filter-failed" title="Show only failed / empty responses">
-                      <span class="stat-label">Failed</span>
-                      <span class="stat-value stat-fail" id="stat-fail">0</span>
-                    </div>
-                    <div class="stat-divider"></div>
-                    <div class="stat-item">
-                      <span class="stat-label">Avg Time</span>
-                      <span class="stat-value" id="stat-avg-time">-</span>
-                    </div>
-                    <div class="stat-divider"></div>
-                    <!-- These act on the results table, so they live next to it rather than
-                         at the bottom of the models sidebar. -->
-                    <div class="results-actions">
-                      <button class="btn btn-ghost" id="btn-retry-failed" title="Retry failed / not-tested models" disabled>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <path d="M21 12a9 9 0 11-6.219-8.56"/>
-                          <polyline points="22 2 22 8 16 8"/>
-                        </svg>
-                      </button>
-                      <button class="btn btn-ghost" id="btn-export-csv" title="Export CSV">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-                          <polyline points="7 10 12 15 17 10"/>
-                          <line x1="12" y1="15" x2="12" y2="3"/>
-                        </svg>
-                      </button>
-                      <button class="btn btn-ghost" id="btn-export-json" title="Export JSON">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-                          <polyline points="14 2 14 8 20 8"/>
-                        </svg>
-                      </button>
-                      <button class="btn btn-ghost" id="btn-clear-results" title="Clear Results">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <polyline points="3 6 5 6 21 6"/>
-                          <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Results Table -->
-                <div class="results-container" id="results-container">
-                  <div class="results-empty" id="results-empty">
-                    <div class="results-empty-icon">
-                      <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="0.5" opacity="0.15">
-                        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                        <path d="M2 17l10 5 10-5"/>
-                        <path d="M2 12l10 5 10-5"/>
-                      </svg>
-                    </div>
-                    <h2>No test results yet</h2>
-                    <p>Add an API key, fetch models, and run tests</p>
-                  </div>
-                  <table class="results-table" id="results-table" style="display: none;">
-                    <thead>
-                      <tr>
-                        <th class="th-status th-sortable" data-sort="status">STATUS</th>
-                        <th class="th-model th-sortable" data-sort="model">MODEL</th>
-                        <th class="th-type">TYPE</th>
-                        <th class="th-context th-sortable" data-sort="context">CONTEXT</th>
-                        <th class="th-time th-sortable" data-sort="time">TIME</th>
-                        <th class="th-tokens th-sortable" data-sort="tokens">TOKENS</th>
-                        <th class="th-tps th-sortable" data-sort="tps" title="Completion tokens per second of total response time">TPS</th>
-                        <th class="th-correct th-sortable" data-sort="correct" title="Whether the response contains the expected answer">OK?</th>
-                        <th class="th-uptime th-sortable" data-sort="uptime" title="Share of recorded runs this model passed, newest run on the right">UPTIME</th>
-                        <th class="th-response">RESPONSE</th>
-                        <th class="th-actions"></th>
-                      </tr>
-                    </thead>
-                    <tbody id="results-body"></tbody>
-                  </table>
-                </div>
-
-                <!-- Progress Bar -->
-                <div class="progress-bar-container" id="progress-container" style="display: none;">
-                  <div class="progress-info">
-                    <span class="progress-label" id="progress-label">Testing...</span>
-                    <span class="progress-count" id="progress-count">0/0</span>
-                  </div>
-                  <div class="progress-track">
-                    <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
-                  </div>
-                </div>
-              </main>
+                <div class="models-list" id="models-list"></div>
+              </section>
             </div>
+
+            <section class="ov-panel pt-panel pt-results">
+              <div class="ov-panel-head">
+                <span>Results</span>
+                <div class="status-indicator" id="status-indicator" role="status">
+                  <span class="status-dot idle"></span>
+                  <span class="status-text" id="status-text">Ready</span>
+                </div>
+                <div class="results-actions">
+                  <button class="btn btn-ghost" id="btn-retry-failed" type="button" title="Retry failed / not-tested models" aria-label="Retry failed models" disabled>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="22 2 22 8 16 8"/></svg>
+                  </button>
+                  <button class="btn btn-ghost" id="btn-export-csv" type="button" title="Export CSV" aria-label="Export CSV">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  </button>
+                  <button class="btn btn-ghost" id="btn-export-json" type="button" title="Export JSON" aria-label="Export JSON">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  </button>
+                  <button class="btn btn-ghost" id="btn-clear-results" type="button" title="Clear results" aria-label="Clear results">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                  </button>
+                </div>
+              </div>
+
+              <div class="progress-bar-container" id="progress-container" style="display: none;">
+                <div class="progress-info">
+                  <span class="progress-label" id="progress-label">Testing...</span>
+                  <span class="progress-count" id="progress-count">0/0</span>
+                </div>
+                <div class="progress-track">
+                  <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+                </div>
+              </div>
+
+              <div class="results-container" id="results-container">
+                <div class="results-empty" id="results-empty">
+                  <div class="results-empty-icon">
+                    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                  </div>
+                  <h2>No test results yet</h2>
+                  <p>Fetch this provider's models, pick the ones to test, and run.</p>
+                </div>
+                <table class="results-table" id="results-table" style="display: none;">
+                  <thead>
+                    <tr>
+                      <th class="th-status th-sortable" data-sort="status">STATUS</th>
+                      <th class="th-model th-sortable" data-sort="model">MODEL</th>
+                      <th class="th-type">TYPE</th>
+                      <th class="th-context th-sortable" data-sort="context">CONTEXT</th>
+                      <th class="th-time th-sortable" data-sort="time">TIME</th>
+                      <th class="th-tokens th-sortable" data-sort="tokens">TOKENS</th>
+                      <th class="th-tps th-sortable" data-sort="tps" title="Completion tokens per second of total response time">TPS</th>
+                      <th class="th-correct th-sortable" data-sort="correct" title="Whether the response contains the expected answer">OK?</th>
+                      <th class="th-uptime th-sortable" data-sort="uptime" title="Share of recorded runs this model passed, newest run on the right">UPTIME</th>
+                      <th class="th-response">RESPONSE</th>
+                      <th class="th-actions"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="results-body"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
         </section>
 
         <section class="shell-page page-history" data-page="history" hidden>
@@ -507,8 +428,11 @@
         </section>
 
         <section class="shell-page page-monitor" data-page="monitor" hidden>
-          <div class="log-filters" id="monitor-filters"></div>
-          <div class="log-body" id="monitor-body"></div>
+          <div class="pv-toolbar">
+            <nav class="crumbs" id="monitor-crumbs" aria-label="Breadcrumb"></nav>
+            <div class="monitor-controls" id="monitor-filters"></div>
+          </div>
+          <div class="monitor-body" id="monitor-body"></div>
         </section>
 
         <section class="shell-page page-settings" data-page="settings" hidden>
@@ -551,7 +475,7 @@
                   </button>
                   <button class="settings-nav-item" data-section="sec-catalog" role="tab" aria-selected="false">
                     <svg class="settings-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
-                    <span>Model Pool</span>
+                    <span>Models Catalog</span>
                   </button>
                   <button class="settings-nav-item" data-section="sec-history" role="tab" aria-selected="false">
                     <svg class="settings-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
@@ -664,7 +588,7 @@
                         <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24M14.83 14.83l4.24 4.24M14.83 9.17l4.24-4.24M4.93 19.07l4.24-4.24"/></svg></div>
                         <div class="settings-row-info">
                       <div class="settings-row-title">Accent color <span class="setting-label-value" id="accent-name"></span></div>
-                      <div class="settings-row-desc">Highlights and primary actions. The last swatch opens a picker for any colour.</div>
+                      <div class="settings-row-desc">Highlights and primary actions. The logo is redrawn in the colour you pick.</div>
                     </div>
                       </div>
                       <div class="settings-row-field"><div class="accent-grid" id="accent-row"></div></div>
@@ -1005,7 +929,7 @@
                   </div>
                 </section>
 
-                <!-- Model Pool -->
+                <!-- Models Catalog -->
                 <section class="settings-section" id="sec-catalog" hidden>
                   <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>The model pool re-reads each connected provider&rsquo;s model list on a timer (one <code>GET /models</code> per key), on focus, and whenever a key is added or removed. New models are flagged; removed models disappear at once.</p></div>
 
@@ -1217,7 +1141,7 @@
                 <section class="settings-section" id="sec-about" hidden>
                   <div class="about-head">
                     <div class="about-mark">
-                      <svg width="31" height="28" viewBox="80 96 352 320" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M80 96 L208 96 L224 128 L224 144 L208 176 L248 248 L248 288 L232.4 320 L250.2 320 L256 308.1 L261.8 320 L279.6 320 L264 288 L264 248 L304 176 L288 144 L288 128 L304 96 L432 96 L264 416 L248 416 Z"/></svg>
+                      <span class="brand-emblem" role="img" aria-label="VENOM Router"></span>
                     </div>
                     <div>
                       <div class="about-name">VENOM Router</div>

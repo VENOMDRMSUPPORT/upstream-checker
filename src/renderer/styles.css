@@ -44,14 +44,16 @@
   --text-3: #8f8f8f;
   --text-4: #525252;
 
-  /* Accent — Electric Cyan */
-  --accent: #00d4ff;
-  --accent-dim: #0098b8;
-  --accent-bg: rgba(0, 212, 255, 0.08);
-  --accent-border: rgba(0, 212, 255, 0.2);
+  /* Accent — Toxic Emerald, the brand's own. Overridden by [data-accent]. */
+  --accent: #10b981;
+  --accent-dim: #0d9668;
+  --accent-bg: rgba(16, 185, 129, 0.1);
+  --accent-border: rgba(16, 185, 129, 0.26);
+  --emblem-dark: url('../assets/brand/emblem-emerald.png');
+  --emblem-light: url('../assets/brand/emblem-emerald-light.png');
   /* Accent used AS TEXT on a page surface, and the text colour that sits ON an
-     accent fill. Dark mode reads the accent as-is; Light darkens it (below), and
-     a custom accent picks black or white by luminance (app.js). */
+     accent fill. Dark mode reads the accent as-is; Light darkens it (below). Black
+     text holds on all five accents. */
   --accent-text: var(--accent);
   --on-accent: #0a0a0a;
 
@@ -65,6 +67,17 @@
   --running: #8b5cf6;
   --running-bg: rgba(139, 92, 246, 0.1);
 
+  /* Routing profiles — one colour each, worn wherever the profile is named:
+     the Profiles page, the Catalog's readiness panel and profile dots, the page
+     legend and the three profile stat cards. Fixed hues on purpose, never the
+     accent: the accent is one of five and Pro used to borrow it while Lite
+     borrowed --pass, so with the default Emerald both wore the same green.
+     Mint → Violet → Amber reads as light → balanced → strongest, and the three
+     stay apart from each other under every accent. Daylight darkens them. */
+  --profile-lite: #2dd4a7;
+  --profile-pro: #a78bfa;
+  --profile-max: #fbbf24;
+
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
@@ -72,11 +85,7 @@
   --shadow-glow: 0 0 20px color-mix(in srgb, var(--accent) 18%, transparent);
 
   /* Spacing */
-  --sidebar-width: 320px;
   --titlebar-height: 38px;
-  /* Shared by the sidebar header and the results status bar so the divider under
-     them is one continuous line across the window. */
-  --header-height: 58px;
   /* The app shell's header row: the nav's brand box and every page's header
      share it, so the line under both runs straight across the window. */
   --shell-header-height: 72px;
@@ -166,9 +175,41 @@ html, body {
 }
 
 .titlebar-icon {
-  color: var(--accent);
   display: flex;
   align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+}
+
+/* ---------- Brand emblem ----------
+   The VenomGPT emblem, drawn by hand in each accent (see
+   scripts/generate-icons.js). [data-accent] names the pair for the accent that
+   is on (--emblem-dark, --emblem-light); this picks the one that suits the
+   surface: the neon one on dark, the platinum one with the jewel contour on
+   light. A glow in the accent lifts the neon one off the page. */
+.brand-emblem {
+  --emblem-glow: 38%;
+  --emblem-glow-size: 6px;
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--emblem-dark) center / contain no-repeat;
+  filter: drop-shadow(0 0 var(--emblem-glow-size) color-mix(in srgb, var(--accent) var(--emblem-glow), transparent));
+  transition: filter 0.2s ease;
+}
+[data-theme="daylight"] .brand-emblem {
+  background-image: var(--emblem-light);
+  /* No neon on white: a soft shadow lifts the platinum off the page. */
+  filter: drop-shadow(0 1px 1.5px rgba(15, 23, 42, 0.22));
+}
+/* The title bar and the sidebar stay dark in both themes (see the
+   [data-theme] .titlebar block), so the emblem there is always the neon one:
+   the picture follows the surface it sits on, not the theme's name. */
+[data-theme] :is(.titlebar, .shell-nav) .brand-emblem {
+  background-image: var(--emblem-dark);
+  filter: drop-shadow(0 0 var(--emblem-glow-size) color-mix(in srgb, var(--accent) var(--emblem-glow), transparent));
 }
 
 .titlebar-text {
@@ -338,9 +379,6 @@ html, body {
 }
 .store-error[hidden] { display: none; }
 .store-error svg { flex: none; color: var(--fail); }
-.shell-page.page-check {
-  overflow: hidden;
-}
 
 .shell-nav {
   --sb-text: #ededed;
@@ -449,52 +487,86 @@ html, body {
 .shell-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex: 1;
   min-width: 0;
-  padding: 0 4px;
+  /* No padding on the right: the title and the version pill need every pixel
+     of the 240 px rail, and the header already pads that side. */
+  padding: 0 0 0 4px;
 }
+/* 40 px, not 50: the rail is 240 px wide and the ten pixels the mark gives up
+   are what let the full name sit next to the version pill. At 50 px the row
+   could not fit both, so the name was silently trimmed to "Venom Route…". */
 .shell-brand-mark {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
-  border-radius: 8px;
-  background: var(--accent);
-  color: var(--on-accent);
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 30%, transparent);
+  transition: transform 0.2s ease;
 }
+.shell-brand-mark:hover { transform: scale(1.06); }
+.shell-brand-mark:hover .brand-emblem { --emblem-glow: 55%; }
 .shell-brand-text {
   display: flex;
   flex-direction: column;
+  justify-content: center;
   flex: 1;
   min-width: 0;
-  line-height: 1;
+  line-height: 1.2;
 }
+/* The version sits beside the name, not at the far edge. space-between pinned
+   it to the panel border, where it read as something overflowing rather than a
+   badge that belongs to the title. */
+.shell-brand-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.shell-brand-title,
 .shell-brand-top {
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 700;
   letter-spacing: 0.02em;
   color: #fff;
+  white-space: nowrap;
 }
+/* The name yields before the pill does. A longer version (v2.10.0-beta) then
+   trims the name instead of pushing the pill through the panel border, which
+   is what the old space-between row did at every version. */
+.shell-brand-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.shell-brand-slogan,
 .shell-brand-bottom {
   margin-top: 4px;
   font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.24em;
-  color: var(--sb-soft);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+/* A pill, one step below the name: the title stays the loudest thing in the
+   header and the accent is spent on the slogan, so the version can be read
+   without competing. Tabular figures keep it the same width at 2.10.0. */
 .shell-version {
   flex-shrink: 0;
-  padding: 3px 7px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.03);
+  padding: 2px 6px;
+  border: 1px solid var(--border-2);
+  border-radius: 999px;
+  background: var(--bg-3);
   font-family: 'JetBrains Mono', monospace;
-  font-size: 9px;
-  font-weight: 500;
-  color: var(--sb-soft);
+  font-size: 8.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  line-height: 1.4;
+  color: var(--text-3);
 }
 
 .shell-nav-list {
@@ -835,6 +907,12 @@ html, body {
 @media (max-width: 1100px) {
   .shell-nav-close { display: inline-flex; }
 
+  /* The drawer is 260px, but its close button takes back what the extra 20px
+     gave, and the brand name ("Venom Router", 96px at 13.5px) loses its tail:
+     86px fit at the app's 1000px minimum. The version pill yields instead —
+     it is metadata and lives on in Settings → About. */
+  .shell-version { display: none; }
+
   .shell-nav {
     position: absolute;
     top: 0;
@@ -888,116 +966,6 @@ html, body {
   .shell-nav,
   .shell-backdrop,
   .shell-menu-btn span { transition: none; }
-}
-
-
-
-/* ============================================
-   App Layout
-   ============================================ */
-.app-layout {
-  display: flex;
-  height: 100%;
-}
-
-/* ============================================
-   Sidebar
-   ============================================ */
-.sidebar {
-  position: relative;
-  width: var(--sidebar-width);
-  min-width: var(--sidebar-width);
-  transition: width var(--transition-normal), min-width var(--transition-normal);
-  background: var(--bg-1);
-  border-right: 1px solid var(--border-1);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.sidebar-header {
-  height: var(--header-height);
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  padding: 0 18px;
-  border-bottom: 1px solid var(--border-1);
-}
-
-.logo {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.logo-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  flex-shrink: 0;
-  background: var(--bg-3);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-2);
-}
-
-.logo-text {
-  display: flex;
-  flex-direction: column;
-}
-
-.logo-title {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 16px;
-  font-weight: 800;
-  letter-spacing: 3px;
-  background: linear-gradient(135deg, #00d4ff, #7b2ff7);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  line-height: 1.1;
-}
-
-.logo-subtitle {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 4px;
-  color: var(--text-4);
-}
-
-/* Sidebar sections */
-.sidebar-section {
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--border-1);
-}
-
-.sidebar-section-grow {
-  flex: 1;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.section-label {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 1.5px;
-  color: var(--text-3);
-  margin-bottom: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.model-count {
-  background: var(--accent-bg);
-  color: var(--accent-text);
-  font-size: 10px;
-  padding: 1px 7px;
-  border-radius: 10px;
-  border: 1px solid var(--accent-border);
 }
 
 /* Test prompt + expected answer */
@@ -1080,62 +1048,6 @@ html, body {
   background: var(--accent-bg);
 }
 
-/* Provider buttons */
-.provider-selector {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  /* About five providers; shrinks further on short windows (see below) so the
-     models list always keeps its room. */
-  max-height: 206px;
-  overflow-y: auto;
-}
-
-.provider-btn {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: calc(var(--item-pad-y) + 1px) 12px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-2);
-  font-family: 'Inter', sans-serif;
-  font-size: 12.5px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  text-align: left;
-  width: 100%;
-}
-
-.provider-btn:hover {
-  background: var(--bg-3);
-  color: var(--text-1);
-}
-
-.provider-btn.active {
-  background: var(--accent-bg);
-  border-color: var(--accent-border);
-  color: var(--accent-text);
-}
-
-.provider-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.provider-logo {
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
-  object-fit: contain;
-  display: block;
-}
-
 /* Config inputs */
 .config-group {
   margin-bottom: 10px;
@@ -1216,10 +1128,6 @@ html, body {
 .btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-}
-
-.btn-full {
-  width: 100%;
 }
 
 .btn-primary {
@@ -1404,12 +1312,6 @@ html, body {
   border: 1px solid rgba(236, 72, 153, 0.2);
 }
 
-/* Sidebar footer */
-.sidebar-footer {
-  padding: 14px 18px;
-  border-top: 1px solid var(--border-1);
-}
-
 /* Actions that operate on the results table, docked next to it in the status bar */
 .results-actions {
   display: flex;
@@ -1423,34 +1325,6 @@ html, body {
 .results-actions .btn:disabled {
   opacity: 0.3;
   cursor: default;
-}
-
-/* ============================================
-   Main Content
-   ============================================ */
-.main-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--bg-0);
-}
-
-/* Status bar */
-.status-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 24px;
-  background: var(--bg-1);
-  border-bottom: 1px solid var(--border-1);
-  height: var(--header-height);
-  flex-shrink: 0;
-}
-
-.status-left {
-  display: flex;
-  align-items: center;
 }
 
 .status-indicator {
@@ -1483,42 +1357,7 @@ html, body {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-2);
-}
-
-.status-right {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.stat-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.stat-label {
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--text-3);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.stat-value {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-2);
-}
-
-.stat-pass { color: var(--pass); }
-.stat-fail { color: var(--fail); }
-
-.stat-divider {
-  width: 1px;
-  height: 16px;
-  background: var(--border-2);
+  white-space: nowrap;
 }
 
 /* Results */
@@ -1591,7 +1430,11 @@ html, body {
 .correct-mark.no { color: var(--warn); }
 
 .results-table.hide-correct .th-correct,
-.results-table.hide-correct .cell-correct { display: none; }
+.results-table.hide-correct .cell-correct,
+.results-table.hide-type .th-type,
+.results-table.hide-type .cell-type,
+.results-table.hide-context .th-context,
+.results-table.hide-context .cell-context { display: none; }
 
 /* Columns no provider in the table has data for are hidden rather than shown
    as a full column of placeholders. */
@@ -1627,11 +1470,6 @@ html, body {
 
 .cell-response.response-expandable { cursor: pointer; }
 .cell-response.response-expandable:hover { color: var(--accent-text); }
-
-/* The Failed stat doubles as a filter toggle */
-.stat-item-toggle { cursor: pointer; border-radius: 6px; padding: 2px 6px; margin: -2px -6px; }
-.stat-item-toggle:hover { background: var(--bg-2); }
-.stat-item-toggle.active { background: rgba(239,68,68,0.12); box-shadow: inset 0 0 0 1px rgba(239,68,68,0.3); }
 
 .modal-wide { width: 720px; max-width: 92vw; }
 
@@ -2334,139 +2172,14 @@ html, body {
   background: var(--accent);
   color: var(--on-accent);
 }
-
-.provider-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.provider-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  flex-shrink: 0;
-  opacity: 0;
-  transition: opacity var(--transition-fast);
-}
-.provider-btn:hover .provider-actions,
-.provider-btn.active .provider-actions {
-  opacity: 1;
-}
-.provider-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 5px;
-  color: var(--text-3);
-}
-.provider-action:hover {
-  background: var(--bg-4, rgba(255,255,255,0.08));
-  color: var(--text-1);
-}
 .provider-delete:hover {
   color: var(--fail, #ff6b6b);
-}
-
-/* Provider health: the whole row is tinted by the probe's verdict, with a
-   status pip on the logo. --health carries the state colour so the tint,
-   border and pip all derive from one value. */
-.provider-btn {
-  position: relative;
-  --health: var(--text-4);
-}
-.provider-btn[data-health="ok"]   { --health: var(--pass); }
-.provider-btn[data-health="fail"] { --health: var(--fail); }
-
-.provider-btn[data-health="ok"],
-.provider-btn[data-health="fail"] {
-  background: color-mix(in srgb, var(--health) 7%, transparent);
-  border-color: color-mix(in srgb, var(--health) 18%, transparent);
-}
-.provider-btn[data-health="ok"]:hover,
-.provider-btn[data-health="fail"]:hover {
-  background: color-mix(in srgb, var(--health) 12%, transparent);
-  border-color: color-mix(in srgb, var(--health) 30%, transparent);
-}
-.provider-btn[data-health="fail"] .provider-name {
-  color: color-mix(in srgb, var(--fail) 70%, var(--text-1));
-}
-
-.provider-btn[data-health="none"] {
-  border-style: dashed;
-  border-color: var(--border-1);
-}
-.provider-btn[data-health="none"] .provider-name {
-  color: var(--text-3);
-}
-.provider-btn[data-health="none"] .provider-mark .provider-logo,
-.provider-btn[data-health="none"] .provider-mark .provider-dot {
-  filter: var(--logo-tone,) grayscale(1);
-  opacity: 0.45;
-}
-
-/* Selected row keeps its state colour but reads as selected: stronger tint,
-   solid border, a soft glow and a bright label. */
-.provider-btn.active[data-health] {
-  background: color-mix(in srgb, var(--health) 12%, transparent);
-  border-color: var(--accent);
-  border-style: solid;
-  box-shadow: inset 3px 0 0 var(--accent),
-              0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
-}
-.provider-btn.active[data-health] .provider-name {
-  color: var(--text-0);
-  font-weight: 600;
-}
-.provider-btn.active[data-health="pending"] {
-  --health: var(--accent);
-}
-
-/* Fixed box so a logo-less provider's dot lines up with the logos and the pip
-   sits on the same corner for both. */
-.provider-mark {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
-}
-.provider-mark .provider-logo,
-.provider-mark .provider-dot {
-  transition: filter var(--transition-normal), opacity var(--transition-normal);
-}
-.provider-health-pip {
-  position: absolute;
-  right: -3px;
-  bottom: -3px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  box-shadow: 0 0 0 2px var(--bg-1);
-  background: var(--health);
-  opacity: 0;
-  transform: scale(0.4);
-  transition: opacity var(--transition-normal), transform var(--transition-normal), background var(--transition-normal);
-}
-.provider-btn:not([data-health="pending"]) .provider-health-pip {
-  opacity: 1;
-  transform: scale(1);
-}
-.provider-btn[data-health="fail"] .provider-health-pip {
-  animation: health-pulse 2s ease-out infinite;
 }
 
 @keyframes health-pulse {
   0%   { box-shadow: 0 0 0 2px var(--bg-1), 0 0 0 2px rgba(239, 68, 68, 0.55); }
   70%  { box-shadow: 0 0 0 2px var(--bg-1), 0 0 0 7px rgba(239, 68, 68, 0); }
   100% { box-shadow: 0 0 0 2px var(--bg-1), 0 0 0 7px rgba(239, 68, 68, 0); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .provider-btn[data-health="fail"] .provider-health-pip { animation: none; }
 }
 
 /* Release notes (built as DOM, styled by class instead of inline attributes) */
@@ -2636,6 +2349,11 @@ html, body {
   --text-0: #0f172a; --text-1: #1e293b; --text-2: #475569; --text-3: #64748b; --text-4: #94a3b8;
   --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
   --shadow-lg: 0 8px 32px rgba(15, 23, 42, 0.12);
+  /* The profile hues, darkened for a white surface: the dark-mode ones are
+     tuned to glow on black and would read as pastel and fail as text here. */
+  --profile-lite: #0b7a5c;
+  --profile-pro: #6d28d9;
+  --profile-max: #b45309;
 }
 
 /* The window chrome — titlebar and app nav — stays dark in both modes.
@@ -2664,18 +2382,20 @@ html, body {
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
-
-/* The light theme needs a few pieces that were written assuming a dark canvas */
-[data-theme="daylight"] .logo-title { -webkit-text-fill-color: initial; background: none; color: #0f172a; }
 [data-theme="daylight"] .titlebar-btn-close:hover { color: #fff; }
 
-/* Accent */
-[data-accent="cyan"]   { --accent: #00d4ff; --accent-dim: #0098b8; --accent-bg: rgba(0,212,255,0.08);  --accent-border: rgba(0,212,255,0.22); }
-[data-accent="violet"] { --accent: #a78bfa; --accent-dim: #7c5cf0; --accent-bg: rgba(167,139,250,0.10); --accent-border: rgba(167,139,250,0.26); }
-[data-accent="green"]  { --accent: #34d399; --accent-dim: #10a877; --accent-bg: rgba(52,211,153,0.10);  --accent-border: rgba(52,211,153,0.26); }
-[data-accent="amber"]  { --accent: #fbbf24; --accent-dim: #d99a08; --accent-bg: rgba(251,191,36,0.10);  --accent-border: rgba(251,191,36,0.26); }
-[data-accent="rose"]   { --accent: #fb7185; --accent-dim: #e04256; --accent-bg: rgba(251,113,133,0.10); --accent-border: rgba(251,113,133,0.26); }
-[data-accent="blue"]   { --accent: #60a5fa; --accent-dim: #3b82f6; --accent-bg: rgba(96,165,250,0.10);  --accent-border: rgba(96,165,250,0.26); }
+/* Accent — the brand pack's five: Toxic Emerald, Cyber Cyan, Symbiote Violet,
+   Crimson Overdrive, Solar Amber. Each also names its two emblems. */
+[data-accent="emerald"] { --accent: #10b981; --accent-dim: #0d9668; --accent-bg: rgba(16,185,129,0.10); --accent-border: rgba(16,185,129,0.26);
+                        --emblem-dark: url('../assets/brand/emblem-emerald.png'); --emblem-light: url('../assets/brand/emblem-emerald-light.png'); }
+[data-accent="cyan"]    { --accent: #06b6d4; --accent-dim: #0891b2; --accent-bg: rgba(6,182,212,0.10); --accent-border: rgba(6,182,212,0.26);
+                        --emblem-dark: url('../assets/brand/emblem-cyan.png'); --emblem-light: url('../assets/brand/emblem-cyan-light.png'); }
+[data-accent="violet"]  { --accent: #8b5cf6; --accent-dim: #7c3aed; --accent-bg: rgba(139,92,246,0.10); --accent-border: rgba(139,92,246,0.26);
+                        --emblem-dark: url('../assets/brand/emblem-violet.png'); --emblem-light: url('../assets/brand/emblem-violet-light.png'); }
+[data-accent="crimson"] { --accent: #f43f5e; --accent-dim: #e11d48; --accent-bg: rgba(244,63,94,0.10); --accent-border: rgba(244,63,94,0.26);
+                        --emblem-dark: url('../assets/brand/emblem-crimson.png'); --emblem-light: url('../assets/brand/emblem-crimson-light.png'); }
+[data-accent="amber"]   { --accent: #f59e0b; --accent-dim: #d97706; --accent-bg: rgba(245,158,11,0.10); --accent-border: rgba(245,158,11,0.26);
+                        --emblem-dark: url('../assets/brand/emblem-amber.png'); --emblem-light: url('../assets/brand/emblem-amber-light.png'); }
 
 /* Density — how many result rows fit on screen */
 /* Row density: tokens consumed by every table and list, so the setting is
@@ -2868,24 +2588,6 @@ html, body {
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
 }
 .hdr-swatch.active::after { width: 5px; height: 9px; }
-/* Custom colour: a colour wheel wrapping a hidden native picker. */
-.swatch-custom {
-  background: conic-gradient(#ff4d4d, #ffb020, #f5f542, #34d399, #22d3ee, #60a5fa, #a78bfa, #fb7185, #ff4d4d);
-}
-.swatch-custom.active {
-  background:
-    radial-gradient(circle, var(--custom) 0 42%, transparent 44%),
-    conic-gradient(#ff4d4d, #ffb020, #f5f542, #34d399, #22d3ee, #60a5fa, #a78bfa, #fb7185, #ff4d4d);
-}
-.swatch-custom input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  cursor: pointer;
-}
-
 /* Segmented control */
 .segmented {
   display: inline-flex;
@@ -2948,13 +2650,13 @@ html, body {
 .about-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
 
 .about-mark {
-  width: 54px; height: 54px;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: var(--radius-lg);
-  background: var(--bg-3);
-  border: 1px solid var(--border-2);
-  color: var(--accent-text);
+  width: 68px;
+  height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
+.about-mark .brand-emblem { --emblem-glow-size: 12px; }
 
 .about-name { font-size: 16px; font-weight: 700; color: var(--text-0); }
 .about-version { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-3); margin-top: 2px; }
@@ -2984,131 +2686,6 @@ html, body {
 
 .row-pending .cell-model,
 .row-pending .response-placeholder { opacity: 0.55; }
-
-/* ============================================
-   Sidebar resizing
-   ============================================ */
-.sidebar-resizer {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 5px;
-  cursor: col-resize;
-  z-index: 30;
-  background: transparent;
-  transition: background var(--transition-fast);
-}
-
-.sidebar-resizer::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 1px;
-  background: transparent;
-  transition: background var(--transition-fast), width var(--transition-fast);
-}
-
-.sidebar-resizer:hover::after { background: var(--border-3); width: 2px; }
-body.resizing .sidebar-resizer::after { background: var(--accent-dim); width: 2px; }
-
-/* While dragging, the cursor and selection must not follow the pointer into
-   whatever it happens to pass over. */
-body.resizing { cursor: col-resize; user-select: none; }
-body.resizing .sidebar { transition: none; }
-
-body.sidebar-hidden .sidebar {
-  border-right: none;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.sidebar-restore {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  margin-right: 12px;
-  flex-shrink: 0;
-  background: var(--bg-2);
-  border: 1px solid var(--border-2);
-  border-radius: var(--radius-md);
-  color: var(--text-3);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.sidebar-restore:hover {
-  color: var(--accent-text);
-  border-color: var(--accent-border);
-  background: var(--accent-bg);
-}
-
-/* ============================================
-   Sidebar resizing
-   ============================================ */
-.sidebar-resizer {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 5px;
-  cursor: col-resize;
-  z-index: 30;
-  background: transparent;
-  transition: background var(--transition-fast);
-}
-
-.sidebar-resizer::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 1px;
-  background: transparent;
-  transition: background var(--transition-fast), width var(--transition-fast);
-}
-
-.sidebar-resizer:hover::after { background: var(--border-3); width: 2px; }
-body.resizing .sidebar-resizer::after { background: var(--accent-dim); width: 2px; }
-
-/* While dragging, the cursor and selection must not follow the pointer into
-   whatever it happens to pass over. */
-body.resizing { cursor: col-resize; user-select: none; }
-body.resizing .sidebar { transition: none; }
-
-body.sidebar-hidden .sidebar {
-  border-right: none;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.sidebar-restore {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  margin-right: 12px;
-  flex-shrink: 0;
-  background: var(--bg-2);
-  border: 1px solid var(--border-2);
-  border-radius: var(--radius-md);
-  color: var(--text-3);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.sidebar-restore:hover {
-  color: var(--accent-text);
-  border-color: var(--accent-border);
-  background: var(--accent-bg);
-}
-
 
 
 /* ============================================
@@ -3409,8 +2986,8 @@ body.sidebar-hidden .sidebar {
 }
 .hdr-pop-swatches {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 6px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
 }
 .hdr-swatch {
   position: relative;
@@ -3493,51 +3070,266 @@ body.sidebar-hidden .sidebar {
 
 
 /* ============================================
-   Route Test — inner sidebar
+   Provider page — one provider's keys, models and test runs
    ============================================ */
-/* The header row carries the section it heads (Providers + add) instead of a
-   third copy of the brand, and stays aligned with the results status bar. */
-.sidebar-context {
-  justify-content: space-between;
-  gap: 10px;
-}
-.sidebar-context-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-0);
-}
-.sidebar-context-count {
-  padding: 1px 7px;
-  border: 1px solid var(--border-2);
-  border-radius: 999px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10.5px;
-  font-weight: 500;
-  color: var(--text-2);
-}
-/* Space is shared, not stacked: the provider and key lists give up height on
-   short windows (each scrolls on its own) before the models list may drop
-   below a usable size. */
-.sidebar > .sidebar-section:not(.sidebar-section-grow) {
-  flex: 0 1 auto;
-  min-height: 0;
+/* Reached from a Providers row. The trail and actions, four stat cards, then
+   two columns: keys and models on the left, the run's results on the right.
+   The page is as tall as the window and each panel scrolls on its own; on a
+   window too short for that, the page scrolls instead. */
+.page-provider {
   display: flex;
   flex-direction: column;
+  padding: 24px clamp(16px, 3vw, 32px) 24px;
 }
-.sidebar > .sidebar-section > .provider-selector,
-.sidebar > .sidebar-section > .keys-list {
-  flex: 0 1 auto;
-  min-height: 60px;
+.pt-toolbar {
+  flex: none;
+  margin-bottom: 14px;
 }
-.sidebar > .sidebar-section-grow {
+.pt-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pt-actions .btn {
+  padding: 7px 13px;
+}
+.pt-health {
+  display: inline-flex;
+  margin-right: 4px;
+}
+#pt-kpis {
+  flex: none;
+}
+
+/* The provider's own mark in the last crumb. */
+.crumb-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.crumb-mark img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+.crumb-mark .pv-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.pt-grid {
   flex: 1 1 auto;
-  min-height: 210px;
+  min-height: 460px;
+  display: grid;
+  grid-template-columns: minmax(280px, 310px) minmax(0, 1fr);
+  gap: 12px;
 }
-.sidebar > .sidebar-section.sidebar-section-first {
-  padding-top: 12px;
+.pt-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+.pt-panel {
+  min-height: 0;
+}
+.pt-panel > .ov-panel-head {
+  align-items: center;
+  flex: none;
+}
+.pt-keys {
+  flex: 0 1 auto;
+  max-height: 44%;
+}
+.pt-models {
+  flex: 1 1 0;
+  min-height: 220px;
+}
+.pt-results {
+  min-width: 0;
+}
+
+/* Counts in the panel titles. */
+.pt-count {
+  padding: 1px 7px;
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  background: var(--accent-bg);
+  color: var(--accent-text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.pt-panel .keys-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  padding: 10px 12px 12px;
+  overflow-y: auto;
+}
+.pt-panel .models-toolbar {
+  flex: none;
+  margin: 0;
+  padding: 10px 12px 4px;
+}
+.pt-panel .models-search {
+  padding: 7px 10px;
+}
+.pt-panel .models-list {
+  padding: 4px 12px 12px;
+}
+.models-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+.models-actions .btn-mini {
+  height: 22px;
+}
+
+/* Results: the run's status and its actions sit in the panel header. */
+.pt-results > .ov-panel-head {
+  justify-content: flex-start;
+  gap: 14px;
+}
+.pt-results .status-indicator {
+  min-width: 0;
+  padding-left: 14px;
+  border-left: 1px solid var(--border-2);
+}
+.pt-results .status-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pt-results .results-actions {
+  margin-left: auto;
+}
+.pt-results .progress-bar-container {
+  flex: none;
+  padding: 10px 16px;
+  border-top: none;
+  border-bottom: 1px solid var(--border-1);
+  background: transparent;
+}
+.pt-results .results-container {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+/* Fixed columns and a free RESPONSE column need room; a narrow panel scrolls
+   sideways rather than squeezing RESPONSE to nothing. */
+.pt-results .results-table {
+  min-width: 780px;
+}
+.pt-results .results-table th {
+  padding-inline: 12px;
+  background: var(--bg-2);
+}
+.pt-results .results-table td {
+  padding-inline: 12px;
+}
+.pt-results .results-empty {
+  padding: 32px 16px;
+  text-align: center;
+}
+.results-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  border: 1px solid var(--border-2);
+  border-radius: 20px;
+  background: var(--bg-2);
+  color: var(--text-3);
+}
+
+/* The Failed card is also the failure filter. */
+.ov-kpi:is(.tone-pass, .tone-fail, .kpi-profile) .kpi-icon {
+  border-color: color-mix(in srgb, var(--kpi-tone) 32%, transparent);
+  background: color-mix(in srgb, var(--kpi-tone) 11%, transparent);
+  color: var(--kpi-tone);
+}
+.ov-kpi.tone-pass { --kpi-tone: var(--pass); }
+.ov-kpi.tone-fail { --kpi-tone: var(--fail); }
+.ov-kpi:is(.tone-pass, .tone-fail, .kpi-profile) .kpi-meter span {
+  background: var(--kpi-tone);
+}
+
+/* A card may also wear a routing profile's identity colour — the three on the
+   Profiles page. Stripe, icon, label and meter take it, from the same tokens
+   the profile cards below are drawn with. */
+.ov-kpi.kpi-profile {
+  --kpi-tone: var(--profile-pro);
+  position: relative;
+  overflow: hidden;
+}
+.ov-kpi.kpi-profile-lite { --kpi-tone: var(--profile-lite); }
+.ov-kpi.kpi-profile-pro  { --kpi-tone: var(--profile-pro); }
+.ov-kpi.kpi-profile-max  { --kpi-tone: var(--profile-max); }
+.ov-kpi.kpi-profile::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--kpi-tone), color-mix(in srgb, var(--kpi-tone) 35%, transparent));
+}
+.ov-kpi.kpi-profile .ov-kpi-label { color: var(--kpi-tone); }
+.ov-kpi.is-action {
+  cursor: pointer;
+}
+[data-theme] .ov-kpi.is-action:hover,
+[data-theme] .ov-kpi.active {
+  border-color: color-mix(in srgb, var(--kpi-tone, var(--accent)) 55%, transparent);
+}
+[data-theme] .ov-kpi.active {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--kpi-tone, var(--accent)) 40%, transparent);
+}
+.ov-kpi.is-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The way in, on a Providers row: the accent says this one goes somewhere. */
+.dt-icon-btn.dt-icon-go {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--accent-text);
+}
+.dt-icon-btn.dt-icon-go:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+@media (max-width: 1000px) {
+  .pt-grid {
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    min-height: 0;
+  }
+  .pt-side {
+    flex: none;
+  }
+  .pt-keys {
+    flex: none;
+    max-height: none;
+  }
+  .pt-panel .keys-list {
+    flex: none;
+    max-height: 240px;
+  }
+  .pt-models {
+    flex: none;
+    height: 340px;
+  }
+  .pt-results {
+    flex: none;
+    height: 480px;
+  }
 }
 
 /* ============================================
@@ -3564,12 +3356,6 @@ body.sidebar-hidden .sidebar {
   border-color: var(--border-1);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
-/* Status and stat labels never wrap onto two lines. */
-.stat-label,
-.status-text {
-  white-space: nowrap;
-}
-
 /* ============================================
    Overview — live panels
    ============================================ */
@@ -4185,7 +3971,14 @@ img[data-tone] { filter: var(--logo-tone, none); }
   cursor: pointer;
 }
 .pv-icon-btn:hover { background: var(--accent-bg); }
+/* Copy feedback. Both marks sit in the same grid cell, so the tick lands
+   exactly where the copy icon was and the button never shifts. A colour
+   change alone was too quiet to read as "it copied". */
+.pv-icon-btn > svg { grid-area: 1 / 1; }
+.pv-icon-btn .pv-copy-tick { visibility: hidden; }
 .pv-icon-btn.copied { color: var(--pass); }
+.pv-icon-btn.copied .pv-copy-mark { visibility: hidden; }
+.pv-icon-btn.copied .pv-copy-tick { visibility: visible; }
 
 .pv-tags {
   display: flex;
@@ -4680,7 +4473,7 @@ img[data-tone] { filter: var(--logo-tone, none); }
 /* ============================================
    Page toolbar — one card for every page that has one
    ============================================ */
-/* Providers and the Model Pool (search, filters, sort, page actions) and
+/* Providers and the Models Catalog (search, filters, sort, page actions) and
    Profiles (policy fields, export) share one card: same frame, surface,
    padding and spacing, in both themes. There is no view switch: the list
    turns into cards when the window folds the nav away (COMPACT_LAYOUT). */
@@ -5191,7 +4984,7 @@ img[data-tone] { filter: var(--logo-tone, none); }
   box-shadow: var(--shadow-md);
 }
 
-/* Stat cards: four across, then two by two — never three and an orphan. */
+/* Stat cards: four across on a wide window, then two, then one. */
 .ov-kpis {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
@@ -5416,7 +5209,7 @@ img[data-tone] { filter: var(--logo-tone, none); }
    transparent strip left a seam under the first cell. */
 .dt-row.open td { border-bottom: 0; }
 
-/* Detail rows (Model Pool, Profiles) hang flush under their row. */
+/* Detail rows (Models Catalog, Profiles) hang flush under their row. */
 .dt-detail > td {
   padding: 0 !important;
   background: color-mix(in srgb, var(--accent) 3%, transparent);
@@ -5970,7 +5763,17 @@ img[data-tone] { filter: var(--logo-tone, none); }
   width: auto;
   padding: 0 9px;
   gap: 5px;
+  justify-content: center;
 }
+/* Confirming a delete must not move anything. Widening the bin into
+   "Confirm" pushed the button group out of its column, over the reset date
+   beside it, and left the "checked" frame under it a different width. So while
+   a key is armed, Test and Lock step aside and Confirm takes exactly the space
+   the three buttons had: the row keeps its geometry, and the only thing left to
+   click is the decision. (The arm times out after 3.5 s and they come back.) */
+:is(.kx-actions, .dt-row-actions):has(> .kx-btn.danger.armed) > .kx-btn:not(.armed) { display: none; }
+.kx-actions > .kx-btn.icon-only.danger.armed { width: calc(3 * 28px + 2 * 6px); }
+.pv-krow .dt-row-actions > .kx-btn.icon-only.danger.armed { width: calc(3 * 30px + 2 * 4px); }
 
 /* Lock Button States */
 .kx-btn.kx-lock-btn {
@@ -6941,7 +6744,7 @@ img[data-tone] { filter: var(--logo-tone, none); }
 
 
 /* ============================================
-   Model Pool
+   Models Catalog
    ============================================ */
 .page-catalog {
   padding: 24px clamp(16px, 3vw, 32px) 32px;
@@ -7267,57 +7070,115 @@ img[data-tone] { filter: var(--logo-tone, none); }
   align-items: start;
 }
 @media (max-width: 1500px) { .pf-grid { grid-template-columns: 1fr; } }
+/* One card per profile. The identity colour arrives in --pf from the three
+   classes below and paints the whole card: the ribbon riding its top edge, the
+   glow around it, the pool bar and the policy marks. */
 .pf-card {
-  --pf: var(--accent);
+  --pf: var(--profile-pro);
   position: relative;
   min-width: 0;
-  padding: 16px;
-  border: 1px solid var(--border-1);
+  margin-top: 14px;                  /* room for the ribbon above the top edge */
+  padding: 34px 16px 16px;
+  border: 1px solid color-mix(in srgb, var(--pf) 22%, var(--border-1));
   border-radius: var(--radius-xl);
   background: var(--bg-1);
   box-shadow: var(--shadow-sm);
-  overflow: hidden;
 }
+/* The card's top edge, in the profile's colour: the ribbon covers its left end,
+   the line runs on to the right corner. */
 .pf-card::before {
   content: '';
   position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--pf), color-mix(in srgb, var(--pf) 30%, transparent));
+  top: -1px; left: 0; right: 0;
+  height: 2px;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  background: color-mix(in srgb, var(--pf) 55%, transparent);
 }
-.pf-lite { --pf: var(--pass); }
-.pf-pro  { --pf: var(--accent); }
-.pf-max  { --pf: #a78bfa; }
-.pf-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
-.pf-icon {
-  display: grid;
-  place-items: center;
+/* The three identities come from the app-wide profile tokens, so a card here,
+   a chip in the Catalog's readiness panel and the legend in the toolbar all
+   agree on what Lite, Pro and Max look like. */
+.pf-lite { --pf: var(--profile-lite); }
+.pf-pro  { --pf: var(--profile-pro); }
+.pf-max  { --pf: var(--profile-max); }
+
+/* The ribbon: icon, name, the virtual model id, then the tag pill — riding the
+   card's top edge with a glow, its right end cut on the diagonal. The glow is
+   a drop-shadow on purpose: a box-shadow would be clipped away by the cut. */
+.pf-ribbon {
+  position: absolute;
+  top: -14px;
+  left: -1px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 8px);
+  padding: 7px 26px 7px 12px;
+  border: 1px solid color-mix(in srgb, var(--pf) 60%, transparent);
+  border-bottom: 0;
+  border-radius: 9px 0 0 0;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--pf) 26%, transparent), color-mix(in srgb, var(--pf) 6%, transparent)),
+    var(--bg-2);
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--pf) 45%, transparent));
+  clip-path: polygon(0 0, 100% 0, calc(100% - 16px) 100%, 0 100%);
+}
+.pf-ribbon-icon { display: grid; place-items: center; flex-shrink: 0; color: var(--pf); }
+.pf-ribbon h3 { margin: 0; font-size: 13.5px; font-weight: 700; color: var(--text-0); white-space: nowrap; }
+.pf-ribbon code {
   flex-shrink: 0;
-  width: 36px; height: 36px;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--pf) 35%, transparent);
-  background: color-mix(in srgb, var(--pf) 12%, transparent);
-  color: var(--pf);
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text-0) 8%, transparent);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  color: var(--text-2);
 }
-.pf-title { flex: 1; min-width: 0; }
-.pf-title h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--text-0); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.pf-title h3 code { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 500; padding: 1px 7px; border-radius: 5px; background: var(--bg-3); color: var(--text-2); }
-.pf-title p { margin: 3px 0 0; font-size: 12px; line-height: 1.45; color: var(--text-3); }
+.pf-ribbon-sep { flex-shrink: 0; align-self: stretch; width: 1px; margin: 0 2px; background: color-mix(in srgb, var(--pf) 35%, transparent); }
 .pf-tag {
-  flex-shrink: 0;
-  padding: 3px 10px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  padding: 2px 9px;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--pf) 35%, transparent);
-  background: color-mix(in srgb, var(--pf) 10%, transparent);
-  font-size: 11px; font-weight: 600; color: var(--pf);
-  white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--pf) 40%, transparent);
+  background: color-mix(in srgb, var(--pf) 12%, transparent);
+  font-size: 10.5px; font-weight: 600; color: var(--pf);
+  white-space: nowrap; text-overflow: ellipsis;
 }
-.pf-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 8px; }
-.pf-stat { display: flex; flex-direction: column; align-items: center; padding: 8px 4px; border-radius: var(--radius-md); background: var(--bg-2); border: 1px solid var(--border-1); }
-.pf-stat-value { font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; color: var(--text-0); }
-.pf-stat-label { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
-.pf-meter { height: 4px; border-radius: 2px; background: var(--bg-3); overflow: hidden; margin-bottom: 12px; }
-.pf-meter span { display: block; height: 100%; background: var(--pf); transition: width 400ms ease; }
+
+/* What the profile is for, centred under the ribbon. */
+.pf-desc { margin: 0 0 14px; text-align: center; font-size: 12.5px; line-height: 1.5; color: var(--text-3); }
+
+/* Eligible target pool: how much of everything the catalogue holds can serve
+   this profile, and how big a share of it that is. */
+.pf-pool {
+  padding: 11px 13px 12px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-lg);
+  background: var(--bg-2);
+}
+.pf-pool-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.pf-pool-label { font-size: 12px; color: var(--text-2); }
+.pf-pool-count { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-3); }
+.pf-pool-count b { font-size: 13.5px; font-weight: 700; color: var(--text-0); }
+.pf-pool-bar { height: 6px; margin-top: 9px; border-radius: 999px; background: var(--bg-3); overflow: hidden; }
+.pf-pool-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--pf);
+  box-shadow: 0 0 10px -1px var(--pf);
+  transition: width 400ms ease;
+}
+
+/* Mode and strategy: what the weights optimise for, and how cost is traded
+   against quality. Both are derived from the policy above, never typed twice. */
+.pf-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; margin: 10px 0 12px; }
+.pf-meta-item { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.pf-meta-label { font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.pf-meta-value { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; }
+
 .pf-policy { display: grid; gap: 6px; padding: 10px 12px; border: 1px dashed var(--border-2); border-radius: var(--radius-md); margin-bottom: 12px; }
 .pf-policy-row { display: grid; grid-template-columns: 52px 1fr; gap: 8px; align-items: start; font-size: 12px; }
 .pf-policy-row b { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); padding-top: 3px; }
@@ -7363,10 +7224,32 @@ img[data-tone] { filter: var(--logo-tone, none); }
 .pf-reasons { margin-top: 10px; font-size: 12px; color: var(--text-2); display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .pf-reason { padding: 2px 7px; border-radius: 5px; background: color-mix(in srgb, var(--fail) 12%, transparent); color: var(--fail); font-size: 11px; }
 .pf-reasons.soft .pf-reason { background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--warn); }
-.pf-chip { display: inline-block; padding: 1px 7px; border-radius: 5px; font-size: 10.5px; font-weight: 600; margin-right: 3px; }
-.pf-chip.pf-lite { background: color-mix(in srgb, var(--pass) 14%, transparent); color: var(--pass); }
-.pf-chip.pf-pro { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent-text); }
-.pf-chip.pf-max { background: color-mix(in srgb, #a78bfa 14%, transparent); color: #a78bfa; }
+/* `.pf-lite` / `.pf-pro` / `.pf-max` above already put the profile's colour in
+   --pf, so one rule colours the chip wherever it is rendered: the Profiles
+   page, the Catalog's readiness panel, the toolbar legend. */
+.pf-chip {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--pf) 14%, transparent);
+  color: var(--pf);
+  font-size: 10.5px;
+  font-weight: 600;
+  margin-right: 3px;
+}
+/* One dot per profile a model serves, in that profile's own colour. The
+   Catalog wears the same identities as this page: the dot borrows --pf from
+   `.pf-lite` / `.pf-pro` / `.pf-max` above, so there is one palette, not two. */
+.pf-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 3px;
+  border-radius: 50%;
+  background: var(--pf);
+  vertical-align: middle;
+}
+.pf-dot:last-child { margin-right: 0; }
 .pf-foot { margin-top: 16px; }
 
 /* ============================================
@@ -7994,42 +7877,32 @@ button.ku-cell:hover {
 .log-run-detail > td { background: var(--bg-1); padding: 14px 16px; white-space: normal; }
 .log-run-detail .log-detail { margin-bottom: 12px; max-width: 520px; }
 
-/* Monitoring */
+/* ============================================
+   Monitoring Page
+   ============================================ */
+.page-monitor {
+  padding: 24px clamp(16px, 3vw, 32px) 32px;
+}
+
+.monitor-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.monitor-controls .prompt-input { min-width: 0; }
+
+.monitor-body { min-height: 120px; }
+
 .log-note { font-size: 12px; color: var(--warn); }
 
-.log-tiles {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 1px;
-  background: var(--border-1);
-  border: 1px solid var(--border-1);
-  border-radius: 10px;
-  overflow: hidden;
-  margin-bottom: 20px;
-}
-.log-tile { background: var(--bg-1); padding: 14px 16px; display: grid; gap: 4px; }
-.log-tile-value { font-size: 19px; font-weight: 600; color: var(--text-0); letter-spacing: -0.02em; }
-.log-tile-label { font-size: 11px; color: var(--text-3); }
-
-.log-chart { margin-bottom: 22px; }
-.log-chart h4 { font-size: 12px; font-weight: 600; color: var(--text-3); margin: 0 0 8px; }
-.log-chart svg {
-  width: 100%;
-  height: 120px;
-  display: block;
-  background: var(--bg-1);
-  border: 1px solid var(--border-1);
-  border-radius: 10px;
-  padding: 6px 8px;
-  box-sizing: border-box;
-  color: var(--accent);
-}
 .log-chart-axis {
   display: flex;
   justify-content: space-between;
   font-size: 11px;
   color: var(--text-4);
-  margin-top: 5px;
+  margin: 0 16px 8px;
+  padding-top: 5px;
 }
 
 /* Six series colours: the accent first, then the status hues, so a chart
@@ -8045,9 +7918,9 @@ button.ku-cell:hover {
   list-style: none;
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 14px;
-  margin: 8px 0 0;
-  padding: 0;
+  gap: 6px 14px;
+  margin: 0 0 12px;
+  padding: 0 16px 12px;
   font-size: 11px;
 }
 .log-legend li { display: flex; align-items: center; gap: 5px; color: var(--text-3); }

@@ -15,6 +15,13 @@ window.INTEGRATED_PROVIDERS.darkapi = {
     logoTone: 'bright',
     modelsEndpoint: '/models',
     chatEndpoint: '/chat/completions',
+    // Unlimited usage: no request quota is published, so there is nothing to
+    // fetch per key and nothing to pace runs against.
+    unlimitedUsage: {
+      label: 'Unlimited plan',
+      range: '0 → ∞ tokens',
+      detail: 'Unlimited model usage · no published request quota',
+    },
   },
 
   // No custom fetchModels: Dark API is a plain OpenAI-compatible provider with no

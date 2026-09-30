@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The new VenomGPT logo, drawn by hand in each of the five accents (Emerald,
+  Cyan, Violet, Crimson, Amber) with a neon version for dark surfaces and a
+  platinum one for light. It follows the accent in the title bar, the sidebar,
+  About and the taskbar.
+- The accent list is the brand's five colours; Emerald is the default. Green,
+  Rose and Blue become Emerald, Crimson and Cyan.
+- Route Test is no longer a page of its own. Each connected provider on the
+  Providers page has a Test models button that opens that provider's page:
+  a trail back to Providers, four stat cards (models, passed, failed, average
+  time), its keys and models on the left and the run's results on the right.
+  The Failed card filters the table to failures. While a run is going the
+  page stays on the provider being tested, and opening another provider
+  starts with an empty results table.
+- Model Pool is now **Models Catalog** — in the sidebar, the page header, the
+  breadcrumb and the Settings category that configures it. Its stat strip is
+  four cards instead of six: models, providers, benchmarked and last sync.
+  The count of new models is on the toolbar's New chip, and how closely our
+  ranking agrees with the global board (ρ) is the benchmarked card's caption
+  rather than a card of its own.
+- Each routing profile has its own colour — **Lite mint, Pro violet, Max amber**
+  — defined once as app-wide tokens instead of borrowing the accent and the
+  pass green. The same three colours mark a profile everywhere it is named: the
+  profile cards and their stat strip, the legend above them, the chips in the
+  Catalog's router-readiness panel, and a dot per profile on every model in the
+  Catalog. They deliberately do not follow the accent, so Lite and Pro can no
+  longer come out the same colour.
+- The profile card now leads with a ribbon riding its top edge — icon, name, the
+  virtual model id and a tag pill — over a centred one-line purpose, an
+  **Eligible Target Pool** panel whose bar shows how much of the catalogue can
+  serve that profile, and a **Mode / Strategy** line derived from the policy, so
+  editing the policy changes the words. The five count tiles are gone: active,
+  candidate and cooling counts moved into the section headings.
+
+### Removed
+
+- The custom accent colour.
+- The Route Test entry in the sidebar and the provider list inside the old
+  page; the sidebar width setting that belonged to it.
+
 ## [2.0.0] - 2026-09-27
 
 ### Added

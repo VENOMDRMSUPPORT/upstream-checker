@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification, shell, dialog, safeStorage, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, shell, dialog, safeStorage, clipboard, nativeImage } = require('electron');
 const path = require('path');
 const https = require('https');
 const fs = require('fs');
@@ -289,6 +289,55 @@ function saveWindowState() {
   }
 }
 
+// ---------- Dev-only live reload ----------
+// Electron reads the renderer's files from disk on every load, so a change to
+// styles.css or app.js only needs the page to pick them up again — a restart
+// was never the thing that was required. A CSS change is swapped in place so
+// the window keeps the page it was showing; a .js or .html change has to
+// reload. Only in development: in a packaged build the watcher never starts.
+let devWatcher = null;
+
+function watchRendererInDev(win) {
+  if (app.isPackaged || devWatcher) return;
+  const dir = path.join(__dirname, 'renderer');
+  let timer = null;
+  let sheets = new Set();
+  let needsReload = false;
+  try {
+    devWatcher = fs.watch(dir, { recursive: true }, (_event, file) => {
+      if (!file) return;
+      const ext = path.extname(file).toLowerCase();
+      // Only the sheet that changed is named: reloading both stylesheets at
+      // once wedges the renderer, and fonts.css (nothing but @font-face over
+      // bundled files) has no reason to come back when styles.css is edited.
+      if (ext === '.css') sheets.add(path.basename(file));
+      else if (ext === '.js' || ext === '.html') needsReload = true;
+      else return;
+      // An editor writes one save as several events; act once it goes quiet.
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const changed = [...sheets];
+        const reload = needsReload;
+        sheets = new Set();
+        needsReload = false;
+        if (!win || win.isDestroyed()) return;
+        if (reload) {
+          log.info(`Dev reload (page): ${file}`);
+          win.webContents.reload();
+          return;
+        }
+        changed.forEach((name) => {
+          log.info(`Dev reload (css): ${name}`);
+          win.webContents.send('dev-reload-css', name);
+        });
+      }, 120);
+    });
+    log.info('Dev live-reload is watching src/renderer');
+  } catch (err) {
+    log.warn('Could not watch the renderer folder, live reload is off:', err.message);
+  }
+}
+
 function createWindow() {
   flushPromise = null;
   flushed = false;
@@ -315,6 +364,7 @@ function createWindow() {
 
   if (saved.maximized) mainWindow.maximize();
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  watchRendererInDev(mainWindow);
 
   // Send app version to renderer after load
   mainWindow.webContents.on('did-finish-load', () => {
@@ -334,6 +384,10 @@ function createWindow() {
   });
   mainWindow.on('closed', () => {
     mainWindow = null;
+    if (devWatcher) {
+      devWatcher.close();
+      devWatcher = null;
+    }
   });
 }
 
@@ -509,6 +563,16 @@ ipcMain.on('window-maximize', () => {
   else mainWindow?.maximize();
 });
 ipcMain.on('window-close', () => mainWindow?.close());
+
+// The taskbar icon in the accent the user picked. The .ico is baked in the
+// default accent; the renderer sends the accent's id and the emblem drawn in
+// that colour is set from the bundled files. An id not in the list is ignored.
+const ACCENT_EMBLEMS = new Set(['emerald', 'cyan', 'violet', 'crimson', 'amber']);
+ipcMain.on('set-window-icon', (_event, accentId) => {
+  if (!mainWindow || !ACCENT_EMBLEMS.has(accentId)) return;
+  const image = nativeImage.createFromPath(path.join(__dirname, 'assets', 'brand', `emblem-${accentId}.png`));
+  if (!image.isEmpty()) mainWindow.setIcon(image);
+});
 
 // ============================================
 // API requests (src/api-request.js)
