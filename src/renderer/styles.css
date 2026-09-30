@@ -7064,6 +7064,11 @@ img[data-tone] { filter: var(--logo-tone, none); }
 .mc-source-warn > b { color: var(--warn); }
 .mc-source-fail > b { color: var(--fail); }
 .mc-source-error { grid-column: 1 / -1; color: var(--text-3); font-size: 11px; }
+/* The block's own failure — the Sync sources button could not do what it said. It
+   sits above the four lines rather than replacing them, so the owner still sees
+   what is on disk, and it is --fail rather than --text-3 because nothing else on
+   this plane tells them a thing went wrong. */
+.mc-sources-error { color: var(--fail); font-size: 11.5px; font-weight: 600; }
 
 /* ============================================
    Venom Profiles

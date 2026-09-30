@@ -9,12 +9,54 @@
 // the rows the adapter read and do the merge, the scoring and the writing here.
 // Nothing on this surface ever carries a key: main reads the OpenRouter secret
 // itself, at the point of use (src/main.js startCatalog's readKey).
+//
+// THE CONTRACT, which the Models-page batch is written against:
+//
+//   A channel RESOLVES. Always. An outcome the UI has to act on — a bad payload, a
+//   provider that does not exist, a quarantined drop, a sync already running — is
+//   data of the shape `{ ok: false, code, message }`, and the success shapes are
+//   each channel's own (unchanged from Task 10):
+//     catalog:ingest      { ok, rows, changes, stale, warning }
+//     catalog:read        { ok, rows, providers, readAt, oldestFetch, stale,
+//                           warning, lastSyncAt, catalogCount }
+//     catalog:health      { p50, samples }
+//     catalog:sources     the engine summary (forced or read-only)
+//     catalog:fetch-info  { ok, outcome, before, after, changes, borrowed }
+//   Only a genuine programmer error rejects — a bad argument type, an assertion.
+//
+//   Why: `ipcMain.handle` resolves by STRUCTURE and turns a rejection into a NEW
+//   Error that carries only its `message`, prefixed `Error invoking remote method
+//   'catalog:ingest': `. An `err.code` set in main simply does not cross. A channel
+//   whose verdict lives on the thrown object is a channel whose verdict the renderer
+//   never receives — so the verdict has to be in the value instead.
+//
+//   Callers test `reply && reply.ok === false`, never `catch`. `catalog:sources`
+//   and `catalog:health` answers have no `ok` key at all on success, which that
+//   check handles; `ingest` and `read` carry `ok: true`.
+//
+// The read is also filtered now (F2): the renderer owns PROVIDERS and isConnected,
+// so it passes `providerIds`; main filters that set against repos.providers and
+// refuses an id it cannot find. An empty or absent set serves nothing — it does not
+// mean "everything" — and a provider with nothing to serve is named with a code
+// rather than dropped from the reply (ref §9 readConnected, NO_SNAPSHOT).
 
 const { providerRow, matchIds, qualityProxyIds } = require('./row');
 const { syncSnapshot, dropNonText, validateProviderRows, providerRowSnapshot,
   restoreLastGoodRows } = require('./snapshot');
 
 const LATENCY_SAMPLES_KEPT = 20;
+
+// The codes that are outcomes rather than bugs. Anything thrown with one of these
+// becomes a resolved reply; anything else is a defect and stays a rejection.
+const DATA_CODES = new Set(['INVALID_PROVIDER_PAYLOAD', 'NOT_FOUND',
+  'SUSPICIOUS_PROVIDER_DROP', 'SYNC_IN_PROGRESS']);
+
+/** An expected outcome, carried by code so the boundary can turn it into data. */
+function catalogError(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
 
 // The fields a Fetch information click may report as moved. Exactly the provider's
 // own facts (ref §8.1); a derived value changing would say the provider published
@@ -25,6 +67,10 @@ const COMPARE_FIELDS = ['name', 'description', 'family', 'context_tokens', 'outp
 
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
+// Both arguments are PROVIDER rows: the one stored, and the one just mapped from
+// what the adapter read — before scoring, and before `fillFromCatalog` borrows from
+// the reference. Compare anything else and every field a thin row borrows diffs on
+// every click, because providerRowSnapshot re-blanks exactly those before storing.
 function diffRow(before, after) {
   const out = [];
   for (const field of COMPARE_FIELDS) {
@@ -32,6 +78,11 @@ function diffRow(before, after) {
   }
   return out;
 }
+
+/** The provider's own published facts on this row, as the diff reads them. */
+const publishedOnly = (row) => Object.fromEntries(
+  COMPARE_FIELDS.map((field) => [field, row ? row[field] ?? null : null]),
+);
 
 /** The newest sample is the last; p50 over the kept ring, null when empty. */
 function readHealth(health) {
@@ -85,11 +136,29 @@ function createCatalogIpc({ ipcMain, repos, engine, log = console }) {
       try {
         return await fn(...args);
       } catch (err) {
+        // An outcome, not a defect: resolve it as data, because a rejection loses
+        // the code on the way across the boundary (see the contract at the top).
+        if (err && DATA_CODES.has(err.code)) {
+          log.warn(`${channel} answered ${err.code}: ${err.message}`);
+          return { ok: false, code: err.code, message: err.message };
+        }
         log.error(`${channel} failed:`, err.message);
         throw err;
       }
     });
   };
+
+  // ref §9 step 1: `get(id)`, unknown → NOT_FOUND. The renderer is allowed to ask
+  // for the providers it thinks are connected; main is the only place that knows
+  // whether one still exists, so a deleted provider's roster stops here rather than
+  // being served forever. Only the id is read — a provider row carries key hints,
+  // and nothing on this surface travels to the renderer except catalog facts.
+  function requireProvider(providerId, asking) {
+    const id = providerId == null ? '' : String(providerId).trim();
+    if (id && repos.providers.get(id)) return id;
+    throw catalogError('NOT_FOUND',
+      `no provider "${id || '(none given)'}" — ${asking} refused, nothing fetched and nothing written`);
+  }
 
   function mapRows(providerId, models) {
     return models.map((m) => withAliases(providerRow(m, providerId), m));
@@ -108,14 +177,25 @@ function createCatalogIpc({ ipcMain, repos, engine, log = console }) {
   };
 
   // The last-good roster, re-stamped and re-scored, served as stale.
-  const staleFrom = (previous, at, warning) => ({
-    ok: true, stale: true, warning,
-    rows: engine.scoreRows(restoreLastGoodRows(previous, at)), changes: null,
-  });
+  //
+  // Only when there IS one. An empty list served as `stale: true` reads to the owner
+  // as "your provider has no models", which is a different claim from "the last
+  // attempt failed and I am showing you what it said before that" — with nothing to
+  // stand in, the verdict itself is the answer, and it travels as data.
+  const staleFrom = (previous, at, err) => {
+    const rows = previous ? restoreLastGoodRows(previous, at) : [];
+    if (!rows.length) throw err;
+    return { ok: true, stale: true, code: err.code || null, warning: err.message,
+      rows: engine.scoreRows(rows), changes: null };
+  };
 
   // The write path for one provider, always behind the door.
   function ingest(providerId, models) {
-    const existing = inFlight.get(providerId);
+    // Before the door, before any read, fetch or write: a mistyped id used to
+    // create a snapshot_meta row and a roster set for a provider that does not
+    // exist, and the read path then served it forever.
+    const provider = requireProvider(providerId, 'the ingest');
+    const existing = inFlight.get(provider);
     if (existing) return existing;
     const job = (async () => {
       const list = Array.isArray(models) ? models : [];
@@ -125,98 +205,175 @@ function createCatalogIpc({ ipcMain, repos, engine, log = console }) {
         // The RAW roster is validated before anything is mapped: an adapter row
         // with no id, or the same id twice, is refused with the code the contract
         // names rather than with whatever providerRow happens to throw.
-        validateProviderRows(providerId, list);
-        const rows = mapRows(providerId, list);
-        const { kept, dropped } = dropNonText({ provider: { id: providerId }, rows,
+        validateProviderRows(provider, list);
+        const rows = mapRows(provider, list);
+        const { kept, dropped } = dropNonText({ provider: { id: provider }, rows,
           isNonTextModel: (r) => engine.isNonTextModel(r) });
-        stored = { rows: validateProviderRows(providerId, kept), dropped };
+        stored = { rows: validateProviderRows(provider, kept), dropped };
       } catch (err) {
         // An empty or malformed roster is not a removal: keep what we have and
         // say so. With nothing ever stored there is no roster to be stale about,
-        // so the refusal goes on to the caller unchanged.
-        const previous = repos.snapshots.read(providerId);
-        if (!previous || !(previous.lastGoodRows || []).length) throw err;
-        recordFailure(providerId, now, err.message);
-        return staleFrom(previous, now, err.message);
+        // so the refusal goes on to the caller — as `{ ok: false, code }`.
+        const previous = repos.snapshots.read(provider);
+        recordFailure(provider, now, err.message);
+        return staleFrom(previous, now, err);
       }
       let changes;
       try {
-        changes = syncSnapshot(repos.snapshots, providerId, stored.rows, now, stored.dropped);
+        changes = syncSnapshot(repos.snapshots, provider, stored.rows, now, stored.dropped);
       } catch (err) {
         if (err.code !== 'SUSPICIOUS_PROVIDER_DROP') throw err;
         // syncSnapshot wrote the pending drop before throwing; setLastSync keeps
         // that column and adds the verdict the read path reports as stale.
-        const previous = repos.snapshots.read(providerId);
-        recordFailure(providerId, now, err.message);
-        return staleFrom(previous, now, err.message);
+        const previous = repos.snapshots.read(provider);
+        recordFailure(provider, now, err.message);
+        return staleFrom(previous, now, err);
       }
       const scored = engine.scoreRows(stored.rows.map(providerRowSnapshot));
       engine.syncIfUnscored(scored).catch(() => {});
       return { ok: true, stale: false, warning: null, rows: scored, changes };
     })();
-    inFlight.set(providerId, job);
-    job.finally(() => inFlight.delete(providerId)).catch(() => {});
+    inFlight.set(provider, job);
+    job.finally(() => inFlight.delete(provider)).catch(() => {});
     return job;
   }
 
   // The read path (ref §9 readConnected): snapshots re-scored against today's
   // reference. No fetch, no write, no event.
-  function read() {
-    const providerIds = repos.snapshots.listProviderIds();
-    const rows = [];
+  //
+  // The connected set is the caller's (ref §9 readConnected filtered on
+  // connections.connectedIds; here the renderer owns PROVIDERS and isConnected, so
+  // it passes `providerIds`). Two rules make that filter real rather than decorative:
+  // an absent or empty set serves NOTHING — it cannot quietly mean "everything the
+  // database holds" — and an id main cannot find in repos.providers is refused even
+  // when a snapshot for it exists on disk. A provider with no roster yet is named
+  // with a code instead of vanishing, because silence reads as "it has no models".
+  function read(query = {}) {
+    const asked = Array.isArray(query && query.providerIds)
+      ? [...new Set(query.providerIds.map((id) => String(id ?? '').trim()).filter(Boolean))]
+      : [];
+    const merged = [];
+    const providers = [];
     let oldest = null;
     let anyStale = false;
     let warning = null;
-    for (const providerId of providerIds) {
+    const now = Date.now();
+    for (const providerId of asked) {
+      if (!repos.providers.get(providerId)) {
+        providers.push({ providerId, ok: false, code: 'NOT_FOUND', total: 0, fetchedAt: null,
+          stale: false, lastSyncAt: null, warning: null,
+          message: `no provider "${providerId}" — its roster is not served` });
+        continue;
+      }
       const snapshot = repos.snapshots.read(providerId);
-      if (!snapshot) continue;
+      // Re-stamped, not replayed: first_seen and the newness verdict come from the
+      // history as it stands today, because is_new is never stored (Task 7).
+      const rows = snapshot ? restoreLastGoodRows(snapshot, now) : [];
+      if (!rows.length) {
+        providers.push({ providerId, ok: false, code: 'NO_SNAPSHOT', total: 0, fetchedAt: null,
+          stale: false, lastSyncAt: null, warning: null,
+          message: `${providerId} has not been synced yet.` });
+        continue;
+      }
+      const lastSync = snapshot.lastSync || null;
+      const stale = Boolean(lastSync && lastSync.ok === false);
       if (snapshot.fetchedAt != null && (oldest === null || snapshot.fetchedAt < oldest)) {
         oldest = snapshot.fetchedAt;
       }
-      if (snapshot.lastSync && snapshot.lastSync.ok === false) {
+      if (stale) {
         anyStale = true;
-        warning = snapshot.lastSync.warning;
+        warning = lastSync.warning;
       }
-      // Re-stamped, not replayed: first_seen and the newness verdict come from the
-      // history as it stands today, because is_new is never stored (Task 7).
-      rows.push(...engine.scoreRows(restoreLastGoodRows(snapshot, Date.now())));
+      providers.push({ providerId, ok: true, code: null, total: rows.length,
+        fetchedAt: snapshot.fetchedAt ?? null, stale,
+        lastSyncAt: lastSync ? lastSync.at : null, warning: stale ? lastSync.warning : null });
+      merged.push(...rows);
     }
-    return { rows, readAt: Date.now(), oldestFetch: oldest, stale: anyStale, warning,
+    // Once, over everything shown. attachScores dense-ranks the list it is handed, so
+    // scoring provider by provider would make each roster rank against itself and a
+    // two-provider view answer with two rank 1s — while spec §7 defines `#` as the
+    // dense rank over the MERGED view (ref providers/index.js:625 then :693).
+    const rows = engine.scoreRows(merged);
+    return { ok: true, rows, providers, readAt: now, oldestFetch: oldest, stale: anyStale, warning,
       lastSyncAt: engine.state.lastSyncAt, catalogCount: engine.state.catalog.rows.length };
   }
 
   function health(providerId, modelId, result) {
-    const previous = repos.snapshots.getHealth(providerId, modelId);
+    const provider = requireProvider(providerId, 'the health result');
+    const previous = repos.snapshots.getHealth(provider, modelId);
     const stored = {
       status: result.status, note: result.note || null, httpStatus: result.httpStatus ?? null,
       at: result.at || Date.now(),
       latencies: appendLatency(previous, result.at || Date.now(), result.timeMs),
     };
-    repos.snapshots.setHealth(providerId, modelId, stored);
+    try {
+      repos.snapshots.setHealth(provider, modelId, stored);
+    } catch (err) {
+      // repos.snapshots refuses a model that is not in the roster. That is a state
+      // the page can act on — check information for this provider first — not a
+      // defect, so it becomes NOT_FOUND data. Anything else stays a rejection.
+      if (/^unknown model/.test(String(err && err.message))) {
+        throw catalogError('NOT_FOUND', err.message);
+      }
+      throw err;
+    }
     return readHealth(stored);
   }
 
   // Fetch information (spec §6): the network pass is TTL-gated, the merge and the
   // report never are.
+  //
+  // The diff is between two PROVIDER rows — the stored one and the one just mapped
+  // from what the adapter read, before scoring and before fillFromCatalog borrows
+  // eleven reference values into COMPARE_FIELDS. providerRowSnapshot re-blanks
+  // exactly those on the way in, so scoring before the compare made every borrowed
+  // field "move" on every click, and a model with no stored row reported the
+  // reference's own numbers as what the provider had just learned. What the
+  // reference lends is still said — as `borrowed`, separately from `changes`.
   async function fetchInfo(providerId, modelId, models) {
+    const provider = requireProvider(providerId, 'the fetch');
     await engine.syncAll();
-    const before = repos.snapshots.read(providerId);
-    const beforeRow = before && (before.lastGoodRows || []).find((r) => String(r.id) === String(modelId));
-    const { rows } = await ingest(providerId, models);
-    const after = rows.find((r) => String(r.id) === String(modelId));
-    if (!after) return { outcome: 'no-longer-listed', before: beforeRow || null, after: null, changes: null };
-    if (after.matched_id == null) {
-      return { outcome: 'no-match', before: beforeRow || null, after, changes: null };
+    const before = repos.snapshots.read(provider);
+    const beforeRow = before && (before.lastGoodRows || [])
+      .find((r) => String(r.id) === String(modelId));
+    // Mapped from the caller's own list, NOT taken from the ingest reply: the
+    // reply's rows are scored and filled. One row, found by id, so a roster with a
+    // missing id cannot make this throw an error that has no code — the ingest
+    // below is what reports that, as INVALID_PROVIDER_PAYLOAD data.
+    const asked = (Array.isArray(models) ? models : [])
+      .find((m) => String((m && m.id) || '').trim() === String(modelId)) || null;
+    const published = publishedOnly(asked ? providerRow(asked, provider) : null);
+    const { rows, stale, code, warning } = await ingest(provider, models);
+    // The ingest refused this roster (a malformed list, a quarantined drop) and
+    // answered with the last-good rows. Nothing was compared, so nothing may be
+    // reported as moved: its verdict is the answer, and it crosses as data.
+    if (stale && code) throw catalogError(code, warning || `the ingest for ${provider} refused this roster`);
+    // The roster this click read does not name the model at all. That is the
+    // provider dropping it — and it is the only honest answer, because an empty
+    // `published` diffed against a stored row would claim the provider unpublished
+    // every fact it ever said.
+    if (!asked) {
+      return { ok: true, outcome: 'no-longer-listed', before: beforeRow || null, after: null,
+        changes: null, borrowed: [] };
     }
-    const changes = beforeRow ? diffRow(beforeRow, after) : COMPARE_FIELDS
-      .filter((f) => after[f] != null && after[f] !== '')
-      .map((f) => ({ field: f, from: null, to: after[f] }));
-    return { outcome: changes.length ? 'updated' : 'matched', before: beforeRow || null, after,
-      changes: changes.length ? changes : null };
+    const after = rows.find((r) => String(r.id) === String(modelId));
+    const borrowed = after && after.filled_from_catalog ? after.filled_from_catalog : [];
+    if (!after) {
+      return { ok: true, outcome: 'no-longer-listed', before: beforeRow || null, after: null,
+        changes: null, borrowed: [] };
+    }
+    if (after.matched_id == null) {
+      return { ok: true, outcome: 'no-match', before: beforeRow || null, after, changes: null, borrowed };
+    }
+    const changes = beforeRow ? diffRow(publishedOnly(beforeRow), published)
+      : COMPARE_FIELDS.filter((f) => published[f] != null && published[f] !== '')
+        .map((f) => ({ field: f, from: null, to: published[f] }));
+    return { ok: true, outcome: changes.length ? 'updated' : 'matched', before: beforeRow || null, after,
+      changes: changes.length ? changes : null, borrowed };
   }
 
   handle('catalog:ingest', (providerId, models) => ingest(providerId, models));
-  handle('catalog:read', () => read());
+  handle('catalog:read', (query) => read(query));
   handle('catalog:health', (providerId, modelId, result) => health(providerId, modelId, result));
   // Two different asks, one channel, and only one of them may reach the network.
   //

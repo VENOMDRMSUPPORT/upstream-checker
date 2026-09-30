@@ -4183,14 +4183,50 @@ const CATALOG_SOURCES_LABELS = {
   'openrouter-keyed': 'OpenRouter benchmarks', lmarena: 'LMArena',
 };
 
-async function renderCatalogSources() {
+// Whatever the channel answered, said back to the owner.
+//
+// Two shapes arrive from `catalogSources`: main's resolved `{ ok: false, code,
+// message }` — the contract, since a rejection loses its code on the way across
+// `ipcMain.handle` — and a rejection from something that genuinely should not
+// happen. A rejection's message is wrapped by Electron in
+// `Error invoking remote method 'catalog:sources': Error: …`, which is about the
+// plumbing, not about the app, so the wrapper is stripped before a person reads it
+// — by `ipcMessage`, the helper the status bar has used for that since it existed
+// (app.js:398), not by a second copy of it.
+//
+// A code's own words. SYNC_IN_PROGRESS is not a failure the owner caused: the four
+// documents are already in flight from the other click, and saying so is the
+// difference between "a sync is running" and a button that appears to do nothing.
+const CATALOG_SOURCE_CODES = {
+  SYNC_IN_PROGRESS: 'A sync is already running — the four sources are being fetched.',
+  NOT_FOUND: 'The catalog could not find something it needed.',
+};
+
+function catalogSourceFailure(reply, err) {
+  if (reply && reply.ok === false) {
+    return CATALOG_SOURCE_CODES[reply.code] || `Sync failed (${reply.code || 'error'}): ${reply.message || 'no reason given'}`;
+  }
+  return `Sync failed: ${ipcMessage(err)}`;
+}
+
+// `notice` is the failure above, and it goes INSIDE the block: the redraw happens
+// after a sync attempt, so a message written first would be painted over, and a
+// message only in the console is the bug this exists to fix.
+async function renderCatalogSources(notice) {
   const el = document.getElementById('catalog-sources-status');
   if (!el) return;
+  const banner = notice
+    ? `<div class="mc-sources-error" role="alert">${escapeHtml(notice)}</div>` : '';
   try {
     const s = await window.electronAPI.catalogSources({});
+    if (s && s.ok === false) {
+      el.innerHTML = banner + `<div class="mc-sources-error" role="alert">${escapeHtml(catalogSourceFailure(s, null))}</div>`;
+      return;
+    }
     // The two numbers are interpolated, not escaped — escapeHtml() is for strings.
     // Numbered anyway, so a shape that stops being a count cannot become markup.
-    el.innerHTML = `<div class="mc-sources-head">${Number(s.catalogCount) || 0} models in the reference · `
+    el.innerHTML = banner
+      + `<div class="mc-sources-head">${Number(s.catalogCount) || 0} models in the reference · `
       + `${s.keyedAuthConfigured ? 'key set' : 'no OpenRouter key'}</div>`
       + (s.sources || []).map((row) => {
         const tone = row.error ? (row.stale ? 'warn' : 'fail') : 'ok';
@@ -4202,17 +4238,28 @@ async function renderCatalogSources() {
           + '</div>';
       }).join('');
   } catch (err) {
-    el.textContent = `Sources unavailable: ${err.message}`;
+    el.innerHTML = banner
+      + `<div class="mc-sources-error" role="alert">${escapeHtml(`Sources unavailable: ${ipcMessage(err)}`)}</div>`;
   }
 }
 
 const syncSources = document.getElementById('btn-catalog-sync-sources');
 if (syncSources) syncSources.addEventListener('click', async () => {
   syncSources.disabled = true;
-  try { await window.electronAPI.catalogSources({ force: true }); } finally {
+  // A try/finally with no catch used to sit here: a rejected sync became an
+  // unhandled rejection, the button re-enabled itself and the block redrew
+  // unchanged — the owner's one control on this plane failing quietly. The failure
+  // is caught, kept as words, and handed to the redraw that follows.
+  let notice = null;
+  try {
+    const reply = await window.electronAPI.catalogSources({ force: true });
+    if (reply && reply.ok === false) notice = catalogSourceFailure(reply, null);
+  } catch (err) {
+    notice = catalogSourceFailure(null, err);
+  } finally {
     syncSources.disabled = false;
-    renderCatalogSources();
   }
+  await renderCatalogSources(notice);
 });
 
 function switchSettingsSection(sectionId) {

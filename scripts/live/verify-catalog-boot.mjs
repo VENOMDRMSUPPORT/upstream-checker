@@ -43,14 +43,23 @@ async function openCatalogAndRead(app) {
       while (Date.now() < end) { try { if (fn()) return true; } catch (_) {} await new Promise((r) => setTimeout(r, 120)); }
       return false;
     };
-    document.querySelector('.shell-nav-item[data-page=settings]').click();
-    const nav = await wait(() => !!document.querySelector('#settings-nav'));
-    const tab = await wait(() => !!document.querySelector('#settings-nav .settings-nav-item[data-section="sec-catalog"]'));
-    if (tab) document.querySelector('#settings-nav .settings-nav-item[data-section="sec-catalog"]').click();
-    const opened = await wait(() => !document.getElementById('sec-catalog').hidden);
+    // The shell nav is in the static HTML, so it exists before app.js has bound
+    // its click handlers; a first click that lands too early does nothing at all
+    // and the section stays hidden. Retry rather than assume — the run used to
+    // report a FAIL that was this race, not the app.
+    let nav = false; let tab = false; let opened = false;
+    for (let attempt = 0; attempt < 4 && !opened; attempt += 1) {
+      const shell = document.querySelector('.shell-nav-item[data-page=settings]');
+      if (shell) shell.click();
+      nav = await wait(() => !!document.querySelector('#settings-nav'), 15000);
+      tab = await wait(() => !!document.querySelector('#settings-nav .settings-nav-item[data-section="sec-catalog"]'), 15000);
+      if (tab) document.querySelector('#settings-nav .settings-nav-item[data-section="sec-catalog"]').click();
+      opened = await wait(() => !document.getElementById('sec-catalog').hidden, 5000);
+      if (!opened) await new Promise((r) => setTimeout(r, 400));
+    }
     // Wait BEFORE reading the row list: the block fills in asynchronously, and a
     // NodeList captured first is a snapshot of the empty container.
-    await wait(() => {
+    const filled = await wait(() => {
       const el = document.getElementById('catalog-sources-status');
       const rows = el ? [...el.querySelectorAll('.mc-source')] : [];
       return rows.length > 0 && rows.some((r) => /\\S/.test(r.textContent));
@@ -59,7 +68,8 @@ async function openCatalogAndRead(app) {
     const button = document.getElementById('btn-catalog-sync-sources');
     const rows = el ? [...el.querySelectorAll('.mc-source')] : [];
     return {
-      nav, tab, opened,
+      nav, tab, opened, filled,
+      pageVisible: !document.querySelector('.page-settings').hidden,
       theme: document.documentElement.getAttribute('data-theme'),
       hasBlock: !!el,
       containerText: el ? el.textContent.trim() : '',
@@ -75,6 +85,23 @@ async function openCatalogAndRead(app) {
         rect: button.getBoundingClientRect().toJSON() } : null,
     };
   })()`, 60000);
+}
+
+// F6 without any network at all: the two sentences the block can now show, read
+// straight out of the renderer's own helpers. `ipcMessage` is what a rejection
+// looks like after Electron wrapped it, and `catalogSourceFailure` is what main's
+// resolved `{ok:false, code}` becomes once it has been turned into words. Both are
+// top-level functions in a classic script, so the page can be asked directly.
+async function checkFailureWords(app) {
+  return app.evaluate(`(() => {
+    const wrapped = "Error invoking remote method 'catalog:sources': Error: sync already in progress";
+    return {
+      raw: new Error(wrapped).message,
+      stripped: ipcMessage(new Error(wrapped)),
+      running: catalogSourceFailure({ ok: false, code: "SYNC_IN_PROGRESS", message: "sync already in progress" }, null),
+      unknown: catalogSourceFailure({ ok: false, code: "PROVIDER_UNAVAILABLE", message: "no provider nara" }, null),
+    };
+  })()`, 20000);
 }
 
 // The Models Catalog page is not this task's page: it still runs on its own path,
@@ -193,6 +220,16 @@ async function runGuardedSession(dir, report) {
         !!s.button && !s.button.disabled && /Sync sources/.test(s.button.text)
         && s.button.rect.height > 8 && s.button.rect.width > 40,
         s.button ? `${s.button.text} ${Math.round(s.button.rect.width)}x${Math.round(s.button.rect.height)} disabled=${s.button.disabled}` : 'missing');
+      // F6, the half that needs no network: the owner reads the reason, never the
+      // plumbing, and a refused sync has a sentence of its own.
+      const words = await checkFailureWords(app);
+      check("Electron's wrapper never reaches the owner",
+        words.stripped === 'sync already in progress' && /^Error invoking remote method/.test(words.raw),
+        `"${words.raw}" -> "${words.stripped}"`);
+      check('a sync already running says so instead of looking like a no-op',
+        /already running/i.test(words.running), words.running);
+      check('an outcome with no sentence of its own still says what happened',
+        /Sync failed/.test(words.unknown) && /no provider nara/.test(words.unknown), words.unknown);
       // Constraint: no page other than Settings › Catalog changed.
       const mc = await checkModelsCatalogPageUntouched(app);
       check('the Models Catalog page still opens on its own path', mc.shown && !mc.hasSourcesBlock,
@@ -249,27 +286,64 @@ async function runSyncedSession(dir) {
     await app.waitFor(READY, 40000);
     const before = await openCatalogAndRead(app);
     check('the block rendered before anything was clicked', before.hasBlock && before.rowCount === 4,
-      before.rowCounts.join(' | '));
+      `opened=${before.opened} filled=${before.filled} pageVisible=${before.pageVisible} :: ${before.rowCounts.join(' | ')}`);
+    // F5 and F6, end to end over the real channel and with one network pass, not
+    // two. A sync is started through `catalogSources` and, while its four documents
+    // are in flight, the owner presses the button. Main must ANSWER that click as
+    // data — `{ok:false, code:"SYNC_IN_PROGRESS"}`, which is what can cross an
+    // `ipcMain.handle` at all — and the block must say so in its own words, painted,
+    // with the button clickable again. The rows then fill from the sync that was
+    // already running; nothing here fetched twice.
     const clicked = await app.evaluate(`(async () => {
       const button = document.getElementById('btn-catalog-sync-sources');
-      button.click();
+      const block = () => document.getElementById('catalog-sources-status');
       const wait = async (fn, ms) => {
         const end = Date.now() + ms;
-        while (Date.now() < end) { try { if (fn()) return true; } catch (_) {} await new Promise((r) => setTimeout(r, 500)); }
+        while (Date.now() < end) { try { if (fn()) return true; } catch (_) {} await new Promise((r) => setTimeout(r, 250)); }
         return false;
       };
-      const changed = await wait(() => {
-        const rows = [...document.querySelectorAll('#catalog-sources-status .mc-source')];
+      const inFlight = window.electronAPI.catalogSources({ force: true });
+      let answeredAsData = null;
+      inFlight.then((r) => { answeredAsData = !(r && r.ok === false); }).catch(() => { answeredAsData = false; });
+      await new Promise((r) => setTimeout(r, 400));
+      button.click();
+      const told = await wait(() => !!block().querySelector('.mc-sources-error') && !button.disabled, 30000);
+      const notice = block().querySelector('.mc-sources-error');
+      // Read every property NOW: the block is redrawn below, and a detached node
+      // keeps its textContent while getComputedStyle and getBoundingClientRect go
+      // empty — which would fail this check for a reason that is not the app's.
+      const noticeBox = notice ? notice.getBoundingClientRect() : null;
+      const noticeRead = notice ? {
+        text: notice.textContent.trim(),
+        color: getComputedStyle(notice).color,
+        w: Math.round(noticeBox.width), h: Math.round(noticeBox.height),
+      } : null;
+      const summary = await inFlight;
+      await renderCatalogSources();
+      const filled = await wait(() => {
+        const rows = [...block().querySelectorAll('.mc-source')];
         return rows.length === 4 && rows.some((r) => /\\d{2,}/.test(r.textContent));
       }, 240000);
-      const rows = [...document.querySelectorAll('#catalog-sources-status .mc-source')];
-      return { changed, disabled: button.disabled,
-        head: document.querySelector('#catalog-sources-status .mc-sources-head').textContent.trim(),
+      const rows = [...block().querySelectorAll('.mc-source')];
+      return { told, answeredAsData, summaryOk: !(summary && summary.ok === false),
+        syncs: summary && summary.sources ? summary.sources.filter((s) => s.rowCount > 0).length : 0,
+        notice: noticeRead ? noticeRead.text : '',
+        noticePainted: !!noticeRead && noticeRead.h > 8 && noticeRead.w > 40,
+        noticeColor: noticeRead ? noticeRead.color : null,
+        disabled: button.disabled, changed: filled, buttonCleared: !block().querySelector('.mc-sources-error'),
+        head: block().querySelector('.mc-sources-head') ? block().querySelector('.mc-sources-head').textContent.trim() : '',
         rows: rows.map((r) => r.textContent.trim().replace(/\\s+/g, ' ')),
         tones: rows.map((r) => r.className),
         counts: rows.map((r) => (r.querySelector('b') || {}).textContent),
       };
     })()`, 300000);
+    check('a press during a running sync was answered, not swallowed', clicked.told && clicked.summaryOk,
+      `the sync answered as data=${clicked.answeredAsData}; block said "${clicked.notice}"`);
+    check('and it said a sync is already running, in painted words',
+      /already running/i.test(clicked.notice) && clicked.noticePainted && !!clicked.noticeColor,
+      `${clicked.notice} -> ${JSON.stringify(clicked.noticeColor)}`);
+    check('the notice went away on its own once the sync had landed',
+      clicked.buttonCleared && clicked.disabled === false);
     check('the button filled all four rows', clicked.changed, clicked.rows.join(' | '));
     check('the button re-enabled itself', clicked.disabled === false);
     console.log(`\n      ${clicked.head}`);

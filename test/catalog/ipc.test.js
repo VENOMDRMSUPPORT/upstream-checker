@@ -11,6 +11,12 @@
 // `setLastSync` (a failed attempt is recorded so the read path can call it stale)
 // and a raw-roster validation before the row mapping (a model with no id is
 // refused with INVALID_PROVIDER_PAYLOAD, the code the contract names).
+//
+// Fix round 1 added a third seam: `providers`. Main does not own the connected set
+// — the renderer does — but it is the only place that knows which providers still
+// exist, so a roster for a provider the owner deleted can be refused here and
+// nowhere else. And the handlers are wrapped twice over: `send` calls one direct,
+// `crossIpc` sends one across the boundary that actually exists.
 const test = require('node:test');
 const assert = require('node:assert');
 const { createCatalogIpc, COMPARE_FIELDS, diffRow } = require('../../src/catalog/ipc');
@@ -20,7 +26,7 @@ const { memoryStore } = require('../helpers');
 
 // A fake ipcMain that records handlers, plus a fake repos with the seam the real
 // one has. No electron, no database: the channel contract is what is under test.
-function harness({ snapshots, engine } = {}) {
+function harness({ snapshots, engine, providers } = {}) {
   const handlers = new Map();
   const ipcMain = { handle: (name, fn) => handlers.set(name, fn) };
   const calls = [];
@@ -28,10 +34,39 @@ function harness({ snapshots, engine } = {}) {
   createCatalogIpc({
     ipcMain, log,
     engine: engine || fakeEngine(),
-    repos: { snapshots: snapshots || fakeSnapshots() },
+    repos: { snapshots: snapshots || fakeSnapshots(), providers: providers || fakeProviders() },
   });
   const send = (name, ...args) => handlers.get(name)({}, ...args);
   return { handlers, send, calls };
+}
+
+// The providers the fake store knows, in the shape the real repo answers: `get`
+// takes an id and returns the row or null. Anything else is a provider that does
+// not exist, and main must not serve a roster for one.
+const KNOWN_PROVIDERS = ['nara', 'nexum', 'experiential'];
+function fakeProviders(ids = KNOWN_PROVIDERS) {
+  return { get: (id) => (ids.map(String).includes(String(id)) ? { id: String(id) } : null) };
+}
+
+/**
+ * One call as the renderer actually sees it. Electron resolves an `ipcMain.handle`
+ * value by STRUCTURE and turns a rejection into a fresh Error carrying only its
+ * `message` — `err.code` is a property of an object left behind in main. A JSON
+ * round trip is the deterministic half of that (functions, Errors and `undefined`
+ * drop out of both), and the wrapped message is Electron's own prefix, which the
+ * UI has to strip before a person reads it.
+ */
+function crossIpc(handlers, name, ...args) {
+  return handlers.get(name)({}, ...args).then(
+    (reply) => ({ rejected: false, reply: JSON.parse(JSON.stringify(reply)) }),
+    (err) => ({ rejected: true,
+      message: `Error invoking remote method '${name}': Error: ${err.message}` }),
+  );
+}
+
+function wireHarness(over = {}) {
+  const h = harness(over);
+  return { ...h, call: (name, ...args) => crossIpc(h.handlers, name, ...args) };
 }
 
 // The seam the real repos.snapshots offers. listProviderIds is required: read()
@@ -72,7 +107,7 @@ test('catalog:read re-scores stored rows and fetches nothing, writes nothing, pu
   });
   const engine = fakeEngine({ syncAll: async () => { fetched += 1; return engine_summary(); } });
   const { send } = harness({ snapshots, engine });
-  const out = await send('catalog:read');
+  const out = await send('catalog:read', { providerIds: ['nara'] });
   assert.equal(wrote, 0);
   assert.equal(fetched, 0, 'a read never touches the network');
   assert.equal(readCount, 1);
@@ -87,7 +122,7 @@ test('catalog:read reports the last failed attempt as stale while serving the ro
   const snapshots = fakeSnapshots({ listProviderIds: () => ['nara'], read: () => ({ createdAt: 1,
     fetchedAt: 1000, models: { m: { name: 'M', first_seen: 1, last_seen: 1000 } },
     lastGoodRows: [{ id: 'm' }], lastSync: { at: 2000, ok: false, warning: 'HTTP 503' } }) });
-  const out = await harness({ snapshots }).send('catalog:read');
+  const out = await harness({ snapshots }).send('catalog:read', { providerIds: ['nara'] });
   assert.equal(out.stale, true);
   assert.equal(out.warning, 'HTTP 503');
   assert.equal(out.rows.length, 1);
@@ -103,14 +138,22 @@ test('catalog:ingest maps the adapter rows, scores them and returns the changes'
   assert.equal(out.changes.baseline, true, 'the first snapshot flags nothing new');
 });
 
+// F5: an expected, actionable outcome is DATA. It used to reject with
+// `err.code = 'INVALID_PROVIDER_PAYLOAD'`, and the assertion below passed — against
+// a handler called directly, where the thrown object still had its code. Across a
+// real ipcMain.handle only `err.message` crosses, so the next batch would have had
+// a string to pattern-match. The same test now reads the resolved code, and
+// `crossIpc` proves it survives the wire.
 test('catalog:ingest refuses an empty or malformed roster with INVALID_PROVIDER_PAYLOAD', async () => {
   const { send } = harness();
-  await assert.rejects(() => send('catalog:ingest', 'nara', []),
-    (e) => e.code === 'INVALID_PROVIDER_PAYLOAD');
-  await assert.rejects(() => send('catalog:ingest', 'nara', [{ name: 'no id' }]),
-    (e) => e.code === 'INVALID_PROVIDER_PAYLOAD');
-  await assert.rejects(() => send('catalog:ingest', 'nara', [{ id: 'a' }, { id: 'a' }]),
-    (e) => e.code === 'INVALID_PROVIDER_PAYLOAD', 'a duplicate id is as unusable as a missing one');
+  for (const models of [[], [{ name: 'no id' }], [{ id: 'a' }, { id: 'a' }]]) {
+    const out = await send('catalog:ingest', 'nara', models);
+    assert.equal(out.ok, false, 'a refused roster answers with a verdict, not a rejection');
+    assert.equal(out.code, 'INVALID_PROVIDER_PAYLOAD');
+    assert.equal(typeof out.message, 'string');
+  }
+  const notAnArray = await send('catalog:ingest', 'nara', { 0: { id: 'a' } });
+  assert.equal(notAnArray.code, 'INVALID_PROVIDER_PAYLOAD', 'a non-array is the same bad payload');
 });
 
 test('an empty roster with rows already stored is served as stale, not as a removal', async () => {
@@ -279,6 +322,28 @@ test('catalog:fetch-info says no-longer-listed when the provider dropped it', as
   assert.equal(out.outcome, 'no-longer-listed');
 });
 
+// Two ways the click cannot honestly compare anything: the roster was refused, and
+// the model is not in the roster at all. The first answers with the ingest's own
+// verdict; the second with no-longer-listed. What it must never do is diff an empty
+// published row against the stored one and tell the owner the provider unpublished
+// every fact it has ever stated.
+test('catalog:fetch-info reports the ingest refusal instead of a diff it never compared', async () => {
+  const snapshots = fakeSnapshots({ read: () => ({ createdAt: 1, fetchedAt: 2,
+    models: { 'a/b': { name: 'A B', first_seen: 1, last_seen: 2 } },
+    lastGoodRows: [storedRow()], lastSync: null }) });
+  const { send } = harness({ snapshots });
+
+  const refused = await send('catalog:fetch-info', 'nara', 'a/b', [{ name: 'no id' }]);
+  assert.equal(refused.ok, false);
+  assert.equal(refused.code, 'INVALID_PROVIDER_PAYLOAD');
+  assert.equal('changes' in refused, false, 'no diff is claimed for a roster that was refused');
+
+  const gone = await send('catalog:fetch-info', 'nara', 'a/b', [{ id: 'other', name: 'Other' }]);
+  assert.equal(gone.ok, true);
+  assert.equal(gone.outcome, 'no-longer-listed');
+  assert.equal(gone.changes, null);
+});
+
 test('only the fields the provider publishes are compared — never a derived score', () => {
   for (const derived of ['score', 'score_source', 'rank', 'matched_id', 'filled_from_catalog']) {
     assert.ok(!COMPARE_FIELDS.includes(derived), `${derived} must not appear in a diff`);
@@ -307,8 +372,18 @@ test('the door is per provider: two providers in the same moment cost two writes
   assert.equal(writes, 2, 'one in-flight job per provider, not one for the whole app');
 });
 
-test('catalog:read serves every provider it has a snapshot for and never writes one', async () => {
+// F3 — spec §7's `#` column is the dense rank over the MERGED, connected view.
+// Scoring one provider at a time is what made a two-provider read answer with two
+// rank 1s: attachScores ranks the list it is handed (scoring.js:397-428), so one
+// call per roster ranks each roster against itself. The reference merges and then
+// ranks once (ref providers/index.js:625, then :693).
+//
+// The scorer below is deliberately the shape of `assignDenseRank` rather than the
+// committed fake, which stamped rank 1 on every row and so could not see the bug:
+// it dense-ranks whatever list it is given, and counts the calls.
+test('catalog:read merges every connected provider, scores the merged list once and ranks it once', async () => {
   let wrote = 0;
+  const SCORES = { 'nara/m': 40, 'nexum/k': 50 };
   const held = {
     nara: { createdAt: 1, fetchedAt: 1000, models: { m: { name: 'M', first_seen: 1, last_seen: 1000 } },
       lastGoodRows: [{ id: 'nara/m', name: 'M' }], lastSync: { at: 1000, ok: true, warning: null } },
@@ -317,13 +392,116 @@ test('catalog:read serves every provider it has a snapshot for and never writes 
   };
   const snapshots = fakeSnapshots({ listProviderIds: () => ['nara', 'nexum'],
     read: (id) => held[id], write: () => { wrote += 1; } });
-  const out = await harness({ snapshots }).send('catalog:read');
+  const scored = [];
+  const engine = fakeEngine({ scoreRows: (rows) => {
+    scored.push(rows.map((r) => r.id));
+    const ordered = [...rows].sort((a, b) => SCORES[b.id] - SCORES[a.id]);
+    const rankOf = new Map();
+    let rank = 0; let previous = null;
+    for (const row of ordered) {
+      if (SCORES[row.id] !== previous) rank += 1;
+      previous = SCORES[row.id];
+      rankOf.set(row.id, rank);
+    }
+    return rows.map((r) => ({ ...r, score: SCORES[r.id], score_source: 'aa',
+      matched_id: r.id, score_basis: ['aa'], rank: rankOf.get(r.id) }));
+  } });
+  const out = await harness({ snapshots, engine })
+    .send('catalog:read', { providerIds: ['nara', 'nexum'] });
   assert.equal(wrote, 0);
+  assert.deepEqual(scored, [['nara/m', 'nexum/k']],
+    'one scoring pass over the merged rows, in provider order — not one per provider');
   assert.equal(out.rows.length, 2, 'both rosters, one reply');
   assert.deepEqual(out.rows.map((r) => r.id).sort(), ['nara/m', 'nexum/k']);
+  assert.deepEqual(out.rows.map((r) => r.rank), [2, 1],
+    'two providers, two ranks: the best score across the whole view is rank 1');
+  assert.equal(new Set(out.rows.map((r) => r.rank)).size, 2, 'never two rank 1s in one view');
   assert.equal(out.oldestFetch, 400, 'the oldest fetch, not the newest');
   assert.equal(out.stale, true, 'one provider whose last attempt failed marks the read stale');
   assert.equal(out.warning, 'HTTP 429');
+});
+
+// ---------------------------------------------------------------------------
+// F2 — the read is the CONNECTED view (ref §9 readConnected, which filtered on
+// connections.connectedIds). Here the renderer owns PROVIDERS and isConnected, so
+// it passes the set and main filters it against repos.providers. Two holes this
+// closes: a provider the owner deleted used to be served forever, because the read
+// iterated whoever had ever produced a snapshot; and a connected provider with no
+// snapshot used to vanish, which reads to the owner as "it has no models".
+// ---------------------------------------------------------------------------
+
+test('catalog:read serves only the providers it was given, and never the ones it was not', async () => {
+  let wrote = 0;
+  const readOf = [];
+  const held = {
+    nara: { createdAt: 1, fetchedAt: 1000, models: { m: { name: 'M', first_seen: 1, last_seen: 1000 } },
+      lastGoodRows: [{ id: 'nara/m', name: 'M' }], lastSync: { at: 1000, ok: true, warning: null } },
+    'deleted-co': { createdAt: 1, fetchedAt: 900, models: { d: { name: 'D', first_seen: 1, last_seen: 900 } },
+      lastGoodRows: [{ id: 'deleted-co/d', name: 'D' }], lastSync: { at: 900, ok: true, warning: null } },
+  };
+  const snapshots = fakeSnapshots({
+    // The store still holds the deleted provider's roster: listProviderIds is not
+    // the filter, the asked-for set is.
+    listProviderIds: () => ['nara', 'deleted-co'],
+    read: (id) => { readOf.push(id); return held[id]; },
+    write: () => { wrote += 1; },
+  });
+  const out = await harness({ snapshots }).send('catalog:read', { providerIds: ['nara'] });
+  assert.equal(wrote, 0);
+  assert.deepEqual(readOf, ['nara'], 'a provider outside the connected set is not even read');
+  assert.deepEqual(out.rows.map((r) => r.id), ['nara/m']);
+  assert.deepEqual(out.providers.map((p) => p.providerId), ['nara']);
+});
+
+test('an absent or empty providerIds serves nothing — it is not "everything"', async () => {
+  const readOf = [];
+  const snapshots = fakeSnapshots({
+    listProviderIds: () => ['nara'],
+    read: (id) => { readOf.push(id); return { createdAt: 1, fetchedAt: 1, models: {},
+      lastGoodRows: [{ id: 'nara/m', name: 'M' }], lastSync: null }; },
+  });
+  const { send } = harness({ snapshots });
+  for (const query of [undefined, {}, { providerIds: [] }, { providerIds: null }]) {
+    const out = await send('catalog:read', query);
+    assert.deepEqual(out.rows, [], `${JSON.stringify(query)} cannot mean "the whole database"`);
+    assert.deepEqual(out.providers, []);
+  }
+  assert.deepEqual(readOf, [], 'and nothing was read to find out');
+});
+
+test('a connected provider with no snapshot is named with NO_SNAPSHOT, not dropped', async () => {
+  const snapshots = fakeSnapshots({
+    listProviderIds: () => ['nara'],
+    read: (id) => (id === 'nara' ? { createdAt: 1, fetchedAt: 1000,
+      models: { m: { name: 'M', first_seen: 1, last_seen: 1000 } },
+      lastGoodRows: [{ id: 'nara/m', name: 'M' }], lastSync: { at: 1000, ok: true, warning: null } } : null),
+  });
+  const out = await harness({ snapshots }).send('catalog:read', { providerIds: ['nara', 'nexum'] });
+  assert.equal(out.rows.length, 1);
+  const nexum = out.providers.find((p) => p.providerId === 'nexum');
+  assert.equal(nexum.ok, false, 'the entry is a verdict, not a row');
+  assert.equal(nexum.code, 'NO_SNAPSHOT', 'ref readConnected: a missing provider reads as "it has no models" unless it is named');
+  assert.equal(nexum.total, 0);
+  assert.equal(typeof nexum.message, 'string');
+});
+
+test('catalog:read refuses a provider id that is not in repos.providers, even with a snapshot on disk', async () => {
+  const readOf = [];
+  const held = {
+    nara: { createdAt: 1, fetchedAt: 1000, models: { m: { name: 'M', first_seen: 1, last_seen: 1000 } },
+      lastGoodRows: [{ id: 'nara/m', name: 'M' }], lastSync: null },
+    ghost: { createdAt: 1, fetchedAt: 500, models: { g: { name: 'G', first_seen: 1, last_seen: 500 } },
+      lastGoodRows: [{ id: 'ghost/g', name: 'G' }], lastSync: null },
+  };
+  const snapshots = fakeSnapshots({ listProviderIds: () => ['nara', 'ghost'],
+    read: (id) => { readOf.push(id); return held[id]; } });
+  const out = await harness({ snapshots, providers: fakeProviders(['nara']) })
+    .send('catalog:read', { providerIds: ['nara', 'ghost'] });
+  assert.deepEqual(readOf, ['nara'], 'a deleted provider roster is never served');
+  assert.deepEqual(out.rows.map((r) => r.id), ['nara/m']);
+  const ghost = out.providers.find((p) => p.providerId === 'ghost');
+  assert.equal(ghost.ok, false);
+  assert.equal(ghost.code, 'NOT_FOUND');
 });
 
 // ---------------------------------------------------------------------------
@@ -334,8 +512,8 @@ test('catalog:read serves every provider it has a snapshot for and never writes 
 // ---------------------------------------------------------------------------
 
 test('an adapter alias survives ingest and catalog:read, and it is what carries the score', async (t) => {
-  const { snapshots, sources, engine, summaryJson } = await refBacked(t);
-  const { send } = harness({ snapshots, engine });
+  const { snapshots, sources, engine, providers, summaryJson } = await refBacked(t);
+  const { send } = harness({ snapshots, engine, providers });
 
   const out = await send('catalog:ingest', 'nara', [
     // Reachable only by the alias the adapter declared: no generated spelling of
@@ -348,7 +526,7 @@ test('an adapter alias survives ingest and catalog:read, and it is what carries 
     ['alibaba/wan-2.0', 'wan-x-rebrand'],
     'the adapter alias first, then the generated one, stored as the provider fact it is');
 
-  const back = await send('catalog:read');
+  const back = await send('catalog:read', { providerIds: ['nara'] });
   assert.equal(back.rows.length, 1);
   assert.equal(back.rows[0].score, 41, 'the score survived the round trip, so the aliases did');
   assert.equal(back.rows[0].matched_id, 'alibaba/wan-2.0');
@@ -356,8 +534,8 @@ test('an adapter alias survives ingest and catalog:read, and it is what carries 
 });
 
 test('a row nothing matches scores null, and a -thinking route keeps its quality proxy after the read', async (t) => {
-  const { snapshots, engine } = await refBacked(t);
-  const { send } = harness({ snapshots, engine });
+  const { snapshots, engine, providers } = await refBacked(t);
+  const { send } = harness({ snapshots, engine, providers });
 
   const out = await send('catalog:ingest', 'nara', [
     { id: 'nara/nowhere-model', name: 'Nowhere' },
@@ -369,7 +547,7 @@ test('a row nothing matches scores null, and a -thinking route keeps its quality
   assert.deepEqual(second.quality_proxy_ids, ['deepseek/deepseek-v4'],
     'declared here in main because the adapter said nothing, from the id alone');
 
-  const back = await send('catalog:read');
+  const back = await send('catalog:read', { providerIds: ['nara'] });
   const stored = back.rows.find((r) => r.id === 'nara/deepseek-v4-thinking');
   assert.deepEqual(stored.quality_proxy_ids, ['deepseek/deepseek-v4'],
     'a provider fact, so DERIVED_FIELDS never strips it and a fallback row still borrows');
@@ -385,23 +563,231 @@ test('the aliases main generates never displace the ones the adapter declared', 
 });
 
 // ---------------------------------------------------------------------------
+// F1 — Fetch information answers one question: did the PROVIDER change what it
+// publishes? The committed version diffed the stored row against the SCORED row,
+// and attachScores → fillFromCatalog (scoring.js:366-388) writes up to eleven
+// reference-borrowed values into COMPARE_FIELDS, while providerRowSnapshot
+// (snapshot.js:87-95) re-blanks exactly those before storing. So every field a thin
+// row borrows diffs on every click — `context_tokens: null → 8192`,
+// `output_modalities: "" → "text"` — and a row with no stored twin reported the
+// borrow as "what it just learned". The suite was blind to it because the fake
+// scorer never fills; these two cases run the REAL engine over the REAL store.
+// ---------------------------------------------------------------------------
+
+test('a value borrowed from the reference is never reported as something the provider changed', async (t) => {
+  const { snapshots, engine, providers, sources } = await refBacked(t, { freshCache: true });
+  const { send } = harness({ snapshots, engine, providers });
+  // The provider publishes a name and nothing else. The reference has 8192 context
+  // and text output for this model, so the row that reaches the page is filled.
+  const thin = [{ id: 'nara/alibaba/wan-2.0', name: 'Wan 2.0' }];
+
+  const first = await send('catalog:ingest', 'nara', thin);
+  assert.equal(first.rows[0].context_tokens, 8192, 'the real fillFromCatalog borrowed it');
+  assert.ok(first.rows[0].filled_from_catalog.includes('context_tokens'));
+  assert.equal(snapshots.read('nara').lastGoodRows[0].context_tokens, null,
+    'and the stored row is the provider\'s own facts again — that blank is what made every click a "change"');
+
+  const again = await send('catalog:fetch-info', 'nara', 'nara/alibaba/wan-2.0', thin);
+  assert.equal(again.outcome, 'matched',
+    'the button promises "either identical, or the provider changed something"');
+  assert.equal(again.changes, null, 'a catalog borrow is neither');
+  assert.ok(again.borrowed.includes('context_tokens') && again.borrowed.includes('output_modalities'),
+    `reference provenance, said where it belongs: ${JSON.stringify(again.borrowed)}`);
+  assert.equal(sources.syncs, 0, 'and a click inside the TTL rebuilds from the cache without fetching');
+
+  // The other half: the provider DID move one fact. The diff is that fact alone —
+  // not the two the reference lends.
+  const moved = await send('catalog:fetch-info', 'nara', 'nara/alibaba/wan-2.0',
+    [{ id: 'nara/alibaba/wan-2.0', name: 'Wan 2.0 Turbo' }]);
+  assert.equal(moved.outcome, 'updated');
+  assert.deepEqual(moved.changes, [{ field: 'name', from: 'Wan 2.0', to: 'Wan 2.0 Turbo' }]);
+  for (const change of moved.changes) {
+    assert.ok(!moved.borrowed.includes(change.field),
+      `${change.field} is borrowed; it may never appear as a provider change`);
+  }
+});
+
+test('a model with no stored row reports what the PROVIDER published, not what the reference lent', async (t) => {
+  const { snapshots, engine, providers } = await refBacked(t, { freshCache: true });
+  const { send } = harness({ snapshots, engine, providers });
+
+  const out = await send('catalog:fetch-info', 'nara', 'nara/alibaba/wan-2.0',
+    [{ id: 'nara/alibaba/wan-2.0', name: 'Wan 2.0', context_window: 4096 }]);
+  assert.equal(out.outcome, 'updated', 'a first read is still a change worth naming');
+  assert.deepEqual(out.changes.filter((c) => c.field === 'context_tokens'),
+    [{ field: 'context_tokens', from: null, to: 4096 }],
+    'the provider said 4096 — the reference says 8192, and the provider is what this button reports');
+  assert.equal(out.changes.some((c) => c.field === 'output_modalities'), false,
+    'the reference answers "text" for output; the provider never said it, so it is not a fact it published');
+  assert.ok(out.after.context_tokens === 4096, 'the scored row still carries what the page shows');
+});
+
+// F3 over the real merge: one model behind two hosts is one rank position, not two.
+test('the same model served by two providers collapses to one rank position and agrees on catalog_rank', async (t) => {
+  const { snapshots, engine, providers, sources } = await refBacked(t);
+  const { send } = harness({ snapshots, engine, providers });
+
+  await send('catalog:ingest', 'nara', [
+    { id: 'nara/alibaba/wan-2.0', name: 'Wan 2.0' },
+    { id: 'nara/deepseek/deepseek-v4', name: 'DeepSeek V4' },
+  ]);
+  await send('catalog:ingest', 'nexum', [{ id: 'nexum/alibaba/wan-2.0', name: 'Wan 2.0' }]);
+
+  const out = await send('catalog:read', { providerIds: ['nara', 'nexum'] });
+  assert.equal(out.rows.length, 3, 'three rows from two connected providers');
+  const byId = Object.fromEntries(out.rows.map((r) => [r.id, r]));
+  assert.equal(byId['nara/deepseek/deepseek-v4'].rank, 1, 'the best score in the whole merged view');
+  const wans = ['nara/alibaba/wan-2.0', 'nexum/alibaba/wan-2.0'].map((id) => byId[id]);
+  assert.deepEqual(wans.map((r) => r.rank), [2, 2],
+    'one model, one rank position — a per-provider pass would have made nexum\'s Wan rank 1');
+  assert.equal(wans[0].catalog_rank, wans[1].catalog_rank,
+    'the reference rank belongs to the model, not to the roster it arrived on');
+  assert.deepEqual(out.rows.map((r) => r.rank).sort(), [1, 2, 2]);
+  assert.equal(sources.syncs, 0, 'and none of it fetched');
+});
+
+// ---------------------------------------------------------------------------
+// F4 — a provider id is not a free string. validateProviderRows checks the roster,
+// not who sent it, so a mistyped id used to create a snapshot_meta row and a
+// roster_snapshot set for a provider that does not exist — and with no connected
+// filter, read() then served it forever. ref §9 step 1: get(id) unknown → NOT_FOUND,
+// asked BEFORE anything is fetched or written.
+// ---------------------------------------------------------------------------
+
+test('catalog:ingest refuses a provider main does not know and writes nothing at all', async (t) => {
+  const { snapshots, engine, providers, store } = await refBacked(t);
+  const { send } = harness({ snapshots, engine, providers });
+
+  const out = await send('catalog:ingest', 'ghost', [{ id: 'ghost/a', name: 'A' }]);
+  assert.equal(out.ok, false);
+  assert.equal(out.code, 'NOT_FOUND');
+  assert.match(out.message, /ghost/, 'and says which id it could not find');
+  assert.equal(snapshots.listProviderIds().includes('ghost'), false, 'no snapshot_meta row');
+  assert.equal(store.db.prepare(
+    'SELECT COUNT(*) AS n FROM roster_snapshot WHERE provider_id = ?').get('ghost').n, 0,
+    'no roster rows either: the refusal happens before the door and before the write');
+});
+
+test('an unknown provider is refused before the network pass, on fetch-info too, and health never writes for it', async () => {
+  const syncs = [];
+  const health = [];
+  const engine = fakeEngine({ syncAll: async (o = {}) => { syncs.push(o); return engine_summary(); } });
+  const snapshots = fakeSnapshots({ setHealth: (p, m, h) => health.push([p, m, h]) });
+  const { send } = harness({ engine, snapshots, providers: fakeProviders(['nara']) });
+
+  const out = await send('catalog:fetch-info', 'ghost', 'ghost/a', [{ id: 'ghost/a', name: 'A' }]);
+  assert.equal(out.ok, false);
+  assert.equal(out.code, 'NOT_FOUND');
+  assert.deepEqual(syncs, [], 'nothing was fetched for a provider that does not exist');
+
+  const probe = await send('catalog:health', 'ghost', 'ghost/a', { status: 'healthy', at: 1, timeMs: 10 });
+  assert.equal(probe.ok, false);
+  assert.equal(probe.code, 'NOT_FOUND');
+  assert.deepEqual(health, [], 'and no health row for a provider that does not exist');
+});
+
+// ---------------------------------------------------------------------------
+// F5 — the error contract, across the boundary that actually exists.
+//
+// `ipcMain.handle` resolves by structure and turns a rejection into a new Error
+// carrying only its message: an `err.code` set in main is gone by the time the
+// renderer sees it, wrapped in `Error invoking remote method 'catalog:ingest': `.
+// The handlers used to be tested by calling them directly, which handed back the
+// original object — `assert.rejects(..., e => e.code === ...)` passed and proved
+// nothing. Expected, actionable outcomes therefore RESOLVE as
+// `{ ok: false, code, message }`; only a genuine programmer error rejects.
+// Everything below goes through the serialization the channel really does.
+// ---------------------------------------------------------------------------
+
+const syncInProgressEngine = () => fakeEngine({
+  syncAll: async () => {
+    const err = new Error('sync already in progress');
+    err.code = 'SYNC_IN_PROGRESS';
+    throw err;
+  },
+  summary: () => engine_summary(),
+});
+
+test('every expected outcome crosses the wire as data, with its code intact', async () => {
+  const six = {}; for (const id of ['a', 'b', 'c', 'd', 'e', 'f']) six[id] =
+    { name: id.toUpperCase(), first_seen: 1, last_seen: 2 };
+  const quarantinedWithoutRows = { createdAt: 1, fetchedAt: 2, models: six,
+    lastGoodRows: [], lastSync: { at: 2, ok: true, warning: null } };
+  const cases = [
+    ['catalog:ingest', 'INVALID_PROVIDER_PAYLOAD', ['nara', []],
+      fakeSnapshots({ read: () => null })],
+    ['catalog:ingest', 'INVALID_PROVIDER_PAYLOAD', ['nara', [{ name: 'no id' }]],
+      fakeSnapshots({ read: () => null })],
+    ['catalog:ingest', 'NOT_FOUND', ['ghost', [{ id: 'ghost/a', name: 'A' }]],
+      fakeSnapshots({ read: () => null })],
+    // A drop the snapshot refuses, with no last-good roster to stand in: the verdict
+    // is the answer, because serving an empty list would claim the provider has none.
+    ['catalog:ingest', 'SUSPICIOUS_PROVIDER_DROP', ['nara', [{ id: 'a', name: 'A' }]],
+      fakeSnapshots({ read: () => quarantinedWithoutRows })],
+    ['catalog:fetch-info', 'NOT_FOUND', ['ghost', 'ghost/a', [{ id: 'ghost/a' }]],
+      fakeSnapshots({ read: () => null })],
+    ['catalog:health', 'NOT_FOUND', ['ghost', 'ghost/a', { status: 'healthy', at: 1, timeMs: 5 }],
+      fakeSnapshots()],
+    ['catalog:sources', 'SYNC_IN_PROGRESS', [{ force: true }], fakeSnapshots()],
+  ];
+  for (const [channel, code, args, snapshots] of cases) {
+    const out = await wireHarness({ snapshots, engine: syncInProgressEngine() })
+      .call(channel, ...args);
+    assert.equal(out.rejected, false, `${channel} answered ${code} by rejecting — nothing crosses that way`);
+    assert.equal(out.reply.ok, false, `${channel} said ${code} without saying so in the payload`);
+    assert.equal(out.reply.code, code, `${channel}: the code must be DATA to survive the wire`);
+    assert.equal(typeof out.reply.message, 'string');
+    assert.ok(out.reply.message.length > 0, `${channel} must say what happened in words too`);
+  }
+});
+
+test('a success reply survives the same round trip, and a programmer error is still a rejection', async () => {
+  const snapshots = fakeSnapshots({
+    listProviderIds: () => ['nara'],
+    read: () => ({ createdAt: 1, fetchedAt: 1000, models: { m: { name: 'M', first_seen: 1, last_seen: 1000 } },
+      lastGoodRows: [{ id: 'm', name: 'M' }], lastSync: null }),
+  });
+  const wired = wireHarness({ snapshots });
+  const read = await wired.call('catalog:read', { providerIds: ['nara'] });
+  assert.equal(read.rejected, false);
+  assert.equal(read.reply.rows.length, 1, 'rows cross intact');
+  assert.deepEqual(read.reply.providers.map((p) => [p.providerId, p.code]), [['nara', null]]);
+
+  const ingest = await wired.call('catalog:ingest', 'nara', [{ id: 'a/b', name: 'A B' }]);
+  assert.equal(ingest.rejected, false);
+  assert.equal(ingest.reply.ok, true);
+  assert.equal(ingest.reply.rows[0].score, 50);
+
+  // The half that keeps `catch` honest: an error nobody named a code for is a bug,
+  // and a bug must not be dressed up as an outcome.
+  const broken = wireHarness({ snapshots, engine: fakeEngine({
+    summary: () => { throw new TypeError('cannot read properties of undefined'); },
+  }) });
+  const failed = await broken.call('catalog:sources', {});
+  assert.equal(failed.rejected, true, 'a programmer error still rejects');
+  assert.match(failed.message, /^Error invoking remote method 'catalog:sources': Error: /,
+    "Electron's prefix is what the UI then has to strip (F6)");
+});
+
+// ---------------------------------------------------------------------------
 // A failed attempt is recorded where the read path can find it, and a provider
 // that never produced a snapshot is never invented by that recording.
 // ---------------------------------------------------------------------------
 
 test('a refused ingest records nothing at all: no provider row, no phantom snapshot', async (t) => {
-  const { snapshots, engine } = await refBacked(t);
-  const { send } = harness({ snapshots, engine });
+  const { snapshots, engine, providers } = await refBacked(t);
+  const { send } = harness({ snapshots, engine, providers });
 
-  await assert.rejects(() => send('catalog:ingest', 'nara', []),
-    (e) => e.code === 'INVALID_PROVIDER_PAYLOAD');
+  const out = await send('catalog:ingest', 'nara', []);
+  assert.equal(out.ok, false);
+  assert.equal(out.code, 'INVALID_PROVIDER_PAYLOAD');
   assert.deepEqual(snapshots.listProviderIds(), [],
     'setLastSync answers false and writes nothing when no snapshot exists, so no phantom provider');
 });
 
 test('a quarantined drop is recorded as the last attempt, so the next read says stale', async (t) => {
-  const { snapshots, engine } = await refBacked(t);
-  const { send } = harness({ snapshots, engine });
+  const { snapshots, engine, providers } = await refBacked(t);
+  const { send } = harness({ snapshots, engine, providers });
 
   const six = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => ({ id: `nara/${id}`, name: id.toUpperCase() }));
   const first = await send('catalog:ingest', 'nara', six);
@@ -414,7 +800,7 @@ test('a quarantined drop is recorded as the last attempt, so the next read says 
   assert.match(quarantined.warning, /awaiting confirmation/);
   assert.equal(quarantined.rows.length, 6, 'the last-good roster stands in for the quarantined drop');
 
-  const back = await send('catalog:read');
+  const back = await send('catalog:read', { providerIds: ['nara'] });
   assert.equal(back.stale, true, 'the failed attempt outlived the call that failed');
   assert.match(back.warning, /awaiting confirmation/);
   assert.equal(back.rows.length, 6);
@@ -430,10 +816,24 @@ test('a quarantined drop is recorded as the last attempt, so the next read says 
  * counts anything that got past that, and the alias case asserts it stays zero.
  * The two cached documents are enough for the real merge to build two scored rows,
  * which is what makes the alias claims above worth anything.
+ *
+ * `freshCache` stamps the newest payload as just fetched, which is the state of a
+ * machine whose owner pressed Sync sources seconds ago: fetch-info's TTL-gated
+ * `syncAll` then rebuilds from the cache instead of reaching `fetchAll`, so the
+ * borrow cases below exercise the real click without a network. Without it the
+ * fixed 2026-09-30 stamp is older than 15 minutes and every click would fetch.
+ *
+ * Both providers exist in `repos.providers`, because main now refuses a roster for
+ * a provider it cannot find there — a store with no provider rows would otherwise
+ * fail every ingest in this file for a reason that is not the one under test.
  */
-async function refBacked(t) {
+async function refBacked(t, { freshCache = false } = {}) {
   const store = await memoryStore(t);
+  for (const id of ['nara', 'nexum']) {
+    store.repos.providers.save({ id, name: id.toUpperCase(), baseUrl: 'http://127.0.0.1:1', keys: [] });
+  }
   const cache = new Map();
+  const newest = () => (freshCache ? new Date().toISOString() : '2026-09-30T10:00:00.000Z');
   const sources = {
     SOURCES: [
       { id: 'models-dev-spec', name: 'models.dev (spec)', description: 'd' },
@@ -447,8 +847,8 @@ async function refBacked(t) {
     writeCache: () => { throw new Error('these channels never write the cache'); },
     writeCacheFailure: () => false,
     readCache: (id) => (cache.has(id)
-      ? { payload: cache.get(id), meta: { fetchedAt: '2026-09-30T10:00:00.000Z' } } : null),
-    newestFetchedAt: () => '2026-09-30T10:00:00.000Z',
+      ? { payload: cache.get(id), meta: { fetchedAt: newest() } } : null),
+    newestFetchedAt: newest,
     hasPayload: (id) => cache.has(id),
     fetchAll: async () => { sources.syncs += 1; throw new Error('these channels never fetch'); },
   };
@@ -469,6 +869,7 @@ async function refBacked(t) {
   return {
     store,
     snapshots: store.repos.snapshots,
+    providers: store.repos.providers,
     sources,
     engine,
     // The raw column, because the claim is about what the STORE kept, not about
