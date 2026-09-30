@@ -247,9 +247,15 @@ function collect() {
   return entries;
 }
 
+// One definition of "the file on disk is what this run would write". A
+// Windows checkout may hand the file back with CRLF (core.autocrlf) while this
+// script always emits LF, and a freshness check that fails on line endings is
+// a check nobody trusts.
+const normalise = (text) => (text === null ? null : text.replace(/\r\n/g, '\n'));
+
 const check = process.argv.includes('--check');
 const markdown = render(collect());
-const current = existsSync(OUT) ? readFileSync(OUT, 'utf8') : null;
+const current = normalise(existsSync(OUT) ? readFileSync(OUT, 'utf8') : null);
 
 if (check) {
   if (current === markdown) {
