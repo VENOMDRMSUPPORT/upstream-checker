@@ -199,6 +199,31 @@ test('family is owned_by, then the id segment that is not the serving host, then
   }
 });
 
+// A routing host in front of an id is not model lineage. `dark-free/deepseek-v4.1-flash`
+// is Dark API's free tier of somebody else's model (src/renderer/app.js:1426-1428,
+// providers/darkapi.js:9), and `nexum/deepseek-v4` is a routed id: made purely
+// provider-relative, both published `dark-free` and `nexum` as families — a host
+// name in the lineage column, which the list this replaces never emitted. So the
+// segment must be a known lab token, and the WHOLE segment: `deepseek-ai` reads as
+// `deepseek-ai` (230 ids in the reference's models.dev cache), never as its own
+// prefix `deepseek`, and `qwen-org` is not `qwen`.
+test('a family is a known lab token in full, never a routing host or a prefix of one', () => {
+  for (const [id, family] of [
+    ['deepseek-ai/deepseek-v3.2', 'deepseek-ai'],
+    ['x-ai/grok-4', 'x-ai'],
+    ['mistralai/codestral', 'mistralai'],
+  ]) {
+    assert.equal(providerRow({ id }, 'nara').family, family, `${id} lost its lab`);
+  }
+  for (const [id, providerId] of [['dark-free/deepseek-v4.1-flash', 'darkapi'],
+    ['nexum/deepseek-v4', 'nara'], ['qwen-org/qwen3-max', 'nara']]) {
+    assert.equal(providerRow({ id }, providerId).family, '',
+      `${id} served by ${providerId} is a host, not a family`);
+  }
+  // A lab whose name is a prefix of another lab's still reads as itself.
+  assert.equal(providerRow({ id: 'deepseek/deepseek-v4' }, 'nara').family, 'deepseek');
+});
+
 test('status is kept when published and active otherwise', () => {
   assert.equal(providerRow(base({ status: 'deprecated' }), 'nara').status, 'deprecated');
   assert.equal(providerRow(base(), 'nara').status, 'active');

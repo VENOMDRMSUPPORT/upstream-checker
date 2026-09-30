@@ -39,15 +39,24 @@ const pick = (obj, name) => (obj && obj[name] != null ? obj[name] : null);
 
 const dedupe = (values) => [...new Set(values)].filter(Boolean);
 
-// Lab tokens that may front a model id: the reference's set
-// (providers/nexum-router.js:70 LAB_PREFIX_RE) unioned with the labs this repo
-// already enumerates (src/catalog/keys.js LAB_PROVIDERS — imported, not copied),
-// longest first so `z-ai` and `mistralai` win where an unordered scan would find
-// `z`- or `mistral`-sized fragments. Only used to split an id, never to decide what
-// may be a family: see the provider-relative rule in `familyOf`.
+// Lab tokens: the names that may front a model id as its LINEAGE. One list, used
+// for both jobs — splitting an id (`labTokenOf`) and deciding what `familyOf` may
+// publish. It is the reference's set (providers/nexum-router.js:70 LAB_PREFIX_RE)
+// unioned with the labs this repo already enumerates (src/catalog/keys.js
+// LAB_PROVIDERS — imported, not copied) plus the multi-token hosts the reference
+// corpus lists ids under: `deepseek-ai/…` (230 ids in cache/models-dev-spec.json,
+// and already a family key in `REFERENCE_FAMILIES` above) and `zai-org/…` (215).
+// Longest first so `z-ai` and `mistralai` win where an unordered scan would find
+// `z`- or `mistral`-sized fragments.
+//
+// What is NOT in it is the point: `dark-free`, `nexum`, `nara` and the other
+// routing hosts. A host in front of an id says who served it, which the row
+// already carries in `id`; a lab in front says whose weights they are, which
+// nothing else does.
 const LAB_TOKENS = [...new Set([
   'qwen', 'xiaomi', 'meta', 'deepseek', 'google', 'openai', 'anthropic', 'z-ai', 'zai',
   'moonshotai', 'moonshot', 'minimax', 'nvidia', 'mistral',
+  'deepseek-ai', 'zai-org',
   ...LAB_PROVIDERS,
 ])]
   .sort((a, b) => b.length - a.length);
@@ -58,18 +67,29 @@ function labTokenOf(modelId) {
 }
 
 /**
- * The family is the id's own provider segment — except when that segment IS the
- * host serving the row, which is a routing fact and not a lineage: `nara/deepseek-v4`
- * served by nara publishes no family, while `deepseek-ai/deepseek-v3.2` served by
- * nara does. Relative to the serving provider because a whitelist of "known labs"
- * silently loses every lab it has never met — `mistralai/*` (92 rows), `deepseek-ai/*`
- * (109), `xai/*` + `x-ai/*` (104), `zai-org/*` (105), `cohere/*` (28) all read
- * family-less under the list this replaces. `providerId` is what this parameter was
- * meant for; before it, the argument existed only inside the no-id error string.
+ * The family is the id's own provider segment, but only when that segment is a
+ * known lab token and is not the host serving the row: `deepseek-ai/deepseek-v3.2`
+ * served by nara is DeepSeek's lineage, `dark-free/deepseek-v4.1-flash` served by
+ * darkapi (src/renderer/app.js:1426-1428, providers/darkapi.js:9) and
+ * `nexum/deepseek-v4` are a tier and a routing prefix — publishing them as a family
+ * puts a host name in the lineage column, where the catalog reads ancestry.
+ *
+ * The list is what makes this safe to tighten: a bare whitelist lost every lab it
+ * had never met (`mistralai/*`, `deepseek-ai/*`, `xai/*` + `x-ai/*`, `zai-org/*`,
+ * `cohere/*` all read family-less under the one this replaces), so it is the app's
+ * own lab vocabulary rather than a hand-typed guess, and `providerId` still decides
+ * the case the list cannot: a lab serving its own model publishes no family.
+ *
+ * The compare is the WHOLE segment, never `startsWith`: `deepseek` is a prefix of
+ * `deepseek-ai` and `qwen` of `qwen-org`, so a prefix test would answer with the
+ * wrong lab — or with a lab at all where the host is somebody's org name. The list
+ * is longest-first, so where two tokens overlap the most specific one is the one an
+ * exact match can reach.
  */
 const familyOf = (id, providerId) => {
   const segment = providerOf(id);
-  return !segment || segment === String(providerId || '') ? '' : segment;
+  if (!segment || segment === String(providerId || '')) return '';
+  return LAB_TOKENS.find((token) => token === segment) || '';
 };
 
 function costKind({ inCost, outCost }) {
