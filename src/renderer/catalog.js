@@ -33,6 +33,19 @@
     expanded: new Set(),
     shell: false,
     pendingRender: null,
+    healthBusy: new Set(), // keys whose health check is in flight
+    refreshing: new Set(), // keys re-fetching their provider's model list
+  };
+
+  // The chat drawer: one open conversation with a single model. Nothing is
+  // written to the catalogue, the run history or the request log — it is a
+  // direct line to the model, so it is deliberately kept out of routing
+  // evidence.
+  const chat = {
+    key: null,          // catalog key of the model being talked to
+    messages: [],       // [{ role: 'user'|'assistant', content }]
+    busy: false,        // a request is in flight
+    opener: null,       // element to hand focus back to on close
   };
 
   const ui = {
@@ -448,6 +461,334 @@
     }
   }
 
+  // ---- per-model actions: chat, health check, refresh -------------------------
+
+  // "The key has nothing left to spend", said many ways. A gateway can answer
+  // 200 OK and still put one of these in the body, so the check reads the text
+  // and the error field, not just the status line.
+  const NO_CREDIT_RE = /no[ -]?credit|out of credit|insufficient|insufficient_quota|not enough (credit|balance|quota|funds)|balance|billing|payment required|free[_ -]?tier[_ -]?limit|quota (exceeded|exhausted|depleted)|exceeded (your |the )?(quota|limit|allowance)|spending limit|hard limit|recharge|top[ -]?up/i;
+  const RATE_LIMIT_RE = /rate[ -]?limit|too many requests|throttl|\b429\b|requests per (minute|hour|day)|\brpm\b/i;
+  const AUTH_RE = /unauthori[sz]ed|invalid api key|invalid key|forbidden|\b401\b|\b403\b|authentication|access denied/i;
+
+  const HEALTH_META = {
+    healthy: { label: 'Healthy', tone: 'ok', icon: 'pass' },
+    'no-credits': { label: 'No credit', tone: 'fail', icon: 'fail' },
+    'rate-limited': { label: 'Rate limited', tone: 'warn', icon: 'clock' },
+    auth: { label: 'Key rejected', tone: 'fail', icon: 'fail' },
+    unreachable: { label: 'Unreachable', tone: 'fail', icon: 'fail' },
+    error: { label: 'Error', tone: 'fail', icon: 'fail' },
+  };
+
+  function classifyHealthText(text) {
+    if (!text) return null;
+    if (NO_CREDIT_RE.test(text)) return 'no-credits';
+    if (RATE_LIMIT_RE.test(text)) return 'rate-limited';
+    if (AUTH_RE.test(text)) return 'auth';
+    return null;
+  }
+
+  // The provider and a usable key for a catalogue entry, or why there is none.
+  function chatTarget(e) {
+    const p = e && PROVIDERS[e.providerId];
+    if (!p || !isConnected(p)) return { error: 'Provider is not connected' };
+    const key = usableKeys(p)[0];
+    if (!key) return { error: `No active key for ${p.name}` };
+    return { p, key };
+  }
+
+  // A near-free probe. The output cap is small but not 1: a gateway that answers
+  // 200 OK with the "no credit" reason written into the message text needs a few
+  // tokens of room for that sentence to survive, or it would be cut to one word
+  // and read as healthy. Twenty-four tokens is still a fraction of a cent.
+  function healthRequestBody(e, p) {
+    return {
+      model: e.id,
+      messages: [{ role: 'user', content: 'hi' }],
+      temperature: 0,
+      stream: false,
+      [tokenLimitField(p.id)]: 24,
+    };
+  }
+
+  // Reads one chat-completions response into a health verdict. A non-200 is
+  // classified from its error; a 200 is only "healthy" once its body is shown
+  // to be a real completion and not an error dressed up as one.
+  function readHealth(res) {
+    const at = Date.now();
+    if (res.networkError || res.timedOut) {
+      return { status: 'unreachable', note: res.error || 'No response', httpStatus: 0, at, timeMs: res.elapsed };
+    }
+    let j = null;
+    try { j = JSON.parse(res.body); } catch (_) { /* not JSON */ }
+    const errMsg = j && j.error ? (j.error.message || j.error.code || j.error.type || String(j.error)) : '';
+    if (res.status !== 200) {
+      const status = classifyHealthText(errMsg)
+        || (res.status === 429 ? 'rate-limited' : res.status === 401 || res.status === 403 ? 'auth' : 'error');
+      return { status, note: errMsg || `HTTP ${res.status}`, httpStatus: res.status, at, timeMs: res.elapsed };
+    }
+    if (errMsg) {
+      return { status: classifyHealthText(errMsg) || 'error', note: errMsg, httpStatus: 200, at, timeMs: res.elapsed };
+    }
+    if (j && Array.isArray(j.choices) && j.choices.length) {
+      let content = '';
+      try { content = parseChatCompletion(res.body).content || ''; } catch (_) { /* unreadable */ }
+      const cls = classifyHealthText(content);
+      if (cls) return { status: cls, note: content.slice(0, 140), httpStatus: 200, at, timeMs: res.elapsed };
+      return { status: 'healthy', note: 'Responded normally', httpStatus: 200, at, timeMs: res.elapsed };
+    }
+    return { status: 'error', note: '200 OK but an unreadable response', httpStatus: 200, at, timeMs: res.elapsed };
+  }
+
+  async function healthCheck(key) {
+    const e = state.data.models[key];
+    if (!e) return;
+    const t = chatTarget(e);
+    if (t.error) { notify(t.error, 'fail'); return; }
+    if (state.healthBusy.has(key)) return;
+    state.healthBusy.add(key);
+    renderRow(key);
+    try {
+      const res = await window.electronAPI.apiRequest({
+        url: `${t.p.baseUrl}/chat/completions`,
+        method: 'POST',
+        headers: { Authorization: `Bearer ${t.key.key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(healthRequestBody(e, t.p)),
+        timeoutMs: 30000,
+        requestId: `mc-health-${Date.now()}`,
+      });
+      const h = readHealth(res);
+      e.health = h;
+      save();
+      const meta = HEALTH_META[h.status] || HEALTH_META.error;
+      notify(`${e.name || e.id}: ${meta.label}${h.note && h.status !== 'healthy' ? ` — ${h.note}` : ''}`, meta.tone);
+    } catch (err) {
+      notify(`Health check failed: ${err.message || 'unknown error'}`, 'fail');
+    } finally {
+      state.healthBusy.delete(key);
+      renderIfShown();
+    }
+  }
+
+  // Re-fetch the model's info by re-syncing its provider: the /models list is
+  // where pricing, context and capabilities come from, so a fresh pass brings
+  // this model's row up to date (and drops it if the provider removed it).
+  async function refreshModel(key) {
+    const e = state.data.models[key];
+    const p = e && PROVIDERS[e.providerId];
+    if (!e || !p || !isConnected(p)) return;
+    if (state.refreshing.has(key)) return;
+    state.refreshing.add(key);
+    renderRow(key);
+    try {
+      const r = await syncProvider(p);
+      save();
+      const stillThere = state.data.models[key] && !state.data.models[key].removedAt;
+      if (!r.ok) notify(`Could not refresh ${p.name}`, 'fail');
+      else if (stillThere) notify(`Refreshed ${e.name || e.id} from ${p.name}`, 'ok');
+      else notify(`${e.name || e.id} is no longer listed by ${p.name}`, 'warn');
+    } catch (err) {
+      notify(`Refresh failed: ${err.message || 'unknown error'}`, 'fail');
+    } finally {
+      state.refreshing.delete(key);
+      renderIfShown();
+    }
+  }
+
+  // Small status pill next to the model's name once it has been health-checked.
+  function healthBadgeHTML(e) {
+    const h = e.health;
+    if (!h) return '';
+    const meta = HEALTH_META[h.status] || HEALTH_META.error;
+    const ago = h.at ? formatAgo(h.at) : '';
+    const tip = `Health check${ago ? ` ${ago}` : ''}: ${h.note || meta.label}${h.httpStatus ? ` (HTTP ${h.httpStatus})` : ''}`;
+    return `<span class="mc-health mc-health-${meta.tone}" title="${escapeHtml(tip)}">${ICON[meta.icon] || ''}${meta.label}</span>`;
+  }
+
+  // ---- toast notifications ---------------------------------------------------
+
+  function notify(message, tone = 'info') {
+    const root = document.getElementById('mc-toasts');
+    if (!root) return;
+    const icon = tone === 'ok' ? ICON.pass : tone === 'warn' ? ICON.clock : tone === 'fail' ? ICON.fail : ICON.box;
+    const el = document.createElement('div');
+    el.className = `mc-toast mc-toast-${tone}`;
+    el.setAttribute('role', 'status');
+    el.innerHTML = `<span class="mc-toast-ico">${icon}</span><span class="mc-toast-msg">${escapeHtml(message)}</span>`;
+    root.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('show'));
+    setTimeout(() => {
+      el.classList.remove('show');
+      setTimeout(() => el.remove(), 240);
+    }, 4200);
+  }
+
+  // ---- chat drawer -------------------------------------------------------------
+
+  function chatEntry() { return chat.key ? state.data.models[chat.key] : null; }
+
+  function openChat(key, opener) {
+    const e = state.data.models[key];
+    if (!e || !benchmarkable(e)) return;
+    chat.key = key;
+    chat.messages = [];
+    chat.busy = false;
+    chat.opener = opener || document.activeElement;
+    const el = document.getElementById('mc-chat-drawer');
+    if (!el) return;
+    el.hidden = false;
+    requestAnimationFrame(() => el.classList.add('open'));
+    renderChatHead();
+    renderChatBody();
+    const input = document.getElementById('mc-chat-input');
+    if (input) { input.value = ''; autoGrowChatInput(); input.focus(); }
+    updateChatSend();
+    const t = chatTarget(e);
+    if (t.error) notify(t.error, 'fail');
+  }
+
+  function closeChat() {
+    const el = document.getElementById('mc-chat-drawer');
+    if (!el || el.hidden) return;
+    el.classList.remove('open');
+    const opener = chat.opener;
+    chat.key = null;
+    chat.messages = [];
+    chat.busy = false;
+    chat.opener = null;
+    const done = () => { el.hidden = true; };
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) done();
+    else setTimeout(done, 220);
+    if (opener && document.contains(opener)) opener.focus();
+  }
+
+  function renderChatHead() {
+    const e = chatEntry();
+    if (!e) return;
+    const p = PROVIDERS[e.providerId];
+    const logo = document.getElementById('mc-chat-logo');
+    if (logo) logo.innerHTML = p ? providerMark(p) : '';
+    const title = document.getElementById('mc-chat-title');
+    if (title) title.textContent = e.name || e.id;
+    const sub = document.getElementById('mc-chat-sub');
+    if (sub) sub.textContent = `${e.providerId}/${e.id}`;
+  }
+
+  function chatMsgHTML(m) {
+    if (m.role === 'user') {
+      return `<div class="mc-chat-msg user"><div class="mc-chat-bubble">${escapeHtml(m.content)}</div></div>`;
+    }
+    return `<div class="mc-chat-msg assistant${m.error ? ' is-error' : ''}"><span class="mc-chat-avatar">${ICON.box}</span><div class="mc-chat-bubble">${escapeHtml(m.content)}</div></div>`;
+  }
+
+  function renderChatBody() {
+    const body = document.getElementById('mc-chat-body');
+    if (!body) return;
+    const e = chatEntry();
+    if (!e) { body.innerHTML = ''; return; }
+    if (!chat.messages.length) {
+      body.innerHTML = `<div class="mc-chat-empty">
+        <div class="mc-chat-empty-ico">${ICON.chat}</div>
+        <h4>Talk to this model directly</h4>
+        <p>Every turn is one real request on your own key, straight to <code>${escapeHtml(e.id)}</code> — no profile, no routing, no capability gate. Nothing here is recorded as routing evidence.</p>
+      </div>`;
+      return;
+    }
+    body.innerHTML = chat.messages.map(chatMsgHTML).join('')
+      + (chat.busy ? `<div class="mc-chat-msg assistant"><span class="mc-chat-avatar">${ICON.box}</span><div class="mc-chat-bubble mc-chat-thinking"><span class="spinner"></span>Thinking…</div></div>` : '');
+    body.scrollTop = body.scrollHeight;
+  }
+
+  function autoGrowChatInput() {
+    const input = document.getElementById('mc-chat-input');
+    if (!input) return;
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
+  }
+
+  function updateChatSend() {
+    const send = document.getElementById('mc-chat-send');
+    const input = document.getElementById('mc-chat-input');
+    if (send) send.disabled = chat.busy || !(input && input.value.trim());
+  }
+
+  // The assistant's text out of one response, with transport and provider
+  // errors (including a 200 that is really an error) turned into a readable line.
+  function extractChatReply(res) {
+    if (res.networkError || res.timedOut) return { text: res.error || 'No response', error: true };
+    let j = null;
+    try { j = JSON.parse(res.body); } catch (_) { /* not JSON */ }
+    const errMsg = j && j.error ? (j.error.message || j.error.code || String(j.error)) : '';
+    if (res.status !== 200) return { text: errMsg || `HTTP ${res.status}`, error: true };
+    if (errMsg) return { text: errMsg, error: true };
+    let content = '';
+    try { content = parseChatCompletion(res.body).content || ''; } catch (_) { /* unreadable */ }
+    if (!content.trim()) return { text: 'No content returned by provider', error: true };
+    return { text: content, error: false };
+  }
+
+  async function sendChat() {
+    const e = chatEntry();
+    const input = document.getElementById('mc-chat-input');
+    if (!e || !input) return;
+    const text = input.value.trim();
+    if (!text || chat.busy) return;
+    const t = chatTarget(e);
+    if (t.error) { notify(t.error, 'fail'); return; }
+    chat.messages.push({ role: 'user', content: text });
+    input.value = '';
+    autoGrowChatInput();
+    chat.busy = true;
+    updateChatSend();
+    renderChatBody();
+    try {
+      const res = await window.electronAPI.apiRequest({
+        url: `${t.p.baseUrl}/chat/completions`,
+        method: 'POST',
+        headers: { Authorization: `Bearer ${t.key.key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: e.id,
+          messages: chat.messages.map((m) => ({ role: m.role, content: m.content })),
+          stream: false,
+          [tokenLimitField(t.p.id)]: 2048,
+        }),
+        timeoutMs: Number(settings.deadlineChatMs) || 60000,
+        requestId: `mc-chat-${Date.now()}`,
+      });
+      const reply = extractChatReply(res);
+      chat.messages.push({ role: 'assistant', content: reply.text, error: reply.error });
+    } catch (err) {
+      chat.messages.push({ role: 'assistant', content: err.message || 'Request failed', error: true });
+    } finally {
+      chat.busy = false;
+      updateChatSend();
+      renderChatBody();
+      const inp = document.getElementById('mc-chat-input');
+      if (inp) inp.focus();
+    }
+  }
+
+  function bindChatDrawer() {
+    const el = document.getElementById('mc-chat-drawer');
+    if (!el) return;
+    el.addEventListener('click', (ev) => {
+      if (ev.target.closest('[data-chat-close]')) { closeChat(); return; }
+      if (ev.target.closest('#mc-chat-send')) { sendChat(); }
+    });
+    const input = document.getElementById('mc-chat-input');
+    if (input) {
+      input.addEventListener('input', () => { autoGrowChatInput(); updateChatSend(); });
+      input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' && !ev.shiftKey) {
+          ev.preventDefault();
+          sendChat();
+        }
+      });
+    }
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && !el.hidden) closeChat();
+    });
+  }
+
   // ---- global leaderboard --------------------------------------------------
 
   function leaderboard() {
@@ -565,6 +906,10 @@
     pass: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
     fail: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
     empty: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5"/></svg>',
+    chat: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+    heart: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/><path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/></svg>',
+    send: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
+    close: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
   };
 
   const TOOLBAR = {
@@ -683,13 +1028,20 @@
 
   function actionButtons(e) {
     const key = escapeHtml(e.key);
-    if (!benchmarkable(e)) return `<span class="dt-muted mc-na" title="The benchmark is a chat suite; ${escapeHtml(e.kind)} models are not scored">n/a</span>`;
-    const pr = state.progress.get(e.key);
-    if (pr) {
-      return `<button class="dt-icon-btn mc-stop" type="button" data-mc-stop="${key}" title="Stop" aria-label="Stop benchmark">${ICON.stop}</button>`;
+    const label = escapeHtml(e.name || e.id);
+    // While a benchmark is running, its stop control stays in reach.
+    if (state.progress.has(e.key)) {
+      return `<button class="dt-icon-btn mc-stop" type="button" data-mc-stop="${key}" title="Stop benchmark" aria-label="Stop benchmark">${ICON.stop}</button>`;
     }
-    const label = e.bench ? 'Re-run benchmark' : 'Run benchmark';
-    return `<button class="dt-icon-btn primary" type="button" data-mc-run="${key}" title="${label}" aria-label="${label}">${e.bench ? ICON.redo : ICON.play}</button>`;
+    const refreshing = state.refreshing.has(e.key);
+    const refreshBtn = `<button class="dt-icon-btn" type="button" data-mc-refresh="${key}" title="Re-fetch this model's info from the provider" aria-label="Refresh ${label}" ${refreshing ? 'disabled' : ''}>${refreshing ? '<span class="spinner"></span>' : ICON.redo}</button>`;
+    // Chat and the health check both go through the chat endpoint, so they only
+    // apply to chat models; an image/video/decision model keeps just Refresh.
+    if (!benchmarkable(e)) return refreshBtn;
+    const healthBusy = state.healthBusy.has(e.key);
+    const chatBtn = `<button class="dt-icon-btn" type="button" data-mc-chat="${key}" title="Chat with this model" aria-label="Chat with ${label}">${ICON.chat}</button>`;
+    const healthBtn = `<button class="dt-icon-btn" type="button" data-mc-health="${key}" title="Health check — one minimal request, smart about 200-OK replies that actually say there's no credit" aria-label="Health check ${label}" ${healthBusy ? 'disabled' : ''}>${healthBusy ? '<span class="spinner"></span>' : ICON.heart}</button>`;
+    return `${chatBtn}${healthBtn}${refreshBtn}`;
   }
 
   function progressHTML(e) {
@@ -710,7 +1062,7 @@
       <td class="dt-num col-rank">${rankCell}</td>
       <td><div class="dt-provider">${ICON.chevron}
         <span class="pv-logo">${providerMark(p)}</span>
-        <div><div class="dt-provider-name mc-name">${escapeHtml(e.name || e.id)}${badges(e)}</div>
+        <div><div class="dt-provider-name mc-name">${escapeHtml(e.name || e.id)}${badges(e)}${healthBadgeHTML(e)}</div>
         <div class="dt-provider-host mc-sub">${healthDotHTML(p)}${escapeHtml(p.name)}${e.name && e.name !== e.id ? ` · <code>${escapeHtml(e.id)}</code>` : ''}${e.contextLabel ? ` · ${escapeHtml(e.contextLabel)}` : ''}${priceLabel(e) ? ` · ${escapeHtml(priceLabel(e))}` : ''}</div>
         ${progressHTML(e)}${e.benchError && !running ? `<div class="mc-error">${escapeHtml(e.benchError)}</div>` : ''}</div>
       </div></td>
@@ -741,7 +1093,7 @@
         ${tierBadge(b ? b.tier : null, { big: true })}
       </div>
       <h3 class="pv-name"><span>${escapeHtml(e.name || e.id)}</span></h3>
-      <div class="mc-card-badges">${badges(e)}${rank ? `<span class="mc-rank ${rank <= 3 ? 'top' : ''}">#${rank}</span>` : ''}</div>
+      <div class="mc-card-badges">${badges(e)}${healthBadgeHTML(e)}${rank ? `<span class="mc-rank ${rank <= 3 ? 'top' : ''}">#${rank}</span>` : ''}</div>
       ${progressHTML(e)}${e.benchError && !state.progress.has(e.key) ? `<div class="mc-error">${escapeHtml(e.benchError)}</div>` : ''}
       <div class="pv-stats">
         <div class="pv-stat"><span class="pv-stat-label">Score</span><span class="pv-stat-value">${b ? (b.composite ?? '!') : '—'}</span></div>
@@ -1066,6 +1418,12 @@
       if (stop) { ev.stopPropagation(); dequeue(stop.dataset.mcStop); return; }
       const caps = ev.target.closest('[data-mc-caps]');
       if (caps) { ev.stopPropagation(); probeCaps(caps.dataset.mcCaps); return; }
+      const chatBtn = ev.target.closest('[data-mc-chat]');
+      if (chatBtn) { ev.stopPropagation(); openChat(chatBtn.dataset.mcChat, chatBtn); return; }
+      const health = ev.target.closest('[data-mc-health]');
+      if (health) { ev.stopPropagation(); healthCheck(health.dataset.mcHealth); return; }
+      const refresh = ev.target.closest('[data-mc-refresh]');
+      if (refresh) { ev.stopPropagation(); refreshModel(refresh.dataset.mcRefresh); return; }
       if (ev.target.closest('[data-mc-sync]')) { syncAll({ reason: 'manual' }); return; }
       const go = ev.target.closest('[data-go]');
       if (go) { showPage(go.dataset.go); return; }
@@ -1229,6 +1587,7 @@
   async function init() {
     await load();
     bind();
+    bindChatDrawer();
     bindSettings();
     scheduleTimer();
     // First pass right away so the page is populated on first visit.

@@ -1364,6 +1364,40 @@
     </aside>
   </div>
 
+  <!-- Model chat drawer (catalog.js): a direct line to one model on the user's
+       own key — no profile, no routing, nothing recorded as routing evidence. -->
+  <div class="mc-chat-drawer" id="mc-chat-drawer" hidden>
+    <div class="mc-chat-scrim" data-chat-close></div>
+    <aside class="mc-chat-panel" role="dialog" aria-modal="true" aria-labelledby="mc-chat-title">
+      <header class="mc-chat-head">
+        <div class="mc-chat-id">
+          <span class="mc-chat-logo" id="mc-chat-logo"></span>
+          <div class="mc-chat-id-text">
+            <h3 id="mc-chat-title">Model</h3>
+            <span class="mc-chat-sub" id="mc-chat-sub"></span>
+          </div>
+        </div>
+        <button class="ku-icon-btn" type="button" data-chat-close title="Close" aria-label="Close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </header>
+      <div class="mc-chat-body" id="mc-chat-body"></div>
+      <footer class="mc-chat-foot">
+        <textarea id="mc-chat-input" rows="1" placeholder="Message this model…" aria-label="Message this model"></textarea>
+        <div class="mc-chat-foot-row">
+          <span class="mc-chat-hint">↵ to send · Shift+Enter for a new line</span>
+          <button class="btn btn-primary mc-chat-send" id="mc-chat-send" type="button" disabled>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            <span>Send</span>
+          </button>
+        </div>
+      </footer>
+    </aside>
+  </div>
+
+  <!-- Toast notifications (catalog.js): per-model action results. -->
+  <div class="mc-toasts" id="mc-toasts" aria-live="polite"></div>
+
   <script src="providers/nara.js"></script>
   <script src="providers/darkapi.js"></script>
   <script src="providers/nexum.js"></script>
