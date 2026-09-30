@@ -66,7 +66,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 626 | API requests (src/api-request.js) |
 | 648 | Old request log file (requests.log) |
 
-### src/renderer/app.js — 6027 lines
+### src/renderer/app.js — 6032 lines
 
 | Line | Section |
 | --- | --- |
@@ -101,12 +101,12 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 4484 | Sidebar ambience — moving stars and the signature heart |
 | 4738 | Breadcrumb — shared helper |
 | 4768 | Providers page |
-| 5103 | Provider types — legend and markers |
-| 5178 | Providers page — key management panel (table rows and cards) |
-| 5198 | Action feedback — Recheck and key Test |
-| 5630 | Stat cards — shared |
-| 5647 | Data toolbar — shared |
-| 5710 | Providers page — Connected view |
+| 5106 | Provider types — legend and markers |
+| 5181 | Providers page — key management panel (table rows and cards) |
+| 5201 | Action feedback — Recheck and key Test |
+| 5635 | Stat cards — shared |
+| 5652 | Data toolbar — shared |
+| 5715 | Providers page — Connected view |
 
 ### src/renderer/benchmark.js — 984 lines
 
@@ -164,7 +164,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 1401 | overlay: ku-drawer |
 | 1419 | overlay: mc-chat-drawer |
 
-### src/renderer/styles.css — 8202 lines
+### src/renderer/styles.css — 8204 lines
 
 | Line | Section |
 | --- | --- |
@@ -190,24 +190,24 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 3596 | Sidebar ambience — a living layer of stars |
 | 3670 | Breadcrumb — shared by every page that needs one |
 | 3713 | Providers page |
-| 4433 | Stat cards — shared (Overview, Providers, …) |
-| 4474 | Page toolbar — one card for every page that has one |
-| 4522 | Design system — form fields |
-| 4785 | Data table — shared |
-| 5003 | Provider types — legend and markers |
-| 5186 | Settings page — layout |
-| 5195 | Providers — expandable rows and the key panel |
-| 5219 | Providers — list of row cards |
-| 5962 | Settings — Unified 2-Column Design System |
-| 6401 | Settings content — one design language for every tab |
-| 6747 | Models Catalog |
-| 7074 | Venom Profiles |
-| 7287 | Key usage (key-usage.js) — quota and expiry in the key row, the rest in a |
-| 7446 | Catalog: live health badge + toast notifications |
-| 7502 | Model chat drawer — a full-height panel sliding in from the right, |
-| 7880 | Log pages — Runs, Requests, Monitoring |
-| 8079 | Monitoring Page |
-| 8145 | Database explorer — compact SQLite workbench |
+| 4435 | Stat cards — shared (Overview, Providers, …) |
+| 4476 | Page toolbar — one card for every page that has one |
+| 4524 | Design system — form fields |
+| 4787 | Data table — shared |
+| 5005 | Provider types — legend and markers |
+| 5188 | Settings page — layout |
+| 5197 | Providers — expandable rows and the key panel |
+| 5221 | Providers — list of row cards |
+| 5964 | Settings — Unified 2-Column Design System |
+| 6403 | Settings content — one design language for every tab |
+| 6749 | Models Catalog |
+| 7076 | Venom Profiles |
+| 7289 | Key usage (key-usage.js) — quota and expiry in the key row, the rest in a |
+| 7448 | Catalog: live health badge + toast notifications |
+| 7504 | Model chat drawer — a full-height panel sliding in from the right, |
+| 7882 | Log pages — Runs, Requests, Monitoring |
+| 8081 | Monitoring Page |
+| 8147 | Database explorer — compact SQLite workbench |
 
 ### scripts/
 
@@ -302,7 +302,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
-| `app.js` | 6027 | VENOM ROUTER — Application Logic v2 | DEFAULT_TEST_PROMPT, DEFAULT_EXPECTED, testPrompt, expectedAnswer, NA, RESPONSE_PREVIEW, truthy, KIND_LABELS, kindLimits, classifyModel, isMedia, isDecision, +389 more |
+| `app.js` | 6032 | VENOM ROUTER — Application Logic v2 | DEFAULT_TEST_PROMPT, DEFAULT_EXPECTED, testPrompt, expectedAnswer, NA, RESPONSE_PREVIEW, truthy, KIND_LABELS, kindLimits, classifyModel, isMedia, isDecision, +389 more |
 | `benchmark.js` | 984 | Model benchmark — quick, cheap, deterministic | SUITE_VERSION, cleanReply, lastLine, lines, gradeNumber, gradeWord, exp, alts, gradeRegexSolution, gradeJson, gradeExact, norm, +125 more |
 | `catalog.js` | 1646 | Models Catalog — live model inventory + benchmark leaderboard | REMOVED_KEEP_MS, LEADERBOARD_TTL_MS, HISTORY_CAP, state, chat, ui, keyOf, loadPromise, load, saveTimer, saveReset, save, +219 more |
 | `database.js` | 105 | Read-only SQLite explorer. All SQL, identifier checks, and redaction happen | PAGE_SIZE, state, byId, escape, number, setNotice, box, renderStats, renderTables, query, visible, renderHead, +10 more |
@@ -313,7 +313,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `ui-select.js` | 217 | Design system — select menu | CHEVRON, CHECK, valueDesc, indexDesc, menu, owner, active, labelOf, opt, sync, trigger, enhance, +17 more |
 | `ulid.js` | 22 | Run ids — ULID, the same format as src/db/ulid.js | newUlid |
 | `index.html` | 1471 | App shell markup: nav, every page, the drawers and modals |  |
-| `styles.css` | 8202 | The whole stylesheet: tokens, themes, accents, components |  |
+| `styles.css` | 8204 | The whole stylesheet: tokens, themes, accents, components |  |
 
 ### src/renderer/providers/
 

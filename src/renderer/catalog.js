@@ -34,6 +34,7 @@
     shell: false,
     pendingRender: null,
     healthBusy: new Set(), // keys whose health check is in flight
+    healthAct: new Map(),  // key -> { tone, icon, label, timer } — the verdict shown on the heart itself
     refreshing: new Set(), // keys re-fetching their provider's model list
   };
 
@@ -560,6 +561,7 @@
       e.health = h;
       save();
       const meta = HEALTH_META[h.status] || HEALTH_META.error;
+      showHealthAct(key, meta);
       notify(`${e.name || e.id}: ${meta.label}${h.note && h.status !== 'healthy' ? ` — ${h.note}` : ''}`, meta.tone);
     } catch (err) {
       notify(`Health check failed: ${err.message || 'unknown error'}`, 'fail');
@@ -592,6 +594,21 @@
       state.refreshing.delete(key);
       renderIfShown();
     }
+  }
+
+  // The heart answers its own click: after the probe it wears the verdict
+  // (tick, cross, or clock for a rate limit) in the badge's colour for a
+  // moment, then returns to rest. The same hold-and-fade the providers'
+  // Recheck button uses, so one gesture reads the same on both pages.
+  const HEALTH_ACT_MS = 2600;
+  function showHealthAct(key, meta) {
+    const cur = state.healthAct.get(key);
+    clearTimeout(cur?.timer);
+    const timer = setTimeout(() => {
+      state.healthAct.delete(key);
+      renderRow(key);
+    }, HEALTH_ACT_MS);
+    state.healthAct.set(key, { tone: meta.tone, icon: meta.icon, label: meta.label, timer });
   }
 
   // Small status pill next to the model's name once it has been health-checked.
@@ -1040,7 +1057,15 @@
     if (!benchmarkable(e)) return refreshBtn;
     const healthBusy = state.healthBusy.has(e.key);
     const chatBtn = `<button class="dt-icon-btn" type="button" data-mc-chat="${key}" title="Chat with this model" aria-label="Chat with ${label}">${ICON.chat}</button>`;
-    const healthBtn = `<button class="dt-icon-btn" type="button" data-mc-health="${key}" title="Health check — one minimal request, smart about 200-OK replies that actually say there's no credit" aria-label="Health check ${label}" ${healthBusy ? 'disabled' : ''}>${healthBusy ? '<span class="spinner"></span>' : ICON.heart}</button>`;
+    // A finished check wears its verdict on the heart for a moment; while it
+    // does, the button reads as the answer, not as the question.
+    const act = state.healthAct.get(e.key);
+    const healthRest = 'Health check — one minimal request, smart about 200-OK replies that actually say there\'s no credit';
+    const healthTitle = act ? `${act.label} — ${healthRest}` : healthRest;
+    const healthInner = healthBusy ? '<span class="spinner act-spinner" aria-hidden="true"></span>'
+      : act ? `<span class="act-result" aria-hidden="true">${ICON[act.icon] || ICON.fail}</span>`
+      : ICON.heart;
+    const healthBtn = `<button class="dt-icon-btn" type="button" data-mc-health="${key}" title="${escapeHtml(healthTitle)}" aria-label="${act ? `${escapeHtml(act.label)} — health check ${label}` : `Health check ${label}`}"${act ? ` data-act="${act.tone}"` : ''} ${healthBusy ? 'disabled' : ''}>${healthInner}</button>`;
     return `${chatBtn}${healthBtn}${refreshBtn}`;
   }
 

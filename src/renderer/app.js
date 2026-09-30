@@ -4786,6 +4786,9 @@ const PV_ICON = {
   layers: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/></svg>',
   gauge: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/></svg>',
   flask: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v6.5L4.5 19a2 2 0 0 0 1.8 3h11.4a2 2 0 0 0 1.8-3L14 8.5V2"/><path d="M8.5 2h7"/><path d="M7 16h10"/></svg>',
+  // The health-check mark, shared with the Models page heart so one gesture
+  // looks the same on both pages (see ICON.heart in catalog.js).
+  heart: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/><path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/></svg>',
   empty: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0z"/><path d="M12 18v4"/><path d="M3 3l18 18"/></svg>',
 };
 
@@ -5250,11 +5253,13 @@ function recheckButtonHTML(p, variant) {
   const id = escapeHtml(p.id);
   const act = recheckAct.get(p.id)?.state;
   const attrs = `type="button" data-recheck="${id}"${act ? ` data-act="${act}"` : ''}${act === 'running' ? ' disabled aria-busy="true"' : ''}`;
-  if (variant === 'link') {
-    return `<button class="pv-link accent" ${attrs}>${actIconHTML(act, PV_ICON.refresh)}${RECHECK_LABEL[act] || 'Recheck'}</button>`;
-  }
+  // The health check is a heart on both pages now (see ICON.heart in
+  // catalog.js); the verdict still lands on the button itself.
   const title = act ? RECHECK_LABEL[act] : 'Recheck connection';
-  return `<button class="dt-icon-btn" ${attrs} title="${title}" aria-label="${title}">${actIconHTML(act, PV_ICON.refresh)}</button>`;
+  if (variant === 'link') {
+    return `<button class="pv-icon-btn" ${attrs} title="${title}" aria-label="${title}">${actIconHTML(act, PV_ICON.heart)}</button>`;
+  }
+  return `<button class="dt-icon-btn" ${attrs} title="${title}" aria-label="${title}">${actIconHTML(act, PV_ICON.heart)}</button>`;
 }
 
 function recheckProvider(id) {
