@@ -7039,6 +7039,32 @@ img[data-tone] { filter: var(--logo-tone, none); }
 .mc-compare-row code { font-family: 'JetBrains Mono', monospace; font-size: 11px; }
 @container dt (max-width: 1250px) { .mc-table .col-lang { display: none; } }
 
+/* Sources status: the same four facts per upstream document, one line each.
+   Scoped under .mc-sources on purpose: a bare `.mc-source` already lives a few
+   hundred lines above and is the detail drawer's "Source: …" line
+   (src/renderer/catalog.js 1206, src/renderer/profiles.js 425). Left unscoped,
+   this rule would have restyled that page — which is not this task's page.
+   The tone vocabulary is .mc-health's (--pass / --warn / --fail), so the block
+   reads as the same system in light and dark. */
+.mc-sources { display: grid; gap: 4px; margin-top: 8px; }
+.mc-sources-head { font-size: 11.5px; font-weight: 600; color: var(--text-2); }
+.mc-sources .mc-source {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: baseline;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-1);
+}
+.mc-sources .mc-source > b { font-variant-numeric: tabular-nums; }
+.mc-sources .mc-source > span:nth-child(3) { color: var(--text-3); font-size: 11.5px; }
+.mc-source-ok > b { color: var(--pass); }
+.mc-source-warn > b { color: var(--warn); }
+.mc-source-fail > b { color: var(--fail); }
+.mc-source-error { grid-column: 1 / -1; color: var(--text-3); font-size: 11px; }
+
 /* ============================================
    Venom Profiles
    ============================================ */

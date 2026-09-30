@@ -48,10 +48,16 @@ async function openCatalogAndRead(app) {
     const tab = await wait(() => !!document.querySelector('#settings-nav .settings-nav-item[data-section="sec-catalog"]'));
     if (tab) document.querySelector('#settings-nav .settings-nav-item[data-section="sec-catalog"]').click();
     const opened = await wait(() => !document.getElementById('sec-catalog').hidden);
+    // Wait BEFORE reading the row list: the block fills in asynchronously, and a
+    // NodeList captured first is a snapshot of the empty container.
+    await wait(() => {
+      const el = document.getElementById('catalog-sources-status');
+      const rows = el ? [...el.querySelectorAll('.mc-source')] : [];
+      return rows.length > 0 && rows.some((r) => /\\S/.test(r.textContent));
+    }, 20000);
     const el = document.getElementById('catalog-sources-status');
     const button = document.getElementById('btn-catalog-sync-sources');
     const rows = el ? [...el.querySelectorAll('.mc-source')] : [];
-    await wait(() => rows.length > 0 && rows.some((r) => /\\S/.test(r.textContent)), 20000);
     return {
       nav, tab, opened,
       theme: document.documentElement.getAttribute('data-theme'),
@@ -60,11 +66,42 @@ async function openCatalogAndRead(app) {
       headText: el && el.querySelector('.mc-sources-head') ? el.querySelector('.mc-sources-head').textContent.trim() : '',
       rowCount: rows.length,
       rowText: rows.map((r) => r.textContent.trim().replace(/\\s+/g, ' ')),
+      rowCounts: rows.map((r) => {
+        const cells = [...r.children].map((c) => c.textContent.trim());
+        return cells[0] + '=' + cells[1] + ' @ ' + cells[2];
+      }),
       rowClass: rows.map((r) => r.className),
       button: button ? { text: button.textContent.trim(), disabled: button.disabled,
         rect: button.getBoundingClientRect().toJSON() } : null,
     };
   })()`, 60000);
+}
+
+// The Models Catalog page is not this task's page: it still runs on its own path,
+// and it owns a `<p class="mc-source">` line whose CSS must not have moved.
+async function checkModelsCatalogPageUntouched(app) {
+  return app.evaluate(`(async () => {
+    document.querySelector('.shell-nav-item[data-page="catalog"]').click();
+    const wait = async (fn, ms = 15000) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end) { try { if (fn()) return true; } catch (_) {} await new Promise((r) => setTimeout(r, 120)); }
+      return false;
+    };
+    const shown = await wait(() => !document.querySelector('.page-catalog').hidden);
+    const probe = document.createElement('p');
+    probe.className = 'mc-source';
+    document.querySelector('.page-catalog').append(probe);
+    const cs = getComputedStyle(probe);
+    const drawerStyle = { fontSize: cs.fontSize, color: cs.color, marginTop: cs.marginTop, display: cs.display };
+    probe.remove();
+    return {
+      shown,
+      title: document.querySelector('#shell-page-title') ? document.querySelector('#shell-page-title').textContent : '',
+      hasSourcesBlock: !!document.querySelector('.page-catalog .mc-sources'),
+      toolbar: !!document.querySelector('.page-catalog .mc-toolbar, .page-catalog .dt-toolbar'),
+      drawerStyle,
+    };
+  })()`, 30000);
 }
 
 // The geometry gate: textContent proves text exists, not that a person can see it.
@@ -123,8 +160,8 @@ async function runGuardedSession(dir, report) {
     check('Settings › Catalog opened', s.nav && s.tab && s.opened, JSON.stringify(s).slice(0, 120));
     check('the sources block is in the page', s.hasBlock, s.containerText.slice(0, 90));
     if (s.hasBlock) {
-      check('it reports four sources', s.rowCount === 4, `${s.rowCount} rows: ${s.rowText.join(' | ').slice(0, 200)}`);
-      for (const row of s.rowText) console.log(`      row: ${row}`);
+      check('it reports four sources', s.rowCount === 4, `${s.rowCount} rows: ${s.rowCounts.join(' | ')}`);
+      for (const row of s.rowCounts) console.log(`      row: ${row}`);
       const dark = await measureCatalog(app);
       await app.evaluate(`(async () => {
         settings.theme = 'daylight'; settings.followSystem = false; saveAppearance();
@@ -156,6 +193,14 @@ async function runGuardedSession(dir, report) {
         !!s.button && !s.button.disabled && /Sync sources/.test(s.button.text)
         && s.button.rect.height > 8 && s.button.rect.width > 40,
         s.button ? `${s.button.text} ${Math.round(s.button.rect.width)}x${Math.round(s.button.rect.height)} disabled=${s.button.disabled}` : 'missing');
+      // Constraint: no page other than Settings › Catalog changed.
+      const mc = await checkModelsCatalogPageUntouched(app);
+      check('the Models Catalog page still opens on its own path', mc.shown && !mc.hasSourcesBlock,
+        `title="${mc.title}" toolbar=${mc.toolbar} .mc-sources inside it=${mc.hasSourcesBlock}`);
+      check('its .mc-source line keeps the CSS it has always had',
+        mc.drawerStyle.fontSize === '10.5px' && mc.drawerStyle.marginTop === '10px'
+        && mc.drawerStyle.display === 'block',
+        JSON.stringify(mc.drawerStyle));
     }
     const closedCode = await app.close();
     check('the guarded app exited with code 0', closedCode === 0, String(closedCode));
@@ -204,7 +249,7 @@ async function runSyncedSession(dir) {
     await app.waitFor(READY, 40000);
     const before = await openCatalogAndRead(app);
     check('the block rendered before anything was clicked', before.hasBlock && before.rowCount === 4,
-      before.rowText.join(' | ').slice(0, 220));
+      before.rowCounts.join(' | '));
     const clicked = await app.evaluate(`(async () => {
       const button = document.getElementById('btn-catalog-sync-sources');
       button.click();
@@ -229,6 +274,7 @@ async function runSyncedSession(dir) {
     check('the button re-enabled itself', clicked.disabled === false);
     console.log(`\n      ${clicked.head}`);
     clicked.rows.forEach((row, i) => console.log(`      [${i + 1}] ${row}   (${clicked.tones[i]})`));
+    console.log(`      cells: ${clicked.counts.join(' , ')}`);
     const after = await measureCatalog(app);
     check('the rows are still painted after syncing',
       after.rows.length === 4 && after.rows.every((r) => r.painted && !r.clippedByItself),

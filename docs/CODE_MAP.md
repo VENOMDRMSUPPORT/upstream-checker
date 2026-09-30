@@ -66,7 +66,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 626 | API requests (src/api-request.js) |
 | 648 | Old request log file (requests.log) |
 
-### src/renderer/app.js — 5932 lines
+### src/renderer/app.js — 5980 lines
 
 | Line | Section |
 | --- | --- |
@@ -98,15 +98,15 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 3845 | Init |
 | 3848 | Scheduled re-testing |
 | 3881 | Settings panel |
-| 4389 | Sidebar ambience — moving stars and the signature heart |
-| 4643 | Breadcrumb — shared helper |
-| 4673 | Providers page |
-| 5008 | Provider types — legend and markers |
-| 5083 | Providers page — key management panel (table rows and cards) |
-| 5103 | Action feedback — Recheck and key Test |
-| 5535 | Stat cards — shared |
-| 5552 | Data toolbar — shared |
-| 5615 | Providers page — Connected view |
+| 4437 | Sidebar ambience — moving stars and the signature heart |
+| 4691 | Breadcrumb — shared helper |
+| 4721 | Providers page |
+| 5056 | Provider types — legend and markers |
+| 5131 | Providers page — key management panel (table rows and cards) |
+| 5151 | Action feedback — Recheck and key Test |
+| 5583 | Stat cards — shared |
+| 5600 | Data toolbar — shared |
+| 5663 | Providers page — Connected view |
 
 ### src/renderer/benchmark.js — 984 lines
 
@@ -126,7 +126,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | --- | --- |
 | 2 | Log pages — Runs, Requests and Monitoring |
 
-### src/renderer/index.html — 1457 lines
+### src/renderer/index.html — 1471 lines
 
 | Line | Section |
 | --- | --- |
@@ -149,18 +149,18 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 520 | settings: sec-logs |
 | 524 | settings: sec-data |
 | 528 | settings: sec-about |
-| 1231 | overlay: response-modal |
-| 1251 | overlay: add-key-modal |
-| 1282 | overlay: add-provider-modal |
-| 1317 | overlay: update-modal |
-| 1334 | overlay: update-modal-notes |
-| 1376 | overlay: log-drawer |
-| 1377 | overlay: log-drawer-scrim |
-| 1383 | overlay: log-drawer-body |
-| 1387 | overlay: ku-drawer |
-| 1405 | overlay: mc-chat-drawer |
+| 1245 | overlay: response-modal |
+| 1265 | overlay: add-key-modal |
+| 1296 | overlay: add-provider-modal |
+| 1331 | overlay: update-modal |
+| 1348 | overlay: update-modal-notes |
+| 1390 | overlay: log-drawer |
+| 1391 | overlay: log-drawer-scrim |
+| 1397 | overlay: log-drawer-body |
+| 1401 | overlay: ku-drawer |
+| 1419 | overlay: mc-chat-drawer |
 
-### src/renderer/styles.css — 8171 lines
+### src/renderer/styles.css — 8197 lines
 
 | Line | Section |
 | --- | --- |
@@ -197,13 +197,13 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 5962 | Settings — Unified 2-Column Design System |
 | 6401 | Settings content — one design language for every tab |
 | 6747 | Models Catalog |
-| 7043 | Venom Profiles |
-| 7256 | Key usage (key-usage.js) — quota and expiry in the key row, the rest in a |
-| 7415 | Catalog: live health badge + toast notifications |
-| 7471 | Model chat drawer — a full-height panel sliding in from the right, |
-| 7849 | Log pages — Runs, Requests, Monitoring |
-| 8048 | Monitoring Page |
-| 8114 | Database explorer — compact SQLite workbench |
+| 7069 | Venom Profiles |
+| 7282 | Key usage (key-usage.js) — quota and expiry in the key row, the rest in a |
+| 7441 | Catalog: live health badge + toast notifications |
+| 7497 | Model chat drawer — a full-height panel sliding in from the right, |
+| 7875 | Log pages — Runs, Requests, Monitoring |
+| 8074 | Monitoring Page |
+| 8140 | Database explorer — compact SQLite workbench |
 
 ### scripts/
 
@@ -224,7 +224,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `cdp.mjs` | 148 | Launches a separate VENOM Router on a scratch data folder with remote | require, ROOT, sleep, assertScratchDir, appEnv, withTimeout, launch, spawnPlain |
 | `fixture.mjs` | 111 | Synthetic legacy data folder for the live checks: config.json, catalog.json | FIXTURE, writeFixture |
 | `mock-provider.mjs` | 53 | A local stand-in for the fixture's providers: OpenAI-shaped /models and | startMock |
-| `verify-catalog-boot.mjs` | 264 | Something the owner can click — proven two ways, on a scratch data folder. | PORT, failures, check, sleep, READY, openCatalogAndRead, measureCatalog, runGuardedSession, runPositiveControl, runSyncedSession, dir, report, +1 more |
+| `verify-catalog-boot.mjs` | 310 | Something the owner can click — proven two ways, on a scratch data folder. | PORT, failures, check, sleep, READY, openCatalogAndRead, checkModelsCatalogPageUntouched, measureCatalog, runGuardedSession, runPositiveControl, runSyncedSession, dir, +2 more |
 | `verify-db.mjs` | 521 | Live check of the local database against a synthetic data folder. | failures, check, sleep, until, READY, checkImport, checkKeysStayInMain, saveForNextRun, queueSaveThenClose, checkFlushOnClose, checkPersistence, checkSingleInstance, +20 more |
 
 ### src/
@@ -298,7 +298,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
-| `app.js` | 5932 | VENOM ROUTER — Application Logic v2 | DEFAULT_TEST_PROMPT, DEFAULT_EXPECTED, testPrompt, expectedAnswer, NA, RESPONSE_PREVIEW, truthy, KIND_LABELS, kindLimits, classifyModel, isMedia, isDecision, +384 more |
+| `app.js` | 5980 | VENOM ROUTER — Application Logic v2 | DEFAULT_TEST_PROMPT, DEFAULT_EXPECTED, testPrompt, expectedAnswer, NA, RESPONSE_PREVIEW, truthy, KIND_LABELS, kindLimits, classifyModel, isMedia, isDecision, +387 more |
 | `benchmark.js` | 984 | Model benchmark — quick, cheap, deterministic | SUITE_VERSION, cleanReply, lastLine, lines, gradeNumber, gradeWord, exp, alts, gradeRegexSolution, gradeJson, gradeExact, norm, +125 more |
 | `catalog.js` | 1621 | Models Catalog — live model inventory + benchmark leaderboard | REMOVED_KEEP_MS, LEADERBOARD_TTL_MS, HISTORY_CAP, state, chat, ui, keyOf, loadPromise, load, saveTimer, saveReset, save, +211 more |
 | `database.js` | 105 | Read-only SQLite explorer. All SQL, identifier checks, and redaction happen | PAGE_SIZE, state, byId, escape, number, setNotice, box, renderStats, renderTables, query, visible, renderHead, +10 more |
@@ -308,8 +308,8 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `profiles.js` | 670 | Routing profiles — three exits in front of the whole model pool | PROFILE_IDS, DEFAULT_POLICY, state, policy, saved, mergePolicy, out, savePolicy, resetPolicy, blendedPrice, factsOf, ownIQ, +72 more |
 | `ui-select.js` | 217 | Design system — select menu | CHEVRON, CHECK, valueDesc, indexDesc, menu, owner, active, labelOf, opt, sync, trigger, enhance, +17 more |
 | `ulid.js` | 22 | Run ids — ULID, the same format as src/db/ulid.js | newUlid |
-| `index.html` | 1457 | App shell markup: nav, every page, the drawers and modals |  |
-| `styles.css` | 8171 | The whole stylesheet: tokens, themes, accents, components |  |
+| `index.html` | 1471 | App shell markup: nav, every page, the drawers and modals |  |
+| `styles.css` | 8197 | The whole stylesheet: tokens, themes, accents, components |  |
 
 ### src/renderer/providers/
 

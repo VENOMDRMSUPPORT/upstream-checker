@@ -4170,6 +4170,51 @@ function renderSettingsCrumbs(activeSectionLabel) {
   ]);
 }
 
+// Settings › Catalog: the four upstream documents, one line each.
+//
+// The engine in main owns these; the page only reads its state and offers the one
+// action that exists. `catalogSources({})` is report-only — four lines drawn from
+// what is already on disk — so opening this section fetches nothing, and the first
+// byte of upstream traffic is the owner pressing Sync sources. The key never
+// travels: main answers `keyedAuthConfigured`, and the page says "key set" or
+// "no OpenRouter key". Nothing here is a secret, a URL or a decrypted value.
+const CATALOG_SOURCES_LABELS = {
+  'models-dev-spec': 'models.dev', 'openrouter-public': 'OpenRouter models',
+  'openrouter-keyed': 'OpenRouter benchmarks', lmarena: 'LMArena',
+};
+
+async function renderCatalogSources() {
+  const el = document.getElementById('catalog-sources-status');
+  if (!el) return;
+  try {
+    const s = await window.electronAPI.catalogSources({});
+    // The two numbers are interpolated, not escaped — escapeHtml() is for strings.
+    // Numbered anyway, so a shape that stops being a count cannot become markup.
+    el.innerHTML = `<div class="mc-sources-head">${Number(s.catalogCount) || 0} models in the reference · `
+      + `${s.keyedAuthConfigured ? 'key set' : 'no OpenRouter key'}</div>`
+      + (s.sources || []).map((row) => {
+        const tone = row.error ? (row.stale ? 'warn' : 'fail') : 'ok';
+        const when = row.fetchedAt ? new Date(row.fetchedAt).toLocaleString() : 'never';
+        return `<div class="mc-source mc-source-${tone}" title="${escapeHtml(row.description || '')}">`
+          + `<span>${escapeHtml(CATALOG_SOURCES_LABELS[row.id] || row.id)}</span>`
+          + `<b>${Number(row.rowCount) || 0}</b><span>${escapeHtml(when)}</span>`
+          + (row.error ? `<span class="mc-source-error">${escapeHtml(row.error)}</span>` : '')
+          + '</div>';
+      }).join('');
+  } catch (err) {
+    el.textContent = `Sources unavailable: ${err.message}`;
+  }
+}
+
+const syncSources = document.getElementById('btn-catalog-sync-sources');
+if (syncSources) syncSources.addEventListener('click', async () => {
+  syncSources.disabled = true;
+  try { await window.electronAPI.catalogSources({ force: true }); } finally {
+    syncSources.disabled = false;
+    renderCatalogSources();
+  }
+});
+
 function switchSettingsSection(sectionId) {
   const targetId = sectionId || 'sec-appearance';
   const btn = $(`#settings-nav .settings-nav-item[data-section="${targetId}"]`);
@@ -4183,6 +4228,9 @@ function switchSettingsSection(sectionId) {
   // The log's own numbers are read when its section opens, never in the
   // background.
   if (targetId === 'sec-logs' && window.LOGS) window.LOGS.health();
+  // Same for the four sources: a report of what is on disk, drawn on entry, and
+  // the only network call behind this section is the button's own.
+  if (targetId === 'sec-catalog') renderCatalogSources();
 
   // The page scrolls, not the card. A tab picked while scrolled down opens at
   // its own top, with the categories still stuck in place above the fold.
