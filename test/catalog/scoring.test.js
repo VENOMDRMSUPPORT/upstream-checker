@@ -499,3 +499,48 @@ test("fitSpec fills a missing training value with the training median, never 0",
   assert.equal(blank.score, atMedian.score, "a null price reads as the pool's median price");
   assert.ok(blank.score > atZero.score + 3, `${blank.score} vs ${atZero.score}: the default is not 0`);
 });
+
+test("attachScores: a thin provider row borrows the reference's output modality", () => {
+  // §16.6's damage is closed by the *fillable* half, not by the collapse union:
+  // nexum-router publishes byte-identical metadata for all eighteen listings, so
+  // by the time a provider row is scored the reference row is the only place an
+  // output modality exists. Without "output_modalities" in FILLABLE_FIELDS every
+  // one of those listings reaches the tier gate as modality_unknown.
+  const catalogRows = [
+    {
+      id: "nexum/claude-fable-5.1",
+      name: "Claude Fable 5.1",
+      score: 53,
+      score_source: "aa",
+      score_basis: ["aa"],
+      rank: 1,
+      aa_intelligence: 53,
+      aa_coding: null,
+      lmarena_elo: null,
+      lmarena_rank: null,
+      lmarena_code_rank: null,
+      context_tokens: 200000,
+      output_tokens: 8192,
+      input_modalities: "text,image",
+      output_modalities: "text",
+      tools: true,
+      reasoning: true,
+      structured: null,
+      attachment: null,
+      release_date: "2026-08-31",
+      cost_in_per_m: 2,
+      cost_out_per_m: 10,
+    },
+  ];
+  // Nothing but the id — a router that publishes no metadata at all.
+  const providerRows = [{ id: "nexum/claude-fable-5.1", name: "Claude Fable 5.1" }];
+
+  attachScores(providerRows, catalogRows);
+  const [row] = providerRows;
+
+  assert.equal(row.output_modalities, "text");
+  assert.ok(
+    row.filled_from_catalog.includes("output_modalities"),
+    `output_modalities absent from filled_from_catalog: ${JSON.stringify(row.filled_from_catalog)}`,
+  );
+});

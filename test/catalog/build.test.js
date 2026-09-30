@@ -316,6 +316,32 @@ test('a negative published price reads as null, never as -1000000 (§16.4)', () 
   assert.equal(auto.cost_kind, 'unknown');
 });
 
+test('a sentinel price loses to the other source, not to nothing (§16.4)', () => {
+  // The guard used to be applied AFTER the sources became one value
+  // (`usableNumber(orIn != null ? orIn : mdIn)`): OpenRouter's -1 won the
+  // preference, then got discarded, and models.dev's real 2/M was never
+  // consulted. Two listings of one identity sit here because listingRank
+  // awards +10 for a priced row, so recovering the price also decides which
+  // listing represents the collapsed identity.
+  const { rows } = buildCatalog({
+    spec: { venomlab: { name: 'Venom Lab', models: { 'x-one': {
+      id: 'x-one', name: 'X One', cost: { input: 2, output: 3 },
+    } } } },
+    openrouter: { data: [
+      { id: 'venomlab/x-one', name: 'X One', pricing: { prompt: '-1', completion: '-1' } },
+      { id: 'host/x-one', name: 'X One' },
+    ] },
+    benchmarks: null, lmarena: null,
+  });
+  const merged = rows.filter((r) => r.id.replace(/^[^/]+\//, '') === 'x-one');
+  assert.equal(merged.length, 1, 'two listings of one identity collapse to one row');
+  const [row] = merged;
+  assert.equal(row.cost_in_per_m, 2, "the fallback source's price survives the sentinel");
+  assert.equal(row.cost_out_per_m, 3);
+  assert.equal(row.cost_kind, 'token', 'a real price reads as priced, not as free or unknown');
+  assert.equal(row.id, 'venomlab/x-one', 'the recovered price, not id order, decides the winner');
+});
+
 test('output_modalities is unioned across listings of one identity (§16.6)', () => {
   // Both listings stay text-capable on purpose: a row whose published output
   // list holds no `text` is dropped as proven non-text BEFORE collapseListings

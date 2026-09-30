@@ -1,5 +1,5 @@
 const test = require('node:test');
-const assert = require('node:assert');
+const assert = require('node:assert/strict');
 const U = require('../../src/catalog/util');
 
 test('asNumber: absent, empty and unparsable all stay null, never 0', () => {

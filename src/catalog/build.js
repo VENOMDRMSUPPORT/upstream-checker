@@ -444,9 +444,13 @@ function buildCatalog({ spec: specPayload, openrouter: orPayload, benchmarks: be
     const mdIn = md && md.cost ? asNumber(md.cost.input) : null;
     const mdOut = md && md.cost ? asNumber(md.cost.output) : null;
     const mdCache = md && md.cost ? asNumber(md.cost.cache_read) : null;
-    const inCost = usableNumber(orIn != null ? orIn : mdIn);
-    const outCost = usableNumber(orOut != null ? orOut : mdOut);
-    const cacheCost = usableNumber(orCache != null ? orCache : mdCache);
+    // Guard each source on its own: a negative OpenRouter price is the -1
+    // sentinel, not an answer, so the models.dev figure still surfaces.
+    // Preference is preserved — a usable OpenRouter price (a published 0
+    // included) always wins, and `conflicts` gains nothing from a gap.
+    const inCost = usableNumber(orIn) ?? usableNumber(mdIn);
+    const outCost = usableNumber(orOut) ?? usableNumber(mdOut);
+    const cacheCost = usableNumber(orCache) ?? usableNumber(mdCache);
     const inputMods = uniqueJoin([
       md && md.modalities && md.modalities.input,
       model.architecture && model.architecture.input_modalities,
