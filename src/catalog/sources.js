@@ -176,7 +176,7 @@ function createSources({ cacheDir, fetcher, readKey = () => '' }) {
 
   return {
     SOURCES, fetchOne, fetchAll, readCache, writeCache, writeCacheFailure,
-    rowCount, newestFetchedAt, hasPayload, cacheDir,
+    rowCount, newestFetchedAt, hasPayload, readKey, cacheDir,
   };
 }
 
