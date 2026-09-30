@@ -15,6 +15,10 @@ const { createRecorder } = require('./logs/recorder');
 const { createPriceBook, createProviderLookup } = require('./logs/lookups');
 const { purge, createPurgeScheduler } = require('./logs/retention');
 const { registerLogsIpc } = require('./logs/ipc');
+const { createFetcher, DEFAULT_TIMEOUT_MS } = require('./catalog/fetch');
+const { createSources } = require('./catalog/sources');
+const { createEngine } = require('./catalog/engine');
+const { createCatalogIpc } = require('./catalog/ipc');
 
 // --smoke-test only ever runs on an explicit scratch folder: refused here,
 // before the real data folder is resolved, moved or locked.
@@ -130,6 +134,46 @@ function stopLogs() {
 
 function showStartupError(message, detail) {
   dialog.showErrorBox('VENOM Router', `${message}\n\n${detail}`);
+}
+
+// ============================================
+// Model catalog engine — src/catalog
+// ============================================
+// The four upstream documents, the merged reference built from them and the five
+// catalog:* channels. Started after both databases and after their IPC: it writes
+// through repos.snapshots, so nothing here may run before venom.db is open.
+//
+// Boot reads the disk and nothing else. `loadCache()` is four `readFileSync` calls
+// under <userData>\catalog-cache, and there is no timer on this plane at all: the
+// first byte of upstream traffic is the owner clicking Sync sources (or a provider
+// page fetching its own models), never a window opening. That is why there is no
+// stopCatalog() to match — there is nothing running to stop, and will-quit is not
+// touched.
+let catalogEngine = null;
+
+function startCatalog({ repos, log }) {
+  const cacheDir = path.join(app.getPath('userData'), 'catalog-cache');
+  const fetcher = createFetcher({
+    // ONE fetcher for the whole app: its URL-keyed dedup Map is per instance, and a
+    // second one silently re-downloads the 4.9 MB models.dev document.
+    timeoutMs: Number(repos.settings.get('settings')?.fetchTimeoutMs) || DEFAULT_TIMEOUT_MS,
+  });
+  const sources = createSources({
+    cacheDir, fetcher,
+    // Read at the point of use, so a key saved in Settings needs no restart. The
+    // secret never leaves main: the renderer gets "key set" or "no OpenRouter key".
+    readKey: () => repos.secrets.reveal('openRouterApiKey') || '',
+  });
+  const engine = createEngine({ sources, log: (line) => log.info(line) });
+  try {
+    engine.loadCache();
+  } catch (err) {
+    // A cache that will not read is not a reason to stop the app: the sources
+    // re-fetch and rebuild. Unlike the database, which must stop it.
+    log.warn('catalog cache load failed, starting empty:', err.message);
+  }
+  createCatalogIpc({ ipcMain, repos, engine, log });
+  return engine;
 }
 
 async function startDatabase() {
@@ -522,6 +566,9 @@ app.whenReady().then(async () => {
       },
     });
     registerLogsIpc({ ipcMain, getState: () => ({ logs, error: logsError }), dialog, getWindow: () => mainWindow, log });
+    // After both databases and after their IPC, before the window: the catalog
+    // writes through repos.snapshots. Disk only at boot — see startCatalog above.
+    catalogEngine = startCatalog({ repos: store.repos, log });
     keyResolver = createKeyResolver({ providers: store.repos.providers, secrets: store.repos.secrets });
     initAutoUpdater();
     createWindow();

@@ -49,6 +49,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // sent only by the Clear and Reset buttons.
   readCatalog: () => ipcRenderer.invoke('read-catalog'),
   writeCatalog: (data, opts) => ipcRenderer.invoke('write-catalog', data, opts),
+  // Catalog engine (main owns the sources, the merge and the score). Rows travel
+  // as the adapter's own objects and come back scored; no key goes either way.
+  catalogIngest: (providerId, rows) => ipcRenderer.invoke('catalog:ingest', providerId, rows),
+  catalogRead: () => ipcRenderer.invoke('catalog:read'),
+  catalogHealth: (providerId, modelId, result) => ipcRenderer.invoke('catalog:health', providerId, modelId, result),
+  catalogSources: (query) => ipcRenderer.invoke('catalog:sources', query),
+  catalogFetchInfo: (providerId, modelId, rows) => ipcRenderer.invoke('catalog:fetch-info', providerId, modelId, rows),
   getDataPath: () => ipcRenderer.invoke('get-data-path'),
   openDataFolder: () => ipcRenderer.send('open-data-folder'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),

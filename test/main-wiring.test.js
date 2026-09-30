@@ -47,6 +47,30 @@ test('api-request goes through the requester and takes no logLevel', () => {
   assert.ok(src.includes('requester.cancel(requestId, reason)'));
 });
 
+test('the catalog starts after both databases and both IPC blocks, before the window', () => {
+  const ready = block('app.whenReady().then(async () => {');
+  const steps = ['registerDataIpc(', 'registerLogsIpc(', 'startCatalog(', 'createWindow()'];
+  const at = steps.map((s) => ready.indexOf(s));
+  at.forEach((i, n) => assert.ok(i >= 0, `${steps[n]} missing from whenReady`));
+  assert.deepStrictEqual([...at].sort((x, y) => x - y), at,
+    'catalog:* channels write through repos.snapshots, so they cannot be registered before the store');
+});
+
+// The owner's safety rule: opening a window must not download anything. Pinning
+// the source is the cheap half; scripts/live/boot-guard.cjs arms a throwing
+// fetch/net guard over a real boot of the app for the other half.
+test('starting the catalog reads the cache and never syncs, and no timer is registered on it', () => {
+  const boot = block('function startCatalog({ repos, log }) {', '\n}\n');
+  assert.ok(boot.includes('engine.loadCache()'), 'boot reads the four cached documents');
+  for (const networked of ['syncAll', 'fetchAll', 'fetchJson', 'setInterval', 'setTimeout']) {
+    assert.ok(!boot.includes(networked),
+      `startCatalog must not mention ${networked}(): nothing downloads because a window opened`);
+  }
+  const quit = block("app.on('will-quit', () => {");
+  assert.ok(!/catalog/i.test(quit),
+    'will-quit gains nothing for the catalog: it starts no timer and opens no handle, so the close handshake stays as it was');
+});
+
 test('src/logs and src/api-request never load electron', () => {
   ['settings', 'classify', 'scrub', 'writer', 'retention', 'query', 'lookups', 'recorder', 'ipc', 'index']
     .forEach((m) => require(`../src/logs/${m === 'index' ? '' : m}`));

@@ -42,16 +42,17 @@ function withTimeout(promise, ms, what) {
   ]);
 }
 
-export async function launch({ userDataDir, port = 9333 }) {
+export async function launch({ userDataDir, port = 9333, entry = '.', extraArgs = [] }) {
   assertScratchDir(userDataDir);
   const child = spawn(ELECTRON, [
-    '.',
+    entry,
     `--user-data-dir=${userDataDir}`,
     `--remote-debugging-port=${port}`,
     // Windows stops painting an occluded window, which stalls CDP calls.
     '--disable-features=CalculateNativeWinOcclusion',
     '--disable-backgrounding-occluded-windows',
     '--disable-renderer-backgrounding',
+    ...extraArgs,
   ], { cwd: ROOT, env: appEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
   let output = '';
   child.stdout.on('data', (d) => { output += d; });
