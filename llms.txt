@@ -1,0 +1,22 @@
+# VENOM Router
+
+> Windows desktop LLM router (Electron 33 + better-sqlite3, v2.0.0): connects
+> providers and keys, keeps a live model pool, measures models, and routes
+> through venom-lite / venom-pro / venom-max. Source is plain JavaScript, no
+> framework, no bundler. Everything on disk is written in English.
+
+## Start here
+
+- [AGENTS.md](AGENTS.md): entry point — read order, commands, where things are, non-negotiables
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): boot order, the two SQLite databases, the request lifecycle, all 38 IPC channels
+- [docs/CODE_MAP.md](docs/CODE_MAP.md): generated index of every file, plus line landmarks inside the long ones
+- [docs/COOKBOOK.md](docs/COOKBOOK.md): recipes for the common changes
+- [docs/AGENT_TASK_TEMPLATE.md](docs/AGENT_TASK_TEMPLATE.md): the card to fill in when delegating
+- [CLAUDE.md](CLAUDE.md): binding workflow rules for this checkout
+
+## Optional
+
+- [CHANGELOG.md](CHANGELOG.md): what shipped, per version
+- [README.md](README.md): user-facing feature list
+- [docs/superpowers/specs/](docs/superpowers/specs/): historical design specs
+- [docs/archive/INDEX-2026-09-27-phase2.md](docs/archive/INDEX-2026-09-27-phase2.md): the old phase tracker

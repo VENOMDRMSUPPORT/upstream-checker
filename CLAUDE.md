@@ -3,6 +3,11 @@
 Rules for anyone (human or agent) working in this repository. They exist
 because they were broken once and it cost the owner a day of confusion.
 
+> **New here?** Read [AGENTS.md](AGENTS.md) first, then
+> [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
+> [docs/CODE_MAP.md](docs/CODE_MAP.md). Those say what the project is and where
+> things are; the rules below are the ones you must not break.
+
 ## One checkout. Always this one.
 
 The owner works in **`C:\Users\venom\Desktop\UPSTREAM CHECKER`** and runs the

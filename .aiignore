@@ -1,0 +1,26 @@
+# Paths an agent should not read or pack into context: too large, generated,
+# vendored or binary. The canonical copy is .aiignore; .claudeignore mirrors it.
+#
+#   node_modules/            installed dependencies
+#   dist/                    built installers (170 MB)
+#   .kilo/                   a leftover worktree, a duplicate of the tree
+node_modules/
+dist/
+.kilo/
+assets-src/
+venomgpt-brand-pack.zip
+package-lock.json
+
+# Bundled fonts and images (binary, no read value)
+src/renderer/fonts/
+src/assets/
+src/renderer/data/leaderboard-snapshot.js
+
+# The historical design record. Read one plan on purpose, never scan the folder.
+docs/superpowers/plans/
+docs/superpowers/research/
+docs/index.html
+
+# Local databases, if a scratch run ever leaves one behind
+venom.db
+venom-logs.db
