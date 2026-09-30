@@ -96,6 +96,10 @@
           <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>
           <span>Models Catalog</span>
         </button>
+        <button class="shell-nav-item" type="button" data-page="database">
+          <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
+          <span>Database</span>
+        </button>
 
         <span class="shell-nav-group-label">Routing</span>
         <button class="shell-nav-item" type="button" data-page="profiles">
@@ -285,6 +289,38 @@
             </div>
           </div>
           <div class="pv-body" id="pv-body" role="tabpanel"></div>
+        </section>
+
+        <section class="shell-page page-database" data-page="database" hidden>
+          <div class="db-toolbar">
+            <nav class="crumbs" aria-label="Breadcrumb"><span class="crumb-current">Database</span></nav>
+            <div class="db-toolbar-actions">
+              <label class="db-select-label" for="db-source">Database</label>
+              <select id="db-source" class="prompt-input db-source">
+                <option value="app">venom.db</option>
+                <option value="logs">venom-logs.db</option>
+              </select>
+              <button class="btn btn-ghost" id="db-refresh" type="button">↻ <span>Refresh</span></button>
+            </div>
+          </div>
+          <div class="db-stats" id="db-stats" aria-live="polite"></div>
+          <div class="db-workspace">
+            <aside class="db-table-panel">
+              <div class="db-panel-title"><span>Tables</span><span class="db-total-pill" id="db-table-count">0</span></div>
+              <label class="db-filter-wrap"><span aria-hidden="true">⌕</span><input id="db-filter" type="search" placeholder="Filter tables…" autocomplete="off"></label>
+              <div class="db-table-list" id="db-table-list"></div>
+            </aside>
+            <section class="db-content-panel" aria-label="Database table details">
+              <div class="db-content-head" id="db-content-head"></div>
+              <div class="db-view-tabs" role="tablist" aria-label="Table view">
+                <button class="db-view-tab active" type="button" role="tab" aria-selected="true" data-db-view="browse">▦ Browse</button>
+                <button class="db-view-tab" type="button" role="tab" aria-selected="false" data-db-view="structure">▤ Structure</button>
+              </div>
+              <div class="db-grid-scroll" id="db-grid"></div>
+              <footer class="db-pager" id="db-pager"></footer>
+            </section>
+          </div>
+          <div class="db-notice" id="db-notice" role="status" hidden></div>
         </section>
 
         <section class="shell-page page-catalog" data-page="catalog" hidden>
@@ -1415,5 +1451,6 @@
   <script src="profiles.js"></script>
   <script src="logs-format.js"></script>
   <script src="logs.js"></script>
+  <script src="database.js"></script>
 </body>
 </html>

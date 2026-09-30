@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Saved data (venom.db, owned by main). Each call writes one thing.
   readConfig: () => ipcRenderer.invoke('read-config'),
+  databaseExplorer: (query) => ipcRenderer.invoke('database-explorer', query),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
   saveSecret: (name, value) => ipcRenderer.invoke('save-secret', name, value),
   saveTestDefinition: (test) => ipcRenderer.invoke('save-test-definition', test),

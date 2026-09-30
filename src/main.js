@@ -509,6 +509,7 @@ app.whenReady().then(async () => {
     registerDataIpc({
       ipcMain,
       repos: store.repos,
+      databases: { app: store.db, logs: logs && logs.db },
       clipboard,
       log,
       hooks: {

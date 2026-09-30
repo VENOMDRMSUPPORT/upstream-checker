@@ -439,13 +439,40 @@ async function checkNoRequestsLog({ dir }) {
   check('requests.log was not written', !existsSync(join(dir, 'requests.log')) && !existsSync(join(dir, 'requests.log.1')));
 }
 
+async function checkDatabasePage({ app }) {
+  const result = await app.evaluate(`(async () => {
+    document.querySelector('.shell-nav-item[data-page="database"]').click();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const page = document.querySelector('.page-database');
+    const rect = page.getBoundingClientRect();
+    const visible = !page.hidden && rect.width > 0 && rect.height > 0 && rect.left >= 0 && rect.top >= 0;
+    const tables = [...document.querySelectorAll('[data-db-table]')].map((button) => button.dataset.dbTable);
+    const providerButton = document.querySelector('[data-db-table="provider_keys"]');
+    if (providerButton) providerButton.click();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const hasRedaction = document.querySelector('#db-grid').textContent.includes('[redacted]');
+    document.querySelector('[data-db-view="structure"]').click();
+    const structure = document.querySelector('#db-grid').textContent;
+    document.querySelector('#db-source').value = 'logs';
+    document.querySelector('#db-source').dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const logTables = [...document.querySelectorAll('[data-db-table]')].map((button) => button.dataset.dbTable);
+    return { visible, tables, hasRedaction, structure, logTables, title: document.querySelector('#shell-page-title').textContent };
+  })()`);
+  check('Database page is visibly on screen', result.visible, JSON.stringify(result));
+  check('Database page loads the main database tables', result.tables.includes('provider_keys') && result.title === 'Database', result.tables.join(', '));
+  check('sensitive key fields render as redacted', result.hasRedaction);
+  check('Structure view shows SQL column metadata', result.structure.includes('Column') && result.structure.includes('VISIBLE'));
+  check('database switch loads the request-log schema', result.logTables.includes('request_logs'), result.logTables.join(', '));
+}
+
 const RUN1 = [checkImport, checkKeysStayInMain];
 const RUN1_END = [saveForNextRun, logRightBeforeClose, queueSaveThenClose];
 const RUN2 = [
   checkPersistence, checkFlushOnClose, checkQueuedRowSurvivedQuit, checkSingleInstance,
   checkLoggingOn, checkRouteTestLogged, checkFailedBodyScrubbed, checkNoRequestsLog,
   // The pages read what the checks above just wrote, so they run after them.
-  checkRunsPage, checkRequestsPageAndDrawer, checkMonitoringPage, checkRetentionSettings,
+  checkRunsPage, checkRequestsPageAndDrawer, checkMonitoringPage, checkRetentionSettings, checkDatabasePage,
 ];
 const RUN2_END = [checkWriteGate];
 

@@ -2,17 +2,18 @@
 
 > GENERATED FILE — do not edit by hand. Regenerate with: npm run repo:map
 
-84 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
+88 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
 
 The architecture behind these files — boot order, IPC channels, the two databases, the request lifecycle — is in [ARCHITECTURE.md](ARCHITECTURE.md). Task recipes are in [COOKBOOK.md](COOKBOOK.md).
 
 ## IPC channels
 
-38 channels, in registration order. invoke/handle answers a promise; send/on is fire-and-forget. The renderer reaches them through window.electronAPI (src/preload.js).
+39 channels, in registration order. invoke/handle answers a promise; send/on is fire-and-forget. The renderer reaches them through window.electronAPI (src/preload.js).
 
 | Channel | Registered in |
 | --- | --- |
 | `read-config` | src/db/ipc.js |
+| `database-explorer` | src/db/ipc.js |
 | `save-settings` | src/db/ipc.js |
 | `save-secret` | src/db/ipc.js |
 | `save-test-definition` | src/db/ipc.js |
@@ -55,7 +56,7 @@ The architecture behind these files — boot order, IPC channels, the two databa
 
 Files of 700+ lines, with the section banners inside them. Open the window you need — do not read one of these whole. Line numbers are 1-based.
 
-### src/renderer/app.js — 5930 lines
+### src/renderer/app.js — 5932 lines
 
 | Line | Section |
 | --- | --- |
@@ -87,15 +88,15 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 3845 | Init |
 | 3848 | Scheduled re-testing |
 | 3881 | Settings panel |
-| 4387 | Sidebar ambience — moving stars and the signature heart |
-| 4641 | Breadcrumb — shared helper |
-| 4671 | Providers page |
-| 5006 | Provider types — legend and markers |
-| 5081 | Providers page — key management panel (table rows and cards) |
-| 5101 | Action feedback — Recheck and key Test |
-| 5533 | Stat cards — shared |
-| 5550 | Data toolbar — shared |
-| 5613 | Providers page — Connected view |
+| 4389 | Sidebar ambience — moving stars and the signature heart |
+| 4643 | Breadcrumb — shared helper |
+| 4673 | Providers page |
+| 5008 | Provider types — legend and markers |
+| 5083 | Providers page — key management panel (table rows and cards) |
+| 5103 | Action feedback — Recheck and key Test |
+| 5535 | Stat cards — shared |
+| 5552 | Data toolbar — shared |
+| 5615 | Providers page — Connected view |
 
 ### src/renderer/benchmark.js — 984 lines
 
@@ -115,40 +116,41 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | --- | --- |
 | 2 | Log pages — Runs, Requests and Monitoring |
 
-### src/renderer/index.html — 1420 lines
+### src/renderer/index.html — 1457 lines
 
 | Line | Section |
 | --- | --- |
-| 227 | page: overview |
-| 269 | page: providers |
-| 290 | page: catalog |
-| 298 | page: profiles |
-| 308 | page: provider |
-| 421 | page: history |
-| 430 | page: monitor |
-| 438 | page: settings |
-| 456 | settings: sec-appearance |
-| 460 | settings: sec-test |
-| 464 | settings: sec-schedule |
-| 468 | settings: sec-speed |
-| 472 | settings: sec-reliability |
-| 476 | settings: sec-catalog |
-| 480 | settings: sec-history |
-| 484 | settings: sec-logs |
-| 488 | settings: sec-data |
-| 492 | settings: sec-about |
-| 1195 | overlay: response-modal |
-| 1215 | overlay: add-key-modal |
-| 1246 | overlay: add-provider-modal |
-| 1281 | overlay: update-modal |
-| 1298 | overlay: update-modal-notes |
-| 1340 | overlay: log-drawer |
-| 1341 | overlay: log-drawer-scrim |
-| 1347 | overlay: log-drawer-body |
-| 1351 | overlay: ku-drawer |
-| 1369 | overlay: mc-chat-drawer |
+| 231 | page: overview |
+| 273 | page: providers |
+| 294 | page: database |
+| 326 | page: catalog |
+| 334 | page: profiles |
+| 344 | page: provider |
+| 457 | page: history |
+| 466 | page: monitor |
+| 474 | page: settings |
+| 492 | settings: sec-appearance |
+| 496 | settings: sec-test |
+| 500 | settings: sec-schedule |
+| 504 | settings: sec-speed |
+| 508 | settings: sec-reliability |
+| 512 | settings: sec-catalog |
+| 516 | settings: sec-history |
+| 520 | settings: sec-logs |
+| 524 | settings: sec-data |
+| 528 | settings: sec-about |
+| 1231 | overlay: response-modal |
+| 1251 | overlay: add-key-modal |
+| 1282 | overlay: add-provider-modal |
+| 1317 | overlay: update-modal |
+| 1334 | overlay: update-modal-notes |
+| 1376 | overlay: log-drawer |
+| 1377 | overlay: log-drawer-scrim |
+| 1383 | overlay: log-drawer-body |
+| 1387 | overlay: ku-drawer |
+| 1405 | overlay: mc-chat-drawer |
 
-### src/renderer/styles.css — 8112 lines
+### src/renderer/styles.css — 8171 lines
 
 | Line | Section |
 | --- | --- |
@@ -191,6 +193,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 7471 | Model chat drawer — a full-height panel sliding in from the right, |
 | 7849 | Log pages — Runs, Requests, Monitoring |
 | 8048 | Monitoring Page |
+| 8114 | Database explorer — compact SQLite workbench |
 
 ### scripts/
 
@@ -210,7 +213,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `cdp.mjs` | 147 | Launches a separate VENOM Router on a scratch data folder with remote | require, ROOT, sleep, assertScratchDir, appEnv, withTimeout, launch, spawnPlain |
 | `fixture.mjs` | 111 | Synthetic legacy data folder for the live checks: config.json, catalog.json | FIXTURE, writeFixture |
 | `mock-provider.mjs` | 53 | A local stand-in for the fixture's providers: OpenAI-shaped /models and | startMock |
-| `verify-db.mjs` | 494 | Live check of the local database against a synthetic data folder. | failures, check, sleep, until, READY, checkImport, checkKeysStayInMain, saveForNextRun, queueSaveThenClose, checkFlushOnClose, checkPersistence, checkSingleInstance, +19 more |
+| `verify-db.mjs` | 521 | Live check of the local database against a synthetic data folder. | failures, check, sleep, until, READY, checkImport, checkKeysStayInMain, saveForNextRun, queueSaveThenClose, checkFlushOnClose, checkPersistence, checkSingleInstance, +20 more |
 
 ### src/
 
@@ -219,8 +222,8 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `api-request.js` | 226 | api-request — every outbound request the renderer asks for | CONTENT_TOKEN, CANCEL_REASONS, CUT_OFF, createApiRequester |
 | `flush.js` | 38 | Close handshake with the renderer | DEFAULT_FLUSH_TIMEOUT_MS, requestFlush |
 | `keystore.js` | 74 | API keys at rest | decryptKeyEntry, encryptKeyEntry, eachStoredKey, countPlaintextKeys |
-| `main.js` | 682 | Main process: data folder, boot order, IPC wiring, auto-updater | isPrimary, store, importReport, keyResolver, logs, logsError, recorder, priceBook, purgeScheduler, logSettings, startLogs, stopLogs, +18 more |
-| `preload.js` | 95 | contextBridge surface — the renderer's only door to main | minimize, maximize, close, setWindowIcon, apiRequest, cancelApiRequest, onAppVersion, onDevReloadCss, onFlushPending, flushDone, readConfig, saveSettings, +36 more |
+| `main.js` | 683 | Main process: data folder, boot order, IPC wiring, auto-updater | isPrimary, store, importReport, keyResolver, logs, logsError, recorder, priceBook, purgeScheduler, logSettings, startLogs, stopLogs, +18 more |
+| `preload.js` | 96 | contextBridge surface — the renderer's only door to main | minimize, maximize, close, setWindowIcon, apiRequest, cancelApiRequest, onAppVersion, onDevReloadCss, onFlushPending, flushDone, readConfig, databaseExplorer, +37 more |
 | `user-data.js` | 29 | Where the app keeps its data. Electron names the userData folder after the | LEGACY_DIR, CURRENT_DIR, resolveUserDataDir |
 
 ### src/db/
@@ -228,9 +231,10 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
 | `cipher.js` | 49 | Secrets at rest — the enc:v1: envelope | ENC_PREFIX, isEnvelope, createCipher, revealCached |
+| `explorer.js` | 53 | Read-only, bounded database inspection. Identifiers are taken only from | MAX_LIMIT, REDACTED_COLUMN, quoteIdentifier, inspectDatabase |
 | `import-json.js` | 419 | One-shot import of the legacy JSON files | FILES, READ_ATTEMPTS, READ_GAP_MS, ImportAbort, isObject, renamedAs, plural, listImportedFiles, readWithRetry, parse, normaliseConfig, normaliseCatalog, +5 more |
 | `index.js` | 156 | Local database — venom.db | DB_FILE, BACKUPS_KEPT, DbTooNewError, applyPragmas, latestVersion, backupBeforeMigrate, migrate, getMeta, setMeta, createRepos, close, open |
-| `ipc.js` | 82 | Data IPC — the renderer's only way to the database | readConfig, registerDataIpc |
+| `ipc.js` | 92 | Data IPC — the renderer's only way to the database | readConfig, registerDataIpc |
 | `keys.js` | 161 | Placeholders → secrets, for outgoing requests | TOKEN, HAS_TOKEN, originOf, collector, createKeyResolver |
 | `migrations.js` | 133 | Schema migrations |  |
 | `ulid.js` | 23 | ULID: 48-bit millisecond time + 80 random bits in Crockford base32. Sorts by | ALPHABET, ulid |
@@ -265,17 +269,18 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
-| `app.js` | 5930 | VENOM ROUTER — Application Logic v2 | DEFAULT_TEST_PROMPT, DEFAULT_EXPECTED, testPrompt, expectedAnswer, NA, RESPONSE_PREVIEW, truthy, KIND_LABELS, kindLimits, classifyModel, isMedia, isDecision, +384 more |
+| `app.js` | 5932 | VENOM ROUTER — Application Logic v2 | DEFAULT_TEST_PROMPT, DEFAULT_EXPECTED, testPrompt, expectedAnswer, NA, RESPONSE_PREVIEW, truthy, KIND_LABELS, kindLimits, classifyModel, isMedia, isDecision, +384 more |
 | `benchmark.js` | 984 | Model benchmark — quick, cheap, deterministic | SUITE_VERSION, cleanReply, lastLine, lines, gradeNumber, gradeWord, exp, alts, gradeRegexSolution, gradeJson, gradeExact, norm, +125 more |
 | `catalog.js` | 1621 | Models Catalog — live model inventory + benchmark leaderboard | REMOVED_KEEP_MS, LEADERBOARD_TTL_MS, HISTORY_CAP, state, chat, ui, keyOf, loadPromise, load, saveTimer, saveReset, save, +211 more |
+| `database.js` | 105 | Read-only SQLite explorer. All SQL, identifier checks, and redaction happen | PAGE_SIZE, state, byId, escape, number, setNotice, box, renderStats, renderTables, query, visible, renderHead, +10 more |
 | `key-usage.js` | 539 | Key usage — quota, expiry and request history per API key | KEY_USAGE |
 | `logs-format.js` | 132 | Log pages — pure formatting and mapping | LOGS_RANGES, logEscape, normalizeProvider, providerLabel, formatDuration, formatCost, formatTokens, logPad, formatWhen, statusTone, passRateText, rangePreset, +1 more |
 | `logs.js` | 934 | Log pages — Runs, Requests and Monitoring | state, el, REDUCED_MOTION, drawerOpener, closeTimer, tabFromRoute, parts, loadInfo, emptyState, loggingOffMarkup, why, render, +106 more |
 | `profiles.js` | 670 | Routing profiles — three exits in front of the whole model pool | PROFILE_IDS, DEFAULT_POLICY, state, policy, saved, mergePolicy, out, savePolicy, resetPolicy, blendedPrice, factsOf, ownIQ, +72 more |
 | `ui-select.js` | 217 | Design system — select menu | CHEVRON, CHECK, valueDesc, indexDesc, menu, owner, active, labelOf, opt, sync, trigger, enhance, +17 more |
 | `ulid.js` | 22 | Run ids — ULID, the same format as src/db/ulid.js | newUlid |
-| `index.html` | 1420 | App shell markup: nav, every page, the drawers and modals |  |
-| `styles.css` | 8112 | The whole stylesheet: tokens, themes, accents, components |  |
+| `index.html` | 1457 | App shell markup: nav, every page, the drawers and modals |  |
+| `styles.css` | 8171 | The whole stylesheet: tokens, themes, accents, components |  |
 
 ### src/renderer/providers/
 
@@ -299,6 +304,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `helpers.js` | 155 | Shared test helpers. Nothing here touches the real app data folder: stores |  |
 | `main-wiring.test.js` | 57 | main.js needs Electron and can't be loaded under the test runner, so its | the startup-failure path closes the log database too, requests.log is no longer written; showing and clearing it still work, api-request goes through the requester and takes no logLevel, src/logs and src/api-request never load electron |
 | `renderer-ulid.test.js` | 28 | ulid.js is a plain browser script that declares a global function; it is | the history repository keeps a run id the renderer made |
+| `repo-map.test.js` | 49 | docs/CODE_MAP.md is generated, and a stale one sends the next reader to the | the code map on disk is what the generator would write right now, a stale map is refused with exit 1 and the command that fixes it |
 | `user-data.test.js` | 62 |  | fresh install uses the new folder and renames nothing, legacy only is moved to the new folder, both exist: the new folder wins and legacy is untouched, two first launches racing: the loser follows the folder the winner moved, locked legacy (old version running) keeps using the legacy folder |
 
 ### test/db/
@@ -307,6 +313,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | --- | --- | --- | --- |
 | `catalog.test.js` | 148 |  | a catalogue round-trips deep-equal, unknown entry fields are kept under summary_json.extra, absent benchError/capsError read back as null; absent caps stays absent, keyIds keep their order, unchanged rows are not rewritten, before or after a read, an empty model set never replaces a non-empty one without reset |
 | `cipher.test.js` | 54 |  | encrypt wraps in the enc:v1: envelope and decrypt opens it, encrypt refuses when OS encryption is unavailable (never plaintext), encrypt refuses an empty value, decrypt refuses a value without the envelope, decrypt of a value encrypted elsewhere throws, isEnvelope needs the prefix and a payload |
+| `explorer.test.js` | 37 |  |  |
 | `history.test.js` | 112 |  | append and read round-trip today\, runs come back in insertion order, not by time, append trims to the cap, results of trimmed runs go too, historyCap clamps to 5000 and falls back to 300, clear empties runs and results, a malformed run is refused and nothing is written |
 | `import-json.test.js` | 479 |  | imports every file in one go and renames them, an I/O error that clears on a retry imports normally, malformed catalogue entries and history rows are skipped and counted, a plaintext legacy key is encrypted on the way in, a legacy custom provider is imported as stored, flagged custom, keys without an id, with a duplicate id or an unusable id get fresh ids |
 | `ipc.test.js` | 177 |  | registers exactly the data channels, read-config on an empty database, read-config hands out placeholders and hints, never keys, no reply hands a secret to the renderer, copy-key writes the clipboard in main and refuses a key it cannot read, save-secret answers with the placeholder, or empty after a delete |

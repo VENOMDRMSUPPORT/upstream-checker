@@ -4286,7 +4286,7 @@ $('#btn-reset-settings').addEventListener('click', () => {
 
 // App shell. Bound before init() so the nav responds while providers and
 // history are still loading.
-const PAGES = ['overview', 'providers', 'provider', 'catalog', 'profiles', 'history', 'monitor', 'settings'];
+const PAGES = ['overview', 'providers', 'provider', 'catalog', 'database', 'profiles', 'history', 'monitor', 'settings'];
 let currentPage = 'overview';
 
 // Routes live in the URL hash (the page is loaded from file://, so real paths
@@ -4328,6 +4328,7 @@ const PAGE_META = {
   overview: { title: 'Overview', desc: 'Routing health — providers, models and test activity at a glance.' },
   providers: { title: 'Providers', desc: 'Connect providers and manage their keys and accounts.' },
   catalog: { title: 'Models Catalog', desc: 'Every model your connected providers offer — the pool the router draws from, benchmarked and ranked.' },
+  database: { title: 'Database', desc: 'Read-only explorer for the local app and request databases.' },
   profiles: { title: 'Routing Profiles', desc: 'Three virtual models — Lite, Pro, Max — that route each request to the best model in the pool.' },
   history: { title: 'Test History', desc: 'Every request this app has sent, and the runs they belong to.' },
   monitor: { title: 'Monitoring', desc: 'Requests, errors, latency and cost over time.' },
@@ -4367,6 +4368,7 @@ function showPage(page) {
   if (page === 'provider') renderProviderHead();
   if (page === 'overview') renderQuickStats();
   if (page === 'catalog' && window.CATALOG) window.CATALOG.render();
+  if (page === 'database' && window.DATABASE) window.DATABASE.render();
   if (page === 'profiles' && window.PROFILES) window.PROFILES.render();
   if (page === 'history' && window.LOGS) window.LOGS.render();
   if (page === 'monitor' && window.LOGS) window.LOGS.renderMonitor();

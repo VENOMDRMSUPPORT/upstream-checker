@@ -28,7 +28,7 @@ const nara = (keys) => ({ id: 'nara', name: 'NaraRouter', baseUrl: 'https://rout
 test('registers exactly the data channels', async (t) => {
   const { ipc } = await setup(t);
   assert.deepStrictEqual(ipc.channels(), [
-    'append-run', 'clear-history', 'copy-key', 'delete-provider', 'merge-provider', 'read-catalog', 'read-config',
+    'append-run', 'clear-history', 'copy-key', 'database-explorer', 'delete-provider', 'merge-provider', 'read-catalog', 'read-config',
     'read-history', 'save-provider', 'save-secret', 'save-settings', 'save-test-definition', 'write-catalog',
   ]);
 });

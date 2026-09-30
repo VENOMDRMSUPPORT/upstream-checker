@@ -7,6 +7,8 @@
 //
 // No reply ever carries a secret: keys go out as venomkey:<id> placeholders
 // with a masked hint, the Artificial Analysis key as venomsecret:aaApiKey.
+const { inspectDatabase } = require('./explorer');
+
 function readConfig(repos) {
   const data = { version: 1, providers: repos.providers.list() };
   const settings = repos.settings.get('settings');
@@ -19,7 +21,7 @@ function readConfig(repos) {
   return data;
 }
 
-function registerDataIpc({ ipcMain, repos, clipboard, log = console, hooks = {} }) {
+function registerDataIpc({ ipcMain, repos, clipboard, log = console, hooks = {}, databases = {} }) {
   // Main-side caches that follow the saved data (the request log's body
   // setting and retention limits, its price cache). The save itself already
   // succeeded, so a hook that fails is logged, not thrown.
@@ -44,6 +46,14 @@ function registerDataIpc({ ipcMain, repos, clipboard, log = console, hooks = {} 
   };
 
   handle('read-config', () => readConfig(repos));
+  handle('database-explorer', (query = {}) => {
+    const database = query && query.database;
+    if (database !== 'app' && database !== 'logs') throw new TypeError('Unknown database');
+    const db = databases[database];
+    if (!db || !db.open) throw new Error(`${database} database is unavailable`);
+    const table = query.table == null || query.table === '' ? null : String(query.table);
+    return inspectDatabase(db, database, table, query.limit, query.offset);
+  });
   handle('save-settings', (settings) => {
     const merged = repos.settings.saveSettings(settings);
     notify('onSettingsSaved', merged);
