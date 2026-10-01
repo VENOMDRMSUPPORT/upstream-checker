@@ -275,6 +275,17 @@ function createCatalogIpc({ ipcMain, repos, engine, log = console }) {
           message: `${providerId} has not been synced yet.` });
         continue;
       }
+      // The row is the page's only address for itself: every render, filter, sort
+      // and button lookup reads PROVIDERS[row.providerId], and the page composes
+      // its `${providerId}::${id}` key from it. The providers[] array names the
+      // provider too, but a merged row that does not carry its own is a row the
+      // page cannot place, colour, or act on.
+      rows.forEach((row) => { row.providerId = providerId; });
+      // The stored health verdict rides on the read row: health_json lives in
+      // roster_snapshot and is otherwise write-only, so without this the page's
+      // Health badge and latency p50 are blank after every restart (spec §5 "read
+      // as { p50, samples }"). One repo call per row, keyed like setHealth.
+      rows.forEach((row) => { row.health = repos.snapshots.getHealth(providerId, row.id); });
       const lastSync = snapshot.lastSync || null;
       const stale = Boolean(lastSync && lastSync.ok === false);
       if (snapshot.fetchedAt != null && (oldest === null || snapshot.fetchedAt < oldest)) {

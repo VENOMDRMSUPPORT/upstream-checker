@@ -250,7 +250,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `build.js` | 624 | The scoring catalog: merges the four upstream sources into one row per model | IMAGE_SLUG_RE, deriveCostKind, deriveCreateImages, usableNumber, pickNumber, indexModelsDev, indexOpenRouterModels, emptyBench, BENCH_VALUES, isBetter, rememberBench, indexBenchmarks, +10 more |
 | `engine.js` | 277 | Owns the in-memory copy of the four sources and the reference built from them, | SOURCE_SYNC_MIN_AGE_MS, emptySource, createEngine |
 | `fetch.js` | 78 | The one JSON fetch helper for every upstream call the catalog makes. Sends | DEFAULT_TIMEOUT_MS, RETRY_DELAY_MS, DEFAULT_CACHE_TTL_MS, friendlyMessage, createFetcher |
-| `ipc.js` | 397 | src/catalog/ipc.js | LATENCY_SAMPLES_KEPT, DATA_CODES, catalogError, COMPARE_FIELDS, same, diffRow, publishedOnly, readHealth, appendLatency, withAliases, createCatalogIpc |
+| `ipc.js` | 408 | src/catalog/ipc.js | LATENCY_SAMPLES_KEPT, DATA_CODES, catalogError, COMPARE_FIELDS, same, diffRow, publishedOnly, readHealth, appendLatency, withAliases, createCatalogIpc |
 | `keys.js` | 237 | Model-name normalization. The same model shows up under different names in | MATCH_AMBIGUOUS, LAB_PROVIDERS, PRICING_MODIFIERS, QUALITY_MODIFIERS, BUILD_SUFFIX_RE, PARAM_SIZE_RE, QUANT_TOKENS, cleanModelId, modelSlug, identityKey, normalizeName, slugTokens, +11 more |
 | `row.js` | 263 | One adapter's model object → the shared provider row the reference merge | ROW_FIELDS, firstNumber, positive, pick, dedupe, LAB_TOKENS, labTokenOf, familyOf, costKind, readPricing, readsTools, readsReasoning, +5 more |
 | `scoring.js` | 439 | Score estimation, dense ranking, and the lookup that gives provider rows their | MIN_FIT_SAMPLES, MIN_FIT_R2, SPEC_AGE_CAP_MONTHS, scoreQuality, fitLinear, solveLinear, specFeatures, fitSpec, assignScores, assignDenseRank, preferredListing, putMatch, +9 more |
@@ -268,7 +268,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `index.js` | 158 | Local database — venom.db | DB_FILE, BACKUPS_KEPT, DbTooNewError, applyPragmas, latestVersion, backupBeforeMigrate, migrate, getMeta, setMeta, createRepos, close, open |
 | `ipc.js` | 92 | Data IPC — the renderer's only way to the database | readConfig, registerDataIpc |
 | `keys.js` | 161 | Placeholders → secrets, for outgoing requests | TOKEN, HAS_TOKEN, originOf, collector, createKeyResolver |
-| `migrations.js` | 174 | Schema migrations |  |
+| `migrations.js` | 201 | Schema migrations |  |
 | `ulid.js` | 23 | ULID: 48-bit millisecond time + 80 random bits in Crockford base32. Sorts by | ALPHABET, ulid |
 
 ### src/db/repos/
