@@ -64,7 +64,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 631 | API requests (src/api-request.js) |
 | 653 | Old request log file (requests.log) |
 
-### src/renderer/app.js — 6026 lines
+### src/renderer/app.js — 6127 lines
 
 | Line | Section |
 | --- | --- |
@@ -80,31 +80,31 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 836 | Provider health — a silent background probe of each provider's key |
 | 1106 | API Keys management |
 | 1278 | Fetch models from provider — only models for the key's plan |
-| 1497 | Render the models list |
-| 1658 | Test reliability settings |
-| 1801 | Keys and pacing |
-| 2015 | Testers — one request, judged by the model's kind |
-| 2509 | Test a single model — adaptive hedge, handles reasoning, empty, rate limits |
-| 2680 | Test all selected models |
-| 2884 | Results table |
-| 3219 | Full response modal |
-| 3267 | Stats & status |
-| 3327 | Export |
-| 3395 | Update handling |
-| 3659 | Add Key modal |
-| 3767 | Edit Provider modal |
-| 3842 | Init |
-| 3845 | Scheduled re-testing |
-| 3878 | Settings panel |
-| 4479 | Sidebar ambience — moving stars and the signature heart |
-| 4733 | Breadcrumb — shared helper |
-| 4763 | Providers page |
-| 5101 | Provider types — legend and markers |
-| 5176 | Providers page — key management panel (table rows and cards) |
-| 5196 | Action feedback — Recheck and key Test |
-| 5630 | Stat cards — shared |
-| 5647 | Data toolbar — shared |
-| 5710 | Providers page — Connected view |
+| 1563 | Render the models list |
+| 1724 | Test reliability settings |
+| 1867 | Keys and pacing |
+| 2081 | Testers — one request, judged by the model's kind |
+| 2575 | Test a single model — adaptive hedge, handles reasoning, empty, rate limits |
+| 2746 | Test all selected models |
+| 2985 | Results table |
+| 3320 | Full response modal |
+| 3368 | Stats & status |
+| 3428 | Export |
+| 3496 | Update handling |
+| 3760 | Add Key modal |
+| 3868 | Edit Provider modal |
+| 3943 | Init |
+| 3946 | Scheduled re-testing |
+| 3979 | Settings panel |
+| 4580 | Sidebar ambience — moving stars and the signature heart |
+| 4834 | Breadcrumb — shared helper |
+| 4864 | Providers page |
+| 5202 | Provider types — legend and markers |
+| 5277 | Providers page — key management panel (table rows and cards) |
+| 5297 | Action feedback — Recheck and key Test |
+| 5731 | Stat cards — shared |
+| 5748 | Data toolbar — shared |
+| 5811 | Providers page — Connected view |
 
 ### src/renderer/catalog.js — 1276 lines
 
@@ -291,7 +291,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
-| `app.js` | 6026 | VENOM ROUTER — Application Logic v2 | DEFAULT_TEST_PROMPT, DEFAULT_EXPECTED, testPrompt, expectedAnswer, NA, RESPONSE_PREVIEW, truthy, KIND_LABELS, kindLimits, classifyModel, isMedia, isDecision, +389 more |
+| `app.js` | 6127 | VENOM ROUTER — Application Logic v2 | DEFAULT_TEST_PROMPT, DEFAULT_EXPECTED, testPrompt, expectedAnswer, NA, RESPONSE_PREVIEW, truthy, KIND_LABELS, kindLimits, classifyModel, isMedia, isDecision, +392 more |
 | `catalog.js` | 1276 | Models Catalog — the merged reference, scored | state, chat, ui, keyOf, connectedIds, loadPromise, load, applyRead, flush, entriesOf, keyModels, providerModelCount, +157 more |
 | `database.js` | 105 | Read-only SQLite explorer. All SQL, identifier checks, and redaction happen | PAGE_SIZE, state, byId, escape, number, setNotice, box, renderStats, renderTables, query, visible, renderHead, +10 more |
 | `key-usage.js` | 539 | Key usage — quota, expiry and request history per API key | KEY_USAGE |

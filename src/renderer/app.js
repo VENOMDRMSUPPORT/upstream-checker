@@ -1400,15 +1400,29 @@ $('#btn-fetch-models').addEventListener('click', async () => {
 
     renderModelsList();
 
+    // Fetch and catalog are one step (spec section 6): the roster that was just
+    // read is the roster main stores, so the Models page's rows, scores and
+    // ranks come from the same pass the list below is drawn from — not from a
+    // document this app no longer has.
+    let catalogNote = '';
+    try {
+      await ingestProviderRoster();
+      catalogNote = ' · catalog updated';
+    } catch (err) {
+      // The list is still worth showing: the fetch succeeded and the refusal is
+      // about the catalog's bookkeeping, not about what the provider lists.
+      catalogNote = ` · catalog not updated: ${err.message}`;
+    }
+
     const keyNote = activeKeys.length > 1 ? ` across ${activeKeys.length} keys` : '';
     if (p.plansUrl) {
       const freeCount = models.filter((m) => m.isFree).length;
       const freeForPaidCount = models.filter((m) => m.isFreeForPaid).length;
-      setStatus('done', `Fetched ${models.length} models${keyNote} (${freeCount} free + ${freeForPaidCount} free for paid)`);
+      setStatus('done', `Fetched ${models.length} models${keyNote} (${freeCount} free + ${freeForPaidCount} free for paid)${catalogNote}`);
     } else if (failures.length) {
-      setStatus('error', `Fetched ${models.length} models${keyNote} — ${failures.join('; ')}`);
+      setStatus('error', `Fetched ${models.length} models${keyNote} — ${failures.join('; ')}${catalogNote}`);
     } else {
-      setStatus('done', `Fetched ${models.length} models${keyNote}`);
+      setStatus('done', `Fetched ${models.length} models${keyNote}${catalogNote}`);
     }
     updateStats();
   } catch (err) {
@@ -1419,6 +1433,58 @@ $('#btn-fetch-models').addEventListener('click', async () => {
     btn.innerHTML = originalText;
   }
 });
+
+// Hand the fetched roster to main and take back what it stored. The adapter
+// objects go as they are — main maps them through src/catalog/row.js, and the
+// aliases an adapter declares are the only way some rows reach the reference at
+// all, so pre-mapping here would throw them away.
+//
+// `ingest` is the only writer of a provider's roster, and it is one flight per
+// provider: the timer, a Fetch models click and a fetch-information click that
+// overlap cost one upstream read and one write, not three.
+//
+// Its refusals arrive as `{ ok: false, code }` rather than as a rejection, so
+// the verdict is read off the reply and never from a catch.
+async function ingestProviderRoster() {
+  const p = PROVIDERS[activeProvider];
+  if (!p) throw new Error('No provider selected');
+  const reply = await window.electronAPI.catalogIngest(p.id, p.models || []);
+  if (reply && reply.ok === false) {
+    throw new Error(catalogIngestFailure(reply));
+  }
+  if (reply && reply.rows && reply.rows.length) {
+    // The Models page reads its own rows from catalog:read, so this only has to
+    // say what moved — the answer is a status line, not a redraw of a list this
+    // page does not own. `moved` is the edge, not the windows: `added` counts
+    // everything new inside seven days, which would repeat on every click.
+    const moved = (reply.changes && reply.changes.moved) || { appeared: 0, disappeared: 0 };
+    const bits = [];
+    if (moved.appeared) bits.push(`${moved.appeared} new`);
+    if (moved.disappeared) bits.push(`${moved.disappeared} removed`);
+    const scored = reply.rows.filter((r) => r.score != null).length;
+    const detail = bits.length ? ` — ${bits.join(' · ')}` : '';
+    setStatus('done', `Catalog updated: ${reply.rows.length} models, ${scored} scored${detail}`);
+    if (reply.warning) setStatus('warn', reply.warning);
+  }
+  return reply;
+}
+
+// A code's own words, as the owner should read them. SYNC_IN_PROGRESS is not a
+// failure they caused: the same provider is already being ingested, and saying
+// so is the difference between a refusal and a button that appears to do
+// nothing. Every catalog:* channel resolves, so this reads the reply and never
+// catches.
+const CATALOG_INGEST_CODES = {
+  INVALID_PROVIDER_PAYLOAD: 'The provider answered with a model list this app cannot read, so nothing was changed.',
+  NOT_FOUND: 'That provider is no longer in the database, so nothing was fetched.',
+  SUSPICIOUS_PROVIDER_DROP: 'The model count dropped sharply and is being held until it repeats — the last good list is still shown.',
+  SYNC_IN_PROGRESS: 'That provider is already being re-read; try again in a moment.',
+};
+
+function catalogIngestFailure(reply) {
+  return CATALOG_INGEST_CODES[reply.code]
+    || `The catalog refused this roster (${reply.code || 'no code given'})${reply.message ? `: ${reply.message}` : ''}`;
+}
 
 // A router often exposes the same upstream model twice: once bare and once under
 // a tier prefix ("deepseek-v4.1-flash" and "dark-free/deepseek-v4.1-flash"). They
@@ -2682,12 +2748,22 @@ function buildEmptyResult(usage, elapsed) {
 const RUNNING_RESULT = { status: 'running', time: null, tokens: null, response: '' };
 const QUEUED_RESULT = { status: 'queued', time: null, tokens: null, response: '' };
 
-// The one button is Test while idle and Stop while a run is going.
-$('#btn-test-all').addEventListener('click', () => {
+// The one button is Test while idle and Stop while a run is going. Testing
+// starts by fetching: the roster the run will use is the roster the provider
+// publishes right now, and main maps it into the catalog on the way in — so a
+// model that appeared since the last sync is testable, and the run's verdicts
+// land on rows that already carry their score and context.
+$('#btn-test-all').addEventListener('click', async () => {
   if (isTesting) {
     abortTesting = true;
     cancelAllInflight();
     setStatus('running', 'Stopping...');
+    return;
+  }
+  try {
+    await ingestProviderRoster();
+  } catch (err) {
+    setStatus('error', err.message || 'Could not fetch models');
     return;
   }
   runTests(getSelectedModels());
@@ -2787,6 +2863,31 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
       if (abortTesting) return;
       recordResult(model, result, p.name);
       updateResultRow(model, result);
+      // The verdict a run produces is also a health verdict: same request, same
+      // key, same answer, and it is the answer the Models page's heart shows and
+      // the p50 it draws. Written through catalog:health so main owns the
+      // latency ring, and fire-and-forget so a refusal here — a model the roster
+      // no longer holds — cannot fail a run that already passed.
+      //
+      // Only a real model verdict is written. A key that spent its quota, an
+      // entitlement denial, a rate limit and a Stop are facts about the KEY and
+      // the run, not about the model, and recording them as the model's health
+      // would blame the model for the router's own state. A media model is not
+      // written either: its `time` is seconds of generation, not the latency a
+      // p50 column means, and mixing the two makes the number meaningless.
+      const modelVerdict = !result.quotaSpent && !result.entitlementDenied && !result.allKeysCooling
+        && !(result.statusCode === 429)
+        && (result.status === 'pass' || result.status === 'fail')
+        && !isMedia(model);
+      if (modelVerdict) {
+        window.electronAPI.catalogHealth(p.id, model.id, {
+          status: result.status === 'pass' ? 'healthy' : 'error',
+          note: result.response ? String(result.response).slice(0, 200) : null,
+          httpStatus: result.statusCode ?? null,
+          at: Date.now(),
+          timeMs: result.time,
+        }).catch(() => {});
+      }
       done += 1;
       updateStats();
       showProgress(done, list.length);
