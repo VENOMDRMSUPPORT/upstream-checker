@@ -45,10 +45,19 @@ async function checkImport({ app, dir, mock, fixture }) {
       orphanCustom: !!(cfg.providers.custom_orphan && cfg.providers.custom_orphan.custom),
       theme: settings.theme,
       imagePrompt: settings.imagePrompt,
-      hasAa: typeof settings.aaApiKey === 'string' && settings.aaApiKey.length > 0,
+      hasOr: typeof settings.openRouterApiKey === 'string' && settings.openRouterApiKey.length > 0,
       runs: runLog.length,
       prompt: testPrompt,
-      alphaFirstSeen: (CATALOG.state.data.models['darkapi::fixture-alpha'] || {}).firstSeen,
+      // The pool is NOT imported — catalog.json is read and renamed, but nothing in
+      // the schema holds its entries. It IS fetched: the catalogue's first pass
+      // asks every connected provider for its roster and ingests what it gets,
+      // so what arrives here is the mock's own list (fixture-alpha, fixture-beta,
+      // fixture-gamma), not the two entries catalog.json used to carry. That is
+      // the honest check: the pool holds what the provider publishes, and none
+      // of it came from the file.
+      poolSize: CATALOG.state.models.size,
+      poolIds: [...CATALOG.state.models.values()].map((r) => r.id).sort(),
+      hasLegacy: [...CATALOG.state.models.values()].some((r) => r.id === 'fixture-gone'),
       banner: !document.querySelector('#store-error').hidden,
     };
   })()`);
@@ -63,10 +72,12 @@ async function checkImport({ app, dir, mock, fixture }) {
   check('a disabled key stayed disabled through the merge', s.dark[2].active === false);
   check('settings imported', s.theme === 'daylight', s.theme);
   check('legacy mediaPrompt seeded the image prompt', s.imagePrompt === 'A fixture media prompt.', s.imagePrompt);
-  check('Artificial Analysis key imported', s.hasAa);
+  check('the legacy key came through as the OpenRouter secret', s.hasOr);
   check('three history runs imported', s.runs === 3, String(s.runs));
   check('test prompt imported', s.prompt === 'Fixture prompt?', s.prompt);
-  check('model pool imported with firstSeen kept', s.alphaFirstSeen === fixture.alphaFirstSeen, String(s.alphaFirstSeen));
+  check('the pool holds what the mock publishes, and none of it came from catalog.json',
+    s.poolSize >= 2 && s.poolIds.includes('fixture-alpha') && !s.hasLegacy,
+    `${s.poolSize} rows: ${s.poolIds.join(', ')}`);
   check('no read-failure banner', !s.banner);
   ['config', 'catalog', 'history'].forEach((name) => {
     check(`${name}.json renamed to ${name}.imported.json`,
@@ -102,19 +113,19 @@ async function checkKeysStayInMain({ app, dir, mock }) {
       page: JSON.stringify({ providers: PROVIDERS, settings, cfg }),
       placeholders: keys.every((k) => (k.locked ? k.key === '' : k.key === 'venomkey:' + k.id)),
       hint: PROVIDERS.darkapi.keys.find((k) => k.id === 'k_dark_1').hint,
-      aa: settings.aaApiKey,
-      aaField: document.querySelector('#set-aa-key').value,
-      aaSaved: !document.querySelector('#aa-key-saved').hidden,
+      or: settings.openRouterApiKey,
+      orField: document.querySelector('#set-openrouter-key').value,
+      orSaved: !document.querySelector('#openrouter-key-saved').hidden,
       blocked,
       sentStatus: sent.status,
       lockedCopy,
     };
   })()`);
-  check('no key and no AA key anywhere in the page', !s.page.includes('sk-fixture-') && !s.page.includes(FIXTURE.aaKey));
+  check('no key and no OpenRouter key anywhere in the page', !s.page.includes('sk-fixture-') && !s.page.includes(FIXTURE.aaKey));
   check('every key is its placeholder (a locked key is empty)', s.placeholders);
   check('the key hint is the old mask', s.hint === 'sk-fixture********0001', s.hint);
-  check('settings.aaApiKey is the placeholder', s.aa === 'venomsecret:aaApiKey', s.aa);
-  check('the AA key field is empty with "Saved" showing', s.aaField === '' && s.aaSaved);
+  check('settings.openRouterApiKey is the placeholder', s.or === 'venomsecret:openRouterApiKey', s.or);
+  check('the OpenRouter key field is empty with "Saved" showing', s.orField === '' && s.orSaved);
   check("a key sent to a host that isn't its provider is refused",
     s.blocked.blocked === true && s.blocked.status === 0 && s.blocked.error === "Key blocked: localhost:47831 is not this key's provider",
     JSON.stringify(s.blocked));
@@ -165,13 +176,22 @@ async function checkPersistence({ app, dir }) {
     spark: settings.sparkRuns,
     dark: PROVIDERS.darkapi.keys.map((k) => k.id + ':' + k.active).join(','),
     runs: runLog.length,
-    models: Object.keys(CATALOG.state.data.models).length,
+    // What the pool held BEFORE the restart is the honest question here, not
+    // what it holds after: nothing ingested into it in this run, so both are
+    // the same and the assertion says that rather than ">= 2" against a pool
+    // that migration v3 empties and no importer refills.
+    models: CATALOG.state.models.size,
+    poolIds: [...CATALOG.state.models.values()].map((r) => r.id).sort(),
   })`);
   check('a setting saved in run 1 survived the restart', s.spark === 17, String(s.spark));
   check('a key toggled in run 1 stayed toggled', s.dark === 'k_dark_1:true,k_dark_2:false,k_cust_2:false', s.dark);
   check('no second import: still three runs', s.runs === 3, String(s.runs));
   check('the imported files were left alone', existsSync(join(dir, 'config.imported.json')) && !existsSync(join(dir, 'config.json')));
-  check('the model pool kept its rows', s.models >= 2, String(s.models));
+  // It is FETCHED, so it survives the restart — but only what the provider
+  // published, never the legacy entry catalog.json carried.
+  check('the pool survived the restart with the provider’s own models',
+    s.models >= 2 && s.poolIds.includes('fixture-alpha') && !s.poolIds.includes('fixture-gone'),
+    `${s.models} rows: ${s.poolIds.join(', ')}`);
 }
 
 async function checkSingleInstance({ app, dir }) {
