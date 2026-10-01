@@ -1,10 +1,10 @@
 // ============================================
 // Run ids — ULID, the same format as src/db/ulid.js
 // ============================================
-// A Route Test run and a benchmark model run get their id here, in the page,
-// so every request they send can carry it and the history row (append-run)
-// is saved under the same one. 48-bit millisecond time + 80 random bits in
-// Crockford base32: sorts by time and needs no coordination.
+// A Route Test run and a health check get their id here, in the page, so every
+// request they send can carry it and the history row (append-run) is saved under
+// the same one. 48-bit millisecond time + 80 random bits in Crockford base32:
+// sorts by time and needs no coordination.
 function newUlid(now = Date.now()) {
   const ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
   let t = now;

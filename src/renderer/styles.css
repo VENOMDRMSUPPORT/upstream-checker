@@ -67,17 +67,6 @@
   --running: #8b5cf6;
   --running-bg: rgba(139, 92, 246, 0.1);
 
-  /* Routing profiles — one colour each, worn wherever the profile is named:
-     the Profiles page, the Catalog's readiness panel and profile dots, the page
-     legend and the three profile stat cards. Fixed hues on purpose, never the
-     accent: the accent is one of five and Pro used to borrow it while Lite
-     borrowed --pass, so with the default Emerald both wore the same green.
-     Mint → Violet → Amber reads as light → balanced → strongest, and the three
-     stay apart from each other under every accent. Daylight darkens them. */
-  --profile-lite: #2dd4a7;
-  --profile-pro: #a78bfa;
-  --profile-max: #fbbf24;
-
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
@@ -2349,11 +2338,6 @@ html, body {
   --text-0: #0f172a; --text-1: #1e293b; --text-2: #475569; --text-3: #64748b; --text-4: #94a3b8;
   --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
   --shadow-lg: 0 8px 32px rgba(15, 23, 42, 0.12);
-  /* The profile hues, darkened for a white surface: the dark-mode ones are
-     tuned to glow on black and would read as pastel and fail as text here. */
-  --profile-lite: #0b7a5c;
-  --profile-pro: #6d28d9;
-  --profile-max: #b45309;
 }
 
 /* The window chrome — titlebar and app nav — stays dark in both modes.
@@ -3248,36 +3232,17 @@ html, body {
 }
 
 /* The Failed card is also the failure filter. */
-.ov-kpi:is(.tone-pass, .tone-fail, .kpi-profile) .kpi-icon {
+.ov-kpi:is(.tone-pass, .tone-fail) .kpi-icon {
   border-color: color-mix(in srgb, var(--kpi-tone) 32%, transparent);
   background: color-mix(in srgb, var(--kpi-tone) 11%, transparent);
   color: var(--kpi-tone);
 }
 .ov-kpi.tone-pass { --kpi-tone: var(--pass); }
 .ov-kpi.tone-fail { --kpi-tone: var(--fail); }
-.ov-kpi:is(.tone-pass, .tone-fail, .kpi-profile) .kpi-meter span {
+.ov-kpi:is(.tone-pass, .tone-fail) .kpi-meter span {
   background: var(--kpi-tone);
 }
 
-/* A card may also wear a routing profile's identity colour — the three on the
-   Profiles page. Stripe, icon, label and meter take it, from the same tokens
-   the profile cards below are drawn with. */
-.ov-kpi.kpi-profile {
-  --kpi-tone: var(--profile-pro);
-  position: relative;
-  overflow: hidden;
-}
-.ov-kpi.kpi-profile-lite { --kpi-tone: var(--profile-lite); }
-.ov-kpi.kpi-profile-pro  { --kpi-tone: var(--profile-pro); }
-.ov-kpi.kpi-profile-max  { --kpi-tone: var(--profile-max); }
-.ov-kpi.kpi-profile::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--kpi-tone), color-mix(in srgb, var(--kpi-tone) 35%, transparent));
-}
-.ov-kpi.kpi-profile .ov-kpi-label { color: var(--kpi-tone); }
 .ov-kpi.is-action {
   cursor: pointer;
 }
@@ -4475,11 +4440,11 @@ img[data-tone] { filter: var(--logo-tone, none); }
 /* ============================================
    Page toolbar — one card for every page that has one
    ============================================ */
-/* Providers and the Models Catalog (search, filters, sort, page actions) and
-   Profiles (policy fields, export) share one card: same frame, surface,
-   padding and spacing, in both themes. There is no view switch: the list
-   turns into cards when the window folds the nav away (COMPACT_LAYOUT). */
-:is(.dt-toolbar, .pf-toolbar) {
+/* Providers and the Models Catalog (search, filters, sort, page actions) share
+   one card: same frame, surface, padding and spacing, in both themes. There is
+   no view switch: the list turns into cards when the window folds the nav away
+   (COMPACT_LAYOUT). */
+.dt-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -4492,7 +4457,7 @@ img[data-tone] { filter: var(--logo-tone, none); }
   background: var(--bg-1);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
-[data-theme="vercel"] :is(.dt-toolbar, .pf-toolbar) {
+[data-theme="vercel"] .dt-toolbar {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0.015) 100%);
   border-color: rgba(255, 255, 255, 0.08);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
@@ -4547,7 +4512,7 @@ img[data-tone] { filter: var(--logo-tone, none); }
 }
 
 /* One focus treatment for every field. */
-:is(.prompt-input, .models-search, .config-input, .auto-test-select, .pf-field input, .ui-select-field):focus,
+:is(.prompt-input, .models-search, .config-input, .auto-test-select, .ui-select-field):focus,
 :is(.dt-search, .dt-select, .input-unit):focus-within {
   outline: none;
   border-color: var(--field-focus-border);
@@ -6768,47 +6733,11 @@ img[data-tone] { filter: var(--logo-tone, none); }
   color: var(--text-2);
 }
 .mc-rank.top { color: var(--accent-text); }
-.mc-tier {
-  --t: var(--text-3);
-  display: inline-grid;
-  place-items: center;
-  width: 26px;
-  height: 22px;
-  border: 1px solid color-mix(in srgb, var(--t) 40%, transparent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--t) 12%, transparent);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--t);
-  line-height: 1;
-}
-.mc-tier.big { width: 34px; height: 30px; font-size: 15px; }
-.mc-tier-S { --t: #a78bfa; }
-.mc-tier-A { --t: var(--pass); }
-.mc-tier-B { --t: var(--accent-text); }
-.mc-tier-C { --t: var(--warn); }
-.mc-tier-D { --t: var(--fail); }
-.mc-tier-none { --t: var(--text-4); background: transparent; }
 
 .mc-table .col-rank { width: 1%; }
-.mc-table .col-tier, .mc-table .col-cat, .mc-table .col-lat, .mc-table .col-ttft, .mc-table .col-tps { width: 1%; }
+.mc-table .col-lat, .mc-table .col-price { width: 1%; }
 .mc-table .col-score { min-width: 120px; }
 .mc-table .col-score .dt-rate-bar { width: 70px; }
-.mc-cat {
-  display: inline-block;
-  min-width: 30px;
-  padding: 2px 6px;
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--pass) 12%, transparent);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--pass);
-  text-align: center;
-}
-.mc-cat.low { background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--warn); }
-.mc-cat.bad { background: color-mix(in srgb, var(--fail) 12%, transparent); color: var(--fail); }
 .mc-name { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .mc-name .pv-tag { padding: 1px 7px; font-size: 10px; }
 .mc-name .icon-badge { width: 20px; height: 20px; }
@@ -6821,57 +6750,12 @@ img[data-tone] { filter: var(--logo-tone, none); }
 @keyframes mc-pulse { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent); } }
 .mc-na { font-size: 11px; }
 
-/* Global reference column */
-.mc-global {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-1);
-}
-.mc-global .mc-tier { width: 20px; height: 18px; font-size: 10.5px; }
-.mc-agree {
-  display: inline-grid;
-  place-items: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  font-size: 10px;
-  font-weight: 700;
-}
-.mc-agree-match   { background: color-mix(in srgb, var(--pass) 18%, transparent); color: var(--pass); }
-.mc-agree-close   { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
-.mc-agree-diverge { background: color-mix(in srgb, var(--fail) 18%, transparent); color: var(--fail); }
+/* A value borrowed from the sources rather than published by the provider. The
+   mark says so where the number is drawn, so a filled-in price or context
+   window never reads as the provider's own claim. */
+.mc-borrowed { border-bottom: 1px dotted var(--text-4); cursor: help; }
 
-/* Progress while a benchmark runs */
-.mc-row.running { background: color-mix(in srgb, var(--accent) 5%, transparent); }
-.mc-progress {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 5px;
-  font-size: 11px;
-  color: var(--text-3);
-}
-.mc-progress .spinner { width: 11px; height: 11px; }
-.mc-progress-bar {
-  width: 90px;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--bg-3);
-  overflow: hidden;
-}
-.mc-progress-bar span {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  transition: width 300ms ease;
-}
-.mc-progress-note { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mc-error { margin-top: 4px; font-size: 11px; color: var(--fail); }
-.mc-stop { color: var(--fail); }
 
 /* Detail panel */
 .mc-detail > td { padding: 0 !important; }
@@ -6905,55 +6789,6 @@ img[data-tone] { filter: var(--logo-tone, none); }
 .mc-panel-head .mc-muted { font-weight: 500; }
 .mc-muted { color: var(--text-3); font-size: 12px; line-height: 1.5; margin: 0 0 10px; }
 .mc-source { margin: 10px 0 0; font-size: 10.5px; color: var(--text-4); line-height: 1.5; }
-.mc-breakdown {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 10px;
-  margin-bottom: 12px;
-}
-.mc-metric {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 10px 12px;
-  border: 1px solid var(--border-1);
-  border-radius: var(--radius-md);
-  background: var(--bg-1);
-}
-.mc-metric-label { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
-.mc-metric-value { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 700; color: var(--pass); }
-.mc-metric-value.low { color: var(--warn); }
-.mc-metric-value.bad { color: var(--fail); }
-.mc-metric-sub { font-size: 10.5px; color: var(--text-4); line-height: 1.4; }
-.mc-items { width: 100%; border-collapse: collapse; font-size: 12px; }
-.mc-items th {
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border-1);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  text-align: left;
-  color: var(--text-3);
-}
-.mc-items td { padding: 6px 8px; border-bottom: 1px solid var(--border-1); vertical-align: top; white-space: normal; }
-.mc-items tr:last-child td { border-bottom: none; }
-.mc-cat-tag {
-  display: inline-block;
-  margin-right: 4px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--bg-3);
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--text-2);
-}
-.mc-verdict { white-space: nowrap; font-weight: 600; }
-.mc-verdict.ok { color: var(--pass); }
-.mc-verdict.no { color: var(--fail); }
-.mc-verdict svg { vertical-align: -2px; }
-.mc-reply { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-3); max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
-.mc-global-name { margin-bottom: 8px; font-size: 13px; font-weight: 600; color: var(--text-0); }
 .mc-compare { display: grid; gap: 4px; }
 .mc-compare-row {
   display: grid;
@@ -6979,19 +6814,6 @@ img[data-tone] { filter: var(--logo-tone, none); }
   font-size: 12px;
   font-weight: 600;
 }
-.mc-verdict-line.mc-agree-match { background: color-mix(in srgb, var(--pass) 12%, transparent); color: var(--pass); }
-.mc-verdict-line.mc-agree-close { background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--warn); }
-.mc-verdict-line.mc-agree-diverge { background: color-mix(in srgb, var(--fail) 12%, transparent); color: var(--fail); }
-.mc-hist {
-  display: inline-flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 18px;
-  margin-left: auto;
-}
-.mc-hist span { width: 5px; border-radius: 1px; background: var(--pass); }
-.mc-hist span.low { background: var(--warn); }
-.mc-hist span.bad { background: var(--fail); }
 
 /* Cards */
 .mc-card-badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 20px; }
@@ -6999,24 +6821,18 @@ img[data-tone] { filter: var(--logo-tone, none); }
 .mc-card .pv-card-actions .dt-icon-btn { margin-left: auto; }
 
 /* The catalogue table is wide. Columns step out as the container narrows so
-   the Global and Run columns never slide under the pinned actions column;
-   everything hidden here is still in the row's detail panel. */
+   the actions column never slides under a long model name; everything hidden
+   here is still in the row's detail panel. */
 .mc-table :is(th, td) { padding-left: 11px; padding-right: 11px; }
 .mc-table .col-score { min-width: 100px; }
 .mc-table .col-score .dt-rate-bar { width: 56px; }
-@container dt (max-width: 1400px) { .mc-table .col-tps { display: none; } }
-@container dt (max-width: 1280px) { .mc-table .col-ttft { display: none; } }
-@container dt (max-width: 1150px) {
-  .mc-table .col-cat { display: none; }
-  .mc-sub code { display: none; }
-}
+@container dt (max-width: 1150px) { .mc-sub code { display: none; } }
+@container dt (max-width: 980px) { .mc-table .col-ctx { display: none; } }
 @container dt (max-width: 820px) { .mc-table .col-lat { display: none; } }
-.mc-cat-tag.mc-hard { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
-.mc-table .col-global { width: 1%; }
-@container dt (max-width: 700px) { .mc-table .col-global { display: none; } }
-.mc-cat-tag.mc-expert { background: color-mix(in srgb, #a78bfa 18%, transparent); color: #a78bfa; }
-.mc-table .col-iq { width: 1%; }
-.mc-table .col-iq .mc-cat { font-size: 12.5px; min-width: 34px; }
+@container dt (max-width: 700px) {
+  .mc-table .col-out { display: none; }
+  .mc-table .col-caps { display: none; }
+}
 .mc-side { display: grid; gap: 14px; align-content: start; }
 .mc-caps { display: inline-flex; gap: 2px; margin-left: 2px; }
 .mc-cap {
@@ -7039,7 +6855,13 @@ img[data-tone] { filter: var(--logo-tone, none); }
 .mc-note { font-size: 11px; color: var(--text-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mc-compare-row > span.mc-note { font-family: 'Inter', sans-serif; font-weight: 500; color: var(--text-4); }
 .mc-compare-row code { font-family: 'JetBrains Mono', monospace; font-size: 11px; }
-@container dt (max-width: 1250px) { .mc-table .col-lang { display: none; } }
+.mc-price-free { color: var(--pass); font-weight: 600; }
+/* The Health column: the stored verdict as a mark, so the row is scannable
+   without reading the badge beside the name. */
+.mc-health-dot { display: inline-grid; place-items: center; }
+.mc-health-dot-ok { color: var(--pass); }
+.mc-health-dot-warn { color: var(--warn); }
+.mc-health-dot-fail { color: var(--fail); }
 
 /* Sources status: the same four facts per upstream document, one line each.
    Scoped under .mc-sources on purpose: a bare `.mc-source` already lives a few
@@ -7071,219 +6893,6 @@ img[data-tone] { filter: var(--logo-tone, none); }
    what is on disk, and it is --fail rather than --text-3 because nothing else on
    this plane tells them a thing went wrong. */
 .mc-sources-error { color: var(--fail); font-size: 11.5px; font-weight: 600; }
-
-/* ============================================
-   Venom Profiles
-   ============================================ */
-.page-profiles { padding: 24px clamp(16px, 3vw, 32px) 32px; }
-.pf-toolbar { padding: 8px 14px; }
-.pf-global { display: flex; flex-wrap: wrap; gap: 8px 18px; }
-.pf-actions { display: flex; gap: 8px; }
-.pf-actions .btn { gap: 6px; }
-.pf-field { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text-3); }
-.pf-field span { font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; font-size: 10px; }
-.pf-field input {
-  width: 100px;
-  padding: 5px 8px;
-  border: 1px solid var(--border-2);
-  border-radius: var(--radius-sm);
-  background: var(--bg-0);
-  color: var(--text-0);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-}
-.pf-field input:focus { outline: none; }
-.pf-field small { color: var(--text-4); font-size: 10px; }
-.pf-field.inline { flex-direction: row; align-items: center; gap: 8px; }
-.pf-field.inline input { width: 64px; }
-.pf-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  align-items: start;
-}
-@media (max-width: 1500px) { .pf-grid { grid-template-columns: 1fr; } }
-/* One card per profile. The identity colour arrives in --pf from the three
-   classes below and paints the whole card: the ribbon riding its top edge, the
-   glow around it, the pool bar and the policy marks. */
-.pf-card {
-  --pf: var(--profile-pro);
-  position: relative;
-  min-width: 0;
-  margin-top: 14px;                  /* room for the ribbon above the top edge */
-  padding: 34px 16px 16px;
-  border: 1px solid color-mix(in srgb, var(--pf) 22%, var(--border-1));
-  border-radius: var(--radius-xl);
-  background: var(--bg-1);
-  box-shadow: var(--shadow-sm);
-}
-/* The card's top edge, in the profile's colour: the ribbon covers its left end,
-   the line runs on to the right corner. */
-.pf-card::before {
-  content: '';
-  position: absolute;
-  top: -1px; left: 0; right: 0;
-  height: 2px;
-  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-  background: color-mix(in srgb, var(--pf) 55%, transparent);
-}
-/* The three identities come from the app-wide profile tokens, so a card here,
-   a chip in the Catalog's readiness panel and the legend in the toolbar all
-   agree on what Lite, Pro and Max look like. */
-.pf-lite { --pf: var(--profile-lite); }
-.pf-pro  { --pf: var(--profile-pro); }
-.pf-max  { --pf: var(--profile-max); }
-
-/* The ribbon: icon, name, the virtual model id, then the tag pill — riding the
-   card's top edge with a glow, its right end cut on the diagonal. The glow is
-   a drop-shadow on purpose: a box-shadow would be clipped away by the cut. */
-.pf-ribbon {
-  position: absolute;
-  top: -14px;
-  left: -1px;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  max-width: calc(100% - 8px);
-  padding: 7px 26px 7px 12px;
-  border: 1px solid color-mix(in srgb, var(--pf) 60%, transparent);
-  border-bottom: 0;
-  border-radius: 9px 0 0 0;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--pf) 26%, transparent), color-mix(in srgb, var(--pf) 6%, transparent)),
-    var(--bg-2);
-  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--pf) 45%, transparent));
-  clip-path: polygon(0 0, 100% 0, calc(100% - 16px) 100%, 0 100%);
-}
-.pf-ribbon-icon { display: grid; place-items: center; flex-shrink: 0; color: var(--pf); }
-.pf-ribbon h3 { margin: 0; font-size: 13.5px; font-weight: 700; color: var(--text-0); white-space: nowrap; }
-.pf-ribbon code {
-  flex-shrink: 0;
-  padding: 1px 6px;
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--text-0) 8%, transparent);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10.5px;
-  color: var(--text-2);
-}
-.pf-ribbon-sep { flex-shrink: 0; align-self: stretch; width: 1px; margin: 0 2px; background: color-mix(in srgb, var(--pf) 35%, transparent); }
-.pf-tag {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  padding: 2px 9px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--pf) 40%, transparent);
-  background: color-mix(in srgb, var(--pf) 12%, transparent);
-  font-size: 10.5px; font-weight: 600; color: var(--pf);
-  white-space: nowrap; text-overflow: ellipsis;
-}
-
-/* What the profile is for, centred under the ribbon. */
-.pf-desc { margin: 0 0 14px; text-align: center; font-size: 12.5px; line-height: 1.5; color: var(--text-3); }
-
-/* Eligible target pool: how much of everything the catalogue holds can serve
-   this profile, and how big a share of it that is. */
-.pf-pool {
-  padding: 11px 13px 12px;
-  border: 1px solid var(--border-1);
-  border-radius: var(--radius-lg);
-  background: var(--bg-2);
-}
-.pf-pool-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.pf-pool-label { font-size: 12px; color: var(--text-2); }
-.pf-pool-count { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-3); }
-.pf-pool-count b { font-size: 13.5px; font-weight: 700; color: var(--text-0); }
-.pf-pool-bar { height: 6px; margin-top: 9px; border-radius: 999px; background: var(--bg-3); overflow: hidden; }
-.pf-pool-bar span {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: var(--pf);
-  box-shadow: 0 0 10px -1px var(--pf);
-  transition: width 400ms ease;
-}
-
-/* Mode and strategy: what the weights optimise for, and how cost is traded
-   against quality. Both are derived from the policy above, never typed twice. */
-.pf-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; margin: 10px 0 12px; }
-.pf-meta-item { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-.pf-meta-label { font-size: 11px; color: var(--text-3); white-space: nowrap; }
-.pf-meta-value { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; }
-
-.pf-policy { display: grid; gap: 6px; padding: 10px 12px; border: 1px dashed var(--border-2); border-radius: var(--radius-md); margin-bottom: 12px; }
-.pf-policy-row { display: grid; grid-template-columns: 52px 1fr; gap: 8px; align-items: start; font-size: 12px; }
-.pf-policy-row b { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); padding-top: 3px; }
-.pf-policy-row > span { display: flex; flex-wrap: wrap; gap: 4px; }
-.pf-gate { padding: 2px 7px; border-radius: 5px; background: var(--bg-3); font-size: 11px; color: var(--text-1); }
-.pf-order { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px 2px 3px; border-radius: 5px; background: color-mix(in srgb, var(--pf) 10%, transparent); font-size: 11px; color: var(--text-1); }
-.pf-order i { display: grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; background: var(--pf); color: var(--on-accent, #000); font-style: normal; font-size: 9.5px; font-weight: 700; }
-.pf-policy-actions { display: flex; justify-content: flex-end; }
-.pf-policy-actions .btn { gap: 5px; }
-.pf-editor { padding: 10px 12px 12px; margin: -6px 0 12px; border: 1px solid color-mix(in srgb, var(--pf) 35%, transparent); border-radius: var(--radius-md); background: color-mix(in srgb, var(--pf) 5%, transparent); }
-.pf-editor-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px 12px; }
-.pf-editor-grid.weights { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border-2); }
-.pf-editor-grid .pf-field input { width: 100%; }
-.pf-editor-checks { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; }
-.pf-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-1); cursor: pointer; }
-.pf-section-head { display: flex; align-items: center; gap: 8px; margin: 12px 0 8px; font-size: 12px; font-weight: 700; color: var(--text-0); }
-.pf-section-head .mc-muted { font-weight: 500; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pf-toggle { cursor: pointer; user-select: none; }
-.pf-toggle .kx-chevron { transition: transform var(--transition-normal); }
-.pf-empty { padding: 14px; border: 1px dashed var(--border-2); border-radius: var(--radius-md); font-size: 12px; color: var(--text-3); text-align: center; }
-.pf-table { font-size: 12px; }
-.pf-table :is(th, td) { padding-left: 9px; padding-right: 9px; }
-.pf-table .dt-provider { min-width: 150px; }
-.pf-table .dt-provider .pv-logo { width: 28px; height: 28px; }
-.pf-table .col-share { min-width: 92px; }
-.pf-share { display: inline-block; vertical-align: middle; width: 48px; height: 6px; margin-right: 6px; border-radius: 3px; background: var(--bg-3); overflow: hidden; }
-.pf-share span { display: block; height: 100%; background: var(--pf); }
-.pf-table .col-tier { white-space: nowrap; }
-.pf-table .col-tier .mc-tier { width: 20px; height: 18px; font-size: 10.5px; margin-right: 4px; }
-.pf-conf { padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
-.pf-conf-high { background: color-mix(in srgb, var(--pass) 14%, transparent); color: var(--pass); }
-.pf-conf-medium { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); }
-.pf-conf-low { background: var(--bg-3); color: var(--text-3); }
-.pf-detail > td { padding: 0 !important; }
-.pf-explain { display: grid; grid-template-columns: 1fr 1.3fr; gap: 14px; padding: 12px 14px 14px 40px; border-top: 1px dashed var(--border-1); white-space: normal; }
-@container dt (max-width: 640px) { .pf-explain { grid-template-columns: 1fr; padding-left: 14px; } }
-.pf-comp { display: grid; grid-template-columns: 110px 1fr 32px; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
-.pf-comp-label { color: var(--text-2); }
-.pf-comp-label small { color: var(--text-4); }
-.pf-comp-bar { height: 6px; border-radius: 3px; background: var(--bg-3); overflow: hidden; }
-.pf-comp-bar span { display: block; height: 100%; background: var(--pf); }
-.pf-comp-val { font-family: 'JetBrains Mono', monospace; font-weight: 600; text-align: right; color: var(--text-0); }
-.pf-reasons { margin-top: 10px; font-size: 12px; color: var(--text-2); display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-.pf-reason { padding: 2px 7px; border-radius: 5px; background: color-mix(in srgb, var(--fail) 12%, transparent); color: var(--fail); font-size: 11px; }
-.pf-reasons.soft .pf-reason { background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--warn); }
-/* `.pf-lite` / `.pf-pro` / `.pf-max` above already put the profile's colour in
-   --pf, so one rule colours the chip wherever it is rendered: the Profiles
-   page, the Catalog's readiness panel, the toolbar legend. */
-.pf-chip {
-  display: inline-block;
-  padding: 1px 7px;
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--pf) 14%, transparent);
-  color: var(--pf);
-  font-size: 10.5px;
-  font-weight: 600;
-  margin-right: 3px;
-}
-/* One dot per profile a model serves, in that profile's own colour. The
-   Catalog wears the same identities as this page: the dot borrows --pf from
-   `.pf-lite` / `.pf-pro` / `.pf-max` above, so there is one palette, not two. */
-.pf-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  margin-right: 3px;
-  border-radius: 50%;
-  background: var(--pf);
-  vertical-align: middle;
-}
-.pf-dot:last-child { margin-right: 0; }
-.pf-foot { margin-top: 16px; }
 
 /* ============================================
    Key usage (key-usage.js) — quota and expiry in the key row, the rest in a

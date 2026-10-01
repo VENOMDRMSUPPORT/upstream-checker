@@ -12,7 +12,10 @@ const { ulid } = require('../db/ulid');
 const C = require('./classify');
 const { scrub } = require('./scrub');
 
-const SOURCES = new Set(['route_test', 'benchmark', 'health', 'key_check', 'key_usage', 'discovery', 'pricing', 'leaderboard', 'other']);
+// The sources a request can be logged under. 'benchmark' and 'leaderboard' left
+// with the code that sent them: no caller produces either name any more, so a
+// row carrying one would be a row nothing in this app can have written.
+const SOURCES = new Set(['route_test', 'health', 'key_check', 'key_usage', 'discovery', 'pricing', 'other']);
 const CANCEL_REASONS = new Set(['hedge_lost', 'stop', 'deadline']);
 const TRIGGERS = new Set(['manual', 'scheduled']);
 const BODY_MAX = 8192;

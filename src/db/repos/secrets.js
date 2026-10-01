@@ -1,12 +1,14 @@
 // ============================================
-// Named secrets — the Artificial Analysis key
+// Named secrets — the OpenRouter key
 // ============================================
 // Stored in the enc:v1: envelope like provider keys. Each name has the one
 // origin it may be sent to (src/db/keys.js enforces it).
 const { isEnvelope, revealCached } = require('../cipher');
 
+// The OpenRouter key, and nothing else: the Artificial Analysis key is gone
+// with the benchmark and the live leaderboard, and the independent indices the
+// catalog wanted are OpenRouter's own /benchmarks endpoint now.
 const SECRET_ORIGINS = {
-  aaApiKey: 'https://artificialanalysis.ai',
   openRouterApiKey: 'https://openrouter.ai',
 };
 

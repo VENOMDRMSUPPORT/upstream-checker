@@ -102,10 +102,6 @@
         </button>
 
         <span class="shell-nav-group-label">Routing</span>
-        <button class="shell-nav-item" type="button" data-page="profiles">
-          <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h10M4 18h6"/><circle cx="18" cy="16" r="3"/><path d="M20.5 18.5 22 20"/></svg>
-          <span>Routing Profiles</span>
-        </button>
         <button class="shell-nav-item" type="button" data-page="history">
           <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>
           <span>Test History</span>
@@ -326,17 +322,9 @@
         <section class="shell-page page-catalog" data-page="catalog" hidden>
           <div class="pv-toolbar mc-toolbar">
             <nav class="crumbs" id="mc-crumbs" aria-label="Breadcrumb"></nav>
-            <p class="mc-toolbar-note">Synced live from every connected provider · benchmark = 21 graded tasks (easy ×1, hard ×2, expert ×3) + latency &amp; throughput probes per model</p>
+            <p class="mc-toolbar-note">Re-read live from every connected provider · each model's facts matched against four upstream sources, then scored and ranked</p>
           </div>
           <div class="pv-body" id="mc-body"></div>
-        </section>
-
-        <section class="shell-page page-profiles" data-page="profiles" hidden>
-          <div class="pv-toolbar mc-toolbar">
-            <nav class="crumbs" id="pf-crumbs" aria-label="Breadcrumb"></nav>
-            <p class="mc-toolbar-note"><span class="pf-chip pf-lite">venom-lite</span><span class="pf-chip pf-pro">venom-pro</span><span class="pf-chip pf-max">venom-max</span> — eligibility by measured facts, traffic spread across the best sources</p>
-          </div>
-          <div class="pv-body" id="pf-body"></div>
         </section>
 
         <!-- One provider: its keys, its models, and the runs that test them.
@@ -967,7 +955,7 @@
 
                 <!-- Models Catalog -->
                 <section class="settings-section" id="sec-catalog" hidden>
-                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>The model pool re-reads each connected provider&rsquo;s model list on a timer (one <code>GET /models</code> per key), on focus, and whenever a key is added or removed. New models are flagged; removed models disappear at once.</p></div>
+                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>Every connected provider&rsquo;s model list is re-read on this cadence (one <code>GET /models</code> per key), on focus, and whenever a key is added or removed. Each model&rsquo;s facts are then matched against four upstream sources, so a score and a rank sit beside the facts the provider published. New models are flagged; removed ones disappear at once.</p></div>
 
                   <div class="settings-rows">
                     <div class="settings-row-item">
@@ -984,50 +972,28 @@
                       <div class="settings-row-header-inline">
                         <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></div>
                         <div class="settings-row-info">
-                      <div class="settings-row-title">Sources</div>
-                      <div class="settings-row-desc">The four upstream documents the model facts are merged from.</div>
+                          <div class="settings-row-title">Sources</div>
+                          <div class="settings-row-desc">The four upstream documents the model facts are merged from. Nothing is downloaded until you ask &mdash; a fetch information click re-reads a model from the last payload instead of paying five megabytes again.</div>
                     </div>
                         <div class="settings-row-control"><button class="btn btn-ghost btn-mini" type="button" id="btn-catalog-sync-sources">Sync sources</button></div>
                       </div>
                       <div class="settings-row-field"><div id="catalog-sources-status" class="mc-sources" role="status" aria-live="polite"></div>
                     </div>
                     </div>
-                    <div class="settings-row-item">
-                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/></svg></div>
-                      <div class="settings-row-info">
-                      <label class="settings-row-title" for="set-catalog-autobench">Benchmark new models automatically</label>
-                      <div class="settings-row-desc">A model that appears after the first sync is queued for the benchmark as soon as it is seen. The first sync of a provider is a baseline and runs nothing.</div>
-                    </div>
-                      <div class="settings-row-control"><label class="switch-toggle" for="set-catalog-autobench">
-                      <input type="checkbox" id="set-catalog-autobench">
-                      <span class="switch-slider"></span>
-                    </label></div>
-                    </div>
                     <div class="settings-row-item vertical">
                       <div class="settings-row-header-inline">
-                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg></div>
+                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="M15.5 7.5l3 3L22 7l-3-3"/></svg></div>
                         <div class="settings-row-info">
-                      <label class="settings-row-title" for="set-aa-key">Artificial Analysis API key <span class="setting-label-value">optional</span></label>
-                      <div class="settings-row-desc">With a key, the global reference column uses the live leaderboard (refreshed daily, well within the free 1,000 requests/day). Without one, a bundled snapshot is used. Data &copy; <button class="pv-link" type="button" data-site="https://artificialanalysis.ai/">Artificial Analysis</button>, attribution required.</div>
+                          <label class="settings-row-title" for="set-openrouter-key">OpenRouter API key <span class="setting-label-value">optional</span></label>
+                          <div class="settings-row-desc">Unlocks the fourth source, the independent Artificial Analysis indices &mdash; so those models carry a <em>measured</em> score instead of an estimate. Without a key nothing breaks: fewer models are measured, more are estimated, and the rest of the merge is unchanged. The key never leaves this machine. Get one at <button class="pv-link" type="button" data-site="https://openrouter.ai/keys">OpenRouter</button>.</div>
                     </div>
+                        <div class="settings-row-control"><span class="settings-row-status" id="openrouter-key-saved" hidden>Saved</span>
+                      <button class="btn btn-ghost" id="btn-openrouter-remove" type="button" hidden>Remove</button>
+                      <button class="btn btn-ghost" id="btn-catalog-resync" type="button">Re-sync providers</button></div>
                       </div>
-                      <div class="settings-row-field"><input type="password" class="prompt-input" id="set-aa-key" spellcheck="false" autocomplete="off" placeholder="aa_… (free key from artificialanalysis.ai)">
-                    <div class="settings-actions">
-                      <span class="settings-row-status" id="aa-key-saved" hidden>Saved</span>
-                      <button class="btn btn-ghost" id="btn-aa-remove" type="button" hidden>Remove</button>
-                      <button class="btn btn-ghost" id="btn-aa-refresh" type="button">Refresh global leaderboard</button>
-                      <span class="settings-row-status" id="aa-status"></span>
-                    </div></div>
+                      <div class="settings-row-field"><input type="password" class="prompt-input" id="set-openrouter-key" spellcheck="false" autocomplete="off" placeholder="sk-or-v1-&#8230; from openrouter.ai">
                     </div>
-                  </div>
-
-                  <div class="settings-zone">
-                    <div class="settings-zone-info">
-                      <div class="settings-zone-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>Clear model pool data</div>
-                      <div class="settings-zone-desc">Benchmark results, or the whole model pool, are removed from this machine.</div>
                     </div>
-                    <div class="settings-actions"><button class="btn btn-ghost" id="btn-catalog-clear-bench" type="button">Clear benchmark results</button>
-                    <button class="btn btn-ghost danger" id="btn-catalog-reset" type="button">Reset model pool</button></div>
                   </div>
                 </section>
 
@@ -1455,14 +1421,11 @@
   <script src="providers/inception.js"></script>
   <script src="providers/tokenharbor.js"></script>
   <script src="providers/experiential.js"></script>
-  <script src="data/leaderboard-snapshot.js"></script>
   <script src="ui-select.js"></script>
   <script src="ulid.js"></script>
   <script src="app.js"></script>
-  <script src="benchmark.js"></script>
   <script src="key-usage.js"></script>
   <script src="catalog.js"></script>
-  <script src="profiles.js"></script>
   <script src="logs-format.js"></script>
   <script src="logs.js"></script>
   <script src="database.js"></script>

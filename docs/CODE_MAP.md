@@ -2,7 +2,7 @@
 
 > GENERATED FILE — do not edit by hand. Regenerate with: npm run repo:map
 
-113 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
+111 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
 
 The architecture behind these files — boot order, IPC channels, the two databases, the request lifecycle — is in [ARCHITECTURE.md](ARCHITECTURE.md). Task recipes are in [COOKBOOK.md](COOKBOOK.md).
 
@@ -64,7 +64,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 631 | API requests (src/api-request.js) |
 | 653 | Old request log file (requests.log) |
 
-### src/renderer/app.js — 6030 lines
+### src/renderer/app.js — 6026 lines
 
 | Line | Section |
 | --- | --- |
@@ -78,39 +78,33 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 806 | Title bar |
 | 813 | Provider page — header |
 | 836 | Provider health — a silent background probe of each provider's key |
-| 1107 | API Keys management |
-| 1279 | Fetch models from provider — only models for the key's plan |
-| 1498 | Render the models list |
-| 1659 | Test reliability settings |
-| 1802 | Keys and pacing |
-| 2016 | Testers — one request, judged by the model's kind |
-| 2510 | Test a single model — adaptive hedge, handles reasoning, empty, rate limits |
-| 2681 | Test all selected models |
-| 2885 | Results table |
-| 3220 | Full response modal |
-| 3268 | Stats & status |
-| 3328 | Export |
-| 3396 | Update handling |
-| 3660 | Add Key modal |
-| 3768 | Edit Provider modal |
-| 3843 | Init |
-| 3846 | Scheduled re-testing |
-| 3879 | Settings panel |
-| 4482 | Sidebar ambience — moving stars and the signature heart |
-| 4736 | Breadcrumb — shared helper |
-| 4766 | Providers page |
-| 5104 | Provider types — legend and markers |
-| 5179 | Providers page — key management panel (table rows and cards) |
-| 5199 | Action feedback — Recheck and key Test |
-| 5633 | Stat cards — shared |
-| 5650 | Data toolbar — shared |
-| 5713 | Providers page — Connected view |
-
-### src/renderer/benchmark.js — 984 lines
-
-| Line | Section |
-| --- | --- |
-| 2 | Model benchmark — quick, cheap, deterministic |
+| 1106 | API Keys management |
+| 1278 | Fetch models from provider — only models for the key's plan |
+| 1497 | Render the models list |
+| 1658 | Test reliability settings |
+| 1801 | Keys and pacing |
+| 2015 | Testers — one request, judged by the model's kind |
+| 2509 | Test a single model — adaptive hedge, handles reasoning, empty, rate limits |
+| 2680 | Test all selected models |
+| 2884 | Results table |
+| 3219 | Full response modal |
+| 3267 | Stats & status |
+| 3327 | Export |
+| 3395 | Update handling |
+| 3659 | Add Key modal |
+| 3767 | Edit Provider modal |
+| 3842 | Init |
+| 3845 | Scheduled re-testing |
+| 3878 | Settings panel |
+| 4479 | Sidebar ambience — moving stars and the signature heart |
+| 4733 | Breadcrumb — shared helper |
+| 4763 | Providers page |
+| 5101 | Provider types — legend and markers |
+| 5176 | Providers page — key management panel (table rows and cards) |
+| 5196 | Action feedback — Recheck and key Test |
+| 5630 | Stat cards — shared |
+| 5647 | Data toolbar — shared |
+| 5710 | Providers page — Connected view |
 
 ### src/renderer/catalog.js — 1276 lines
 
@@ -128,84 +122,82 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 *(no section banners)*
 
-### src/renderer/index.html — 1471 lines
+### src/renderer/index.html — 1434 lines
 
 | Line | Section |
 | --- | --- |
-| 231 | page: overview |
-| 273 | page: providers |
-| 294 | page: database |
-| 326 | page: catalog |
-| 334 | page: profiles |
-| 344 | page: provider |
-| 457 | page: history |
-| 466 | page: monitor |
-| 474 | page: settings |
-| 492 | settings: sec-appearance |
-| 496 | settings: sec-test |
-| 500 | settings: sec-schedule |
-| 504 | settings: sec-speed |
-| 508 | settings: sec-reliability |
-| 512 | settings: sec-catalog |
-| 516 | settings: sec-history |
-| 520 | settings: sec-logs |
-| 524 | settings: sec-data |
-| 528 | settings: sec-about |
-| 1245 | overlay: response-modal |
-| 1265 | overlay: add-key-modal |
-| 1296 | overlay: add-provider-modal |
-| 1331 | overlay: update-modal |
-| 1348 | overlay: update-modal-notes |
-| 1390 | overlay: log-drawer |
-| 1391 | overlay: log-drawer-scrim |
-| 1397 | overlay: log-drawer-body |
-| 1401 | overlay: ku-drawer |
-| 1419 | overlay: mc-chat-drawer |
+| 227 | page: overview |
+| 269 | page: providers |
+| 290 | page: database |
+| 322 | page: catalog |
+| 332 | page: provider |
+| 445 | page: history |
+| 454 | page: monitor |
+| 462 | page: settings |
+| 480 | settings: sec-appearance |
+| 484 | settings: sec-test |
+| 488 | settings: sec-schedule |
+| 492 | settings: sec-speed |
+| 496 | settings: sec-reliability |
+| 500 | settings: sec-catalog |
+| 504 | settings: sec-history |
+| 508 | settings: sec-logs |
+| 512 | settings: sec-data |
+| 516 | settings: sec-about |
+| 1211 | overlay: response-modal |
+| 1231 | overlay: add-key-modal |
+| 1262 | overlay: add-provider-modal |
+| 1297 | overlay: update-modal |
+| 1314 | overlay: update-modal-notes |
+| 1356 | overlay: log-drawer |
+| 1357 | overlay: log-drawer-scrim |
+| 1363 | overlay: log-drawer-body |
+| 1367 | overlay: ku-drawer |
+| 1385 | overlay: mc-chat-drawer |
 
-### src/renderer/styles.css — 8204 lines
+### src/renderer/styles.css — 7813 lines
 
 | Line | Section |
 | --- | --- |
 | 2 | VENOM ROUTER — Enterprise Dark Theme |
-| 108 | Reset & Base |
-| 158 | Title Bar |
-| 338 | App shell — nav rail + page area |
-| 407 | SIDEBAR BOTTOM ACCENT & STARRY STIPPLE EFFECT |
-| 1784 | Animations |
-| 1803 | API Keys |
-| 2029 | Responsive |
-| 2037 | Update Modal |
-| 2268 | Settings |
-| 2338 | Themes |
-| 2692 | Pages — Overview placeholder |
-| 2768 | Shell header |
-| 3045 | Dark mode: pages share the nav's visual language |
-| 3073 | Provider page — one provider's keys, models and test runs |
-| 3336 | Light mode — page area only |
-| 3360 | Overview — live panels |
-| 3489 | Card headers — one accent-led treatment everywhere |
-| 3532 | Signature heart (nav footer) |
-| 3596 | Sidebar ambience — a living layer of stars |
-| 3670 | Breadcrumb — shared by every page that needs one |
-| 3713 | Providers page |
-| 4435 | Stat cards — shared (Overview, Providers, …) |
-| 4476 | Page toolbar — one card for every page that has one |
-| 4524 | Design system — form fields |
-| 4787 | Data table — shared |
-| 5005 | Provider types — legend and markers |
-| 5188 | Settings page — layout |
-| 5197 | Providers — expandable rows and the key panel |
-| 5221 | Providers — list of row cards |
-| 5964 | Settings — Unified 2-Column Design System |
-| 6403 | Settings content — one design language for every tab |
-| 6749 | Models Catalog |
-| 7076 | Venom Profiles |
-| 7289 | Key usage (key-usage.js) — quota and expiry in the key row, the rest in a |
-| 7448 | Catalog: live health badge + toast notifications |
-| 7504 | Model chat drawer — a full-height panel sliding in from the right, |
-| 7882 | Log pages — Runs, Requests, Monitoring |
-| 8081 | Monitoring Page |
-| 8147 | Database explorer — compact SQLite workbench |
+| 97 | Reset & Base |
+| 147 | Title Bar |
+| 327 | App shell — nav rail + page area |
+| 396 | SIDEBAR BOTTOM ACCENT & STARRY STIPPLE EFFECT |
+| 1773 | Animations |
+| 1792 | API Keys |
+| 2018 | Responsive |
+| 2026 | Update Modal |
+| 2257 | Settings |
+| 2327 | Themes |
+| 2676 | Pages — Overview placeholder |
+| 2752 | Shell header |
+| 3029 | Dark mode: pages share the nav's visual language |
+| 3057 | Provider page — one provider's keys, models and test runs |
+| 3301 | Light mode — page area only |
+| 3325 | Overview — live panels |
+| 3454 | Card headers — one accent-led treatment everywhere |
+| 3497 | Signature heart (nav footer) |
+| 3561 | Sidebar ambience — a living layer of stars |
+| 3635 | Breadcrumb — shared by every page that needs one |
+| 3678 | Providers page |
+| 4400 | Stat cards — shared (Overview, Providers, …) |
+| 4441 | Page toolbar — one card for every page that has one |
+| 4489 | Design system — form fields |
+| 4752 | Data table — shared |
+| 4970 | Provider types — legend and markers |
+| 5153 | Settings page — layout |
+| 5162 | Providers — expandable rows and the key panel |
+| 5186 | Providers — list of row cards |
+| 5929 | Settings — Unified 2-Column Design System |
+| 6368 | Settings content — one design language for every tab |
+| 6714 | Models Catalog |
+| 6898 | Key usage (key-usage.js) — quota and expiry in the key row, the rest in a |
+| 7057 | Catalog: live health badge + toast notifications |
+| 7113 | Model chat drawer — a full-height panel sliding in from the right, |
+| 7491 | Log pages — Runs, Requests, Monitoring |
+| 7690 | Monitoring Page |
+| 7756 | Database explorer — compact SQLite workbench |
 
 ### scripts/
 
@@ -275,7 +267,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | --- | --- | --- | --- |
 | `history.js` | 106 | Run history — test_runs + test_results | ULID, DEFAULT_MAX_RUNS, MAX_RUNS_CEILING, historyCap, num, createHistoryRepo |
 | `providers.js` | 251 | Providers and their API keys | KEY_PLACEHOLDER, ANY_PLACEHOLDER, KEY_ID, maskKey, createProvidersRepo |
-| `secrets.js` | 68 | Named secrets — the Artificial Analysis key | SECRET_ORIGINS, createSecretsRepo |
+| `secrets.js` | 70 | Named secrets — the OpenRouter key | SECRET_ORIGINS, createSecretsRepo |
 | `settings.js` | 45 | Settings rows — settings, test, window | createSettingsRepo |
 | `snapshots.js` | 187 | One provider's roster, split across the two tables the reference kept in one | WARNING_MAX, clip, createSnapshotRepo |
 
@@ -289,7 +281,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `lookups.js` | 54 | venom.db lookups for the request log | createProviderLookup, readPrice, createPriceBook |
 | `migrations.js` | 111 | Request log schema migrations (venom-logs.db) |  |
 | `query.js` | 530 | Request log queries — what the log pages (sub-project C) read | HOUR, MAX_LIMIT, DEFAULT_LIMIT, MAX_FILTER_ITEMS, EXPORT_CHUNK, EVERYTHING, EXPORT_COLUMNS, LIKE, CLASS_COUNTERS, GROUP_COLUMNS, SORT_COLUMNS, MAX_SORT_RANGE_MS, +22 more |
-| `recorder.js` | 183 | Request record — what one finished request becomes in the log | SOURCES, CANCEL_REASONS, TRIGGERS, BODY_MAX, REDACTED_HEADERS, shortString, whole, clip, redactHeaders, metaOf, originOf, whoFor, +3 more |
+| `recorder.js` | 186 | Request record — what one finished request becomes in the log | SOURCES, CANCEL_REASONS, TRIGGERS, BODY_MAX, REDACTED_HEADERS, shortString, whole, clip, redactHeaders, metaOf, originOf, whoFor, +3 more |
 | `retention.js` | 157 | Request log retention — chunked purge, stepped vacuum | DAY, CHUNK, VACUUM_PAGES, defaultYield, neverBusy, inChunks, purgeLogsBefore, purgeBodiesBefore, purgeRollupsBefore, stepVacuum, monthsAgo, purge, +1 more |
 | `scrub.js` | 39 | Scrub substituted secrets out of stored log text | formsOf, scrub |
 | `settings.js` | 27 | Request log settings, read by main from the settings row | LOG_LEVELS, LOG_DEFAULTS, wholeIn, readLogSettings |
@@ -299,18 +291,16 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
-| `app.js` | 6030 | VENOM ROUTER — Application Logic v2 | DEFAULT_TEST_PROMPT, DEFAULT_EXPECTED, testPrompt, expectedAnswer, NA, RESPONSE_PREVIEW, truthy, KIND_LABELS, kindLimits, classifyModel, isMedia, isDecision, +389 more |
-| `benchmark.js` | 984 | Model benchmark — quick, cheap, deterministic | SUITE_VERSION, cleanReply, lastLine, lines, gradeNumber, gradeWord, exp, alts, gradeRegexSolution, gradeJson, gradeExact, norm, +125 more |
+| `app.js` | 6026 | VENOM ROUTER — Application Logic v2 | DEFAULT_TEST_PROMPT, DEFAULT_EXPECTED, testPrompt, expectedAnswer, NA, RESPONSE_PREVIEW, truthy, KIND_LABELS, kindLimits, classifyModel, isMedia, isDecision, +389 more |
 | `catalog.js` | 1276 | Models Catalog — the merged reference, scored | state, chat, ui, keyOf, connectedIds, loadPromise, load, applyRead, flush, entriesOf, keyModels, providerModelCount, +157 more |
 | `database.js` | 105 | Read-only SQLite explorer. All SQL, identifier checks, and redaction happen | PAGE_SIZE, state, byId, escape, number, setNotice, box, renderStats, renderTables, query, visible, renderHead, +10 more |
 | `key-usage.js` | 539 | Key usage — quota, expiry and request history per API key | KEY_USAGE |
 | `logs-format.js` | 132 | Log pages — pure formatting and mapping | LOGS_RANGES, logEscape, normalizeProvider, providerLabel, formatDuration, formatCost, formatTokens, logPad, formatWhen, statusTone, passRateText, rangePreset, +1 more |
 | `logs.js` | 934 | Log pages — Runs, Requests and Monitoring | state, el, REDUCED_MOTION, drawerOpener, closeTimer, tabFromRoute, parts, loadInfo, emptyState, loggingOffMarkup, why, render, +106 more |
-| `profiles.js` | 670 | Routing profiles — three exits in front of the whole model pool | PROFILE_IDS, DEFAULT_POLICY, state, policy, saved, mergePolicy, out, savePolicy, resetPolicy, blendedPrice, factsOf, ownIQ, +72 more |
 | `ui-select.js` | 217 | Design system — select menu | CHEVRON, CHECK, valueDesc, indexDesc, menu, owner, active, labelOf, opt, sync, trigger, enhance, +17 more |
 | `ulid.js` | 22 | Run ids — ULID, the same format as src/db/ulid.js | newUlid |
-| `index.html` | 1471 | App shell markup: nav, every page, the drawers and modals |  |
-| `styles.css` | 8204 | The whole stylesheet: tokens, themes, accents, components |  |
+| `index.html` | 1434 | App shell markup: nav, every page, the drawers and modals |  |
+| `styles.css` | 7813 | The whole stylesheet: tokens, themes, accents, components |  |
 
 ### src/renderer/providers/
 
@@ -366,7 +356,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `keys.test.js` | 229 | Needs escaping in JSON and in a URL. | a header placeholder becomes the key for its own provider, a placeholder in the URL is replaced URL-encoded, inside a JSON body the key is inserted JSON-escaped, a non-JSON string body gets the raw key, an object body is sent as JSON with the key inside, the longest matching key id wins |
 | `open.test.js` | 261 | Migration v2 is additive, so v1's own shape is worth pinning on its own — and it | schema v1: every table it shipped with, and install_id, a v2 file upgrades to v3: backed up first, the legacy pool empty after, a v1 file upgrades to v2 with every row it held, pragmas on a file: WAL, NORMAL, foreign keys, busy timeout, temp store, :memory: reports journal_mode memory, reopening an up-to-date file runs nothing and makes no backup |
 | `providers.test.js` | 253 |  | the placeholder of the same key keeps the stored cipher, a new value replaces the secret and the next read sees it, sending the same plaintext back keeps the stored cipher, keys missing from the payload are deleted, a key id that another provider owns is refused, created_at survives updates and position follows payload order |
-| `settings-secrets.test.js` | 104 |  | settings rows round-trip JS types exactly, saveSettings rejects anything but an object, saveTest stores the test row as given, secrets: unknown names are refused, openRouterApiKey is a known secret bound to openrouter.ai, secrets: with OS encryption unavailable nothing is stored |
+| `settings-secrets.test.js` | 106 |  | settings rows round-trip JS types exactly, saveSettings rejects anything but an object, saveTest stores the test row as given, secrets: unknown names are refused, openRouterApiKey is a known secret bound to openrouter.ai, secrets: with OS encryption unavailable nothing is stored |
 | `snapshots.test.js` | 249 | The two-table roster repository: what survives a write, what a tombstone is, | a provider with no snapshot reads null, not an empty object, every file-level field the reference kept survives the round trip, pendingDrop is present only while a mass drop is quarantined, listProviderIds is the set that has ever produced a snapshot, forgetting a model deletes its row, so it is not read as a removal, setHealth records a probe without rewriting the summary or the history |
 
 ### test/logs/

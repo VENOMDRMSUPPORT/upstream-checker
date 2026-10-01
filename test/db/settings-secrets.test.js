@@ -36,20 +36,20 @@ test('saveTest stores the test row as given', async (t) => {
 
 test('secrets: save encrypts, reveal decrypts, the row never holds the plaintext', async (t) => {
   const store = await memoryStore(t);
-  assert.strictEqual(store.repos.secrets.save('aaApiKey', '  aa-secret-1  '), true);
-  const raw = store.db.prepare("SELECT cipher FROM secrets WHERE name = 'aaApiKey'").get().cipher;
+  assert.strictEqual(store.repos.secrets.save('openRouterApiKey', '  or-secret-1  '), true);
+  const raw = store.db.prepare("SELECT cipher FROM secrets WHERE name = 'openRouterApiKey'").get().cipher;
   assert.ok(raw.startsWith('enc:v1:'));
-  assert.ok(!raw.includes('aa-secret-1'));
-  assert.strictEqual(store.repos.secrets.reveal('aaApiKey'), 'aa-secret-1');
-  assert.strictEqual(store.repos.secrets.has('aaApiKey'), true);
+  assert.ok(!raw.includes('or-secret-1'));
+  assert.strictEqual(store.repos.secrets.reveal('openRouterApiKey'), 'or-secret-1');
+  assert.strictEqual(store.repos.secrets.has('openRouterApiKey'), true);
 });
 
 test("secrets: saving '' deletes", async (t) => {
   const { repos } = await memoryStore(t);
-  repos.secrets.save('aaApiKey', 'aa-secret-1');
-  assert.strictEqual(repos.secrets.save('aaApiKey', ''), false);
-  assert.strictEqual(repos.secrets.has('aaApiKey'), false);
-  assert.strictEqual(repos.secrets.reveal('aaApiKey'), null);
+  repos.secrets.save('openRouterApiKey', 'or-secret-1');
+  assert.strictEqual(repos.secrets.save('openRouterApiKey', ''), false);
+  assert.strictEqual(repos.secrets.has('openRouterApiKey'), false);
+  assert.strictEqual(repos.secrets.reveal('openRouterApiKey'), null);
 });
 
 test('secrets: unknown names are refused', async (t) => {
@@ -66,8 +66,10 @@ test('openRouterApiKey is a known secret bound to openrouter.ai', async (t) => {
   assert.strictEqual(store.repos.secrets.has('openRouterApiKey'), true);
   assert.strictEqual(store.repos.secrets.reveal('openRouterApiKey'), 'sk-or-v1-test');
   assert.strictEqual(SECRET_ORIGINS.openRouterApiKey, 'https://openrouter.ai');
-  assert.strictEqual(SECRET_ORIGINS.aaApiKey, 'https://artificialanalysis.ai',
-    'aaApiKey stays registered: the current Settings page still saves it until Plan B');
+  // The Artificial Analysis key is gone with the benchmark and the live
+  // leaderboard: the independent indices the catalog wants are OpenRouter's own
+  // /benchmarks endpoint now, so there is one named secret and one origin.
+  assert.strictEqual(SECRET_ORIGINS.aaApiKey, undefined);
   assert.throws(() => store.repos.secrets.save('someOtherKey', 'x'), /Unknown secret/);
   assert.strictEqual(store.repos.secrets.save('openRouterApiKey', ''), false,
     'and saving an empty value deletes one, like every other secret');
@@ -75,29 +77,29 @@ test('openRouterApiKey is a known secret bound to openrouter.ai', async (t) => {
 
 test('secrets: with OS encryption unavailable nothing is stored', async (t) => {
   const store = await memoryStore(t, { cipher: fakeCipher({ available: false }) });
-  assert.throws(() => store.repos.secrets.save('aaApiKey', 'aa-secret'), /unavailable/);
-  assert.strictEqual(store.repos.secrets.has('aaApiKey'), false);
+  assert.throws(() => store.repos.secrets.save('openRouterApiKey', 'or-secret'), /unavailable/);
+  assert.strictEqual(store.repos.secrets.has('openRouterApiKey'), false);
 });
 
 test('secrets: setCipher copies an envelope verbatim and refuses anything else', async (t) => {
   const { repos } = await memoryStore(t);
-  repos.secrets.setCipher('aaApiKey', encFake('aa-x'));
-  assert.strictEqual(repos.secrets.getCipher('aaApiKey'), encFake('aa-x'));
-  assert.strictEqual(repos.secrets.reveal('aaApiKey'), 'aa-x');
-  assert.throws(() => repos.secrets.setCipher('aaApiKey', 'aa-plain'), /enc:v1:/);
+  repos.secrets.setCipher('openRouterApiKey', encFake('aa-x'));
+  assert.strictEqual(repos.secrets.getCipher('openRouterApiKey'), encFake('aa-x'));
+  assert.strictEqual(repos.secrets.reveal('openRouterApiKey'), 'aa-x');
+  assert.throws(() => repos.secrets.setCipher('openRouterApiKey', 'aa-plain'), /enc:v1:/);
 });
 
 test('secrets: a value encrypted elsewhere reveals as null (locked)', async (t) => {
   const { repos } = await memoryStore(t);
-  repos.secrets.setCipher('aaApiKey', LOCKED_BLOB);
-  assert.strictEqual(repos.secrets.has('aaApiKey'), true);
-  assert.strictEqual(repos.secrets.reveal('aaApiKey'), null);
+  repos.secrets.setCipher('openRouterApiKey', LOCKED_BLOB);
+  assert.strictEqual(repos.secrets.has('openRouterApiKey'), true);
+  assert.strictEqual(repos.secrets.reveal('openRouterApiKey'), null);
 });
 
 test('secrets: replacing a secret drops the cached plaintext', async (t) => {
   const { repos } = await memoryStore(t);
-  repos.secrets.save('aaApiKey', 'aa-first');
-  assert.strictEqual(repos.secrets.reveal('aaApiKey'), 'aa-first');
-  repos.secrets.save('aaApiKey', 'aa-second');
-  assert.strictEqual(repos.secrets.reveal('aaApiKey'), 'aa-second');
+  repos.secrets.save('openRouterApiKey', 'aa-first');
+  assert.strictEqual(repos.secrets.reveal('openRouterApiKey'), 'aa-first');
+  repos.secrets.save('openRouterApiKey', 'aa-second');
+  assert.strictEqual(repos.secrets.reveal('openRouterApiKey'), 'aa-second');
 });

@@ -1000,7 +1000,6 @@ function setProviderHealth(id, { state, detail }) {
   // menus, so a probe that confirms the same state leaves them alone.
   if (!prev || prev.state !== state) {
     if (window.CATALOG) window.CATALOG.renderIfShown();
-    if (window.PROFILES) window.PROFILES.renderIfShown();
   }
 }
 
@@ -4151,7 +4150,7 @@ const SETTINGS_SECTIONS_META = {
   'sec-schedule': { label: 'Schedule', desc: 'Automatic re-tests, health checks and alerts' },
   'sec-speed': { label: 'Speed & Timeouts', desc: 'Latency colours, and how long a model may take' },
   'sec-reliability': { label: 'Reliability', desc: 'Hedging, models tested at once, and retries' },
-  'sec-catalog': { label: 'Models Catalog', desc: 'How the model pool syncs, benchmarks and ranks models' },
+  'sec-catalog': { label: 'Models Catalog', desc: 'How the model pool syncs, and the sources its facts are scored against' },
   'sec-history': { label: 'History', desc: 'How many runs are kept, and exporting them' },
   'sec-logs': { label: 'Diagnostics & Logs', desc: 'What is logged about each request, and where' },
   'sec-data': { label: 'Data Directory', desc: 'Where your settings, keys and history are stored' },
@@ -4379,7 +4378,7 @@ $('#btn-reset-settings').addEventListener('click', () => {
 
 // App shell. Bound before init() so the nav responds while providers and
 // history are still loading.
-const PAGES = ['overview', 'providers', 'provider', 'catalog', 'database', 'profiles', 'history', 'monitor', 'settings'];
+const PAGES = ['overview', 'providers', 'provider', 'catalog', 'database', 'history', 'monitor', 'settings'];
 let currentPage = 'overview';
 
 // Routes live in the URL hash (the page is loaded from file://, so real paths
@@ -4420,9 +4419,8 @@ function applyRoute() {
 const PAGE_META = {
   overview: { title: 'Overview', desc: 'Routing health — providers, models and test activity at a glance.' },
   providers: { title: 'Providers', desc: 'Connect providers and manage their keys and accounts.' },
-  catalog: { title: 'Models Catalog', desc: 'Every model your connected providers offer — the pool the router draws from, benchmarked and ranked.' },
+  catalog: { title: 'Models Catalog', desc: 'Every model your connected providers offer — the pool the router draws from, scored and ranked.' },
   database: { title: 'Database', desc: 'Read-only explorer for the local app and request databases.' },
-  profiles: { title: 'Routing Profiles', desc: 'Three virtual models — Lite, Pro, Max — that route each request to the best model in the pool.' },
   history: { title: 'Test History', desc: 'Every request this app has sent, and the runs they belong to.' },
   monitor: { title: 'Monitoring', desc: 'Requests, errors, latency and cost over time.' },
   settings: { title: 'Settings', desc: 'Test prompt, scheduling, appearance and data.' },
@@ -4462,7 +4460,6 @@ function showPage(page) {
   if (page === 'overview') renderQuickStats();
   if (page === 'catalog' && window.CATALOG) window.CATALOG.render();
   if (page === 'database' && window.DATABASE) window.DATABASE.render();
-  if (page === 'profiles' && window.PROFILES) window.PROFILES.render();
   if (page === 'history' && window.LOGS) window.LOGS.render();
   if (page === 'monitor' && window.LOGS) window.LOGS.renderMonitor();
   // Leaving Test History has to stop its live tail; nothing else tells it the
@@ -6012,15 +6009,14 @@ async function init() {
   renderQuickStats();
   // The catalogue needs the providers and their keys, so it starts last.
   if (window.CATALOG) window.CATALOG.init();
-  if (window.PROFILES) window.PROFILES.init();
   // Last, so the restored page renders with settings and providers in place.
   applyRoute();
 }
 
-// catalog.js and profiles.js load after this file, and init() hands them the
-// providers at its end. Started straight away, init's first IPC replies could
-// land before the parser had run them, so `window.CATALOG` was still missing
-// and the catalogue and profiles never started (no sync, no bindings).
+// catalog.js loads after this file, and init() hands it the providers at its
+// end. Started straight away, init's first IPC replies could land before the
+// parser had run it, so `window.CATALOG` was still missing and the catalogue
+// never started (no sync, no bindings).
 // DOMContentLoaded fires only once every script on the page has run.
 function start() {
   init().catch((err) => console.error('Startup failed:', err));

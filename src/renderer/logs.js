@@ -578,7 +578,7 @@
     state.rows = state.cursor ? state.rows.concat(page.rows) : page.rows;
     state.cursor = page.nextCursor;
     if (!state.rows.length) {
-      el('log-body').innerHTML = emptyState('No runs in this range', 'A Route Test or a benchmark creates a run. Widen the range, or clear a filter.');
+      el('log-body').innerHTML = emptyState('No runs in this range', 'A Route Test or a health check creates a run. Widen the range, or clear a filter.');
       return;
     }
     const body = state.rows.map((r) => {

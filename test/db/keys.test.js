@@ -18,7 +18,7 @@ async function setup(t) {
   providers.save({ id: 'mirai', name: 'Mirai', baseUrl: MIRAI, rpm: null, keys: [{ id: 'key_m', name: 'M', key: TRICKY, active: true }] });
   providers.importProvider({ id: 'darkapi', name: 'Dark API', baseUrl: 'https://darkapi.dev/v1', rpm: null, custom: false, position: 2,
     keys: [{ id: 'key_locked', name: 'Other PC', cipher: LOCKED_BLOB, active: true, quotaSpent: null }] });
-  store.repos.secrets.save('aaApiKey', 'aa-secret');
+  store.repos.secrets.save('openRouterApiKey', 'or-secret');
   return { store, resolver: createKeyResolver({ providers, secrets: store.repos.secrets }) };
 }
 
@@ -82,14 +82,14 @@ test("a key sent to another provider's host is refused", async (t) => {
   assert.strictEqual(resolver.resolve({ url: 'https://evil.test/?u=https://router.bynara.id', headers: auth }).blocked, true);
 });
 
-test('the Artificial Analysis key goes to artificialanalysis.ai only', async (t) => {
+test('the OpenRouter key goes to openrouter.ai only', async (t) => {
   const { resolver } = await setup(t);
-  const ok = resolver.resolve({ url: 'https://artificialanalysis.ai/api/v2/data/llms/models', headers: { 'x-api-key': 'venomsecret:aaApiKey' } });
-  assert.strictEqual(ok.headers['x-api-key'], 'aa-secret');
-  assert.deepStrictEqual(resolver.resolve({ url: `${NARA}/models`, headers: { 'x-api-key': 'venomsecret:aaApiKey' } }), {
+  const ok = resolver.resolve({ url: 'https://openrouter.ai/api/v1/benchmarks', headers: { 'x-api-key': 'venomsecret:openRouterApiKey' } });
+  assert.strictEqual(ok.headers['x-api-key'], 'or-secret');
+  assert.deepStrictEqual(resolver.resolve({ url: `${NARA}/models`, headers: { 'x-api-key': 'venomsecret:openRouterApiKey' } }), {
     blocked: true,
     error: "Key blocked: router.bynara.id is not this key's provider",
-    refs: [{ kind: 'secret', id: 'aaApiKey', providerId: null }],
+    refs: [{ kind: 'secret', id: 'openRouterApiKey', providerId: null }],
   });
 });
 
@@ -162,7 +162,7 @@ test('a placeholder refused for the wrong host never reaches the cipher', async 
   const store = await memoryStore(t, { cipher });
   const providers = store.repos.providers;
   providers.save({ id: 'nara', name: 'NaraRouter', baseUrl: NARA, rpm: null, keys: [{ id: 'key_1', name: 'One', key: 'sk-nara-1', active: true }] });
-  store.repos.secrets.save('aaApiKey', 'aa-secret');
+  store.repos.secrets.save('openRouterApiKey', 'or-secret');
   const resolver = createKeyResolver({ providers, secrets: store.repos.secrets });
 
   const before = cipher.calls.decrypt;
@@ -171,7 +171,7 @@ test('a placeholder refused for the wrong host never reaches the cipher', async 
   assert.strictEqual(cipher.calls.decrypt, before);
 
   const before2 = cipher.calls.decrypt;
-  const out2 = resolver.resolve({ url: `${NARA}/models`, headers: { 'x-api-key': 'venomsecret:aaApiKey' } });
+  const out2 = resolver.resolve({ url: `${NARA}/models`, headers: { 'x-api-key': 'venomsecret:openRouterApiKey' } });
   assert.strictEqual(out2.blocked, true);
   assert.strictEqual(cipher.calls.decrypt, before2);
 });
@@ -187,11 +187,11 @@ test('resolve reports the key it used and its placeholder/secret pair, once', as
   assert.deepStrictEqual(out.substitutions, [{ placeholder: 'venomkey:key_m', secret: TRICKY }]);
 });
 
-test('the Artificial Analysis key is reported as a secret ref', async (t) => {
+test('the OpenRouter key is reported as a secret ref', async (t) => {
   const { resolver } = await setup(t);
-  const out = resolver.resolve({ url: 'https://artificialanalysis.ai/api/v2/data/llms/models', headers: { 'x-api-key': 'venomsecret:aaApiKey' } });
-  assert.deepStrictEqual(out.refs, [{ kind: 'secret', id: 'aaApiKey', providerId: null }]);
-  assert.deepStrictEqual(out.substitutions, [{ placeholder: 'venomsecret:aaApiKey', secret: 'aa-secret' }]);
+  const out = resolver.resolve({ url: 'https://openrouter.ai/api/v1/benchmarks', headers: { 'x-api-key': 'venomsecret:openRouterApiKey' } });
+  assert.deepStrictEqual(out.refs, [{ kind: 'secret', id: 'openRouterApiKey', providerId: null }]);
+  assert.deepStrictEqual(out.substitutions, [{ placeholder: 'venomsecret:openRouterApiKey', secret: 'or-secret' }]);
 });
 
 test('two keys in one request are both reported, by their longest ids', async (t) => {
