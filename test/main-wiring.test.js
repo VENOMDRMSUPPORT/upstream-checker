@@ -60,8 +60,12 @@ test('the catalog starts after both databases and both IPC blocks, before the wi
 // the source is the cheap half; scripts/live/boot-guard.cjs arms a throwing
 // fetch/net guard over a real boot of the app for the other half.
 test('starting the catalog reads the cache and never syncs, and no timer is registered on it', () => {
-  const boot = block('function startCatalog({ repos, log }) {', '\n}\n');
+  const boot = block('function startCatalog({ repos, log', '\n}\n');
   assert.ok(boot.includes('engine.loadCache()'), 'boot reads the four cached documents');
+  // onRosterWritten is the price book's cache invalidation, called by
+  // catalog:ingest — not a network call and not a timer, and it is the only
+  // reason the log recorder's costs can be current.
+  assert.ok(boot.includes('onRosterWritten'), 'a roster write invalidates the price book');
   for (const networked of ['syncAll', 'fetchAll', 'fetchJson', 'setInterval', 'setTimeout']) {
     assert.ok(!boot.includes(networked),
       `startCatalog must not mention ${networked}(): nothing downloads because a window opened`);

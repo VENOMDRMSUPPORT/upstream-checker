@@ -23,11 +23,11 @@ function createSettingsRepo(db) {
 
   // save-settings. Merged into the stored row, so fields this build doesn't
   // know (legacy mediaPrompt, fields a newer build added) survive the first
-  // save. aaApiKey is a secret (secrets table) and never lands here.
+  // save. openRouterApiKey is a secret (secrets table) and never lands here.
   const saveSettings = db.transaction((incoming) => {
     if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) throw new TypeError('Settings must be an object');
     const merged = { ...(get('settings') || {}), ...incoming };
-    delete merged.aaApiKey;
+    delete merged.openRouterApiKey;
     set('settings', merged);
     return merged;
   });

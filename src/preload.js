@@ -45,10 +45,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   appendRun: (run, maxRuns) => ipcRenderer.invoke('append-run', run, maxRuns),
   clearHistory: () => ipcRenderer.invoke('clear-history'),
 
-  // Model pool (models seen per provider + benchmark results). opts.reset is
-  // sent only by the Clear and Reset buttons.
-  readCatalog: () => ipcRenderer.invoke('read-catalog'),
-  writeCatalog: (data, opts) => ipcRenderer.invoke('write-catalog', data, opts),
   // Catalog engine (main owns the sources, the merge and the score). Rows travel
   // as the adapter's own objects and come back scored; no key goes either way.
   //

@@ -64,14 +64,18 @@ function legacyCounts(dir) {
     providers[id] = (Array.isArray(p && p.keys) ? p.keys : []).filter((k) => k && typeof k.key === 'string' && k.key !== '').length;
   });
   const settings = cfg.settings && typeof cfg.settings === 'object' ? { ...cfg.settings } : null;
-  const hasAa = !!(settings && typeof settings.aaApiKey === 'string' && settings.aaApiKey.trim());
-  if (settings) delete settings.aaApiKey;
+  // The one named secret this app stores. An old config.json carries it under
+  // its own name (the Artificial Analysis key); the import turns either into
+  // the OpenRouter secret, because that is the one the catalog reads.
+  const hasOr = !!((settings && typeof settings.openRouterApiKey === 'string' && settings.openRouterApiKey.trim())
+    || (settings && typeof settings.aaApiKey === 'string' && settings.aaApiKey.trim()));
+  if (settings) { delete settings.openRouterApiKey; delete settings.aaApiKey; }
   const runs = Array.isArray(asObject(history && history.data).runs) ? history.data.runs : [];
   return {
     files: [config, catalog, history].filter(Boolean).map((f) => (f.error ? `${f.name} (unreadable)` : f.name)),
     providers,
     settings,
-    hasAa,
+    hasOr,
     models: Object.keys(asObject(asObject(catalog && catalog.data).models)).length,
     runs: runs.length,
     results: runs.reduce((n, r) => n + (Array.isArray(r && r.results) ? r.results.length : 0), 0),
@@ -95,7 +99,7 @@ function dbCounts(dir) {
       importedAt: imported ? imported.value : null,
       providers,
       settings: settingsRow ? JSON.parse(settingsRow.value_json) : null,
-      hasAa: one("SELECT COUNT(*) AS n FROM secrets WHERE name = 'aaApiKey'") > 0,
+      hasOr: one("SELECT COUNT(*) AS n FROM secrets WHERE name = 'openRouterApiKey'") > 0,
       models: one('SELECT COUNT(*) AS n FROM models'),
       runs: one('SELECT COUNT(*) AS n FROM test_runs'),
       results: one('SELECT COUNT(*) AS n FROM test_results'),
@@ -115,8 +119,11 @@ function compare(legacy, db) {
     add(`keys of ${id}`, legacy.providers[id] ?? '-', db.providers[id] ?? '-');
   });
   add('keys in total', sum(legacy.providers), sum(db.providers), "a merged custom provider's keys move to its built-in; duplicates are dropped");
-  add('Artificial Analysis key', legacy.hasAa ? 'set' : 'none', db.hasAa ? 'set' : 'none');
-  add('models', legacy.models, db.models, 'the model pool re-syncs after launch');
+  add('OpenRouter key', legacy.hasOr ? 'set' : 'none', db.hasOr ? 'set' : 'none');
+  // The legacy file's model count is what it listed; venom.db starts empty by
+  // design, because the roster is rebuilt by the first fetch + ingest rather
+  // than read back. Two columns that cannot match, and the note says why.
+  add('models', legacy.models, db.models, 'venom.db starts empty on purpose: the pool is rebuilt by the first fetch, not imported');
   add('test runs', legacy.runs, db.runs, 'runs made after launch add to this; the run cap trims it');
   add('test results', legacy.results, db.results);
   const a = legacy.settings || {};
@@ -137,7 +144,7 @@ function main() {
   if (!db) {
     const keys = Object.values(legacy.providers).reduce((n, v) => n + v, 0);
     console.log('venom.db: not there yet (run this again after the first launch of the new version)\n');
-    console.log(`providers ${Object.keys(legacy.providers).length} · keys ${keys} · models ${legacy.models} · runs ${legacy.runs} · results ${legacy.results} · AA key ${legacy.hasAa ? 'set' : 'none'}`);
+    console.log(`providers ${Object.keys(legacy.providers).length} · keys ${keys} · models ${legacy.models} · runs ${legacy.runs} · results ${legacy.results} · OpenRouter key ${legacy.hasOr ? 'set' : 'none'}`);
     return;
   }
   console.log(`venom.db: imported_from_json_at = ${db.importedAt}\n`);

@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const { importLegacy, listImportedFiles, describeImportWarnings, needsReimportPrompt, ImportAbort } = require('../../src/db/import-json');
-const { memoryStore, fakeCipher, encFake, LOCKED_BLOB, quietLog, tempDir } = require('../helpers');
+const { memoryStore, fakeCipher, encFake, LOCKED_BLOB, quietLog, tempDir, countRows } = require('../helpers');
 
 const NOW = 1727000000000;
 
@@ -110,20 +110,20 @@ test('imports every file in one go and renames them', async (t) => {
   assert.strictEqual(providers.darkapi.rpm, 20);
   assert.deepStrictEqual(providers.nara.keys[1].quotaSpent, legacyConfig().providers.nara.keys[1].quotaSpent);
   assert.strictEqual(providers.darkapi.keys[0].locked, true);
-  // Settings verbatim minus the AA key, which is a secret now.
+  // Settings verbatim minus the key, which is a secret now. The legacy AA key
+  // becomes the OpenRouter secret: that is the one the catalog reads.
   const { aaApiKey, ...settings } = legacyConfig().settings;
   assert.deepStrictEqual(store.repos.settings.get('settings'), settings);
-  assert.strictEqual(store.repos.secrets.reveal('aaApiKey'), aaApiKey);
+  assert.strictEqual(store.repos.secrets.reveal('openRouterApiKey'), aaApiKey);
   assert.deepStrictEqual(store.repos.settings.get('test'), legacyConfig().test);
   assert.deepStrictEqual(store.repos.settings.get('window'), legacyConfig().window);
   // History, with the missing name and prompt filled in.
   const runs = store.repos.history.read().runs;
   assert.deepStrictEqual(runs.map((r) => [r.providerName, r.prompt]), [['NaraRouter', 'What is 2+2?'], ['nara', '']]);
   assert.deepStrictEqual(runs[0].results, legacyHistory().runs[0].results);
-  const cat = store.repos.catalog.read();
-  assert.deepStrictEqual(cat.models['nara::m1'], legacyCatalog().models['nara::m1']);
-  assert.deepStrictEqual(cat.lastSync, { nara: 2 });
-  assert.deepStrictEqual(cat.keyModels, { key_1: { count: 1, at: 2 } });
+  // catalog.json is read, backed up and renamed, but no longer becomes rows:
+  // the pool is rebuilt by the first fetch + ingest. The backup is the point.
+  assert.strictEqual(countRows(store.db, 'models'), 0);
   assert.strictEqual(store.repos.meta.get('imported_from_json_at'), String(NOW));
   assert.deepStrictEqual(ls(dir), [`backup-before-database-${NOW}`, 'catalog.imported.json', 'config.imported.json', 'history.imported.json']);
   assert.strictEqual(describeImportWarnings(report), '');
@@ -183,7 +183,7 @@ test('a damaged catalogue or history is left out, renamed .unreadable.json and r
   assert.match(text, /history\.json is damaged and was not imported/);
 });
 
-test('malformed catalogue entries and history rows are skipped and counted', async (t) => {
+test('malformed history rows are skipped and counted; the catalogue is not imported at all', async (t) => {
   const catalog = legacyCatalog();
   catalog.models.junk = 'not an entry';
   catalog.models['nara::no-provider'] = { id: 'no-provider' };
@@ -193,11 +193,12 @@ test('malformed catalogue entries and history rows are skipped and counted', asy
   history.runs[0].results.push({ status: 'pass' });
   const { store, run } = await setup(t, { files: { ...all(), 'catalog.json': catalog, 'history.json': history } });
   const report = await run();
-  assert.deepStrictEqual(report.skipped, { keys: 0, catalogEntries: 2, runs: 2, results: 1 });
-  assert.strictEqual(count(store, 'models'), 1);
+  // catalogEntries stays 0: the pool is not read entry by entry any more, so a
+  // damaged entry cannot be counted or skipped — the whole file is re-fetched.
+  assert.deepStrictEqual(report.skipped, { keys: 0, catalogEntries: 0, runs: 2, results: 1 });
+  assert.strictEqual(countRows(store.db, 'models'), 0, 'and no legacy row survives the import');
   assert.strictEqual(count(store, 'test_runs'), 2);
   const text = describeImportWarnings(report);
-  assert.match(text, /2 damaged model pool entries were skipped\./);
   assert.match(text, /2 damaged test runs were skipped\./);
   assert.match(text, /1 damaged test result was skipped\./);
 });
@@ -290,7 +291,7 @@ test('a write that fails mid-import commits nothing and renames nothing', async 
   store.db.exec('DROP TRIGGER fail_runs');
   assert.strictEqual((await run()).status, 'imported');
   assert.strictEqual(count(store, 'test_runs'), 2);
-  assert.strictEqual(count(store, 'models'), 1);
+  assert.strictEqual(countRows(store.db, 'models'), 0, 'the catalogue is re-fetched, not imported');
 });
 
 test('re-import reads the .imported.json copies and leaves them in place', async (t) => {

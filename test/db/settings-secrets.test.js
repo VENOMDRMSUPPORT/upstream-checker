@@ -11,15 +11,15 @@ test('settings rows round-trip JS types exactly', async (t) => {
   assert.strictEqual(repos.settings.get('window'), null);
 });
 
-test('saveSettings strips aaApiKey and keeps fields the renderer does not know', async (t) => {
+test('saveSettings strips the OpenRouter key and keeps fields the renderer does not know', async (t) => {
   const store = await memoryStore(t);
   store.repos.settings.set('settings', { theme: 'vercel', mediaPrompt: 'legacy prompt', futureField: 42 });
-  store.repos.settings.saveSettings({ theme: 'daylight', historyMaxRuns: 50, aaApiKey: 'aa-secret-value' });
+  store.repos.settings.saveSettings({ theme: 'daylight', historyMaxRuns: 50, openRouterApiKey: 'or-secret-value' });
   assert.deepStrictEqual(store.repos.settings.get('settings'), {
     theme: 'daylight', mediaPrompt: 'legacy prompt', futureField: 42, historyMaxRuns: 50,
   });
   const raw = store.db.prepare("SELECT value_json FROM settings WHERE key = 'settings'").get().value_json;
-  assert.ok(!raw.includes('aa-secret-value'));
+  assert.ok(!raw.includes('or-secret-value'));
 });
 
 test('saveSettings rejects anything but an object', async (t) => {

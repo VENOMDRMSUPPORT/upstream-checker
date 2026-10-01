@@ -170,4 +170,31 @@ module.exports = [
       `);
     },
   },
+  {
+    version: 3,
+    up(db) {
+      // The benchmark is gone (spec section 2), so the five columns only it and
+      // the capability probes wrote are gone with it. DROP COLUMN needs SQLite
+      // 3.35 and works here because none of the five carries an index, a
+      // foreign key or a trigger — SQLite refuses those.
+      db.exec(`
+        ALTER TABLE models DROP COLUMN bench_json;
+        ALTER TABLE models DROP COLUMN history_json;
+        ALTER TABLE models DROP COLUMN bench_error;
+        ALTER TABLE models DROP COLUMN caps_json;
+        ALTER TABLE models DROP COLUMN caps_error;
+      `);
+
+      // The catalogue is rebuilt by the next fetch rather than read back, so
+      // the legacy pool goes empty rather than migrating: the engine's rows live
+      // in snapshot_meta / roster_snapshot and are never written here. Both
+      // clears are deferred past the column drops because model_keys carries an
+      // ON DELETE CASCADE off models.
+      db.exec(`
+        DELETE FROM model_keys;
+        DELETE FROM models;
+        DELETE FROM catalog_meta;
+      `);
+    },
+  },
 ];

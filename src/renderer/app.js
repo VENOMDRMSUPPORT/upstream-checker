@@ -173,13 +173,11 @@ const DEFAULT_SETTINGS = {
   statsRetentionMonths: 12,
 
   // Models Catalog. The pool re-reads every connected provider's model
-  // list on this cadence; a model that appears is benchmarked straight away
-  // when catalogAutoBench is on (the first sync of a provider is a baseline —
-  // nothing is auto-run then). aaApiKey unlocks the live Artificial Analysis
-  // leaderboard in place of the bundled snapshot.
+  // list on this cadence. openRouterApiKey is optional and unlocks the fourth
+  // upstream document (the Artificial Analysis indices); without it fewer
+  // models are measured and more are estimated, and nothing breaks.
   catalogSyncMinutes: 5,
-  catalogAutoBench: true,
-  aaApiKey: '',
+  openRouterApiKey: '',
 
   // Models tested at the same time. 1 is the original behaviour. Raising it is
   // the only thing that actually shortens a run — widening the hedge spends more
@@ -298,8 +296,8 @@ async function loadSettings() {
 }
 
 // One row, written on its own: no read-modify-write, so it can't undo a key
-// or provider change made meanwhile. aaApiKey is dropped by main (the key is
-// a secret, saved with saveSecret).
+// or provider change made meanwhile. openRouterApiKey is dropped by main (the
+// key is a secret, saved with saveSecret).
 let saveSettingsTimer = null;
 function saveSettingsNow() {
   clearTimeout(saveSettingsTimer);
@@ -4367,8 +4365,8 @@ $('#btn-clear-history').addEventListener('click', async () => {
 $('#btn-open-data').addEventListener('click', () => window.electronAPI.openDataFolder());
 
 $('#btn-reset-settings').addEventListener('click', () => {
-  // The Artificial Analysis key is a saved secret, not a setting: a reset keeps it.
-  settings = { ...DEFAULT_SETTINGS, aaApiKey: settings.aaApiKey };
+  // The OpenRouter key is a saved secret, not a setting: a reset keeps it.
+  settings = { ...DEFAULT_SETTINGS, openRouterApiKey: settings.openRouterApiKey };
   applyAppearance();
   queueSettingsSave();
   fillSettingsForm();

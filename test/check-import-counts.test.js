@@ -50,11 +50,13 @@ test('before the import: legacy counts only', (t) => {
   assert.strictEqual(legacy.models, 2);
   assert.strictEqual(legacy.runs, 2);
   assert.strictEqual(legacy.results, 3);
-  assert.strictEqual(legacy.hasAa, true);
+  // The legacy file carries the Artificial Analysis key; the import turns it
+  // into the OpenRouter secret, so the count is the same fact under a new name.
+  assert.strictEqual(legacy.hasOr, true);
   assert.strictEqual(dbCounts(dir), null);
 });
 
-test('after the import every count matches and nothing secret is printed', async (t) => {
+test('after the import every count matches except the pool, which starts empty by design', async (t) => {
   const dir = tempDir(t);
   writeLegacy(dir);
   const cipher = fakeCipher();
@@ -65,7 +67,11 @@ test('after the import every count matches and nothing secret is printed', async
     store.close();
   }
   const rows = compare(legacyCounts(dir), dbCounts(dir));
-  assert.deepStrictEqual(rows.filter((r) => !r.same), []);
+  // The model pool is the one row that cannot match, and it is the only one:
+  // the catalogue is rebuilt by the first fetch rather than read back.
+  const differing = rows.filter((r) => !r.same);
+  assert.deepStrictEqual(differing.map((r) => r.what), ['models']);
+  assert.match(differing[0].note, /starts empty on purpose/);
   const printed = JSON.stringify(rows);
   ['sk-owner-secret-1', 'sk-owner-plain-2', 'aa-owner-secret', 'enc:v1:'].forEach((s) => assert.ok(!printed.includes(s), s));
 });

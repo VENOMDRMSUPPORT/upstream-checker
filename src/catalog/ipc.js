@@ -125,7 +125,7 @@ function withAliases(row, model) {
   return row;
 }
 
-function createCatalogIpc({ ipcMain, repos, engine, log = console }) {
+function createCatalogIpc({ ipcMain, repos, engine, log = console, onRosterWritten = () => {} }) {
   // The door (ref §9 refresh): one in-flight ingest per provider, shared by the
   // timer, a Fetch models click and a Fetch information click, so an overlap
   // costs one upstream fetch, one snapshot write, one diff.
@@ -228,6 +228,15 @@ function createCatalogIpc({ ipcMain, repos, engine, log = console }) {
         const previous = repos.snapshots.read(provider);
         recordFailure(provider, now, err.message);
         return staleFrom(previous, now, err);
+      }
+      // The one place the roster changes, so it is the one place the price book
+      // has to hear about it: every cached cost for this provider may be stale
+      // now. This is not the log recorder's business, so it arrives as a hook
+      // rather than as a direct call.
+      try {
+        onRosterWritten(provider);
+      } catch (err) {
+        log.warn('catalog: roster written but the price book was not invalidated:', err.message);
       }
       const scored = engine.scoreRows(stored.rows.map(providerRowSnapshot));
       engine.syncIfUnscored(scored).catch(() => {});

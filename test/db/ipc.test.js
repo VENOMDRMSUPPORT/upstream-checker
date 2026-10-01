@@ -12,6 +12,7 @@ function fakeIpcMain() {
     },
     invoke: async (channel, ...args) => handlers.get(channel)({}, ...args),
     channels: () => [...handlers.keys()].sort(),
+    handlers,
   };
 }
 
@@ -25,11 +26,13 @@ async function setup(t) {
 
 const nara = (keys) => ({ id: 'nara', name: 'NaraRouter', baseUrl: 'https://router.bynara.id/v1', rpm: null, keys });
 
+// The catalogue left this surface: the model pool moved to repos.snapshots and
+// is reached only through the catalog:* channels in src/catalog/ipc.js.
 test('registers exactly the data channels', async (t) => {
   const { ipc } = await setup(t);
   assert.deepStrictEqual(ipc.channels(), [
-    'append-run', 'clear-history', 'copy-key', 'database-explorer', 'delete-provider', 'merge-provider', 'read-catalog', 'read-config',
-    'read-history', 'save-provider', 'save-secret', 'save-settings', 'save-test-definition', 'write-catalog',
+    'append-run', 'clear-history', 'copy-key', 'database-explorer', 'delete-provider', 'merge-provider',
+    'read-config', 'read-history', 'save-provider', 'save-secret', 'save-settings', 'save-test-definition',
   ]);
 });
 
@@ -41,12 +44,12 @@ test('read-config on an empty database', async (t) => {
 test('read-config hands out placeholders and hints, never keys', async (t) => {
   const { ipc } = await setup(t);
   await ipc.invoke('save-provider', nara([{ id: 'key_1', name: 'Main', key: 'sk-nara-secret-0001', active: true }]));
-  await ipc.invoke('save-secret', 'aaApiKey', 'aa-secret');
+  await ipc.invoke('save-secret', 'openRouterApiKey', 'or-secret');
   const cfg = await ipc.invoke('read-config');
   assert.deepStrictEqual(cfg.providers.nara.keys[0], {
     id: 'key_1', name: 'Main', key: 'venomkey:key_1', hint: 'sk-nara-se********0001', active: true, locked: false,
   });
-  assert.strictEqual(cfg.settings.aaApiKey, 'venomsecret:aaApiKey');
+  assert.strictEqual(cfg.settings.openRouterApiKey, 'venomsecret:openRouterApiKey');
 });
 
 test('no reply hands a secret to the renderer', async (t) => {
@@ -58,14 +61,14 @@ test('no reply hands a secret to the renderer', async (t) => {
     id: 'custom_x', name: 'X', baseUrl: 'https://router.bynara.id/v1/', rpm: null, custom: true,
     keys: [{ id: 'key_2', name: 'B', key: secrets[1], active: true }],
   }));
-  replies.push(await ipc.invoke('save-secret', 'aaApiKey', secrets[2]));
+  replies.push(await ipc.invoke('save-secret', 'openRouterApiKey', secrets[2]));
   replies.push(await ipc.invoke('read-config'));
   replies.push(await ipc.invoke('merge-provider', 'custom_x', 'nara'));
   replies.push(await ipc.invoke('copy-key', 'key_2'));
   replies.push(await ipc.invoke('read-config'));
   const wire = JSON.stringify(replies);
   secrets.forEach((s) => assert.ok(!wire.includes(s), `${s} reached the renderer`));
-  assert.ok(wire.includes('venomkey:key_1') && wire.includes('venomkey:key_2') && wire.includes('venomsecret:aaApiKey'));
+  assert.ok(wire.includes('venomkey:key_1') && wire.includes('venomkey:key_2') && wire.includes('venomsecret:openRouterApiKey'));
   assert.strictEqual(clipboard.text, secrets[1]);
 });
 
@@ -83,25 +86,25 @@ test('copy-key writes the clipboard in main and refuses a key it cannot read', a
   assert.strictEqual(clipboard.text, 'sk-copy-me');
 });
 
-test('save-settings drops aaApiKey; settings, test and window come back in read-config', async (t) => {
+test('save-settings drops the key; settings, test and window come back in read-config', async (t) => {
   const { store, ipc } = await setup(t);
-  assert.deepStrictEqual(await ipc.invoke('save-settings', { theme: 'daylight', aaApiKey: 'aa-typed' }), { success: true });
+  assert.deepStrictEqual(await ipc.invoke('save-settings', { theme: 'daylight', openRouterApiKey: 'or-typed' }), { success: true });
   assert.deepStrictEqual(await ipc.invoke('save-test-definition', { prompt: 'p', expected: 'e', autoMinutes: 0 }), { success: true });
   store.repos.settings.set('window', { width: 1200, height: 800, maximized: false });
   assert.deepStrictEqual(await ipc.invoke('read-config'), {
     version: 1,
     providers: {},
-    settings: { theme: 'daylight', aaApiKey: '' },
+    settings: { theme: 'daylight', openRouterApiKey: '' },
     test: { prompt: 'p', expected: 'e', autoMinutes: 0 },
     window: { width: 1200, height: 800, maximized: false },
   });
-  assert.strictEqual(store.repos.secrets.has('aaApiKey'), false);
+  assert.strictEqual(store.repos.secrets.has('openRouterApiKey'), false);
 });
 
 test('save-secret answers with the placeholder, or empty after a delete', async (t) => {
   const { ipc } = await setup(t);
-  assert.deepStrictEqual(await ipc.invoke('save-secret', 'aaApiKey', 'aa-secret'), { placeholder: 'venomsecret:aaApiKey' });
-  assert.deepStrictEqual(await ipc.invoke('save-secret', 'aaApiKey', ''), { placeholder: '' });
+  assert.deepStrictEqual(await ipc.invoke('save-secret', 'openRouterApiKey', 'or-secret'), { placeholder: 'venomsecret:openRouterApiKey' });
+  assert.deepStrictEqual(await ipc.invoke('save-secret', 'openRouterApiKey', ''), { placeholder: '' });
 });
 
 test('save-provider, merge-provider and delete-provider', async (t) => {
@@ -116,13 +119,14 @@ test('save-provider, merge-provider and delete-provider', async (t) => {
   assert.deepStrictEqual((await ipc.invoke('read-config')).providers, {});
 });
 
-test('write-catalog resets only on reset === true', async (t) => {
+test('the model pool is not on this surface at all', async (t) => {
+  // read-catalog / write-catalog are gone with repos/catalog.js. The roster is
+  // reached only through catalog:ingest and catalog:read (src/catalog/ipc.js),
+  // and a stale channel name here would be a handler nothing answers.
   const { ipc } = await setup(t);
-  const entry = { key: 'nara::m1', providerId: 'nara', id: 'm1', name: 'm1', removedAt: null, isNew: false, keyIds: [] };
-  assert.deepStrictEqual(await ipc.invoke('write-catalog', { models: { 'nara::m1': entry } }), { written: 1, deleted: 0 });
-  await assert.rejects(ipc.invoke('write-catalog', { models: {} }, { reset: 'yes' }), /Refusing to empty/);
-  assert.deepStrictEqual(await ipc.invoke('write-catalog', { models: {} }, { reset: true }), { written: 0, deleted: 1 });
-  assert.deepStrictEqual((await ipc.invoke('read-catalog')).models, {});
+  assert.ok(!ipc.channels().includes('read-catalog'));
+  assert.ok(!ipc.channels().includes('write-catalog'));
+  assert.strictEqual(ipc.handlers.has('write-catalog'), false);
 });
 
 test('append-run returns the new ids; read-history and clear-history', async (t) => {
@@ -141,22 +145,21 @@ test('a handler that fails rejects the call', async (t) => {
   await assert.rejects(ipc.invoke('merge-provider', 'ghost', 'nara'), /not found/);
 });
 
-test('save-settings hands main the merged settings; write-catalog says the pool changed', async (t) => {
+test('save-settings hands main the merged settings, and the key never travels with them', async (t) => {
   const store = await memoryStore(t);
   const ipc = fakeIpcMain();
   const seen = [];
   registerDataIpc({
     ipcMain: ipc, repos: store.repos, clipboard: { writeText() {} }, log: quietLog,
-    hooks: { onSettingsSaved: (s) => seen.push(['settings', s]), onCatalogWritten: () => seen.push(['catalog']) },
+    hooks: { onSettingsSaved: (s) => seen.push(['settings', s]) },
   });
   await ipc.invoke('save-settings', { theme: 'daylight' });
-  await ipc.invoke('save-settings', { logLevel: 'all', aaApiKey: 'aa-typed' });
-  await ipc.invoke('write-catalog', { models: {} });
+  await ipc.invoke('save-settings', { logLevel: 'all', openRouterApiKey: 'or-typed' });
   assert.deepStrictEqual(seen, [
     ['settings', { theme: 'daylight' }],
     ['settings', { theme: 'daylight', logLevel: 'all' }],
-    ['catalog'],
   ]);
+  assert.strictEqual(store.repos.secrets.has('openRouterApiKey'), false, 'the typed key went nowhere');
 });
 
 test('a hook that throws does not fail the save', async (t) => {
@@ -166,11 +169,10 @@ test('a hook that throws does not fail the save', async (t) => {
   registerDataIpc({
     ipcMain: ipc, repos: store.repos, clipboard: { writeText() {} },
     log: { ...quietLog, warn: (...a) => warnings.push(a.join(' ')) },
-    hooks: { onSettingsSaved: () => { throw new Error('cache bug'); }, onCatalogWritten: () => { throw new Error('cache bug'); } },
+    hooks: { onSettingsSaved: () => { throw new Error('cache bug'); } },
   });
   assert.deepStrictEqual(await ipc.invoke('save-settings', { theme: 'daylight' }), { success: true });
-  assert.deepStrictEqual(await ipc.invoke('write-catalog', { models: {} }), { written: 0, deleted: 0 });
   assert.strictEqual(store.repos.settings.get('settings').theme, 'daylight');
-  assert.strictEqual(warnings.length, 2);
+  assert.strictEqual(warnings.length, 1);
   assert.match(warnings[0], /onSettingsSaved failed/);
 });

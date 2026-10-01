@@ -27,23 +27,63 @@ test('schema v1: every table it shipped with, and install_id', (t) => {
   assert.match(db.prepare("SELECT value FROM meta WHERE key = 'install_id'").get().value, /^[0-9a-f-]{36}$/);
 });
 
-test('schema v2 adds the two snapshot tables and touches models not at all', async (t) => {
+test('schema v2 added the two snapshot tables and touched models not at all — v3 undoes the touch', async (t) => {
   const store = await memoryStore(t);
   const tables = tablesIn(store.db);
   assert.ok(tables.includes('snapshot_meta'));
   assert.ok(tables.includes('roster_snapshot'));
-  V1_TABLES.forEach((name) => assert.ok(tables.includes(name), `v2 drops nothing: ${name} is still there`));
+  V1_TABLES.forEach((name) => assert.ok(tables.includes(name), `v3 clears, it does not drop: ${name} is still there`));
   const cols = store.db.prepare('PRAGMA table_info(models)').all().map((c) => c.name);
-  assert.ok(cols.includes('bench_json'),
-    'Plan A drops nothing: the current Models page still reads this column');
-  assert.ok(!cols.includes('health_json'),
-    'and adds nothing there either — the legacy page owns that table until Plan B');
-  assert.strictEqual(store.db.pragma('user_version', { simple: true }), 2);
+  // The five columns the benchmark and the capability probes wrote, gone with
+  // them. v2 left them because the old Models page still read them; nothing does.
+  ['bench_json', 'history_json', 'bench_error', 'caps_json', 'caps_error'].forEach((name) => {
+    assert.ok(!cols.includes(name), `v3 dropped ${name}`);
+  });
+  ['summary_json', 'first_seen', 'last_seen', 'removed_at', 'is_new', 'updated_at'].forEach((name) => {
+    assert.ok(cols.includes(name), `v3 keeps ${name}`);
+  });
+  assert.strictEqual(store.db.pragma('user_version', { simple: true }), 3);
 });
 
-// "Additive" is a claim about the owner's data, not about the DDL: a file that
-// already holds providers, models and catalog_meta comes out of v2 holding them,
-// with the bak-v1 copy taken before anything ran.
+// v3 is the irreversible one: it clears the legacy pool on the owner's data. The
+// two things that must both hold — the copy is taken first, and the pool is
+// empty afterwards while the tables the engine needs are untouched.
+test('a v2 file upgrades to v3: backed up first, the legacy pool empty after', async (t) => {
+  const dir = tempDir(t);
+  const now = Date.now();
+  const fixture = new Database(path.join(dir, 'venom.db'));
+  database.MIGRATIONS[0].up(fixture);
+  database.MIGRATIONS[1].up(fixture);
+  fixture.prepare(`INSERT INTO providers (id, name, base_url, rpm, is_custom, position, created_at, updated_at)
+    VALUES ('nara', 'NaraRouter', 'https://router.bynara.id', NULL, 0, 0, ?, ?)`).run(now, now);
+  fixture.prepare(`INSERT INTO models (provider_id, model_id, name, kind, first_seen, last_seen,
+    removed_at, is_new, summary_json, bench_json, history_json, updated_at)
+    VALUES ('nara', 'nara/one', 'One', 'chat', ?, ?, NULL, 0, '{"id":"nara/one"}', '{"iq":1}', NULL, ?)`)
+    .run(now, now, now);
+  fixture.prepare(`INSERT INTO model_keys (provider_id, model_id, key_id) VALUES ('nara', 'nara/one', 'k1')`).run();
+  fixture.prepare("INSERT INTO catalog_meta (key, value_json) VALUES ('leaderboard', '{\"capturedAt\":\"2026-09-25\"}')").run();
+  fixture.pragma('user_version = 2'); // v1 and v2 applied, v3 pending
+  fixture.close();
+
+  const store = await database.open(dir, opts());
+  try {
+    assert.deepStrictEqual({ from: store.migration.from, to: store.migration.to }, { from: 2, to: 3 });
+    assert.strictEqual(store.migration.backup, path.join(dir, 'venom.db.bak-v2'));
+    assert.ok(fs.existsSync(store.migration.backup), 'the copy is on disk before the pool is emptied');
+    assert.strictEqual(store.db.prepare('SELECT COUNT(*) AS n FROM models').get().n, 0);
+    assert.strictEqual(store.db.prepare('SELECT COUNT(*) AS n FROM model_keys').get().n, 0);
+    assert.strictEqual(store.db.prepare('SELECT COUNT(*) AS n FROM catalog_meta').get().n, 0);
+    assert.strictEqual(store.db.prepare('SELECT COUNT(*) AS n FROM providers').get().n, 1,
+      'and the providers it belongs to are not touched');
+    assert.strictEqual(store.db.pragma('user_version', { simple: true }), 3);
+  } finally {
+    store.close();
+  }
+});
+
+// v2 really is additive, and that is worth proving on its own rather than only
+// through v3: a v1 file with a list to run MIGRATIONS up to, so the claim is
+// about v2's own half and not about what v3 did afterwards.
 test('a v1 file upgrades to v2 with every row it held', async (t) => {
   const dir = tempDir(t);
   const now = Date.now();
@@ -59,7 +99,8 @@ test('a v1 file upgrades to v2 with every row it held', async (t) => {
   fixture.pragma('user_version = 1'); // as `migrate` leaves it: v1 applied, v2 pending
   fixture.close();
 
-  const store = await database.open(dir, opts());
+  const throughV2 = database.MIGRATIONS.filter((m) => m.version <= 2);
+  const store = await database.open(dir, { ...opts(), migrations: throughV2 });
   try {
     assert.deepStrictEqual({ from: store.migration.from, to: store.migration.to }, { from: 1, to: 2 });
     assert.strictEqual(store.migration.backup, path.join(dir, 'venom.db.bak-v1'));
@@ -67,9 +108,9 @@ test('a v1 file upgrades to v2 with every row it held', async (t) => {
     assert.strictEqual(store.db.prepare('SELECT COUNT(*) AS n FROM providers').get().n, 1);
     assert.strictEqual(store.db.prepare('SELECT COUNT(*) AS n FROM models').get().n, 1);
     assert.strictEqual(store.db.prepare("SELECT bench_json FROM models WHERE model_id = 'nara/one'").get().bench_json, '{"iq":1}',
-      'the legacy page still reads the column Plan B has not dropped yet');
+      'v2 drops nothing: this is what "additive" means');
     assert.strictEqual(store.db.prepare("SELECT value_json FROM catalog_meta WHERE key = 'leaderboard'").get().value_json,
-      '{"capturedAt":"2026-09-25"}', 'and the meta keys the page reads are still its own');
+      '{"capturedAt":"2026-09-25"}', 'and the meta keys it found are left as they were');
     assert.strictEqual(store.db.pragma('user_version', { simple: true }), 2);
   } finally {
     store.close();
@@ -122,27 +163,27 @@ test('reopening an up-to-date file runs nothing and makes no backup', async (t) 
   (await database.open(dir, opts())).close();
   const store = await database.open(dir, opts());
   try {
-    assert.deepStrictEqual(store.migration, { from: 2, to: 2, backup: null });
+    assert.deepStrictEqual(store.migration, { from: 3, to: 3, backup: null });
     assert.deepStrictEqual(fs.readdirSync(dir).filter((n) => n.includes('.bak-v')), []);
   } finally {
     store.close();
   }
 });
 
-// The newest shipped version is 2, so a pending migration here is a v3: these
+// The newest shipped version is 3, so a pending migration here is a v4: these
 // three cases are about the migration SEQUENCE, and they read the same whichever
 // version the plan has reached — but their fixtures must sit one above it.
 test('a pending migration backs up first, then runs and bumps user_version', async (t) => {
   const dir = tempDir(t);
   (await database.open(dir, opts())).close();
-  const withV3 = [...database.MIGRATIONS, { version: 3, up(db) { db.exec('CREATE TABLE extra_v3 (x INTEGER)'); } }];
-  const store = await database.open(dir, { ...opts(), migrations: withV3 });
+  const withV4 = [...database.MIGRATIONS, { version: 4, up(db) { db.exec('CREATE TABLE extra_v4 (x INTEGER)'); } }];
+  const store = await database.open(dir, { ...opts(), migrations: withV4 });
   try {
-    assert.strictEqual(store.migration.from, 2);
-    assert.strictEqual(store.migration.to, 3);
-    assert.strictEqual(store.migration.backup, path.join(dir, 'venom.db.bak-v2'));
+    assert.strictEqual(store.migration.from, 3);
+    assert.strictEqual(store.migration.to, 4);
+    assert.strictEqual(store.migration.backup, path.join(dir, 'venom.db.bak-v3'));
     assert.ok(fs.existsSync(store.migration.backup));
-    assert.strictEqual(store.db.pragma('user_version', { simple: true }), 3);
+    assert.strictEqual(store.db.pragma('user_version', { simple: true }), 4);
   } finally {
     store.close();
   }
@@ -152,13 +193,13 @@ test('a migration that throws rolls back and leaves the version', async (t) => {
   const dir = tempDir(t);
   (await database.open(dir, opts())).close();
   const broken = [...database.MIGRATIONS, {
-    version: 3,
+    version: 4,
     up(db) { db.exec('CREATE TABLE half_done (x INTEGER)'); throw new Error('migration bug'); },
   }];
   await assert.rejects(database.open(dir, { ...opts(), migrations: broken }), /migration bug/);
   const store = await database.open(dir, opts());
   try {
-    assert.strictEqual(store.db.pragma('user_version', { simple: true }), 2);
+    assert.strictEqual(store.db.pragma('user_version', { simple: true }), 3);
     assert.strictEqual(store.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'half_done'").get().n, 0);
   } finally {
     store.close();
@@ -169,12 +210,12 @@ test('keeps only the three newest backups', async (t) => {
   const dir = tempDir(t);
   (await database.open(dir, opts())).close();
   const steps = [...database.MIGRATIONS];
-  for (let v = 3; v <= 6; v += 1) {
+  for (let v = 4; v <= 7; v += 1) {
     steps.push({ version: v, up(db) { db.exec(`CREATE TABLE step_${v} (x INTEGER)`); } });
     (await database.open(dir, { ...opts(), migrations: [...steps] })).close();
   }
   const backups = fs.readdirSync(dir).filter((n) => n.startsWith('venom.db.bak-v')).sort();
-  assert.deepStrictEqual(backups, ['venom.db.bak-v3', 'venom.db.bak-v4', 'venom.db.bak-v5']);
+  assert.deepStrictEqual(backups, ['venom.db.bak-v4', 'venom.db.bak-v5', 'venom.db.bak-v6']);
 });
 
 test('downgrade guard: a newer schema is refused and the file is not written', async (t) => {

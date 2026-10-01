@@ -6,14 +6,14 @@
 // renderer's promise rejects and it says so. Nothing is swallowed here.
 //
 // No reply ever carries a secret: keys go out as venomkey:<id> placeholders
-// with a masked hint, the Artificial Analysis key as venomsecret:aaApiKey.
+// with a masked hint, the OpenRouter key as venomsecret:openRouterApiKey.
 const { inspectDatabase } = require('./explorer');
 
 function readConfig(repos) {
   const data = { version: 1, providers: repos.providers.list() };
   const settings = repos.settings.get('settings');
-  const aa = repos.secrets.has('aaApiKey') ? 'venomsecret:aaApiKey' : '';
-  if (settings || aa) data.settings = { ...(settings || {}), aaApiKey: aa };
+  const or = repos.secrets.has('openRouterApiKey') ? 'venomsecret:openRouterApiKey' : '';
+  if (settings || or) data.settings = { ...(settings || {}), openRouterApiKey: or };
   const test = repos.settings.get('test');
   if (test) data.test = test;
   const win = repos.settings.get('window');
@@ -73,12 +73,6 @@ function registerDataIpc({ ipcMain, repos, clipboard, log = console, hooks = {},
     if (secret === null) throw new Error('This key is unknown or cannot be read on this machine');
     clipboard.writeText(secret);
     return { copied: true };
-  });
-  handle('read-catalog', () => repos.catalog.read());
-  handle('write-catalog', (catalog, writeOpts) => {
-    const out = repos.catalog.write(catalog, { reset: !!writeOpts && writeOpts.reset === true });
-    notify('onCatalogWritten');
-    return out;
   });
   handle('read-history', () => repos.history.read());
   handle('append-run', (run, maxRuns) => repos.history.append(run, maxRuns));

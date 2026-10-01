@@ -141,43 +141,26 @@ function normaliseConfig(config, { cipher, now, report, log }) {
     });
   });
 
-  // Verbatim minus the AA key, so mediaPrompt and fields from other builds survive.
+  // Verbatim minus the key, so mediaPrompt and fields from other builds survive.
+  // An old config.json carries the Artificial Analysis key under its own name;
+  // it becomes the OpenRouter secret, because that is the one the catalog reads.
   if (isObject(config.settings)) {
     const { aaApiKey, ...rest } = config.settings;
     out.settings = rest;
-    const aa = typeof aaApiKey === 'string' ? aaApiKey.trim() : '';
-    if (aa && aa !== ENC_PREFIX) out.aaCipher = sealed(aa, 'the Artificial Analysis key');
+    const or = typeof config.settings.openRouterApiKey === 'string'
+      ? config.settings.openRouterApiKey.trim() : '';
+    const key = or || (typeof aaApiKey === 'string' ? aaApiKey.trim() : '');
+    if (key && key !== ENC_PREFIX) out.aaCipher = sealed(key, 'the OpenRouter key');
   }
   if (isObject(config.test)) out.test = config.test;
   if (isObject(config.window)) out.window = config.window;
   return out;
 }
 
-function normaliseCatalog(catalog, report) {
-  if (!catalog) return null;
-  const models = {};
-  Object.values(isObject(catalog.models) ? catalog.models : {}).forEach((e) => {
-    if (!isObject(e) || typeof e.providerId !== 'string' || !e.providerId || typeof e.id !== 'string' || !e.id) {
-      report.skipped.catalogEntries += 1;
-      return;
-    }
-    models[`${e.providerId}::${e.id}`] = e;
-  });
-  const lastSync = {};
-  Object.entries(isObject(catalog.lastSync) ? catalog.lastSync : {}).forEach(([pid, at]) => {
-    if (Number.isFinite(at)) lastSync[pid] = at;
-  });
-  const keyModels = {};
-  Object.entries(isObject(catalog.keyModels) ? catalog.keyModels : {}).forEach(([kid, v]) => {
-    if (isObject(v) && Number.isFinite(v.count) && Number.isFinite(v.at)) keyModels[kid] = { count: v.count, at: v.at };
-  });
-  const out = { models, lastSync, keyModels };
-  ['leaderboard', 'leaderboardError', 'profiles'].forEach((k) => {
-    if (catalog[k] !== undefined) out[k] = catalog[k];
-  });
-  return out;
-}
-
+// catalog.json is no longer imported: the model pool is rebuilt by the first
+// fetch + ingest, and nothing in the schema holds a legacy entry any more. The
+// file is still read, backed up and renamed, so an owner upgrading from the
+// JSON-era build keeps their copy and loses nothing they cannot re-fetch.
 function normaliseHistory(history, report) {
   if (!history) return [];
   const runs = [];
@@ -277,7 +260,9 @@ async function importLegacy({
 
   // Everything that can fail on bad input runs before the transaction.
   const plan = normaliseConfig(config, { cipher, now, report, log });
-  const catalogRows = normaliseCatalog(catalog, report);
+  // catalog.json is still read, backed up and renamed, but it no longer
+  // becomes rows: the model pool is rebuilt by the first fetch + ingest, and the
+  // schema no longer has a place to put a legacy entry (migration v3).
   const runs = normaliseHistory(history, report);
 
   // A safety copy of the legacy files, made right before the one shot at
@@ -334,8 +319,7 @@ async function importLegacy({
     if (plan.settings) repos.settings.set('settings', plan.settings);
     if (plan.test) repos.settings.set('test', plan.test);
     if (plan.window) repos.settings.set('window', plan.window);
-    if (plan.aaCipher) repos.secrets.setCipher('aaApiKey', plan.aaCipher);
-    if (catalogRows) repos.catalog.write(catalogRows, { reset: true });
+    if (plan.aaCipher) repos.secrets.setCipher('openRouterApiKey', plan.aaCipher);
     runs.forEach((run) => repos.history.insert(run));
     repos.meta.set('imported_from_json_at', String(now()));
   });
@@ -343,9 +327,6 @@ async function importLegacy({
     write();
   } catch (err) {
     throw new ImportAbort('IMPORT_WRITE', `The saved data could not be written to venom.db (${err.message}), so nothing was imported. No file was changed.`);
-  } finally {
-    // The catalogue's row hashes may describe a write that was rolled back.
-    repos.catalog.resetCache();
   }
 
   // A re-import leaves the *.imported.json copies where they are.

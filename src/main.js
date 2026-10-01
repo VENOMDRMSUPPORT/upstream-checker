@@ -151,7 +151,7 @@ function showStartupError(message, detail) {
 // touched.
 let catalogEngine = null;
 
-function startCatalog({ repos, log }) {
+function startCatalog({ repos, log, onRosterWritten }) {
   const cacheDir = path.join(app.getPath('userData'), 'catalog-cache');
   const fetcher = createFetcher({
     // ONE fetcher for the whole app: its URL-keyed dedup Map is per instance, and a
@@ -172,7 +172,7 @@ function startCatalog({ repos, log }) {
     // re-fetch and rebuild. Unlike the database, which must stop it.
     log.warn('catalog cache load failed, starting empty:', err.message);
   }
-  createCatalogIpc({ ipcMain, repos, engine, log });
+  createCatalogIpc({ ipcMain, repos, engine, log, onRosterWritten });
   return engine;
 }
 
@@ -560,15 +560,20 @@ app.whenReady().then(async () => {
         onSettingsSaved: (saved) => {
           logSettings = readLogSettings(saved);
         },
-        onCatalogWritten: () => {
-          if (priceBook) priceBook.invalidate();
-        },
       },
     });
     registerLogsIpc({ ipcMain, getState: () => ({ logs, error: logsError }), dialog, getWindow: () => mainWindow, log });
     // After both databases and after their IPC, before the window: the catalog
     // writes through repos.snapshots. Disk only at boot — see startCatalog above.
-    catalogEngine = startCatalog({ repos: store.repos, log });
+    catalogEngine = startCatalog({
+      repos: store.repos,
+      log,
+      // The roster is the price book now (src/logs/lookups.js reads
+      // roster_snapshot), so a write that changes what a model costs must drop
+      // the recorder's cached price for it. Ingest is the only writer and this
+      // is its only caller, which is why it can be this narrow.
+      onRosterWritten: () => { if (priceBook) priceBook.invalidate(); },
+    });
     keyResolver = createKeyResolver({ providers: store.repos.providers, secrets: store.repos.secrets });
     initAutoUpdater();
     createWindow();
