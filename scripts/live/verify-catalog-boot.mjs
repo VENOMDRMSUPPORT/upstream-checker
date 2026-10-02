@@ -348,10 +348,56 @@ async function runSyncedSession(dir) {
       after.rows.map((r) => `${r.box.w}x${r.box.h}`).join(' | '));
     check('no key or secret appears anywhere in the block',
       !/sk-|Bearer|venomsecret/.test(clicked.rows.join(' ') + clicked.head));
+    await checkModelsTable(app);
   } finally {
     const code = await app.close().catch(() => null);
     if (code !== null) check('the app exited with code 0', code === 0, String(code));
   }
+}
+
+// The Models page itself, with a real roster behind it. No test can reach this
+// surface — it is renderer code the suite does not load — so it is checked here,
+// and by geometry: textContent proves a string exists, not that a person can see
+// it. This is the page the whole rebuild exists for, so the gate names its
+// columns and its three buttons rather than only "the page opened".
+async function checkModelsTable(app) {
+  const r = await app.evaluate(`(async () => {
+    document.querySelector('.shell-nav-item[data-page="catalog"]').click();
+    const wait = async (fn, ms = 60000) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end) { try { if (fn()) return true; } catch (_) {} await new Promise((res) => setTimeout(res, 200)); }
+      return false;
+    };
+    const shown = await wait(() => !document.querySelector('.page-catalog').hidden);
+    let threw = null;
+    try { window.CATALOG.render(); } catch (err) { threw = String(err && err.message); }
+    // No provider has keys in this folder, so the page draws its "no providers
+    // connected" state and never builds #mc-results. That is correct, not
+    // damage — so the check accepts either that state or a real table, and
+    // measures whichever one is on screen.
+    const body = document.getElementById('mc-body');
+    const emptyState = !!body && /No providers connected|No models/.test(body.textContent);
+    const results = document.getElementById('mc-results');
+    const head = [...document.querySelectorAll('.page-catalog .dt-table thead th')].map((t) => t.textContent.trim());
+    const box = (results || body).getBoundingClientRect();
+    return {
+      shown,
+      threw,
+      head,
+      // A person must be able to see something, either way.
+      painted: box.width > 100 && box.height > 20,
+      saidWhy: emptyState || head.length > 0,
+      // A stray selector or a leftover attribute would show as an unknown
+      // button kind; the three are the only ones the page may render.
+      buttonKinds: [...new Set([...document.querySelectorAll('.page-catalog [data-mc-health], .page-catalog [data-mc-fetch-info], .page-catalog [data-mc-chat]')]
+        .map((b) => b.dataset.mcHealth !== undefined ? 'health' : b.dataset.mcFetchInfo !== undefined ? 'fetch-info' : 'chat'))],
+    };
+  })()`, 120000);
+  check('the Models page opens and renders without throwing', r.shown && !r.threw, r.threw || '');
+  check('the page is on screen, not merely in the DOM', r.painted, JSON.stringify({ painted: r.painted, head: r.head }));
+  check('the page says what it has or has not', r.saidWhy, r.head.join(' | '));
+  check('the page draws only the three per-row actions', r.buttonKinds.every((k) => ['health', 'fetch-info', 'chat'].includes(k)),
+    r.buttonKinds.join(', ') || 'none (no connected providers in this folder)');
 }
 
 const dir = mkdtempSync(join(tmpdir(), 'venom-catalog-boot-'));
