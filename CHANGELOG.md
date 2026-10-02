@@ -7,8 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The catalog engine, in main. Four upstream documents — models.dev, OpenRouter's
+  model list, OpenRouter's independent benchmark indices and LMArena — are merged
+  into one reference, rebuilt in memory rather than stored, and a provider's
+  roster is matched against it. A model arrives with its context window, output
+  limit, modalities, declared capabilities and prices, plus a score and a dense
+  rank.
+- The score says where it came from and never guesses: **measured** when the
+  Artificial Analysis index is used as published, **estimated** when it comes from
+  a fit recomputed over the reference, **proxy of `<id>`** when a variant borrows a
+  base route's measurement, and **Unrated** when no source describes the model.
+- Three actions on every model row, in the order **health · fetch information ·
+  chat**. Health is one minimal request (24-token cap) that can read a 200 OK
+  which really says "no credit"; the verdict lands on the button itself for a
+  moment and its latency joins a 20-sample p50 the page shows. Fetch
+  information re-reads that one model from the sources and answers *matched*,
+  *updated: field old → new*, *no match in sources* or *no longer listed* — and
+  a field the provider never published but the reference filled is marked, so a
+  borrowed number never reads as the provider's own claim.
+- Route Test fetches and updates the catalog in the same step: **Fetch models**
+  and **Test Selected** both hand the roster to the engine before the run, and
+  each model's verdict afterwards becomes its health verdict. A model that
+  appeared since the last sync is testable, and its row already carries a score
+  when the run finishes.
+- An OpenRouter API key row in Settings › Catalog. It unlocks the keyed source,
+  so those models carry a measured score instead of an estimate; without one
+  nothing breaks. The key is read in main at the point of use and never reaches
+  the page.
+
 ### Changed
 
+- The Models page reads the engine instead of a stored document: there is no
+  model-pool file, and `read-catalog` / `write-catalog` are gone. Columns are the
+  ones the catalog can answer for — `# · Model · Score · Context · Output ·
+  In/Out $ · Caps · Latency p50 · Health · actions`.
+- The request log's cost column reads the engine's roster rather than the
+  retired pool, and an ingest is what drops the recorder's cached price.
 - The new VenomGPT logo, drawn by hand in each of the five accents (Emerald,
   Cyan, Violet, Crimson, Amber) with a neon version for dark surfaces and a
   platinum one for light. It follows the accent in the title bar, the sidebar,
@@ -23,27 +59,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   page stays on the provider being tested, and opening another provider
   starts with an empty results table.
 - Model Pool is now **Models Catalog** — in the sidebar, the page header, the
-  breadcrumb and the Settings category that configures it. Its stat strip is
-  four cards instead of six: models, providers, benchmarked and last sync.
-  The count of new models is on the toolbar's New chip, and how closely our
-  ranking agrees with the global board (ρ) is the benchmarked card's caption
-  rather than a card of its own.
-- Each routing profile has its own colour — **Lite mint, Pro violet, Max amber**
-  — defined once as app-wide tokens instead of borrowing the accent and the
-  pass green. The same three colours mark a profile everywhere it is named: the
-  profile cards and their stat strip, the legend above them, the chips in the
-  Catalog's router-readiness panel, and a dot per profile on every model in the
-  Catalog. They deliberately do not follow the accent, so Lite and Pro can no
-  longer come out the same colour.
-- The profile card now leads with a ribbon riding its top edge — icon, name, the
-  virtual model id and a tag pill — over a centred one-line purpose, an
-  **Eligible Target Pool** panel whose bar shows how much of the catalogue can
-  serve that profile, and a **Mode / Strategy** line derived from the policy, so
-  editing the policy changes the words. The five count tiles are gone: active,
-  candidate and cooling counts moved into the section headings.
+  breadcrumb and the Settings category that configures it.
 
 ### Removed
 
+- The benchmark system, in full: the 21-task suite, its queue, the latency and
+  throughput probes, the capability probes, the per-run tiers, IQ and category
+  scores, the run-to-run stability figure and the automatic benchmarking setting.
+- The Artificial Analysis API key, the live leaderboard and the bundled snapshot:
+  the independent indices the catalog wanted are OpenRouter's own `/benchmarks`
+  endpoint now, which is what the key unlocks.
+- The Routing Profiles page — Lite, Pro and Max — and everything drawn for it:
+  its nav entry, its card and editor CSS, the `--profile-*` tokens and the
+  per-profile marks on model rows. They return rebuilt from scratch later.
 - The custom accent colour.
 - The Route Test entry in the sidebar and the provider list inside the old
   page; the sidebar width setting that belonged to it.

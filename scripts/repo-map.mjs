@@ -162,8 +162,12 @@ function render(entries) {
   out.push('');
 
   // --- IPC surface, extracted so it cannot rot silently ---
+  // src/catalog/ipc.js registers behind its own `handle(channel, fn)` wrapper, so it
+  // matches the same line shape as src/db/ipc.js. Leaving it out printed a list of
+  // 37 channels in which the five the Models page depends on did not appear — the
+  // map was confidently wrong.
   const ipc = [];
-  const IPC_FILE = /^src[\/](main\.js|db[\/]ipc\.js|logs[\/]ipc\.js)$/;
+  const IPC_FILE = /^src[\/](main\.js|db[\/]ipc\.js|logs[\/]ipc\.js|catalog[\/]ipc\.js)$/;
   for (const { rel, lines } of entries) {
     if (!IPC_FILE.test(rel)) continue;
     for (const line of lines) {

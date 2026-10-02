@@ -11,11 +11,11 @@ the per-file symbol index. Recipes for the common changes are in
 ## 1. Three layers, one rule
 
 ```
-renderer  (src/renderer/*)      pages, DOM, test runs, benchmark, profiles
-   |  window.electronAPI  -- 38 IPC channels, preload only
+renderer  (src/renderer/*)      pages, DOM, test runs, the Models table
+   |  window.electronAPI  -- 42 IPC channels, preload only
 preload   (src/preload.js)      contextBridge: the only door
    |  ipcRenderer.invoke / send
-main      (src/main.js + src/db + src/logs)   all I/O, all secrets, all network
+main      (src/main.js + src/db + src/logs + src/catalog)   all I/O, all secrets, all network
 ```
 
 - The renderer has **no Node and no network**: `contextIsolation: true`,
@@ -51,8 +51,10 @@ The order is deliberate; each step exists because doing it later caused a bug.
    and purge scheduler. This one *never throws upward*: a log database that
    will not open turns logging off for the session, says why in `logs-info`,
    and the app runs on.
-6. **IPC registration** — `registerDataIpc` (13 channels), `registerLogsIpc`
-   (9 channels), `createApiRequester`, then the window.
+6. **IPC registration** — `registerDataIpc` (12 channels), `registerLogsIpc`
+   (10 channels), `startCatalog` (the five `catalog:*` channels, which write
+   through `repos.snapshots` and so cannot be registered before the store),
+   `createApiRequester`, then the window.
 7. **Window** — saved bounds, frameless, `icon.ico` on Windows; then
    `startUpdateChecks()` (5 s after load, then every 2 h).
 8. **Quit (`will-quit`)** — update timers, then `stopLogs()` (purge timer →
@@ -82,10 +84,19 @@ purge can hand pages back later. `PRAGMA user_version` is the schema version;
 each pending migration runs in its own transaction with its version bump.
 
 **venom.db tables** — `meta`, `settings`, `secrets`, `providers`,
-`provider_keys`, `models`, `model_keys`, `provider_sync`,
-`key_model_counts`, `catalog_meta`, `test_runs`, `test_results`.
+`provider_keys`, `snapshot_meta`, `roster_snapshot`, `models`, `model_keys`,
+`provider_sync`, `key_model_counts`, `catalog_meta`, `test_runs`, `test_results`.
 A key row holds ciphertext only (`CHECK (cipher GLOB 'enc:v1:?*')`); the plaintext
 is decrypted once per session into a cache in main.
+
+The catalog's rows live in `roster_snapshot` (one per provider+model, carrying
+the provider's own facts with every derived field stripped) and `snapshot_meta`
+(one per provider: when it was first seen, when the rows were fetched, how the
+last attempt ended, and a quarantined mass drop). The merged reference is never
+stored — it is rebuilt in memory from four cached documents at boot and after
+every sync. `models` and its neighbours are the pre-2.0 pool: migration v3 empties
+them and no writer fills them again, so treat anything read from `models` as a
+bug.
 
 **venom-logs.db tables** — `meta`, `request_logs`, `request_bodies`,
 `usage_hourly`. No foreign keys: a row outlives the provider and key it names.
@@ -99,7 +110,7 @@ The single path every outbound call takes.
 
 1. **Renderer** calls `electronAPI.apiRequest({ url, headers, body, requestId, timeoutMs, source, runId, attempt, hedgeIndex, testGroup, trigger })`.
    It never holds a key: where a key goes it writes `venomkey:<keyId>`, and
-   `venomsecret:aaApiKey` for the Artificial Analysis key.
+   `venomsecret:openRouterApiKey` for the OpenRouter key.
 2. **`createKeyResolver`** (`src/db/keys.js`) substitutes tokens — in the URL
    (URL-encoded), in a header (raw) and in a JSON body (JSON-escaped) — **only
    when the request's origin is that key's own provider**. A mismatch returns
@@ -155,13 +166,14 @@ The single path every outbound call takes.
 
 ## 6. IPC surface
 
-38 channels. The full generated list is in [CODE_MAP.md](CODE_MAP.md#ipc-channels).
+42 channels. The full generated list is in [CODE_MAP.md](CODE_MAP.md#ipc-channels).
 
 | Group | Channels | Notes |
 | --- | --- | --- |
 | Window | `window-minimize`, `window-maximize`, `window-close`, `set-window-icon` | fire-and-forget |
 | Requests | `api-request`, `cancel-api-request` | the only network path |
-| Data | `read-config`, `save-settings`, `save-secret`, `save-test-definition`, `save-provider`, `merge-provider`, `delete-provider`, `copy-key`, `read-catalog`, `write-catalog`, `read-history`, `append-run`, `clear-history` | one thing per channel, so two writers cannot overwrite each other |
+| Data | `read-config`, `database-explorer`, `save-settings`, `save-secret`, `save-test-definition`, `save-provider`, `merge-provider`, `delete-provider`, `copy-key`, `read-history`, `append-run`, `clear-history` | one thing per channel, so two writers cannot overwrite each other |
+| Catalog | `catalog:ingest`, `catalog:read`, `catalog:health`, `catalog:sources`, `catalog:fetch-info` | the model pool and its four sources. **Every one resolves**: an outcome the page must act on is `{ ok: false, code, message }`, because `err.code` cannot cross `ipcMain.handle` — a rejection becomes a new Error carrying only its message |
 | Request log | `logs-list`, `logs-get`, `logs-stats`, `logs-facets`, `logs-runs`, `logs-run-summary`, `logs-export`, `logs-info`, `logs-clear` | read-only except export and clear |
 | Legacy log file | `read-log-info`, `open-request-log`, `clear-request-log` | the old `requests.log` |
 | App / shell | `get-data-path`, `open-data-folder`, `open-external`, `notify-regression` | `open-external` accepts http(s) only |
@@ -173,17 +185,17 @@ The single path every outbound call takes.
 Load order matters: classic scripts, no modules, globals shared.
 
 `providers/*.js` (register into `window.INTEGRATED_PROVIDERS`) →
-`data/leaderboard-snapshot.js` → `ui-select.js` → `ulid.js` → **`app.js`** →
-`benchmark.js` → `key-usage.js` → `catalog.js` → `profiles.js` →
+`ui-select.js` → `ulid.js` → **`app.js`** → `key-usage.js` → `catalog.js` →
 `logs-format.js` → `logs.js`.
 
 - **`app.js`** is the core: settings, provider/key model, discovery, the test
   engine (hedging, retries, rate-limit pacing), history, exports, the shell and
   the router (`PAGES`, hash routes `#/provider/<id>`, `#/settings/<section>`,
   `#/history/<tab>`).
-- **`benchmark.js`** — 21 machine-checked tasks + latency/throughput probes.
-- **`catalog.js`** — the model pool: discovery sync, leaderboard, auto-benchmark.
-- **`profiles.js`** — venom-lite/pro/max ranking from measured data only.
+- **`catalog.js`** — the Models page. It holds no pool: discovery hands the
+  adapter's roster to `catalog:ingest` and the page draws what `catalog:read`
+  serves back, re-scored against today's reference. Three per-row actions, in
+  the order health · fetch information · chat.
 - **`logs.js`** — Test History (Runs/Requests) and Monitoring; exposes
   `window.LOGS` with `render()`, `renderMonitor()`, `sync()`, `tab()`.
 - **`key-usage.js`** — per-key quota drawer, provider-agnostic; the log drawer
@@ -200,8 +212,9 @@ instead of `escapeHtml`).
 
 | Command | Proves | Does **not** prove |
 | --- | --- | --- |
-| `npm test` | 295 tests over the data, log and request layers, under Electron's Node (~2 s) | anything in the renderer except the pure helpers it loads by text |
+| `npm test` | 552 tests over the data, log, request and catalog layers, under Electron's Node (~2 s) | anything in the renderer except the pure helpers it loads by text |
 | `npm run verify:live` | the real app, launched on a scratch folder over CDP against a **mock** provider: import, log, pages, drawdown geometry, restart, single instance | a real provider, a real key, a real 429, a real stream |
+| `npm run verify:catalog` | nothing downloads at boot; the four sources fill on a click; the Models page opens on its own path | anything about a real provider or a keyed fetch |
 | `npm run repo:map -- --check` | CODE_MAP.md matches the tree | nothing about behaviour |
 | `npm run check:keystore` | DPAPI round-trips on this machine | — |
 | `npm start` | your build, your data | — |

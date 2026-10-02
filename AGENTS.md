@@ -3,7 +3,7 @@
 **VENOM Router** is a Windows desktop LLM router (Electron 33 + better-sqlite3):
 it connects providers and keys, keeps a live model pool, measures models, and
 routes through `venom-lite` / `venom-pro` / `venom-max`. Version 2.0.0.
-Tests: `npm test` (295, ~2 s). Everything on disk is written in English.
+Tests: `npm test` (552, ~2 s). Everything on disk is written in English.
 
 This file is the entry point for any coding agent. Read it, then the two
 documents it points at — **do not** start by reading source files, and never
@@ -46,16 +46,17 @@ it may change, the acceptance command. That, plus this file, is what turns a
 | Question | File |
 | --- | --- |
 | Boot order, IPC wiring, updater | `src/main.js` |
-| The renderer's whole API | `src/preload.js` (48 entries) |
+| The renderer's whole API | `src/preload.js` (31 entries) |
 | Key placeholders → real secrets | `src/db/keys.js` |
 | Encryption at rest (`enc:v1:`) | `src/db/cipher.js` |
 | Schema of `venom.db` | `src/db/migrations.js`, repos in `src/db/repos/` |
+| The catalog engine: four sources, the merge, the score, the five channels | `src/catalog/` |
 | Schema of `venom-logs.db` | `src/logs/migrations.js` |
 | One finished request → one log row | `src/logs/recorder.js` |
 | Log query API (list/get/stats/runs/export) | `src/logs/query.js` |
 | The pages: shell, settings, testing engine | `src/renderer/app.js` |
 | Test History + Monitoring | `src/renderer/logs.js` + `logs-format.js` |
-| Model pool, profiles, benchmark | `src/renderer/catalog.js`, `profiles.js`, `benchmark.js` |
+| Model pool: discovery, the Models table, the three per-row actions | `src/renderer/catalog.js` |
 | Providers (7 built-in) | `src/renderer/providers/*.js` |
 | Live verification | `scripts/live/verify-db.mjs` |
 
