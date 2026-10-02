@@ -1,4 +1,24 @@
-# Handoff — VENOM Router catalog engine (Plan A done, Plan B not started)
+# Handoff — VENOM Router catalog engine
+
+> **SUPERSEDED 2026-10-02.** This file described the tree between commits 19 and
+> 25 and is kept only for the reasoning in §3 (the IPC contract, which is still
+> exactly right). Its §0 "where the tree is" and §4 "what remains" are both
+> stale. For the current state see the commit log and [AGENTS.md](../../AGENTS.md).
+>
+> What Plan B delivered, in seven commits after `aab63bb`:
+>
+> | commit | what |
+> | --- | --- |
+> | `1d85b36` | `catalog:read` rows carry their `providerId` and their stored health — the two gaps the page could not be written across |
+> | `c3c0505` | the Models page reads the engine; migration v3 empties the old pool; `repos/catalog.js`, `read-catalog` and `write-catalog` are gone; the request log's price book is repointed at `roster_snapshot` |
+> | `7d95bf2` | `benchmark.js`, `profiles.js`, the bundled leaderboard snapshot and 213 lines of their CSS, plus the `aaApiKey` secret |
+> | `e99c95e` | Route Test's Fetch models and Test Selected ingest before the run, and each verdict becomes a health verdict |
+> | `1c46689` | the two live gates re-pointed at the engine-backed page |
+> | `35e95ec` | the code map's IPC list was missing all five `catalog:*` channels and now has them; ARCHITECTURE, AGENTS, CHANGELOG |
+> | `8d9e2dd` | verify:catalog now measures the Models page itself |
+>
+> 552 tests, 0 failures. verify:live 86 pass, verify:catalog 36 pass. Nothing
+> pushed, no release, no merge to `main`.
 
 Written 2026-10-01 02:00 for the agent continuing this work. Read this file, then
 [AGENTS.md](../AGENTS.md), [CLAUDE.md](../../CLAUDE.md), and the two documents the plan rests on:
@@ -11,7 +31,7 @@ Written 2026-10-01 02:00 for the agent continuing this work. Read this file, the
   `.superpowers/sdd/2026-09-30-catalog-engine-in-main/progress.md` (git-ignored; read it before ruling
   on anything yourself).
 
-## 0. Where the tree is
+## 0. Where the tree was (as of 8b8e80b — now 25 commits later)
 
 | | |
 | --- | --- |
@@ -120,7 +140,13 @@ Established in `8b8e80b`, and the reason it matters is that **`err.code` does no
   with generated ones (adapter first) and sets `quality_proxy_ids` when the adapter declared none.
   Those fields must survive into `summary_json` or a fallback row loses its only match.
 
-## 4. What remains — and in what order
+## 4. What remained — **done, see the table at the top**
+
+> Everything in this section landed in the seven commits listed above. It is kept
+> because the reasoning behind the order still matters if any of it is revisited:
+> the clearing and the reader could not ship apart, the price book would have
+> gone silently blank, and the import's backup-and-rename is the reason a
+> superseded pool is not a loss.
 
 **Do Plan B as one coherent unit.** The clearing migration and the page switch cannot ship apart: a
 clearing with no reader leaves the page permanently empty, and a reader without the clearing leaves
