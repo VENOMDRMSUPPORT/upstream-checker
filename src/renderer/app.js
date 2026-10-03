@@ -161,6 +161,16 @@ const DEFAULT_SETTINGS = {
   accent: 'emerald',
   density: 'normal',
 
+  // The app lock. Minutes of inactivity before the window asks for the password
+  // again; it always asks on launch. main reads this row for its own copy of the
+  // limit (src/main.js idleLimitMs), so a change here is re-read on every save.
+  lockIdleMin: 60,
+
+  // Turns off transitions and animated flourishes. The stylesheet honours it on
+  // the lock screen through html[data-motion="reduced"]; the OS's own
+  // prefers-reduced-motion is honoured as well and is not overridable from here.
+  reduceMotion: false,
+
   // Request bodies in the request log: off | errors (Failed only) | all. The
   // metadata of every request is recorded whatever this says. Main reads it
   // from the saved settings row: a row without it (a new install) means
@@ -222,6 +232,10 @@ function applyAppearance() {
   el.setAttribute('data-theme', theme);
   el.setAttribute('data-density', settings.density);
   el.setAttribute('data-accent', settings.accent);
+  // The lock screen's motion switch. It reads this attribute in CSS and in
+  // lock.js, so flipping the setting takes effect without a reload — and the
+  // OS's own prefers-reduced-motion is honoured on top of it, in both places.
+  el.setAttribute('data-motion', settings.reduceMotion ? 'reduced' : 'normal');
   queueBrandIcon(settings.accent);
 
   const toggle = document.getElementById('btn-theme-toggle');
@@ -369,6 +383,7 @@ let runTotal = null; // models covered by the current/last run; null = no run ye
 let lastRun = null; // { done, total, stopped } — lets the summary be re-stated
 let isTesting = false;
 let abortTesting = false;
+let runStartTime = null; // Date.now() when the current run began — for elapsed display
 let updateInfo = null;
 let isUpdateDownloading = false;
 let isUpdateReady = false;
@@ -2840,6 +2855,7 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
   updateTestAllButton();
   runStatusText = `Testing ${list.length} model${list.length === 1 ? '' : 's'}...`;
   setStatus('running', runStatusText);
+  runStartTime = Date.now();
   showProgress(0, list.length);
 
   // Models are pulled off a shared queue by a fixed number of lanes. Rows were
@@ -3417,7 +3433,22 @@ function showProgress(current, total) {
   const pct = total > 0 ? Math.round((current / total) * 100) : 0;
   $('#progress-fill').style.width = `${pct}%`;
   $('#progress-count').textContent = `${current}/${total}`;
-  $('#progress-label').textContent = current === total ? 'Complete' : `Testing ${current}/${total}...`;
+  const isDone = current === total;
+  $('#progress-label').textContent = isDone ? 'Complete' : `Testing ${current}/${total}...`;
+
+  // Live pass / fail mini-counters
+  const passed = testResults.filter((r) => r.status === 'pass').length;
+  const failed = testResults.filter((r) => r.status === 'fail').length;
+  $('#progress-pass-count').textContent = passed;
+  $('#progress-fail-count').textContent = failed;
+
+  // Elapsed time
+  const elapsed = runStartTime ? Math.round((Date.now() - runStartTime) / 1000) : 0;
+  const mm = Math.floor(elapsed / 60);
+  const ss = elapsed % 60;
+  $('#progress-elapsed').textContent = elapsed > 0
+    ? mm > 0 ? `${mm}m ${ss}s` : `${ss}s`
+    : '';
 }
 
 function hideProgress() {
@@ -4011,6 +4042,13 @@ const SETTING_INPUTS = [
   ['#set-stats-retention', 'statsRetentionMonths', 'int'],
   ['#set-concurrency', 'concurrency', 'int'],
   ['#set-health-interval', 'healthIntervalMin', 'int'],
+  // Appearance switches that were in the markup and bound to nothing until now:
+  // the setting was saved once and never read again, so flipping it changed
+  // nothing at all. The lock screen's canvas is what reads it now.
+  ['#set-reduce-motion', 'reduceMotion', 'bool'],
+  // The app lock's idle limit. main keeps its own copy and re-reads this row on
+  // every save (src/main.js idleLimitMs), so a change applies without a restart.
+  ['#set-lock-idle', 'lockIdleMin', 'int'],
 ];
 
 function fillSettingsForm() {
@@ -4055,10 +4093,18 @@ function bindSettingsForm() {
       else {
         const n = Number(el.value);
         if (!Number.isFinite(n) || n <= 0) return; // ignore a half-typed number
-        settings[key] = kind === 'sec' ? Math.round(n * 1000) : kind === 'ratio' ? n : Math.round(n);
+        // The idle limit has a floor the app relies on: a saved 0 would mean
+        // "never lock by idle" in src/auth, and the field offers no way to ask
+        // for that. Clamping here keeps the stored row inside the range the
+        // stepper shows.
+        if (key === 'lockIdleMin') settings[key] = Math.min(480, Math.max(5, Math.round(n)));
+        else settings[key] = kind === 'sec' ? Math.round(n * 1000) : kind === 'ratio' ? n : Math.round(n);
       }
       if (key === 'decisionThreshold') renderDecisionThreshold();
       if (key === 'healthIntervalMin') scheduleHealthMonitor();
+      // Appearance keys repaint immediately; the rest of the row is a stored
+      // value main reads on its next save-settings.
+      if (key === 'reduceMotion') applyAppearance();
       queueSettingsSave();
       renderCostEstimate();
       // Colour bands and sparkline length change what is already on screen.
@@ -4254,6 +4300,7 @@ const SETTINGS_SECTIONS_META = {
   'sec-catalog': { label: 'Models Catalog', desc: 'How the model pool syncs, and the sources its facts are scored against' },
   'sec-history': { label: 'History', desc: 'How many runs are kept, and exporting them' },
   'sec-logs': { label: 'Diagnostics & Logs', desc: 'What is logged about each request, and where' },
+  'sec-security': { label: 'Security', desc: 'The owner password, and how long an idle session stays open' },
   'sec-data': { label: 'Data Directory', desc: 'Where your settings, keys and history are stored' },
   'sec-about': { label: 'About VENOM Router', desc: 'Version, providers and updates' }
 };
@@ -4376,6 +4423,9 @@ function switchSettingsSection(sectionId) {
   // Same for the four sources: a report of what is on disk, drawn on entry, and
   // the only network call behind this section is the button's own.
   if (targetId === 'sec-catalog') renderCatalogSources();
+  // The lock's own state is read on entry so the warning and the status line
+  // reflect a password changed in another window, or a session that expired.
+  if (targetId === 'sec-security') renderSecuritySection();
 
   // The page scrolls, not the card. A tab picked while scrolled down opens at
   // its own top, with the categories still stuck in place above the fold.
@@ -4407,6 +4457,7 @@ function prepareSettingsPage() {
   renderAppearancePickers();
   refreshLogInfo();
   renderAbout();
+  renderSecuritySection();
   if (window.CATALOG) window.CATALOG.fillSettings();
   const activeBtn = $('#settings-nav .settings-nav-item.active') || $('#settings-nav .settings-nav-item');
   if (activeBtn) {
@@ -4421,6 +4472,98 @@ function openSettings() {
 }
 
 $('#btn-settings').addEventListener('click', openSettings);
+
+// ============================================
+// Security — the app lock from inside the app
+// ============================================
+// Three things the owner can do here, and the warning that says the shipped
+// password is still in force. Main owns all of it; this section asks for status
+// and shows what comes back.
+let lockStatus = { locked: false, isDefault: true, idleMs: 0 };
+
+function setChangeStatus(text, kind) {
+  const el = $('#lock-change-status');
+  if (!el) return;
+  el.textContent = text || '';
+  el.dataset.kind = kind || '';
+}
+
+async function refreshLockStatus() {
+  try {
+    const reply = await window.electronAPI.authStatus();
+    if (reply && reply.ok) lockStatus = reply;
+  } catch (err) {
+    console.error('Could not read the app lock status:', err);
+  }
+  return lockStatus;
+}
+
+function renderSecuritySection() {
+  const label = $('#lock-status-label');
+  if (label) {
+    label.textContent = lockStatus.locked
+      ? 'locked'
+      : lockStatus.isDefault ? 'open · shipped password' : 'open · password changed';
+  }
+  const warn = $('#lock-default-warning');
+  if (warn) warn.hidden = !lockStatus.isDefault;
+}
+
+// Read once at startup so the warning is right the first time Settings opens,
+// and again on every visit (switchSettingsSection) in case it changed.
+async function primeLockStatus() {
+  await refreshLockStatus();
+  renderSecuritySection();
+}
+
+$('#btn-lock-now-settings')?.addEventListener('click', async () => {
+  try {
+    await window.electronAPI.authLock();
+  } catch (err) {
+    console.error('Could not lock the app:', err);
+  }
+  if (window.LOCK) window.LOCK.show('locked');
+});
+
+$('#btn-lock-change')?.addEventListener('click', async () => {
+  const current = $('#set-lock-current').value;
+  const next = $('#set-lock-new').value;
+  const confirm = $('#set-lock-confirm').value;
+  if (!current || !next) {
+    setChangeStatus('Fill in the current and the new password.', 'error');
+    return;
+  }
+  // Caught here rather than in main: a mistyped confirmation is a typo, not a
+  // rejected password, and main has no business knowing the field exists.
+  if (next !== confirm) {
+    setChangeStatus('The two new passwords do not match.', 'error');
+    return;
+  }
+  const button = $('#btn-lock-change');
+  button.disabled = true;
+  setChangeStatus('Changing…', '');
+  let reply;
+  try {
+    reply = await window.electronAPI.authChange(current, next);
+  } catch (err) {
+    button.disabled = false;
+    setChangeStatus(`Could not change the password: ${err.message}`, 'error');
+    return;
+  }
+  button.disabled = false;
+  if (reply && reply.ok) {
+    ['#set-lock-current', '#set-lock-new', '#set-lock-confirm'].forEach((sel) => { $(sel).value = ''; });
+    setChangeStatus('Password changed.', 'ok');
+    await refreshLockStatus();
+    renderSecuritySection();
+    return;
+  }
+  const code = reply && reply.code;
+  if (code === 'THROTTLED') setChangeStatus(reply.message, 'warn');
+  else if (code === 'WRONG_PASSWORD') setChangeStatus('The current password is not right.', 'error');
+  else if (code === 'WEAK_PASSWORD') setChangeStatus(reply.message, 'error');
+  else setChangeStatus((reply && reply.message) || 'Could not change the password.', 'error');
+});
 
 $('.page-settings').addEventListener('click', (e) => {
   const go = e.target.closest('[data-go]');
@@ -4559,7 +4702,7 @@ function showPage(page) {
   if (page === 'settings') prepareSettingsPage();
   if (page === 'provider') renderProviderHead();
   if (page === 'overview') renderQuickStats();
-  if (page === 'catalog' && window.CATALOG) window.CATALOG.render();
+  if (page === 'catalog' && window.CATALOG) (window.CATALOG.open ? window.CATALOG.open() : window.CATALOG.render());
   if (page === 'database' && window.DATABASE) window.DATABASE.render();
   if (page === 'history' && window.LOGS) window.LOGS.render();
   if (page === 'monitor' && window.LOGS) window.LOGS.renderMonitor();
@@ -5264,7 +5407,7 @@ function providerLegendHTML(list) {
         <div class="pv-legend-item ${counts[k] ? '' : 'empty'}" style="--c:${t.color}">
           <span class="pv-legend-chip"><i></i></span>
           <div class="pv-legend-text">
-            <div class="pv-legend-name">${t.label}<span class="pv-legend-count">${counts[k]} provider${counts[k] === 1 ? '' : 's'}</span></div>
+            <div class="pv-legend-name">${t.label}<span class="pv-legend-count${counts[k] ? '' : ' is-zero'}">${counts[k]} provider${counts[k] === 1 ? '' : 's'}</span></div>
             <div class="pv-legend-desc">${t.desc}</div>
           </div>
         </div>`).join('')}
@@ -5560,12 +5703,7 @@ function keysPanelHTML(p) {
 function keyRowsHTML(p) {
   return p.keys.map((k, i) => {
     const kp = keyParts(p, k, i);
-    const km = keyModelCount(p, k);
-    const total = p.keys.length > 1 && window.CATALOG ? window.CATALOG.providerModelCount(p.id) : null;
-    const partial = km && total != null && km.count < total;
-    const models = !km
-      ? '<span class="dt-muted">—</span>'
-      : `<span class="${partial ? 'kx-models-partial' : ''}" title="${escapeHtml(partial ? `This key sees ${km.count} of the ${total} models this provider's keys offer` : 'Models this key can use')}">${km.count}${partial ? `<span class="dt-muted"> / ${total}</span>` : ''}</span>`;
+    const kmHTML = keyModelsHTML(p, k);
     // When the key was last checked sits under its buttons, framed to their
     // width, so the check and the controls that act on it read as one block.
     const checked = kp.probe && kp.probe.at && kp.probe.state !== 'testing'
@@ -5575,11 +5713,9 @@ function keyRowsHTML(p) {
     return `<div class="pv-krow${last ? ' last' : ''}" data-state="${kp.st.id}">
       <div class="pv-cell col-provider"><div class="dt-key">
         ${kp.index}
-        <div class="dt-key-text">${kp.name}${kp.secret}</div>
+        <div class="dt-key-text">${kp.name}${kp.secret}${kmHTML ? `<span class="kx-meta">${kmHTML}</span>` : ''}</div>
       </div></div>
       <div class="pv-cell col-status">${kp.probeHTML}</div>
-      <div class="pv-cell col-keys"></div>
-      <div class="pv-cell dt-num col-models">${models}</div>
       <div class="pv-cell col-rate">${window.KEY_USAGE ? KEY_USAGE.quotaCellHTML(p, k) : ''}</div>
       <div class="pv-cell col-last">${keyResetHTML(k) || (window.KEY_USAGE ? KEY_USAGE.expiryCellHTML(p, k) : '')}</div>
       <div class="pv-cell col-actions"><div class="kx-actions-stack"><div class="dt-row-actions">${kp.actions}</div>${checked}</div></div>
@@ -5601,6 +5737,76 @@ function pvGroupHeadHTML(kind, n) {
   </div>`;
 }
 
+const PV_BADGE_ICON = {
+  key: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3"/></svg>',
+  account: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+  model: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
+};
+
+function providerBadgesHTML(p, s) {
+  const isOAuth = providerAuthKinds(p).includes('oauth');
+  const totalKeys = s?.keys ?? p.keys?.length ?? 0;
+  const activeKeys = s?.activeKeys ?? usableKeys(p).length;
+
+  let keyLabel;
+  if (isOAuth) {
+    keyLabel = totalKeys === 1 ? '1 account' : `${totalKeys} accounts`;
+  } else {
+    if (totalKeys === 0) keyLabel = '0 keys';
+    else if (activeKeys < totalKeys) keyLabel = `${activeKeys}/${totalKeys} keys`;
+    else keyLabel = totalKeys === 1 ? '1 key' : `${totalKeys} keys`;
+  }
+
+  const keyTitle = isOAuth
+    ? `${totalKeys} connected account${totalKeys === 1 ? '' : 's'}`
+    : `${activeKeys} of ${totalKeys} key${totalKeys === 1 ? '' : 's'} active`;
+
+  const keyIcon = isOAuth ? PV_BADGE_ICON.account : PV_BADGE_ICON.key;
+  const keyClass = `pv-badge pv-badge-keys ${isOAuth ? 'is-oauth' : ''} ${totalKeys === 0 ? 'is-empty' : ''}`;
+
+  const modelsCount = Math.max(
+    (window.CATALOG && typeof window.CATALOG.providerModelCount === 'function' ? window.CATALOG.providerModelCount(p.id) : 0) || 0,
+    (Array.isArray(p.models) ? p.models.length : 0),
+    s?.models || 0
+  );
+
+  const modelLabel = modelsCount === 1 ? '1 model' : `${modelsCount} models`;
+  const modelTitle = `${modelsCount} model${modelsCount === 1 ? '' : 's'} available`;
+  const modelClass = `pv-badge pv-badge-models ${modelsCount === 0 ? 'is-empty' : ''}`;
+  const modelIcon = PV_BADGE_ICON.model;
+
+  return `<div class="dt-provider-badges" role="group" aria-label="Provider configuration status">
+    <span class="${keyClass}" title="${escapeHtml(keyTitle)}">${keyIcon}<span class="pv-badge-text">${escapeHtml(keyLabel)}</span></span>
+    <span class="${modelClass}" title="${escapeHtml(modelTitle)}">${modelIcon}<span class="pv-badge-text">${escapeHtml(modelLabel)}</span></span>
+  </div>`;
+}
+
+function pvSparklineHTML(p) {
+  const TOTAL_TICKS = 20;
+  const runs = runLog.filter((r) => r.provider === p.id);
+  const recent = runs.slice(-TOTAL_TICKS);
+  const emptyCount = TOTAL_TICKS - recent.length;
+
+  const ticks = [];
+  for (let i = 0; i < emptyCount; i++) {
+    ticks.push('<span class="pv-tick empty" title="No test recorded"></span>');
+  }
+  for (const r of recent) {
+    let state = 'pass';
+    if (r.total > 0 && r.passed === 0) state = 'fail';
+    else if (r.passed < r.total) state = 'warn';
+    const ago = r.at ? formatAgo(r.at) : '';
+    const title = `${ago ? `${ago}: ` : ''}${r.passed}/${r.total} passed`;
+    ticks.push(`<span class="pv-tick ${state}" title="${escapeHtml(title)}"></span>`);
+  }
+
+  const tip = runs.length
+    ? `${runs.length} test run${runs.length === 1 ? '' : 's'} recorded`
+    : 'No test runs yet';
+
+  return `<div class="pv-sparkline" role="img" aria-label="${escapeHtml(tip)}" title="${escapeHtml(tip)}">${ticks.join('')}</div>`;
+}
+
 // Connected providers as a list of row cards, one per provider with a gap
 // between them, on one column grid shared with each provider's key rows, and
 // grouped by auth kind under a divider each. The whole row opens its keys;
@@ -5610,25 +5816,23 @@ function pvRowsHTML(groups, stats) {
     const s = stats.get(p.id);
     const last = pvLastRun(p);
     const id = escapeHtml(p.id);
-    const rate = s.rate == null
-      ? '<span class="dt-muted">—</span>'
-      : `<div class="dt-rate"><div class="dt-rate-bar"><span class="${scoreClass(s.rate / 100)}" style="width:${s.rate}%"></span></div><b>${s.rate}%</b></div>`;
     const open = pvExpanded.has(p.id);
     return `<div class="pv-rowcard ${open ? 'open' : ''}" role="listitem">
       <div class="pv-row ${open ? 'open' : ''}" data-kx-toggle="${id}" aria-expanded="${open}" tabindex="0">
         <div class="pv-cell col-provider"><div class="dt-provider">${KX_ICON.chevron}
           ${providerLogoHTML(p)}
-          <div><div class="dt-provider-name">${escapeHtml(p.name)}${websiteLinkHTML(p)}</div><div class="dt-provider-host">${escapeHtml(providerHost(p))}</div></div>
+          <div><div class="dt-provider-name">${escapeHtml(p.name)}${websiteLinkHTML(p)}</div>${providerBadgesHTML(p, s)}</div>
         </div></div>
         <div class="pv-cell col-status">${providerStatusHTML(p)}</div>
-        <div class="pv-cell dt-num col-keys">${s.activeKeys}<span class="dt-muted"> / ${s.keys}</span></div>
-        <div class="pv-cell dt-num col-models">${s.models || '<span class="dt-muted">—</span>'}</div>
-        <div class="pv-cell col-rate">${rate}</div>
+        <div class="pv-cell col-rate"></div>
         <div class="pv-cell col-last">${last ? escapeHtml(formatAgo(last)) : '<span class="dt-muted">never</span>'}</div>
-        <div class="pv-cell col-actions"><div class="dt-row-actions">
-          <button class="dt-icon-btn" type="button" data-connect="${id}" title="Add key" aria-label="Add key">${PV_ICON.plus}</button>
-          ${recheckButtonHTML(p)}
-          <button class="dt-icon-btn dt-icon-go" type="button" data-manage="${id}" title="Test models" aria-label="Test ${escapeHtml(p.name)} models">${PV_ICON.flask}</button>
+        <div class="pv-cell col-actions"><div class="pv-actions-stack">
+          <div class="dt-row-actions">
+            <button class="dt-icon-btn" type="button" data-connect="${id}" title="Add key" aria-label="Add key">${PV_ICON.plus}</button>
+            ${recheckButtonHTML(p)}
+            <button class="dt-icon-btn dt-icon-go" type="button" data-manage="${id}" title="Test models" aria-label="Test ${escapeHtml(p.name)} models">${PV_ICON.flask}</button>
+          </div>
+          ${pvSparklineHTML(p)}
         </div></div>
       </div>${open ? `<div class="pv-rowcard-keys">${keyRowsHTML(p)}</div>` : ''}
     </div>`;
@@ -5755,16 +5959,50 @@ const DT_ICON = {
   nomatch: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/><path d="m8.5 8.5 5 5M13.5 8.5l-5 5"/></svg>',
 };
 
-// config: { placeholder, filters: [{ value, label, dot? }], sorts: [{ value, label }] }
+// config: { placeholder, filterKey?, chipsLabel?, filters: [{ value, label, dot? }], statusFilter: { icon, label, key?, options: [{ value, label }] }, sorts: [{ value, label }], selects: [{ key, icon, label, options: [{ value, label }] }] }
 function dataToolbarHTML(config, state) {
+  const filterKey = config.filterKey || 'filter';
   const chips = (config.filters || []).map((f) => `
-    <button class="dt-chip ${state.filter === f.value ? 'active' : ''}" type="button" role="radio"
-            aria-checked="${state.filter === f.value}" data-dt-filter="${f.value}">
+    <button class="dt-chip ${state[filterKey] === f.value ? 'active' : ''}" type="button" role="radio"
+            aria-checked="${state[filterKey] === f.value}" data-dt-filter="${f.value}">
       ${f.dot ? `<span class="dt-chip-dot" style="--dot:${f.dot}"></span>` : ''}${escapeHtml(f.label)}
       <span class="dt-chip-count" data-dt-count="${f.value}">0</span>
     </button>`).join('');
   const sorts = (config.sorts || []).map((s) =>
     `<option value="${s.value}" ${state.sort === s.value ? 'selected' : ''}>${escapeHtml(s.label)}</option>`).join('');
+  const sortSelectHtml = sorts ? `<div class="ui-select-wrap">
+    <select class="ui-select-native" data-dt="sort" data-lead-icon="sort" data-ui-class="ui-select-toolbar" aria-label="Sort">
+      ${sorts}
+    </select>
+  </div>` : '';
+
+  const statusSel = config.statusFilter ? (() => {
+    const key = (config.statusFilter && config.statusFilter.key) || 'status';
+    const opts = config.statusFilter.options.map((o) =>
+      `<option value="${o.value}" ${state[key] === o.value ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('');
+    return `<div class="ui-select-wrap">
+      <select class="ui-select-native" data-dt-status
+              data-lead-icon="${escapeHtml(config.statusFilter.icon || 'server')}"
+              data-ui-class="ui-select-toolbar"
+              aria-label="${escapeHtml(config.statusFilter.label || 'Status')}">
+        ${opts}
+      </select>
+    </div>`;
+  })() : '';
+
+  const extraSelects = (config.selects || []).map((s) => {
+    const opts = s.options.map((o) =>
+      `<option value="${escapeHtml(o.value)}" ${state[s.key] === o.value ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('');
+    return `<div class="ui-select-wrap">
+      <select class="ui-select-native" data-dt-select="${escapeHtml(s.key)}"
+              data-lead-icon="${escapeHtml(s.icon || '')}"
+              data-ui-class="ui-select-toolbar"
+              aria-label="${escapeHtml(s.label || '')}">
+        ${opts}
+      </select>
+    </div>`;
+  }).join('');
+  
   return `<div class="dt-toolbar">
     <div class="dt-left">
       <label class="dt-search"><span class="dt-search-icon" aria-hidden="true">${DT_ICON.search}</span>
@@ -5772,33 +6010,64 @@ function dataToolbarHTML(config, state) {
                value="${escapeHtml(state.search)}" autocomplete="off" spellcheck="false" aria-label="Search">
         <kbd>/</kbd>
       </label>
-      ${sorts ? `<label class="dt-select">Sort<select data-dt="sort" aria-label="Sort">${sorts}</select></label>` : ''}
+      ${sortSelectHtml}
+      ${statusSel}
+      ${extraSelects}
     </div>
     <div class="dt-right">
-      ${chips ? `<div class="dt-chips" role="radiogroup" aria-label="Filter">${chips}</div>` : ''}
+      ${chips ? `<div class="dt-chips" role="radiogroup" aria-label="${escapeHtml(config.chipsLabel || 'Filter')}">${chips}</div>` : ''}
       <div class="dt-actions"></div>
     </div>
   </div>`;
 }
 
-function syncDataToolbar(root, state) {
+function syncDataToolbar(root, state, config = {}) {
+  const filterKey = config.filterKey || 'filter';
   root.querySelectorAll('[data-dt-filter]').forEach((b) => {
-    const on = b.dataset.dtFilter === state.filter;
+    const on = b.dataset.dtFilter === state[filterKey];
     b.classList.toggle('active', on);
     b.setAttribute('aria-checked', String(on));
   });
+  const sel = root.querySelector('[data-dt-status]');
+  if (sel) {
+    const key = (config.statusFilter && config.statusFilter.key) || 'status';
+    sel.value = state[key];
+  }
+  root.querySelectorAll('[data-dt-select]').forEach((s) => {
+    const key = s.dataset.dtSelect;
+    if (key in state) s.value = state[key];
+  });
 }
 
-function bindDataToolbar(root, state, onChange) {
-  root.querySelector('[data-dt="search"]').addEventListener('input', (e) => {
-    state.search = e.target.value;
-    onChange('search');
-  });
+function bindDataToolbar(root, state, onChange, config = {}) {
+  const filterKey = config.filterKey || 'filter';
+  const search = root.querySelector('[data-dt="search"]');
+  if (search) {
+    search.addEventListener('input', (e) => {
+      state.search = e.target.value;
+      onChange('search');
+    });
+  }
   const sort = root.querySelector('[data-dt="sort"]');
   if (sort) sort.addEventListener('change', (e) => { state.sort = e.target.value; onChange('sort'); });
   root.addEventListener('click', (e) => {
     const f = e.target.closest('[data-dt-filter]');
-    if (f) { state.filter = f.dataset.dtFilter; syncDataToolbar(root, state); onChange('filter'); }
+    if (f) { state[filterKey] = f.dataset.dtFilter; syncDataToolbar(root, state, config); onChange(filterKey); }
+  });
+  const statusSel = root.querySelector('[data-dt-status]');
+  if (statusSel) {
+    statusSel.addEventListener('change', (e) => {
+      const key = (config.statusFilter && config.statusFilter.key) || 'status';
+      state[key] = e.target.value;
+      onChange(key);
+    });
+  }
+  root.querySelectorAll('[data-dt-select]').forEach((s) => {
+    s.addEventListener('change', (e) => {
+      const key = s.dataset.dtSelect;
+      state[key] = e.target.value;
+      onChange(key);
+    });
   });
 }
 
@@ -5813,6 +6082,7 @@ const COMPACT_LAYOUT = window.matchMedia('(max-width: 1100px)');
 const pvState = {
   search: '',
   filter: 'all',
+  status: 'all',
   sort: 'name',
   view: COMPACT_LAYOUT.matches ? 'cards' : 'table',
 };
@@ -5820,14 +6090,25 @@ let pvShell = null; // which tab the body skeleton was built for
 
 const PV_TOOLBAR = {
   placeholder: 'Search providers, hosts or URLs…',
+  statusFilter: {
+    icon: 'server',
+    label: 'Provider Status',
+    options: [
+      { value: 'all',     label: 'All Providers' },
+      { value: 'ok',      label: 'Connected' },
+      { value: 'fail',    label: 'Down' },
+      { value: 'pending', label: 'Pending' },
+      { value: 'none',    label: 'No Active Key' },
+    ],
+  },
   filters: [
-    { value: 'all', label: 'All' },
-    { value: 'oauth', label: 'OAuth', dot: 'var(--type-oauth)' },
+    { value: 'all',    label: 'All' },
+    { value: 'oauth',  label: 'OAuth',   dot: 'var(--type-oauth)' },
     { value: 'apikey', label: 'API Key', dot: 'var(--type-apikey)' },
   ],
   sorts: [
-    { value: 'name', label: 'Name' },
-    { value: 'rate', label: 'Pass rate' },
+    { value: 'name',   label: 'Name' },
+    { value: 'rate',   label: 'Pass rate' },
     { value: 'models', label: 'Models' },
     { value: 'recent', label: 'Last run' },
   ],
@@ -5875,11 +6156,19 @@ function renderConnectedKpis(connected, all) {
   ]);
 }
 
+function pvFilterState(p) {
+  const h = providerHealth.get(p.id);
+  if (!h) return 'pending';
+  return h.state;
+}
+
 function pvFiltered(connected) {
   const q = pvState.search.trim().toLowerCase();
   let list = connected.filter((p) => {
     if (q && !`${p.name} ${providerHost(p)} ${p.baseUrl}`.toLowerCase().includes(q)) return false;
-    return pvState.filter === 'all' || providerAuthKinds(p).includes(pvState.filter);
+    if (pvState.filter !== 'all' && !providerAuthKinds(p).includes(pvState.filter)) return false;
+    if (pvState.status !== 'all' && pvFilterState(p) !== pvState.status) return false;
+    return true;
   });
   const stats = new Map(list.map((p) => [p.id, providerStats(p)]));
   const by = {
@@ -5895,9 +6184,13 @@ function pvFiltered(connected) {
 
 function renderConnectedResults(connected) {
   const results = $('#pv-results');
-  // Filter counts reflect the search, so a chip never promises rows it hides.
+  // Filter counts reflect the search and status filter, so a chip never promises rows it hides.
   const q = pvState.search.trim().toLowerCase();
-  const searched = connected.filter((p) => !q || `${p.name} ${providerHost(p)} ${p.baseUrl}`.toLowerCase().includes(q));
+  const searched = connected.filter((p) => {
+    if (q && !`${p.name} ${providerHost(p)} ${p.baseUrl}`.toLowerCase().includes(q)) return false;
+    if (pvState.status !== 'all' && pvFilterState(p) !== pvState.status) return false;
+    return true;
+  });
   const count = { all: searched.length };
   PV_AUTH_GROUPS.forEach((g) => { count[g] = searched.filter((p) => providerAuthKinds(p).includes(g)).length; });
   $$('#pv-toolbar [data-dt-count]').forEach((el) => { el.textContent = count[el.dataset.dtCount] ?? 0; });
@@ -6108,6 +6401,9 @@ async function init() {
   setupUpdateListeners();
   startHealthMonitor();
   renderQuickStats();
+  // The lock's own state, so the Security section and its warning are correct
+  // the first time they are opened rather than after a visit.
+  primeLockStatus();
   // The catalogue needs the providers and their keys, so it starts last.
   if (window.CATALOG) window.CATALOG.init();
   // Last, so the restored page renders with settings and providers in place.
@@ -6119,7 +6415,27 @@ async function init() {
 // parser had run it, so `window.CATALOG` was still missing and the catalogue
 // never started (no sync, no bindings).
 // DOMContentLoaded fires only once every script on the page has run.
-function start() {
+//
+// THE LOCK GATE. Everything init() does reads the owner's data — providers,
+// keys, history, the model pool — so none of it runs until the password is
+// accepted. `authStatus` RESOLVES (see preload.js); the only way it rejects is a
+// defect in main, and that must not be mistaken for "locked" or for "open":
+// it is reported, and the app then opens, because a broken lock is a bug to
+// see and fix, not a reason to sit on an empty screen forever.
+async function start() {
+  let status = null;
+  try {
+    status = await window.electronAPI.authStatus();
+  } catch (err) {
+    console.error('Could not read the app lock state; opening without it:', err);
+  }
+  if (window.LOCK) {
+    window.LOCK.init(status || { locked: false, idleMs: 0 });
+    if (status && status.locked) {
+      const unlocked = await window.LOCK.waitForUnlock();
+      if (!unlocked.ok) return;
+    }
+  }
   init().catch((err) => console.error('Startup failed:', err));
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);

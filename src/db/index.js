@@ -18,6 +18,7 @@ const { createSecretsRepo } = require('./repos/secrets');
 const { createProvidersRepo } = require('./repos/providers');
 const { createHistoryRepo } = require('./repos/history');
 const { createSnapshotRepo } = require('./repos/snapshots');
+const { createAuthRepo } = require('./repos/auth');
 
 const DB_FILE = 'venom.db';
 const BACKUPS_KEPT = 3;
@@ -111,6 +112,7 @@ function createRepos(db, cipher, log) {
     providers: createProvidersRepo(db, cipher, cache, log),
     history: createHistoryRepo(db, { log }),
     snapshots: createSnapshotRepo(db),
+    auth: createAuthRepo(db),
   };
 }
 

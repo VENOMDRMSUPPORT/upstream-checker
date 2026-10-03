@@ -21,7 +21,7 @@ function readConfig(repos) {
   return data;
 }
 
-function registerDataIpc({ ipcMain, repos, clipboard, log = console, hooks = {}, databases = {} }) {
+function registerDataIpc({ ipcMain, repos, clipboard, log = console, hooks = {}, databases = {}, auth = null }) {
   // Main-side caches that follow the saved data (the request log's body
   // setting and retention limits, its price cache). The save itself already
   // succeeded, so a hook that fails is logged, not thrown.
@@ -32,6 +32,21 @@ function registerDataIpc({ ipcMain, repos, clipboard, log = console, hooks = {},
     } catch (err) {
       log.warn(`${name} failed:`, err.message);
     }
+  };
+
+  // The lock gate. `copy-key` hands over a decrypted API key, so it is refused
+  // while the app is locked — the same rule the request gate in src/main.js
+  // applies to api-request. The lock screen covers the window and the shell is
+  // inert, so there is no path in the UI to reach this; the check exists because
+  // "no path in the UI" is not the same as "cannot happen".
+  //
+  // It RESOLVES a value rather than throwing, so the renderer can tell a locked
+  // app apart from a real failure.
+  const whenUnlocked = (fn) => (...args) => {
+    if (auth && auth.isLocked()) {
+      return { ok: false, code: 'LOCKED', message: 'The app is locked.' };
+    }
+    return fn(...args);
   };
 
   const handle = (channel, fn) => {
@@ -68,12 +83,14 @@ function registerDataIpc({ ipcMain, repos, clipboard, log = console, hooks = {},
   handle('merge-provider', (fromId, intoId) => repos.providers.merge(fromId, intoId));
   handle('delete-provider', (id) => ({ deleted: repos.providers.remove(id) }));
   // Main writes the clipboard, so a copied key never passes through the page.
-  handle('copy-key', (keyId) => {
+  // Gated: this is one of the two channels that hands over a secret (the other
+  // is api-request in src/main.js), so it is refused while the app is locked.
+  handle('copy-key', whenUnlocked((keyId) => {
     const secret = repos.providers.revealKey(keyId);
     if (secret === null) throw new Error('This key is unknown or cannot be read on this machine');
     clipboard.writeText(secret);
     return { copied: true };
-  });
+  }));
   handle('read-history', () => repos.history.read());
   handle('append-run', (run, maxRuns) => repos.history.append(run, maxRuns));
   handle('clear-history', () => {
