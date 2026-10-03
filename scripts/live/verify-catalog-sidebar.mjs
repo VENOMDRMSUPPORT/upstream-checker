@@ -1,3 +1,16 @@
+// Live check of the Models page's details drawer and its two tabs.
+//
+//   npm run verify:sidebar
+//
+// Launches a VENOM Router on a scratch %TEMP% folder with the legacy fixture
+// (fake keys, a local mock provider), opens Models, and measures the drawer —
+// geometry, not textContent, because a node in the DOM is not a node a person
+// can see. The owner's data folder is never read or written; the folder is
+// deleted at the end, and so are the screenshots.
+//
+// The screenshots are a convenience for whoever is looking at this output, not
+// a gate: they go to the run's own scratch folder, which is removed afterwards,
+// so a passing run leaves nothing behind.
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -41,7 +54,7 @@ try {
 
     // Capture screenshot of table without Output column
     const shotTable = await app.send('Page.captureScreenshot', { format: 'png' });
-    writeFileSync('C:/Users/venom/.gemini/antigravity/brain/41bda025-9b8c-4187-8b5e-96a6441ea768/catalog_table_no_output.png', Buffer.from(shotTable.result.data, 'base64'));
+    writeFileSync(join(dir, 'catalog_table_no_output.png'), Buffer.from(shotTable.result.data, 'base64'));
     console.log('Saved catalog_table_no_output.png');
 
     // Click on the first row to open details sidebar
@@ -74,7 +87,7 @@ try {
 
     // Capture screenshot with sidebar drawer open from the right
     const shotDrawer = await app.send('Page.captureScreenshot', { format: 'png' });
-    writeFileSync('C:/Users/venom/.gemini/antigravity/brain/41bda025-9b8c-4187-8b5e-96a6441ea768/catalog_sidebar_drawer_open.png', Buffer.from(shotDrawer.result.data, 'base64'));
+    writeFileSync(join(dir, 'catalog_sidebar_drawer_open.png'), Buffer.from(shotDrawer.result.data, 'base64'));
     console.log('Saved catalog_sidebar_drawer_open.png');
 
     // Close the drawer via close button

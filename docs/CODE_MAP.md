@@ -227,7 +227,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `mock-provider.mjs` | 66 | A local stand-in for the fixture's providers: OpenAI-shaped /models and | startMock |
 | `verify-catalog-boot.mjs` | 423 | Something the owner can click — proven two ways, on a scratch data folder. | PORT, failures, check, sleep, READY, openCatalogAndRead, checkFailureWords, checkModelsCatalogPageUntouched, measureCatalog, runGuardedSession, runPositiveControl, runSyncedSession, +4 more |
 | `verify-catalog-legend.mjs` | 235 | Live check of the Models page's capability legend, against the fixture folder. | failures, check, PORT, READY, TONES, toneClass, measureLegend, dir, mock |
-| `verify-catalog-sidebar.mjs` | 103 | Open catalog page | failures, check, dir, mock |
+| `verify-catalog-sidebar.mjs` | 116 | Live check of the Models page's details drawer and its two tabs. | failures, check, dir, mock |
 | `verify-db.mjs` | 541 | Live check of the local database against a synthetic data folder. | failures, check, sleep, until, READY, checkImport, checkKeysStayInMain, saveForNextRun, queueSaveThenClose, checkFlushOnClose, checkPersistence, checkSingleInstance, +20 more |
 
 ### src/
