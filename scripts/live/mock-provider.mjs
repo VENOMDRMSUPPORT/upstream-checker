@@ -20,8 +20,21 @@ export function startMock(port) {
       };
       if (!authorization.startsWith('Bearer sk-fixture-')) return send(401, { error: { message: 'fixture: missing or unknown key' } });
       if (req.method === 'GET' && req.url.endsWith('/models')) {
+        // fixture-alpha carries a price; fixture-gamma publishes capability
+        // metadata the Models page draws as icons; fixture-beta publishes
+        // nothing at all, which is the case the page must render as an empty
+        // Caps cell rather than as eight dim marks. The three together are the
+        // whole tri-state: lit, dim, and nothing said.
         return send(200, { object: 'list', data: [
-          { id: 'fixture-alpha', object: 'model', owned_by: 'fixture', pricing: { input_usd_per_1m: 2, output_usd_per_1m: 10 } },
+          { id: 'fixture-alpha', object: 'model', owned_by: 'fixture',
+            pricing: { input_usd_per_1m: 2, output_usd_per_1m: 10 },
+            // One capability published and nothing else: the row must show one
+            // lit icon beside dimmed ones, never a shelf of eight and never a
+            // red "no" for the seven nobody mentioned.
+            tool_call: true },
+          { id: 'fixture-gamma', object: 'model', owned_by: 'fixture',
+            modalities: { input: ['text', 'image', 'audio'], output: ['text'] },
+            supported_parameters: ['tools', 'response_format'], tool_call: true, reasoning: true },
           { id: 'fixture-beta', object: 'model', owned_by: 'fixture' },
         ] });
       }

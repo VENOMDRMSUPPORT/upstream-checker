@@ -2,7 +2,7 @@
 
 > GENERATED FILE — do not edit by hand. Regenerate with: npm run repo:map
 
-111 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
+117 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
 
 The architecture behind these files — boot order, IPC channels, the two databases, the request lifecycle — is in [ARCHITECTURE.md](ARCHITECTURE.md). Task recipes are in [COOKBOOK.md](COOKBOOK.md).
 
@@ -111,7 +111,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 5748 | Data toolbar — shared |
 | 5811 | Providers page — Connected view |
 
-### src/renderer/catalog.js — 1276 lines
+### src/renderer/catalog.js — 1579 lines
 
 | Line | Section |
 | --- | --- |
@@ -127,7 +127,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 *(no section banners)*
 
-### src/renderer/index.html — 1434 lines
+### src/renderer/index.html — 1470 lines
 
 | Line | Section |
 | --- | --- |
@@ -135,74 +135,76 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 269 | page: providers |
 | 290 | page: database |
 | 322 | page: catalog |
-| 332 | page: provider |
-| 445 | page: history |
-| 454 | page: monitor |
-| 462 | page: settings |
-| 480 | settings: sec-appearance |
-| 484 | settings: sec-test |
-| 488 | settings: sec-schedule |
-| 492 | settings: sec-speed |
-| 496 | settings: sec-reliability |
-| 500 | settings: sec-catalog |
-| 504 | settings: sec-history |
-| 508 | settings: sec-logs |
-| 512 | settings: sec-data |
-| 516 | settings: sec-about |
-| 1211 | overlay: response-modal |
-| 1231 | overlay: add-key-modal |
-| 1262 | overlay: add-provider-modal |
-| 1297 | overlay: update-modal |
-| 1314 | overlay: update-modal-notes |
-| 1356 | overlay: log-drawer |
-| 1357 | overlay: log-drawer-scrim |
-| 1363 | overlay: log-drawer-body |
-| 1367 | overlay: ku-drawer |
-| 1385 | overlay: mc-chat-drawer |
+| 342 | page: provider |
+| 455 | page: history |
+| 464 | page: monitor |
+| 472 | page: settings |
+| 490 | settings: sec-appearance |
+| 494 | settings: sec-test |
+| 498 | settings: sec-schedule |
+| 502 | settings: sec-speed |
+| 506 | settings: sec-reliability |
+| 510 | settings: sec-catalog |
+| 514 | settings: sec-history |
+| 518 | settings: sec-logs |
+| 522 | settings: sec-data |
+| 526 | settings: sec-about |
+| 1221 | overlay: response-modal |
+| 1241 | overlay: add-key-modal |
+| 1272 | overlay: add-provider-modal |
+| 1307 | overlay: update-modal |
+| 1324 | overlay: update-modal-notes |
+| 1366 | overlay: log-drawer |
+| 1367 | overlay: log-drawer-scrim |
+| 1373 | overlay: log-drawer-body |
+| 1377 | overlay: ku-drawer |
+| 1395 | overlay: mc-chat-drawer |
+| 1425 | overlay: mc-details-drawer |
 
-### src/renderer/styles.css — 7813 lines
+### src/renderer/styles.css — 8107 lines
 
 | Line | Section |
 | --- | --- |
 | 2 | VENOM ROUTER — Enterprise Dark Theme |
-| 97 | Reset & Base |
-| 147 | Title Bar |
-| 327 | App shell — nav rail + page area |
-| 396 | SIDEBAR BOTTOM ACCENT & STARRY STIPPLE EFFECT |
-| 1773 | Animations |
-| 1792 | API Keys |
-| 2018 | Responsive |
-| 2026 | Update Modal |
-| 2257 | Settings |
-| 2327 | Themes |
-| 2676 | Pages — Overview placeholder |
-| 2752 | Shell header |
-| 3029 | Dark mode: pages share the nav's visual language |
-| 3057 | Provider page — one provider's keys, models and test runs |
-| 3301 | Light mode — page area only |
-| 3325 | Overview — live panels |
-| 3454 | Card headers — one accent-led treatment everywhere |
-| 3497 | Signature heart (nav footer) |
-| 3561 | Sidebar ambience — a living layer of stars |
-| 3635 | Breadcrumb — shared by every page that needs one |
-| 3678 | Providers page |
-| 4400 | Stat cards — shared (Overview, Providers, …) |
-| 4441 | Page toolbar — one card for every page that has one |
-| 4489 | Design system — form fields |
-| 4752 | Data table — shared |
-| 4970 | Provider types — legend and markers |
-| 5153 | Settings page — layout |
-| 5162 | Providers — expandable rows and the key panel |
-| 5186 | Providers — list of row cards |
-| 5929 | Settings — Unified 2-Column Design System |
-| 6368 | Settings content — one design language for every tab |
-| 6714 | Models Catalog |
-| 6898 | Key usage (key-usage.js) — quota and expiry in the key row, the rest in a |
-| 7057 | Catalog: live health badge + toast notifications |
-| 7113 | Model chat drawer — a full-height panel sliding in from the right, |
-| 7491 | Log pages — Runs, Requests, Monitoring |
-| 7690 | Monitoring Page |
-| 7756 | Database explorer — compact SQLite workbench |
+| 98 | Reset & Base |
+| 148 | Title Bar |
+| 328 | App shell — nav rail + page area |
+| 397 | SIDEBAR BOTTOM ACCENT & STARRY STIPPLE EFFECT |
+| 1774 | Animations |
+| 1793 | API Keys |
+| 2019 | Responsive |
+| 2027 | Update Modal |
+| 2258 | Settings |
+| 2328 | Themes |
+| 2678 | Pages — Overview placeholder |
+| 2754 | Shell header |
+| 3031 | Dark mode: pages share the nav's visual language |
+| 3059 | Provider page — one provider's keys, models and test runs |
+| 3303 | Light mode — page area only |
+| 3327 | Overview — live panels |
+| 3456 | Card headers — one accent-led treatment everywhere |
+| 3499 | Signature heart (nav footer) |
+| 3563 | Sidebar ambience — a living layer of stars |
+| 3637 | Breadcrumb — shared by every page that needs one |
+| 3680 | Providers page |
+| 4402 | Stat cards — shared (Overview, Providers, …) |
+| 4443 | Page toolbar — one card for every page that has one |
+| 4491 | Design system — form fields |
+| 4764 | Data table — shared |
+| 4982 | Provider types — legend and markers |
+| 5165 | Settings page — layout |
+| 5174 | Providers — expandable rows and the key panel |
+| 5198 | Providers — list of row cards |
+| 5941 | Settings — Unified 2-Column Design System |
+| 6380 | Settings content — one design language for every tab |
+| 6778 | Models Catalog |
+| 7037 | Key usage (key-usage.js) — quota and expiry in the key row, the rest in a |
+| 7196 | Catalog: live health badge + toast notifications |
+| 7251 | Model details drawer — a full-height sidebar sliding in from the right, |
+| 7407 | Model chat drawer — a full-height panel sliding in from the right, |
+| 7785 | Log pages — Runs, Requests, Monitoring |
+| 7984 | Monitoring Page |
+| 8050 | Database explorer — compact SQLite workbench |
 
 ### scripts/
 
@@ -222,8 +224,10 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `boot-guard.cjs` | 93 | An Electron entry that arms a throwing network guard and then boots the real | REPORT, userDataFlag, SCRATCH, APPDATA, attempts, record, arm |
 | `cdp.mjs` | 148 | Launches a separate VENOM Router on a scratch data folder with remote | require, ROOT, sleep, assertScratchDir, appEnv, withTimeout, launch, spawnPlain |
 | `fixture.mjs` | 111 | Synthetic legacy data folder for the live checks: config.json, catalog.json | FIXTURE, writeFixture |
-| `mock-provider.mjs` | 53 | A local stand-in for the fixture's providers: OpenAI-shaped /models and | startMock |
+| `mock-provider.mjs` | 66 | A local stand-in for the fixture's providers: OpenAI-shaped /models and | startMock |
 | `verify-catalog-boot.mjs` | 423 | Something the owner can click — proven two ways, on a scratch data folder. | PORT, failures, check, sleep, READY, openCatalogAndRead, checkFailureWords, checkModelsCatalogPageUntouched, measureCatalog, runGuardedSession, runPositiveControl, runSyncedSession, +4 more |
+| `verify-catalog-legend.mjs` | 235 | Live check of the Models page's capability legend, against the fixture folder. | failures, check, PORT, READY, TONES, toneClass, measureLegend, dir, mock |
+| `verify-catalog-sidebar.mjs` | 103 | Open catalog page | failures, check, dir, mock |
 | `verify-db.mjs` | 541 | Live check of the local database against a synthetic data folder. | failures, check, sleep, until, READY, checkImport, checkKeysStayInMain, saveForNextRun, queueSaveThenClose, checkFlushOnClose, checkPersistence, checkSingleInstance, +20 more |
 
 ### src/
@@ -297,15 +301,17 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
 | `app.js` | 6127 | VENOM ROUTER — Application Logic v2 | DEFAULT_TEST_PROMPT, DEFAULT_EXPECTED, testPrompt, expectedAnswer, NA, RESPONSE_PREVIEW, truthy, KIND_LABELS, kindLimits, classifyModel, isMedia, isDecision, +392 more |
-| `catalog.js` | 1276 | Models Catalog — the merged reference, scored | state, chat, ui, keyOf, connectedIds, loadPromise, load, applyRead, flush, entriesOf, keyModels, providerModelCount, +157 more |
+| `catalog-caps.js` | 193 | Model capabilities — what a catalogue row can do, read as three states | CAT_CAPABILITIES, hasModality, publishedBool, filesState, outputState, capabilityState, BOOLEAN_CAPS, capabilityOrigin, capabilitySet, capabilityCounts |
+| `catalog.js` | 1579 | Models Catalog — the merged reference, scored | state, chat, details, ui, keyOf, connectedIds, loadPromise, load, applyRead, flush, entriesOf, keyModels, +186 more |
 | `database.js` | 105 | Read-only SQLite explorer. All SQL, identifier checks, and redaction happen | PAGE_SIZE, state, byId, escape, number, setNotice, box, renderStats, renderTables, query, visible, renderHead, +10 more |
 | `key-usage.js` | 539 | Key usage — quota, expiry and request history per API key | KEY_USAGE |
 | `logs-format.js` | 132 | Log pages — pure formatting and mapping | LOGS_RANGES, logEscape, normalizeProvider, providerLabel, formatDuration, formatCost, formatTokens, logPad, formatWhen, statusTone, passRateText, rangePreset, +1 more |
 | `logs.js` | 934 | Log pages — Runs, Requests and Monitoring | state, el, REDUCED_MOTION, drawerOpener, closeTimer, tabFromRoute, parts, loadInfo, emptyState, loggingOffMarkup, why, render, +106 more |
 | `ui-select.js` | 217 | Design system — select menu | CHEVRON, CHECK, valueDesc, indexDesc, menu, owner, active, labelOf, opt, sync, trigger, enhance, +17 more |
+| `ui-stepper.js` | 114 | Design system — number input stepper | CHEVRON_UP, CHEVRON_DOWN, enhance, input, stepper, label, stepUnit, unit, repeatTimer, repeatInterval, stopRepeat, enhanceAll, +1 more |
 | `ulid.js` | 22 | Run ids — ULID, the same format as src/db/ulid.js | newUlid |
-| `index.html` | 1434 | App shell markup: nav, every page, the drawers and modals |  |
-| `styles.css` | 7813 | The whole stylesheet: tokens, themes, accents, components |  |
+| `index.html` | 1470 | App shell markup: nav, every page, the drawers and modals |  |
+| `styles.css` | 8107 | The whole stylesheet: tokens, themes, accents, components |  |
 
 ### src/renderer/providers/
 
@@ -383,4 +389,6 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
+| `catalog-caps.test.js` | 122 | catalog-caps.js is a plain browser script of top-level consts and function | a published modality list that omits a token answers no, vision and audio are read from the input modalities, case-insensitively, only a real boolean counts as a published flag, files prefers the published flag and falls back to the modality list, a declared generator answers yes with no modality published, capabilityOrigin names where each answer was read from |
 | `logs-format.test.js` | 140 | logs-format.js is a plain browser script of top-level function | logEscape: provider text cannot close a tag, toViewModel: escapes every string it puts on the page, formatCost: micros to dollars, small amounts kept visible, formatTokens: thousands separated, null is a dash, statusTone: one tone per outcome, passRateText: a fraction becomes a percentage, null stays unknown |
+| `ui-stepper.test.js` | 155 | Mock DOM elements for testing the unit stepper in Node | enhance: ignores unit if no input[type="number"] exists, stepUnit: respects disabled and readOnly inputs |

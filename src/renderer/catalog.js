@@ -33,6 +33,9 @@
     timer: null,
     expanded: new Set(),
     shell: false,
+    // The capabilities legend starts open: it names the icons in the table, and a
+    // key nobody asked to open is not a key. The toggle is the only way it folds.
+    legendOpen: true,
     pendingRender: null,
     healthBusy: new Set(), // keys whose health check is in flight
     healthAct: new Map(),  // key -> { tone, icon, label, timer } — the verdict shown on the heart itself
@@ -50,7 +53,13 @@
     opener: null,       // element to hand focus back to on close
   };
 
+  const details = {
+    key: null,          // catalog key of model currently viewed in sidebar drawer
+    opener: null,       // element to restore focus to
+  };
+
   const ui = {
+    tab: 'connected',
     search: '',
     filter: 'all',
     sort: 'rank',
@@ -138,6 +147,7 @@
   function visibleEntries() {
     return [...state.models.values()].filter((e) => {
       const p = PROVIDERS[e.providerId];
+      if (ui.tab === 'all') return !!p;
       return p && isConnected(p);
     });
   }
@@ -657,6 +667,98 @@
     });
   }
 
+  // ---- model details drawer (mobile-sidebar style) -------------------------
+
+  function openDetails(key, opener) {
+    const e = state.models.get(key);
+    if (!e) return;
+    details.key = key;
+    details.opener = opener || document.activeElement;
+    const el = document.getElementById('mc-details-drawer');
+    if (!el) return;
+    el.hidden = false;
+    requestAnimationFrame(() => el.classList.add('open'));
+    renderDetailsHead();
+    renderDetailsBody();
+    renderDetailsFoot();
+    $$('.mc-row.is-selected, .mc-card.is-selected').forEach((r) => r.classList.remove('is-selected'));
+    const row = document.querySelector(`.mc-row[data-mc-key="${CSS.escape(key)}"], .mc-card[data-mc-key="${CSS.escape(key)}"]`);
+    if (row) row.classList.add('is-selected');
+  }
+
+  function closeDetails() {
+    const el = document.getElementById('mc-details-drawer');
+    if (!el || el.hidden) return;
+    el.classList.remove('open');
+    const opener = details.opener;
+    details.key = null;
+    details.opener = null;
+    $$('.mc-row.is-selected, .mc-card.is-selected').forEach((r) => r.classList.remove('is-selected'));
+    const done = () => { el.hidden = true; };
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) done();
+    else setTimeout(done, 220);
+    if (opener && document.contains(opener)) opener.focus();
+  }
+
+  function renderDetailsHead() {
+    const e = state.models.get(details.key);
+    if (!e) return;
+    const p = PROVIDERS[e.providerId];
+    const logo = document.getElementById('mc-details-logo');
+    if (logo) logo.innerHTML = p ? providerMark(p) : '';
+    const title = document.getElementById('mc-details-title');
+    if (title) title.textContent = e.name || e.id;
+    const sub = document.getElementById('mc-details-sub');
+    if (sub) sub.textContent = `${(p && p.name) || e.providerId} · ${e.id}${e.family ? ` · ${e.family}` : ''}`;
+    const badgesEl = document.getElementById('mc-details-badges');
+    if (badgesEl) badgesEl.innerHTML = badges(e) + healthBadgeHTML(e);
+  }
+
+  function renderDetailsBody() {
+    const body = document.getElementById('mc-details-body');
+    if (!body) return;
+    const e = state.models.get(details.key);
+    if (!e) { body.innerHTML = ''; return; }
+    body.innerHTML = detailHTML(e);
+  }
+
+  function renderDetailsFoot() {
+    const foot = document.getElementById('mc-details-foot');
+    if (!foot) return;
+    const e = state.models.get(details.key);
+    if (!e) { foot.innerHTML = ''; return; }
+    const key = escapeHtml(e.key);
+    const canChat = chatable(e);
+    foot.innerHTML = `
+      ${canChat ? `<button class="btn btn-primary" type="button" data-mc-chat="${key}">
+        ${ICON.chat} <span>Chat with model</span>
+      </button>` : ''}
+      <button class="btn btn-ghost" type="button" data-mc-health="${key}">
+        ${ICON.heart} <span>Health Check</span>
+      </button>
+      <button class="btn btn-ghost" type="button" data-mc-fetch-info="${key}">
+        ${ICON.redo} <span>Refresh facts</span>
+      </button>
+    `;
+  }
+
+  function bindDetailsDrawer() {
+    const el = document.getElementById('mc-details-drawer');
+    if (!el) return;
+    el.addEventListener('click', (ev) => {
+      if (ev.target.closest('[data-details-close]')) { closeDetails(); return; }
+      const chatBtn = ev.target.closest('[data-mc-chat]');
+      if (chatBtn) { openChat(chatBtn.dataset.mcChat, chatBtn); return; }
+      const health = ev.target.closest('[data-mc-health]');
+      if (health) { healthCheck(health.dataset.mcHealth); return; }
+      const fetchInfoBtn = ev.target.closest('[data-mc-fetch-info]');
+      if (fetchInfoBtn) { fetchInfo(fetchInfoBtn.dataset.mcFetchInfo); return; }
+    });
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && !el.hidden) closeDetails();
+    });
+  }
+
   // ---- rendering -----------------------------------------------------------
 
   const ICON = {
@@ -677,6 +779,47 @@
     heart: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/><path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/></svg>',
     send: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
     close: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+  };
+
+  // The eight capability icons, one per CAT_CAPABILITIES entry, so a tile in the
+  // legend and a cell in the table are the same mark and the legend is a key for
+  // the table rather than decoration next to it. `vision` and `reasoning` are
+  // the symbols the model row already wore beside its name — kept verbatim, so a
+  // meaning the owner learned on one surface is not re-taught on another.
+  //
+  // The intrinsic width is 12 in all eight and the size is set in CSS, so mixing
+  // these with the rest of ICON cannot make one line of icons sit unevenly.
+  const CAP_ICON = {
+    tools: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>',
+    reasoning: ICON.brain,
+    structured: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1"/><path d="M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1"/></svg>',
+    vision: ICON.eye,
+    imageGen: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.14-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.14a.5.5 0 0 1 .96 0L14.06 8.5A2 2 0 0 0 15.5 9.94l6.14 1.58a.5.5 0 0 1 0 .96L15.5 14.06a2 2 0 0 0-1.44 1.44l-1.58 6.14a.5.5 0 0 1-.96 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/></svg>',
+    audio: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/></svg>',
+    video: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5.22 3.48a.5.5 0 0 0 .78-.42V7.9a.5.5 0 0 0-.75-.43L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>',
+    files: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.23 20.25 21 12.3"/><path d="m16 6-8.41 8.59a2 2 0 0 0 0 2.82 2 2 0 0 0 2.83 0l8.41-8.59a4 4 0 0 0 0-5.65 4 4 0 0 0-5.65 0l-8.42 8.59a6 6 0 1 0 8.49 8.48"/></svg>',
+  };
+
+  // The row field each capability is read from, so a value the reference filled
+  // in is marked as borrowed wherever it is drawn — the same reason
+  // `contextCell` and `priceCell` wrap theirs.
+  const CAP_FIELD = {
+    tools: 'tools',
+    reasoning: 'reasoning',
+    structured: 'structured',
+    vision: 'input_modalities',
+    imageGen: 'output_modalities',
+    audio: 'input_modalities',
+    video: 'output_modalities',
+    files: 'attachment',
+  };
+
+  // Where each answer was read, in the owner's words rather than the code's.
+  const CAP_ORIGIN = {
+    published: 'published by the provider',
+    modalities: 'from the modalities it published',
+    kind: 'declared by the provider',
+    silent: 'nobody published this',
   };
 
   const TOOLBAR = {
@@ -783,16 +926,84 @@
     return borrowed(e, 'cost_in_per_m', escapeHtml(text));
   }
 
-  // Declared capabilities, three letters: T tools · J strict JSON · A file
-  // input. Green = published yes, red = published no, grey = nobody said. A
-  // grey letter is not a refusal: unknown stays unknown, which is why row.js
-  // returns null rather than false.
+  // Eight capabilities, as icons. Three states, and the middle one is the whole
+  // reason this is a separate function: `catalog-caps.js` answers true / false /
+  // null, and null means nobody said. A published-yes is lit, a nobody-said is
+  // dim, and a published-NO IS NOT DRAWN — a red cross on every row for every
+  // capability a provider does not mention would say "does not" where the truth
+  // is "has never been heard of". The row's detail panel still spells every one
+  // of them out in words, so nothing is lost by not drawing it.
   function capsHTML(e) {
-    const one = (label, title, value) => {
-      const st = value === true ? 'yes' : value === false ? 'no' : 'unknown';
-      return `<span class="mc-cap mc-cap-${st}" title="${escapeHtml(`${title}: ${value === null || value === undefined ? 'not published' : value ? 'yes' : 'no'}`)}">${label}</span>`;
-    };
-    return `<span class="mc-caps">${one('T', 'Tool calling', e.tools)}${one('J', 'Strict JSON mode', e.structured)}${one('A', 'Accepts files', e.attachment)}</span>`;
+    // A row whose provider published nothing at all — no flags and no modality
+    // list — wears no marks whatsoever. Eight dim icons would be eight claims,
+    // and an empty cell says "nothing published" better than a shelf of
+    // question marks. Silence is checked across all eight, not per capability,
+    // so a row that published one thing shows that one thing lit and nothing
+    // else.
+    const anyPublished = CAT_CAPABILITIES.some((cap) => capabilityState(e, cap.id) !== null);
+    if (!anyPublished) return '<span class="mc-caps is-silent"></span>';
+    const cells = CAT_CAPABILITIES.map((cap) => {
+      const value = capabilityState(e, cap.id);
+      if (value !== true && value !== null) return '';
+      const label = `${cap.label}: ${value === true ? 'yes' : 'nobody published this'}`;
+      // The legend below states the whole story once; the cell only says what
+      // this model is, so the tooltip stays one line.
+      const tip = `${label} — ${cap.blurb.toLowerCase()}`;
+      return `<span class="mc-cap-ico mc-cap-${cap.tone} ${value === true ? 'is-yes' : 'is-unknown'}"
+        title="${escapeHtml(tip)}" aria-label="${escapeHtml(label)}">${CAP_ICON[cap.id]}</span>`;
+    }).join('');
+    return `<span class="mc-caps">${cells}</span>`;
+  }
+
+  // ---- the legend ---------------------------------------------------------
+
+  // The legend is a key for the icons in the Caps column, so it draws the same
+  // eight marks in the same order with the same colours, and adds the two things
+  // the column cannot say: what each icon means, and how many of the rows on
+  // screen carry it.
+  //
+  // The counts describe what is on screen, not the whole catalogue — so they are
+  // taken from the filtered list, and the footer says so, or a search narrowed to
+  // three models would read as "these three have tools" beside a number for a
+  // thousand.
+  function legendHTML(rows) {
+    if (!rows.length) return '';
+    const counts = capabilityCounts(rows);
+    const total = rows.length;
+    const chevron = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>';
+    const topCaps = [...CAT_CAPABILITIES]
+      .sort((a, b) => ((counts[b.id] || 0) - (counts[a.id] || 0)) || (CAT_CAPABILITIES.indexOf(a) - CAT_CAPABILITIES.indexOf(b)))
+      .slice(0, 4);
+    const topIcons = `<span class="mc-legend-top-caps">${topCaps.map((cap) => {
+      const n = counts[cap.id] || 0;
+      return `<span class="mc-cap-ico mc-cap-${cap.tone} is-yes" title="${escapeHtml(cap.label)} (${n} model${n === 1 ? '' : 's'})">${CAP_ICON[cap.id]}</span>`;
+    }).join('')}</span>`;
+    const toggle = `<button class="pv-legend-toggle mc-legend-toggle" type="button" data-mc-legend-toggle
+      aria-expanded="${state.legendOpen}" aria-controls="mc-legend-body"
+      title="${state.legendOpen ? 'Hide the legend' : 'Show the legend'}">
+      <span>${state.legendOpen ? 'Hide legend' : 'Show legend'}</span>${chevron}</button>`;
+    const body = `<div class="pv-legend-body mc-legend-body mc-legend-grid" id="mc-legend-body"${state.legendOpen ? '' : ' hidden'}>
+      ${CAT_CAPABILITIES.map((cap) => {
+        const n = counts[cap.id] || 0;
+        return `<div class="pv-legend-item mc-legend-tile" style="--c:var(--cap)">
+          <span class="pv-legend-chip mc-legend-ico mc-cap-${cap.tone}">${CAP_ICON[cap.id]}</span>
+          <div class="pv-legend-text">
+            <div class="pv-legend-name">
+              <span class="mc-legend-label">${escapeHtml(cap.label)}</span>
+              <span class="pv-legend-count mc-legend-count${n ? '' : ' is-zero'}" title="${escapeHtml(`${n} of the ${total} model${total === 1 ? '' : 's'} on screen`)}">${n} model${n === 1 ? '' : 's'}</span>
+            </div>
+            <div class="pv-legend-desc mc-legend-blurb">${escapeHtml(cap.blurb)}</div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+    return `<section class="pv-legend mc-legend ${state.legendOpen ? '' : 'collapsed'}" aria-label="Model capabilities legend">
+      <div class="pv-legend-head mc-legend-head">
+        <span class="pv-legend-title">${topIcons}Model Capabilities Legend</span>
+        ${toggle}
+      </div>
+      ${body}
+    </section>`;
   }
 
   function healthCell(e) {
@@ -805,9 +1016,6 @@
     const out = [];
     if (e.isNew) out.push(`<span class="pv-tag mc-new" title="${escapeHtml(e.first_seen ? `First seen ${formatAgo(e.first_seen)}` : 'Newly listed')}">NEW</span>`);
     if (e.kind && e.kind !== 'chat') out.push(`<span class="pv-tag t-violet">${escapeHtml(e.kind)}</span>`);
-    // null is "nobody said", so the icon only appears on a published yes.
-    if (e.attachment === true) out.push(`<span class="icon-badge type-vision" title="Accepts images or files">${ICON.eye}</span>`);
-    if (e.reasoning === true) out.push(`<span class="icon-badge type-think" title="Reasoning">${ICON.brain}</span>`);
     if (e.cost_kind === 'free') out.push('<span class="pv-tag t-green">free</span>');
     return out.join('');
   }
@@ -841,33 +1049,32 @@
 
   function rowHTML(e, rank) {
     const p = PROVIDERS[e.providerId];
-    const open = state.expanded.has(e.key);
     const key = escapeHtml(e.key);
     const rankCell = rank ? `<span class="mc-rank ${rank <= 3 ? 'top' : ''}">#${rank}</span>` : '<span class="dt-muted">—</span>';
     const costLabel = e.cost_kind === 'free' ? ' · free' : '';
-    return `<tr class="dt-row mc-row ${open ? 'open' : ''}" data-mc-key="${key}" data-kx-toggle="${key}" aria-expanded="${open}" tabindex="0">
+    const isSelected = details.key === e.key;
+    return `<tr class="dt-row mc-row ${isSelected ? 'is-selected' : ''}" data-mc-key="${key}" data-mc-details="${key}" tabindex="0">
       <td class="dt-num col-rank">${rankCell}</td>
-      <td><div class="dt-provider">${ICON.chevron}
+      <td><div class="dt-provider">
         <span class="pv-logo">${providerMark(p)}</span>
         <div><div class="dt-provider-name mc-name">${escapeHtml(e.name || e.id)}${badges(e)}${healthBadgeHTML(e)}</div>
         <div class="dt-provider-host mc-sub">${healthDotHTML(p)}${escapeHtml(p.name)}${e.name && e.name !== e.id ? ` · <code>${escapeHtml(e.id)}</code>` : ''}${e.family ? ` · ${escapeHtml(e.family)}` : ''}${costLabel}</div></div>
       </div></td>
       <td class="col-score" title="${escapeHtml(scoreTip(e))}">${scoreCell(e)}</td>
       <td class="dt-num col-ctx">${contextCell(e)}</td>
-      <td class="dt-num col-out">${outputCell(e)}</td>
       <td class="dt-num col-price">${priceCell(e)}</td>
       <td class="col-caps">${capsHTML(e)}</td>
       <td class="dt-num col-lat">${latencyCell(e)}</td>
       <td class="col-health">${healthCell(e)}</td>
       <td class="dt-actions-col"><div class="dt-row-actions">${actionButtons(e)}</div></td>
-    </tr>${open ? `<tr class="dt-detail mc-detail" data-mc-detail="${key}"><td colspan="10">${detailHTML(e)}</td></tr>` : ''}`;
+    </tr>`;
   }
 
   function cardHTML(e, rank) {
     const p = PROVIDERS[e.providerId];
     const key = escapeHtml(e.key);
-    const open = state.expanded.has(e.key);
-    return `<article class="pv-card mc-card ${open ? 'open' : ''}" data-mc-key="${key}" style="--type-stripe:${escapeHtml(p.color || 'var(--accent)')}">
+    const isSelected = details.key === e.key;
+    return `<article class="pv-card mc-card ${isSelected ? 'is-selected' : ''}" data-mc-key="${key}" style="--type-stripe:${escapeHtml(p.color || 'var(--accent)')}">
       <div class="pv-card-top">
         <span class="pv-logo">${providerMark(p)}</span>
         <span class="pv-host">${healthDotHTML(p)}${escapeHtml(p.name)}${e.context_tokens ? ` · ${escapeHtml(fmtContext(e.context_tokens))}` : ''}</span>
@@ -882,10 +1089,9 @@
       </div>
       <div class="mc-card-caps">${capsHTML(e)}</div>
       <div class="pv-card-actions">
-        <button class="btn btn-ghost btn-mini" type="button" data-kx-toggle="${key}">${open ? 'Hide details' : 'Details'}</button>
+        <button class="btn btn-ghost btn-mini" type="button" data-mc-details="${key}">Details</button>
         ${actionButtons(e)}
       </div>
-      ${open ? `<div class="mc-card-detail">${detailHTML(e)}</div>` : ''}
     </article>`;
   }
 
@@ -896,8 +1102,24 @@
     const provRow = (label, field, fmt = valueLabel) => row(label, borrowedFields.includes(field)
       ? `<span class="mc-borrowed" title="Filled from the sources — not published by this provider">${escapeHtml(fmt(e[field]))}</span>`
       : `<span class="mc-note">${escapeHtml(fmt(e[field]))}</span>`);
+    // Every capability in words, including the ones the column does not draw. A
+    // published "no" is invisible in the Caps column by design, so this panel is
+    // the only place it is said — and it says where each answer came from, so a
+    // token found in a modality list never reads as a published flag.
+    const capRow = (cap) => {
+      const { value, from } = capabilityOrigin(e, cap.id);
+      const word = value === null ? 'not published' : value ? 'yes' : 'no';
+      const mark = `<span class="mc-cap-mark is-${value === null ? 'unknown' : value ? 'yes' : 'no'}">${CAP_ICON[cap.id]}</span>`;
+      const field = CAP_FIELD[cap.id];
+      const source = borrowedFields.includes(field)
+        ? `<span class="mc-borrowed" title="Filled from the sources — not published by this provider">${escapeHtml(CAP_ORIGIN[from])}</span>`
+        : escapeHtml(CAP_ORIGIN[from]);
+      return row(cap.label, `${mark} ${word}<span class="mc-cap-from">${source}</span>`);
+    };
+    const capRows = CAT_CAPABILITIES.map(capRow).join('');
     const health = e.health;
     return `<div class="mc-detail-grid">
+      <div class="mc-detail-main">
       <div class="mc-panel">
         <div class="mc-panel-head">Where this row comes from</div>
         <div class="mc-compare">
@@ -908,15 +1130,16 @@
           ${provRow('Max output', 'output_tokens', (v) => (v == null ? 'not published' : `${Number(v).toLocaleString()} tokens`))}
           ${provRow('Input modalities', 'input_modalities')}
           ${provRow('Output modalities', 'output_modalities')}
-          ${provRow('Tool calling', 'tools', (v) => (v == null ? 'not published' : v ? 'yes' : 'no'))}
-          ${provRow('Reasoning', 'reasoning', (v) => (v == null ? 'not published' : v ? 'yes' : 'no'))}
-          ${provRow('Structured output', 'structured', (v) => (v == null ? 'not published' : v ? 'yes' : 'no'))}
-          ${provRow('Accepts files', 'attachment', (v) => (v == null ? 'not published' : v ? 'yes' : 'no'))}
           ${provRow('Price in / out, per 1M', 'cost_in_per_m', (v) => (v == null ? 'not published' : `$${v} / $${e.cost_out_per_m ?? '—'}`))}
           ${provRow('Released', 'release_date')}
           ${row('First seen', e.first_seen ? escapeHtml(formatAgo(e.first_seen)) : '<span class="dt-muted">—</span>')}
           ${health ? row('Last health check', escapeHtml(`${(HEALTH_META[health.status] || HEALTH_META.error).label} · ${formatAgo(health.at)}${health.note ? ` · ${health.note}` : ''}`))
             : row('Last health check', '<span class="dt-muted">never checked</span>')}
+        </div>
+      </div>
+        <div class="mc-panel">
+          <div class="mc-panel-head">What this model can do</div>
+          <div class="mc-compare">${capRows}</div>
         </div>
       </div>
       <div class="mc-side">
@@ -996,7 +1219,9 @@
   }
 
   // A provider whose last attempt failed is said so in its own column, rather
-  // than the whole table quietly looking older than it is.
+  // than the whole table quietly looking older than it is. It travels with the
+  // table, above it: the tabs count models, not attempts, and a provider that
+  // did not answer has models in the tab count it never proved.
   function staleBanner(list) {
     const bad = state.providers.filter((p) => !p.ok || p.stale);
     if (!bad.length) return '';
@@ -1006,6 +1231,10 @@
     return `<div class="mc-source-error" role="status">${bits.join(' · ')}</div>`;
   }
 
+  // The filter chips' own counts. Counted over the SEARCHED list rather than
+  // the filtered one, so a chip never reads 0 because its own filter is off.
+  // q/count keep their names: this is the original code, only renamed so the
+  // legend below can have them.
   function renderResults() {
     const list = visibleEntries();
     const q = ui.search.trim().toLowerCase();
@@ -1020,13 +1249,23 @@
     });
     $$('#mc-toolbar [data-dt-count]').forEach((el) => { el.textContent = count[el.dataset.dtCount] ?? 0; });
 
+    // The legend is drawn from the same filtered list the table is, so a search
+    // that narrows to three models moves its numbers with it. It is written as
+    // part of the results block rather than swapped in on its own: the section
+    // below it is replaced on every paint, and two independent swaps into one
+    // parent is how a legend ends up orphaned.
     const { out, rank } = filtered(list);
+    const legendEl = $('#mc-legend');
+    if (legendEl) legendEl.innerHTML = legendHTML(out);
     const results = $('#mc-results');
+    // The stale line goes above the legend rather than below it: it is about the
+    // roster, not about the icons, and a failure nobody can see is a failure the
+    // owner is told about in the wrong place.
+    const banner = staleBanner(list);
     if (!out.length) {
-      results.innerHTML = `<div class="dt-nomatch">${DT_ICON.nomatch}<p>${state.catalogCount ? 'No models match.' : 'No models yet. Sync, and each connected provider’s roster arrives here with its scores.'}</p></div>`;
+      results.innerHTML = `${banner}${legendHTML(out)}<div class="dt-nomatch">${DT_ICON.nomatch}<p>${state.catalogCount ? 'No models match.' : 'No models yet. Sync, and each connected provider’s roster arrives here with its scores.'}</p></div>`;
       return;
     }
-    const banner = staleBanner(list);
     if (ui.view === 'cards') {
       results.innerHTML = `${banner}<div class="pv-grid mc-grid">${out.map((e) => cardHTML(e, rank.get(e.key))).join('')}</div>`;
       return;
@@ -1036,9 +1275,8 @@
         <th class="col-rank">#</th><th>Model</th>
         <th class="col-score" title="Where the score comes from: measured from Artificial Analysis, estimated from the sources, or a proxy of a measured route. A model no source describes reads Unrated.">Score</th>
         <th class="col-ctx" title="Context window, as published by the provider or filled from the sources">Context</th>
-        <th class="col-out" title="Maximum output tokens">Output</th>
         <th class="col-price" title="Price per million tokens, in and out">In / Out $</th>
-        <th class="col-caps" title="Declared capabilities. Grey means nobody published it, not that it is absent.">Caps</th>
+        <th class="col-caps" title="What this model can do. Lit = the provider published it. Dimmed = nobody has, which is not a refusal; a published “no” is left out and is spelled out in the row’s details. The legend above names every icon.">Capabilities</th>
         <th class="col-lat" title="Median latency of this model’s health-check requests">Latency p50</th>
         <th class="col-health">Health</th><th class="dt-actions-col">Actions</th>
       </tr></thead>
@@ -1057,20 +1295,59 @@
       const card = document.querySelector(`.mc-card[data-mc-key="${CSS.escape(key)}"]`);
       if (!card) return renderIfShown();
       card.outerHTML = cardHTML(e, rank);
-      return;
+    } else {
+      const row = document.querySelector(`tr.mc-row[data-mc-key="${CSS.escape(key)}"]`);
+      if (!row) return renderIfShown();
+      row.outerHTML = rowHTML(e, rank);
     }
-    const row = document.querySelector(`tr.mc-row[data-mc-key="${CSS.escape(key)}"]`);
-    if (!row) return renderIfShown();
-    const detail = document.querySelector(`tr.mc-detail[data-mc-detail="${CSS.escape(key)}"]`);
-    if (detail) detail.remove();
-    row.outerHTML = rowHTML(e, rank);
+    if (details.key === key) {
+      renderDetailsHead();
+      renderDetailsBody();
+      renderDetailsFoot();
+    }
   }
 
   function renderCrumbs() {
     const crumbs = $('#mc-crumbs');
     if (!crumbs) return;
-    crumbs.innerHTML = `<span class="crumb">Models</span>${ui.provider !== 'all'
-      ? `<span class="crumb-sep">/</span><span class="crumb">${escapeHtml((PROVIDERS[ui.provider] || {}).name || ui.provider)}</span>` : ''}`;
+    const items = [
+      { label: 'Overview', page: 'overview' },
+      { label: 'Models Catalog', tab: 'connected', icon: 'catalog' },
+    ];
+    if (ui.provider !== 'all') {
+      items.push({ label: ui.tab === 'connected' ? 'Connected' : 'All Models', tab: ui.tab });
+      items.push({ label: (PROVIDERS[ui.provider] || {}).name || ui.provider });
+    } else {
+      items.push({ label: ui.tab === 'connected' ? 'Connected' : 'All Models' });
+    }
+    crumbs.innerHTML = breadcrumbHTML(items);
+  }
+
+  function renderTabs() {
+    const connectedModels = [...state.models.values()].filter((e) => {
+      const p = PROVIDERS[e.providerId];
+      return p && isConnected(p);
+    });
+    // Both counts are rows this page can actually open. "All Models" is not the
+    // reference's size: that is what the sources hold, most of which no provider
+    // here serves, and a tab promising twelve thousand models over a list that
+    // answers with six is the kind of number that makes a page look broken.
+    const connectedCount = connectedModels.length;
+    const allCount = [...state.models.values()].filter((e) => !!PROVIDERS[e.providerId]).length;
+
+    const countConnected = $('#mc-count-connected');
+    if (countConnected) countConnected.textContent = connectedCount.toLocaleString();
+    const countAll = $('#mc-count-all');
+    if (countAll) countAll.textContent = allCount.toLocaleString();
+
+    $$('.page-catalog .pv-tab').forEach((t) => {
+      const on = t.dataset.tab === ui.tab;
+      t.classList.toggle('active', on);
+      t.setAttribute('aria-selected', String(on));
+    });
+
+    const syncOrb = $('.page-catalog [data-mc-sync]');
+    if (syncOrb) syncOrb.classList.toggle('spin', state.syncing);
   }
 
   function render() {
@@ -1078,8 +1355,9 @@
     const body = $('#mc-body');
     if (!body) return;
     renderCrumbs();
+    renderTabs();
     const connected = Object.values(PROVIDERS).filter(isConnected);
-    if (!connected.length) {
+    if (!connected.length && ui.tab === 'connected') {
       state.shell = false;
       body.innerHTML = `<div class="pv-empty">
         <div class="pv-empty-icon">${ICON.empty}</div>
@@ -1092,25 +1370,30 @@
     if (!state.shell) {
       state.shell = true;
       body.innerHTML = `<div id="mc-kpis"></div>
+        <div id="mc-legend"></div>
         <div id="mc-toolbar">${dataToolbarHTML(TOOLBAR, ui)}</div>
         <div id="mc-results"></div>`;
       const tb = $('#mc-toolbar');
       bindDataToolbar(tb, ui, () => renderResults());
       tb.querySelector('.dt-left').insertAdjacentHTML('beforeend', providerSelectHTML());
-      tb.querySelector('.dt-actions').insertAdjacentHTML('afterbegin',
-        `<button class="dt-icon-btn mc-sync-btn" type="button" data-mc-sync title="Re-read every connected provider's model list" aria-label="Sync now">${ICON.sync}</button>`);
-      tb.querySelector('[data-mc-provider]').addEventListener('change', (ev) => { ui.provider = ev.target.value; renderResults(); });
+      tb.querySelector('[data-mc-provider]').addEventListener('change', (ev) => {
+        ui.provider = ev.target.value;
+        renderCrumbs();
+        renderResults();
+      });
     } else {
       // Providers may have connected or disconnected since the shell was built.
       const sel = $('#mc-toolbar .mc-provider-select');
       if (sel) {
         if (ui.provider !== 'all' && !(PROVIDERS[ui.provider] && isConnected(PROVIDERS[ui.provider]))) ui.provider = 'all';
         sel.outerHTML = providerSelectHTML();
-        $('#mc-toolbar [data-mc-provider]').addEventListener('change', (ev) => { ui.provider = ev.target.value; renderResults(); });
+        $('#mc-toolbar [data-mc-provider]').addEventListener('change', (ev) => {
+          ui.provider = ev.target.value;
+          renderCrumbs();
+          renderResults();
+        });
       }
     }
-    const syncBtn = $('#mc-toolbar [data-mc-sync]');
-    if (syncBtn) syncBtn.classList.toggle('spin', state.syncing);
     renderKpis(visibleEntries());
     renderResults();
   }
@@ -1128,6 +1411,15 @@
     const page = $('.page-catalog');
     if (!page) return;
     page.addEventListener('click', (ev) => {
+      const tabTarget = ev.target.closest('.page-catalog [data-tab]');
+      if (tabTarget) {
+        ui.tab = tabTarget.dataset.tab;
+        renderTabs();
+        renderCrumbs();
+        renderKpis(visibleEntries());
+        renderResults();
+        return;
+      }
       const chatBtn = ev.target.closest('[data-mc-chat]');
       if (chatBtn) { ev.stopPropagation(); openChat(chatBtn.dataset.mcChat, chatBtn); return; }
       const health = ev.target.closest('[data-mc-health]');
@@ -1135,26 +1427,34 @@
       const fetchInfoBtn = ev.target.closest('[data-mc-fetch-info]');
       if (fetchInfoBtn) { ev.stopPropagation(); fetchInfo(fetchInfoBtn.dataset.mcFetchInfo); return; }
       if (ev.target.closest('[data-mc-sync]')) { syncAll({ reason: 'manual' }); return; }
+      // The legend is a key, not a filter: the button only folds the eight tiles
+      // away. The counts are redrawn from whatever the table is showing, which is
+      // why this re-renders rather than hiding a node.
+      if (ev.target.closest('[data-mc-legend-toggle], .mc-legend-head')) {
+        state.legendOpen = !state.legendOpen;
+        renderIfShown();
+        return;
+      }
       const go = ev.target.closest('[data-go]');
       if (go) { showPage(go.dataset.go); return; }
-      const tog = ev.target.closest('[data-kx-toggle]');
-      if (tog) {
-        // Clicks on links or inputs inside a row shouldn't toggle it.
-        if (ev.target.closest('button') && !tog.matches('button')) return;
-        const key = tog.dataset.kxToggle;
-        if (state.expanded.has(key)) state.expanded.delete(key); else state.expanded.add(key);
-        renderResults();
+      const detailsTarget = ev.target.closest('[data-mc-details]');
+      if (detailsTarget) {
+        if (ev.target.closest('button') && !detailsTarget.matches('button') && !detailsTarget.matches('tr')) return;
+        const key = detailsTarget.dataset.mcDetails;
+        if (details.key === key) closeDetails();
+        else openDetails(key, detailsTarget);
+        return;
       }
     });
     page.addEventListener('keydown', (ev) => {
       if (ev.key !== 'Enter' && ev.key !== ' ') return;
       const row = ev.target.closest('tr.mc-row');
-      // Only the row itself toggles; a focused button keeps its own key handling.
+      // Only the row itself opens details; a focused button keeps its own key handling.
       if (!row || ev.target !== row) return;
       ev.preventDefault();
       const key = row.dataset.mcKey;
-      if (state.expanded.has(key)) state.expanded.delete(key); else state.expanded.add(key);
-      renderResults();
+      if (details.key === key) closeDetails();
+      else openDetails(key, row);
     });
 
     // Keys added or removed on the Providers page: that provider's models
@@ -1249,6 +1549,7 @@
     await load();
     bind();
     bindChatDrawer();
+    bindDetailsDrawer();
     bindSettings();
     scheduleTimer();
     // First pass right away so the page is populated on first visit. The
@@ -1270,6 +1571,8 @@
     keyModels,
     providerModelCount,
     forgetKey,
+    openDetails,
+    closeDetails,
     state,
     ui,
   };

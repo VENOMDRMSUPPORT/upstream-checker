@@ -17,6 +17,7 @@
 }
 
 :root {
+  color-scheme: dark;
   /* Core palette — the Dark mode. Neutral, Vercel-style black: every step is a
      pure grey, so the accent is the only colour on screen. */
   --bg-0: #000000;
@@ -2332,6 +2333,7 @@ html, body {
    density is about how much of the results table fits on screen. */
 
 [data-theme="daylight"] {
+  color-scheme: light;
   --bg-0: #f4f6fa; --bg-1: #ffffff; --bg-2: #f0f3f8; --bg-3: #e6ebf3;
   --bg-4: #dae1ec; --bg-hover: #e2e8f2;
   --border-1: #d1d7de; --border-2: #b0b8c1; --border-3: #959fac;
@@ -3738,7 +3740,7 @@ button.crumb:hover {
    ringed in the tab strip's own colour so it reads as cut into them. The tabs
    leave room on the orb's side so their labels stay clear of it. */
 .pv-tab[data-tab="connected"] { padding-right: 24px; }
-.pv-tab[data-tab="integrated"] { padding-left: 24px; }
+.pv-tab:is([data-tab="integrated"], [data-tab="all"]) { padding-left: 24px; }
 .pv-live-orb {
   position: relative;
   z-index: 2;
@@ -4521,6 +4523,16 @@ img[data-tone] { filter: var(--logo-tone, none); }
 /* A field inside a framed group leaves the focus to the group's frame. */
 :is(.dt-search, .input-unit) input:focus,
 .dt-select .ui-select:focus { box-shadow: none; }
+
+/* Number input spinners — native spin buttons suppressed in favour of design system steppers */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
 
 /* Search: the icon sits in its own segment, set apart by a hairline and a
    slightly different surface; the field itself is the rest. */
@@ -6544,6 +6556,58 @@ img[data-tone] { filter: var(--logo-tone, none); }
   white-space: nowrap;
 }
 
+/* Custom Stepper for .input-unit number controls */
+.input-stepper {
+  display: flex;
+  flex-direction: column;
+  width: 22px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border-1);
+  background: color-mix(in srgb, var(--bg-3) 40%, transparent);
+  user-select: none;
+  opacity: 0.75;
+  transition: opacity var(--transition-fast);
+}
+:is(.input-unit:hover, .input-unit:focus-within) .input-stepper {
+  opacity: 1;
+}
+.input-unit:has(input:disabled) .input-stepper {
+  opacity: 0.3;
+  pointer-events: none;
+}
+.stepper-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 50%;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  outline: none;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.stepper-btn:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+.stepper-btn:active {
+  background: var(--bg-3);
+  color: var(--text-0);
+}
+.stepper-btn.stepper-down {
+  border-top: 1px solid var(--border-1);
+}
+.stepper-btn svg {
+  width: 9px;
+  height: 9px;
+  stroke-width: 2.5;
+  stroke: currentColor;
+  fill: none;
+}
+
 /* Several numbers that belong together, each with its own label. */
 .mini-grid {
   display: grid;
@@ -6716,12 +6780,9 @@ img[data-tone] { filter: var(--logo-tone, none); }
 .page-catalog {
   padding: 24px clamp(16px, 3vw, 32px) 32px;
 }
-.mc-toolbar-note {
-  margin: 0;
-  font-size: 11.5px;
-  color: var(--text-3);
-}
 .mc-provider-select { margin-left: 4px; }
+.mc-sync-orb:hover { color: var(--accent); border-color: var(--accent); }
+.mc-sync-orb.spin svg,
 .mc-sync-btn.spin svg { animation: mc-spin 900ms linear infinite; }
 @keyframes mc-spin { to { transform: rotate(360deg); } }
 
@@ -6826,30 +6887,108 @@ img[data-tone] { filter: var(--logo-tone, none); }
 .mc-table :is(th, td) { padding-left: 11px; padding-right: 11px; }
 .mc-table .col-score { min-width: 100px; }
 .mc-table .col-score .dt-rate-bar { width: 56px; }
+.mc-table .col-caps { min-width: 152px; }
 @container dt (max-width: 1150px) { .mc-sub code { display: none; } }
-@container dt (max-width: 980px) { .mc-table .col-ctx { display: none; } }
 @container dt (max-width: 820px) { .mc-table .col-lat { display: none; } }
-@container dt (max-width: 700px) {
-  .mc-table .col-out { display: none; }
-  .mc-table .col-caps { display: none; }
-}
+@container dt (max-width: 680px) { .mc-table .col-ctx { display: none; } }
+/* Eight icons is a wider column than three letters were, so Caps is the column
+   that steps out last rather than the first — it is the one the legend exists to
+   make readable. Everything in it is still in the row's detail panel. */
+@container dt (max-width: 540px) { .mc-table .col-caps { display: none; } }
 .mc-side { display: grid; gap: 14px; align-content: start; }
-.mc-caps { display: inline-flex; gap: 2px; margin-left: 2px; }
-.mc-cap {
+
+/* ---- Capabilities: one icon per capability, on the legend and on every row --
+   The eight marks are drawn once here and twice in markup (legend tile, row
+   cell), so a meaning is learned in one place and read in the other. Colour is
+   per capability and never per state — the owner asked for that, and it is what
+   makes a row scannable at a glance: eight fixed hues, brightness for the state.
+   The state vocabulary is two, not three. `true` is lit; `null` (nobody published
+   it) is dim; `false` is NOT EMITTED at all, because a red mark on every row for
+   every capability a provider does not mention says "cannot" where the truth is
+   "has never been heard of". The row's detail panel says the negatives in words. */
+.mc-cap-ico {
+  --cap: var(--text-3);
   display: inline-grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9.5px;
-  font-weight: 700;
-  border: 1px solid var(--border-2);
-  color: var(--text-4);
-  background: transparent;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: var(--cap);
 }
-.mc-cap-yes { color: var(--pass); border-color: color-mix(in srgb, var(--pass) 40%, transparent); background: color-mix(in srgb, var(--pass) 12%, transparent); }
-.mc-cap-no { color: var(--fail); border-color: color-mix(in srgb, var(--fail) 40%, transparent); background: color-mix(in srgb, var(--fail) 10%, transparent); }
+.mc-cap-ico svg { display: block; width: 14px; height: 14px; }
+.mc-cap-ico.is-yes { opacity: 1; }
+/* 0.3 rather than a grey: it is the SAME hue at a tenth of the emphasis, so a
+   dimmed mark still reads as its capability and not as a disabled control. */
+.mc-cap-ico.is-unknown { opacity: 0.3; }
+
+/* The fixed palette. One custom property per capability, so the row cell and the
+   legend tile can never drift apart and a new state rule stays in one place. */
+.mc-cap-tool { --cap: #f5b83d; }
+.mc-cap-reasoning { --cap: #a78bfa; }
+.mc-cap-structured { --cap: #5b9df9; }
+.mc-cap-vision { --cap: #3fbf6a; }
+.mc-cap-imagegen { --cap: #f472b6; }
+.mc-cap-audio { --cap: #f0524d; }
+.mc-cap-video { --cap: #2fc6b4; }
+.mc-cap-files { --cap: #818cf8; }
+/* Daylight redefines --pass/--warn/--fail and nothing else (line ~3310), so
+   these eight hexes would sit light-on-white. The same tokens, deepened — the
+   same move `.type-vision` etc. already make for their own hues. */
+[data-theme="daylight"] .mc-cap-tool { --cap: #b47c12; }
+[data-theme="daylight"] .mc-cap-reasoning { --cap: #7c55d8; }
+[data-theme="daylight"] .mc-cap-structured { --cap: #2b6ec9; }
+[data-theme="daylight"] .mc-cap-vision { --cap: #1f8a45; }
+[data-theme="daylight"] .mc-cap-imagegen { --cap: #c0367f; }
+[data-theme="daylight"] .mc-cap-audio { --cap: #c62822; }
+[data-theme="daylight"] .mc-cap-video { --cap: #0d8a7c; }
+[data-theme="daylight"] .mc-cap-files { --cap: #4f52c9; }
+
+/* The row cell. Icons keep their own size in a cell that is otherwise numerals,
+   so the column is set by the icons rather than by the header's word. */
+.mc-caps { display: inline-flex; align-items: center; gap: 1px; margin-left: 2px; }
+/* A row with nothing published at all wears no marks: eight dim icons would be
+   eight claims, and the empty cell says "nothing published" better. */
+.mc-caps.is-silent { margin-left: 0; }
+
+/* Capabilities legend: unified with .pv-legend system */
+.pv-legend.mc-legend .mc-legend-ico { color: var(--cap); }
+.pv-legend.mc-legend .mc-legend-ico svg { display: block; width: 16px; height: 16px; }
+.pv-legend.mc-legend .mc-legend-count.is-zero { color: var(--text-4); border-style: dashed; }
+.mc-legend-top-caps {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.mc-legend-top-caps .mc-cap-ico {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  transition: transform var(--transition-fast), background var(--transition-fast);
+}
+.mc-legend-top-caps .mc-cap-ico:hover {
+  background: var(--bg-3);
+  transform: scale(1.1);
+}
+.mc-legend-top-caps .mc-cap-ico svg {
+  display: block;
+  width: 13px;
+  height: 13px;
+}
+.mc-legend-body[hidden] { display: none; }
+
+/* The detail panel's capability list. A third state lives here only: the "no"
+   the Caps column leaves undrawn, so nothing is lost by not drawing it. */
+.mc-cap-mark { display: inline-grid; place-items: center; width: 16px; height: 16px; color: var(--text-4); }
+.mc-cap-mark svg { display: block; width: 13px; height: 13px; }
+.mc-cap-mark.is-yes { color: var(--pass); }
+.mc-cap-mark.is-no { color: var(--fail); }
+.mc-cap-from {
+  margin-left: 7px;
+  font-family: 'Inter', sans-serif;
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--text-4);
+}
 .mc-ok { color: var(--pass); }
 .mc-no { color: var(--fail); }
 .mc-note { font-size: 11px; color: var(--text-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -7108,12 +7247,167 @@ button.ku-cell:hover {
 .mc-toast-fail .mc-toast-ico { color: var(--fail); }
 .mc-toast-info .mc-toast-ico { color: var(--accent-text); }
 
+/* ============================================
+   Model details drawer — a full-height sidebar sliding in from the right,
+   mobile-sidebar style for inspecting all model facts and capabilities.
+   ============================================ */
+.mc-details-drawer { position: fixed; inset: 0; z-index: 9500; }
+.mc-details-drawer[hidden] { display: none; }
+.mc-details-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+.mc-details-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(540px, 100vw);
+  border-left: 1px solid var(--border-2);
+  background: var(--bg-1);
+  box-shadow: var(--shadow-lg);
+  transform: translateX(100%);
+  transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.mc-details-drawer.open .mc-details-scrim { opacity: 1; }
+.mc-details-drawer.open .mc-details-panel { transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .mc-details-scrim, .mc-details-panel { transition: none; }
+}
+
+.mc-details-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-1);
+  background: var(--bg-2);
+  flex-shrink: 0;
+}
+.mc-details-id { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+.mc-details-logo {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-md);
+  background: var(--bg-1);
+  overflow: hidden;
+}
+.mc-details-logo svg, .mc-details-logo img { width: 20px; height: 20px; }
+.mc-details-id-text { min-width: 0; }
+.mc-details-id-text h3 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-0);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 0;
+}
+.mc-details-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  font-family: 'JetBrains Mono', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mc-details-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.mc-details-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.mc-details-close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-1);
+  background: var(--bg-1);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.mc-details-close:hover {
+  color: var(--text-0);
+  background: var(--bg-3);
+  border-color: var(--border-2);
+}
+.mc-details-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.mc-details-panel .mc-detail-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 0;
+}
+.mc-details-panel .mc-detail-main,
+.mc-details-panel .mc-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.mc-details-panel .mc-panel {
+  padding: 14px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-md);
+  background: var(--bg-2);
+}
+.mc-details-panel .mc-compare-row {
+  grid-template-columns: 140px minmax(0, 1fr);
+}
+.mc-details-panel .mc-compare-row > span:nth-child(3) {
+  display: none;
+}
+.mc-details-panel .mc-compare-row.head {
+  display: none;
+}
+.mc-details-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border-1);
+  background: var(--bg-2);
+  flex-shrink: 0;
+}
+.mc-row.is-selected {
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg-1)) !important;
+}
+.mc-card.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
 
 /* ============================================
    Model chat drawer — a full-height panel sliding in from the right,
    modelled on the key-usage drawer (.ku-drawer / .ku-panel).
    ============================================ */
-.mc-chat-drawer { position: fixed; inset: 0; z-index: 9500; }
+.mc-chat-drawer { position: fixed; inset: 0; z-index: 9600; }
 .mc-chat-drawer[hidden] { display: none; }
 .mc-chat-scrim {
   position: absolute;
