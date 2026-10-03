@@ -135,7 +135,35 @@ export async function launch({ userDataDir, port = 9333, entry = '.', extraArgs 
     return code;
   }
 
-  return { child, evaluate, waitFor, close, exited, send, output: () => output };
+  // The password the app ships with, and the call that gets a driven session
+  // past the lock screen. Every gate needs this: the lock is the front door now,
+  // and a gate that waited for PROVIDERS without opening it would time out on
+  // the panel rather than on the page it came to measure.
+  //
+  // It resolves the same { ok, ... } value auth:unlock always does, so a gate can
+  // assert the unlock happened instead of assuming it. A session that is already
+  // unlocked (a reload) answers ok with no work.
+  async function unlock(password = 'habiba77Hm') {
+    return evaluate(`(async () => {
+      const before = await window.electronAPI.authStatus();
+      if (before && before.locked === false) return { ok: true, alreadyOpen: true };
+      const reply = await window.electronAPI.authUnlock(${JSON.stringify(password)});
+      return reply;
+    })()`, 30000);
+  }
+
+  // Unlock, then wait for the app's own startup to have run. The lock gate is
+  // what stands between the two, so this is the pair every gate wants; call it
+  // once, before the first waitFor.
+  async function unlockAndWait(ms = 45000) {
+    const reply = await unlock();
+    if (!reply || reply.ok !== true) {
+      throw new Error(`Could not open the app lock: ${JSON.stringify(reply)}`);
+    }
+    return reply;
+  }
+
+  return { child, evaluate, waitFor, close, exited, send, unlock, unlockAndWait, output: () => output };
 }
 
 // A second, plain instance on the same data folder (no CDP), for the

@@ -250,6 +250,12 @@ Rules learned the hard way, both in [CLAUDE.md](../CLAUDE.md):
 geometry (`getBoundingClientRect`), and always drive a scratch
 `--user-data-dir`, never the owner's folder.
 
+Every live gate opens the app lock first, with `app.unlockAndWait()` from
+`scripts/live/cdp.mjs`: the lock is the front door, so a gate that waited for
+the page without opening it would time out on the panel rather than on what it
+came to measure. It resolves the same `{ ok }` value `auth:unlock` always does,
+so a gate can assert the unlock happened instead of assuming it.
+
 ## 9. Conventions that bite
 
 - The version lives **only** in `package.json`; the window reads it over IPC.

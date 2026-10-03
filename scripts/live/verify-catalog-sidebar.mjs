@@ -30,6 +30,8 @@ try {
   writeFixture(dir, mock.origin);
   const app = await launch({ userDataDir: dir, port: 9343 });
   try {
+    // The app lock is the front door: open it before waiting for the page.
+    await app.unlockAndWait();
     await app.waitFor("typeof PROVIDERS === 'object' && Object.keys(PROVIDERS).length === 7 && Boolean(window.CATALOG) && CATALOG.state.loaded", 45000);
     
     // Open catalog page

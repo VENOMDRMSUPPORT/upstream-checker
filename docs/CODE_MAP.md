@@ -69,7 +69,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 682 | API requests (src/api-request.js) |
 | 720 | Old request log file (requests.log) |
 
-### src/renderer/app.js — 6443 lines
+### src/renderer/app.js — 6449 lines
 
 | Line | Section |
 | --- | --- |
@@ -83,34 +83,34 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 821 | Title bar |
 | 828 | Provider page — header |
 | 851 | Provider health — a silent background probe of each provider's key |
-| 1121 | API Keys management |
-| 1293 | Fetch models from provider — only models for the key's plan |
-| 1578 | Render the models list |
-| 1739 | Test reliability settings |
-| 1882 | Keys and pacing |
-| 2096 | Testers — one request, judged by the model's kind |
-| 2590 | Test a single model — adaptive hedge, handles reasoning, empty, rate limits |
-| 2761 | Test all selected models |
-| 3001 | Results table |
-| 3336 | Full response modal |
-| 3384 | Stats & status |
-| 3459 | Export |
-| 3527 | Update handling |
-| 3791 | Add Key modal |
-| 3899 | Edit Provider modal |
-| 3974 | Init |
-| 3977 | Scheduled re-testing |
-| 4010 | Settings panel |
-| 4477 | Security — the app lock from inside the app |
-| 4723 | Sidebar ambience — moving stars and the signature heart |
-| 4977 | Breadcrumb — shared helper |
-| 5007 | Providers page |
-| 5345 | Provider types — legend and markers |
-| 5420 | Providers page — key management panel (table rows and cards) |
-| 5440 | Action feedback — Recheck and key Test |
-| 5935 | Stat cards — shared |
-| 5952 | Data toolbar — shared |
-| 6080 | Providers page — Connected view |
+| 1123 | API Keys management |
+| 1295 | Fetch models from provider — only models for the key's plan |
+| 1580 | Render the models list |
+| 1741 | Test reliability settings |
+| 1884 | Keys and pacing |
+| 2098 | Testers — one request, judged by the model's kind |
+| 2592 | Test a single model — adaptive hedge, handles reasoning, empty, rate limits |
+| 2763 | Test all selected models |
+| 3003 | Results table |
+| 3338 | Full response modal |
+| 3386 | Stats & status |
+| 3461 | Export |
+| 3529 | Update handling |
+| 3793 | Add Key modal |
+| 3901 | Edit Provider modal |
+| 3976 | Init |
+| 3979 | Scheduled re-testing |
+| 4012 | Settings panel |
+| 4479 | Security — the app lock from inside the app |
+| 4725 | Sidebar ambience — moving stars and the signature heart |
+| 4979 | Breadcrumb — shared helper |
+| 5009 | Providers page |
+| 5347 | Provider types — legend and markers |
+| 5422 | Providers page — key management panel (table rows and cards) |
+| 5442 | Action feedback — Recheck and key Test |
+| 5941 | Stat cards — shared |
+| 5958 | Data toolbar — shared |
+| 6086 | Providers page — Connected view |
 
 ### src/renderer/catalog.js — 1761 lines
 
@@ -163,7 +163,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 1535 | overlay: mc-chat-drawer |
 | 1565 | overlay: mc-details-drawer |
 
-### src/renderer/styles.css — 9586 lines
+### src/renderer/styles.css — 9588 lines
 
 | Line | Section |
 | --- | --- |
@@ -208,8 +208,8 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 8727 | Monitoring Page |
 | 8872 | Database explorer — compact SQLite workbench |
 | 9092 | App lock screen — the front door |
-| 9468 | Header profile menu |
-| 9527 | Security settings |
+| 9470 | Header profile menu |
+| 9529 | Security settings |
 
 ### scripts/
 
@@ -228,13 +228,13 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
 | `boot-guard.cjs` | 93 | An Electron entry that arms a throwing network guard and then boots the real | REPORT, userDataFlag, SCRATCH, APPDATA, attempts, record, arm |
-| `cdp.mjs` | 148 | Launches a separate VENOM Router on a scratch data folder with remote | require, ROOT, sleep, assertScratchDir, appEnv, withTimeout, launch, spawnPlain |
+| `cdp.mjs` | 176 | Launches a separate VENOM Router on a scratch data folder with remote | require, ROOT, sleep, assertScratchDir, appEnv, withTimeout, launch, spawnPlain |
 | `fixture.mjs` | 111 | Synthetic legacy data folder for the live checks: config.json, catalog.json | FIXTURE, writeFixture |
 | `mock-provider.mjs` | 66 | A local stand-in for the fixture's providers: OpenAI-shaped /models and | startMock |
-| `verify-catalog-boot.mjs` | 423 | Something the owner can click — proven two ways, on a scratch data folder. | PORT, failures, check, sleep, READY, openCatalogAndRead, checkFailureWords, checkModelsCatalogPageUntouched, measureCatalog, runGuardedSession, runPositiveControl, runSyncedSession, +4 more |
-| `verify-catalog-legend.mjs` | 233 | Live check of the Models page's capability legend, against the fixture folder. | failures, check, PORT, READY, TONES, toneClass, measureLegend, dir, mock |
-| `verify-catalog-sidebar.mjs` | 116 | Live check of the Models page's details drawer and its two tabs. | failures, check, dir, mock |
-| `verify-db.mjs` | 541 | Live check of the local database against a synthetic data folder. | failures, check, sleep, until, READY, checkImport, checkKeysStayInMain, saveForNextRun, queueSaveThenClose, checkFlushOnClose, checkPersistence, checkSingleInstance, +20 more |
+| `verify-catalog-boot.mjs` | 428 | Something the owner can click — proven two ways, on a scratch data folder. | PORT, failures, check, sleep, READY, openCatalogAndRead, checkFailureWords, checkModelsCatalogPageUntouched, measureCatalog, runGuardedSession, runPositiveControl, runSyncedSession, +4 more |
+| `verify-catalog-legend.mjs` | 235 | Live check of the Models page's capability legend, against the fixture folder. | failures, check, PORT, READY, TONES, toneClass, measureLegend, dir, mock |
+| `verify-catalog-sidebar.mjs` | 118 | Live check of the Models page's details drawer and its two tabs. | failures, check, dir, mock |
+| `verify-db.mjs` | 544 | Live check of the local database against a synthetic data folder. | failures, check, sleep, until, READY, checkImport, checkKeysStayInMain, saveForNextRun, queueSaveThenClose, checkFlushOnClose, checkPersistence, checkSingleInstance, +20 more |
 | `verify-lock.mjs` | 490 | Live check of the app lock, against a scratch data folder. | require, ROOT, SHOT_DIR, shotPath, runResetLock, readRow, readLockRow, readSurvivors, failures, check, PORT, READY, +4 more |
 
 ### src/
@@ -316,7 +316,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
-| `app.js` | 6443 | VENOM ROUTER — Application Logic v2 | DEFAULT_TEST_PROMPT, DEFAULT_EXPECTED, testPrompt, expectedAnswer, NA, RESPONSE_PREVIEW, truthy, KIND_LABELS, kindLimits, classifyModel, isMedia, isDecision, +402 more |
+| `app.js` | 6449 | VENOM ROUTER — Application Logic v2 | DEFAULT_TEST_PROMPT, DEFAULT_EXPECTED, testPrompt, expectedAnswer, NA, RESPONSE_PREVIEW, truthy, KIND_LABELS, kindLimits, classifyModel, isMedia, isDecision, +402 more |
 | `catalog-caps.js` | 193 | Model capabilities — what a catalogue row can do, read as three states | CAT_CAPABILITIES, hasModality, publishedBool, filesState, outputState, capabilityState, BOOLEAN_CAPS, capabilityOrigin, capabilitySet, capabilityCounts |
 | `catalog.js` | 1761 | Models Catalog — the merged reference, scored | state, chat, details, ui, keyOf, connectedIds, loadPromise, load, applyRead, flush, entriesOf, keyModels, +200 more |
 | `database.js` | 319 | Read-only SQLite explorer. All SQL, identifier checks, and redaction happen | PAGE_SIZE, state, byId, escape, number, DB_ICON, sourceCounts, setNotice, box, updateSourceTabs, isApp, isLogs, +33 more |
@@ -329,7 +329,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `ui-stepper.js` | 114 | Design system — number input stepper | CHEVRON_UP, CHEVRON_DOWN, enhance, input, stepper, label, stepUnit, unit, repeatTimer, repeatInterval, stopRepeat, enhanceAll, +1 more |
 | `ulid.js` | 22 | Run ids — ULID, the same format as src/db/ulid.js | newUlid |
 | `index.html` | 1661 | App shell markup: nav, every page, the drawers and modals |  |
-| `styles.css` | 9586 | The whole stylesheet: tokens, themes, accents, components |  |
+| `styles.css` | 9588 | The whole stylesheet: tokens, themes, accents, components |  |
 
 ### src/renderer/providers/
 
