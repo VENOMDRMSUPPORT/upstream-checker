@@ -36,13 +36,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so those models carry a measured score instead of an estimate; without one
   nothing breaks. The key is read in main at the point of use and never reaches
   the page.
+- A **Model Capabilities Legend** on the Models page, between the toolbar and
+  the table: eight tiles — tools, reasoning, structured, vision, image gen, audio,
+  video, files — each with its own colour, its own icon, a line saying what it
+  means, and how many of the models on screen carry it. It folds with one click.
+- The `Caps` column is eight icons instead of three letters, and they are the
+  legend's. Colour is per capability and never per state: a lit icon is one the
+  provider published, a dimmed one is one nobody has published — **a published
+  "no" is not drawn at all**, because a mark on every row saying "cannot" is a
+  different claim from "has never been heard of", and a row whose provider said
+  nothing wears an empty cell. Every capability, negatives included, is spelled
+  out in the row's details together with where the answer was read from.
+- The Models page has two views, as tabs above it: **Connected Models** (what the
+  providers you have keys for offer) and **All Models** (every model the engine
+  has a roster for), each with its own count. The sync orb sits between them.
+  Selecting a provider narrows either view.
+- A model's details open in a drawer from the right instead of expanding under
+  the row: its full facts, its eight capabilities in words, and its score and
+  provenance, with the three per-model actions — chat, health check, refresh
+  facts — along the bottom. The row stays in the list and is marked, so the
+  drawer never hides what you are reading about.
+- Number fields across Settings get the design system's own stepper chevrons
+  instead of Chromium's native spin buttons, which render as a stark white
+  rectangle with black triangles on hover. The native input stays underneath, so
+  typing, arrow keys, min/max and step all behave exactly as before.
 
 ### Changed
 
 - The Models page reads the engine instead of a stored document: there is no
   model-pool file, and `read-catalog` / `write-catalog` are gone. Columns are the
-  ones the catalog can answer for — `# · Model · Score · Context · Output ·
-  In/Out $ · Caps · Latency p50 · Health · actions`.
+  ones the catalog can answer for — `# · Model · Score · Context ·
+  In/Out $ · Capabilities · Latency p50 · Health · actions`. The max-output
+  column is gone: it is in the drawer, with everything else the row knows.
 - The request log's cost column reads the engine's roster rather than the
   retired pool, and an ingest is what drops the recorder's cached price.
 - The new VenomGPT logo, drawn by hand in each of the five accents (Emerald,
