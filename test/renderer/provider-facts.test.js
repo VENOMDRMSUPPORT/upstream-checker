@@ -220,11 +220,17 @@ test('a duration is printed the way the Models page prints it', () => {
 });
 
 test('the magnitude classes match the ones the table already paints time with', () => {
+  // Defaults mirror the Latency colours settings (green under 10s, amber to 15s).
   assert.strictEqual(F.timeClassOf(null), 'dt-muted');
   assert.strictEqual(F.timeClassOf(100), 'time-fast');
-  assert.strictEqual(F.timeClassOf(1999), 'time-fast');
-  assert.strictEqual(F.timeClassOf(2000), 'time-mid');
-  assert.strictEqual(F.timeClassOf(6000), 'time-slow');
+  assert.strictEqual(F.timeClassOf(9999), 'time-fast');
+  assert.strictEqual(F.timeClassOf(10000), 'time-mid');
+  assert.strictEqual(F.timeClassOf(15000), 'time-mid');
+  assert.strictEqual(F.timeClassOf(15001), 'time-slow');
+  // Custom bands follow the same rule as the settings page.
+  assert.strictEqual(F.timeClassOf(5000, 10000, 15000), 'time-fast');
+  assert.strictEqual(F.timeClassOf(12000, 10000, 15000), 'time-mid');
+  assert.strictEqual(F.timeClassOf(20000, 10000, 15000), 'time-slow');
 });
 
 // One row end to end, so the pieces are proved to fit together.

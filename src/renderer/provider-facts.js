@@ -199,11 +199,17 @@ function fmtMs(ms) {
   return `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}s`;
 }
 
-/** The CSS class a latency's magnitude is painted with, matching catalog.js. */
-function timeClassOf(ms) {
+/**
+ * The CSS class a latency's magnitude is painted with.
+ *
+ * The live page reads its own bands from settings (the Latency colours in
+ * Speed & Timeouts). This pure helper keeps the documented defaults so its
+ * test still proves the shape; app code passes the settings bands.
+ */
+function timeClassOf(ms, goodMs = 10000, okMs = 15000) {
   if (ms == null) return 'dt-muted';
-  if (ms < 2000) return 'time-fast';
-  if (ms < 6000) return 'time-mid';
+  if (ms < goodMs) return 'time-fast';
+  if (ms <= okMs) return 'time-mid';
   return 'time-slow';
 }
 

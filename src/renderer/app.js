@@ -4456,6 +4456,8 @@ function bindSettingsForm() {
       renderCostEstimate();
       // Colour bands and sparkline length change what is already on screen.
       if (tableRows.length > 0) renderResultsTable();
+      // The catalog pins TIME as its Speed with the same colours: repaint it too.
+      if (window.CATALOG && window.CATALOG.renderIfShown) window.CATALOG.renderIfShown();
     });
   });
 }

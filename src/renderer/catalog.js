@@ -586,13 +586,14 @@
       }
       return `<span class="${timeClass(s.ms)}" title="${escapeHtml(tip)}"><span class="mc-speed-val">${fmtMs(s.ms)}</span></span>`;
     }
+    // tok/s alone has no latency band in the settings, so it stays neutral —
+    // the settings only colour times.
     if (s.tps != null) {
-      const cls = s.tps >= 60 ? 'time-fast' : s.tps >= 25 ? 'time-mid' : 'time-slow';
       const tip = `Generation speed: ${s.tps} tokens/sec (${s.samples} sample${s.samples === 1 ? '' : 's'})`;
       if (compact) {
-        return `<span class="${cls}" title="${escapeHtml(tip)}">${s.tps} tok/s</span>`;
+        return `<span title="${escapeHtml(tip)}">${s.tps} tok/s</span>`;
       }
-      return `<span class="${cls}" title="${escapeHtml(tip)}"><span class="mc-speed-val">${s.tps}</span><span class="mc-speed-unit">tok/s</span></span>`;
+      return `<span title="${escapeHtml(tip)}"><span class="mc-speed-val">${s.tps}</span><span class="mc-speed-unit">tok/s</span></span>`;
     }
     return '<span class="dt-muted">—</span>';
   }
@@ -1059,10 +1060,14 @@
     return `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}s`;
   }
 
+  // The same latency colours the TIME column wears: green under the "Green
+  // under" setting, amber up to "Amber up to", red beyond. One rule, two pages.
   function timeClass(ms) {
     if (ms == null) return 'dt-muted';
-    if (ms < 2000) return 'time-fast';
-    if (ms < 6000) return 'time-mid';
+    const good = Number(typeof settings !== 'undefined' && settings.timeGoodMs) || 10000;
+    const ok = Number(typeof settings !== 'undefined' && settings.timeOkMs) || 15000;
+    if (ms < good) return 'time-fast';
+    if (ms <= ok) return 'time-mid';
     return 'time-slow';
   }
 
