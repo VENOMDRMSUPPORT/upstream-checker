@@ -647,6 +647,9 @@ async function recordRun(providerId, providerName, results, runUid) {
   foldRun(run);
   capHistory();
   renderQuickStats();
+  // The Models page pins TIME values as its Speed: tell it the history grew, so
+  // its rows re-read without waiting for a revisit.
+  window.dispatchEvent(new CustomEvent('history-updated', { detail: { provider: providerId } }));
   return !!saved;
 }
 
@@ -3152,18 +3155,13 @@ function renderResultsTable() {
   syncColumnVisibility();
 }
 
-// A column every provider leaves blank is noise, not information. Hide TYPE and
-// CONTEXT when no row in the table has anything to put in them.
+// Every provider shows the same columns, always. A column with no answers shows
+// em-dashes, never folds away — so a thin provider reads the same table as a
+// rich one. (TYPE stays hidden by CSS; it is not one of the table's columns.)
 function syncColumnVisibility() {
   const table = $('#results-table');
-  table.classList.toggle('hide-type', !table.querySelector('td.cell-type:not(.cell-na)'));
-  table.classList.toggle('hide-context', !table.querySelector('td.cell-context:not(.cell-na)'));
-  // The reference-backed columns follow the same rule as TYPE and CONTEXT: a
-  // column where no row has an answer is a column of em-dashes, so it folds away
-  // instead of costing width. They come back the moment a row has a fact.
-  table.classList.toggle('hide-score', !table.querySelector('td.cell-score:not(.cell-na)'));
-  table.classList.toggle('hide-price', !table.querySelector('td.cell-price:not(.cell-na)'));
-  table.classList.toggle('hide-caps', !table.querySelector('td.cell-caps:not(.cell-na)'));
+  if (!table) return;
+  table.classList.remove('hide-type', 'hide-context', 'hide-score', 'hide-price', 'hide-caps');
 }
 
 $('#results-table thead').addEventListener('click', (e) => {

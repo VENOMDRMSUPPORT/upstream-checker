@@ -167,11 +167,11 @@ function fmtPrice(v) {
 }
 
 /**
- * Whether a column has anything to show.
+ * Whether any row has an answer for a column.
  *
- * A column where no row has an answer is a column of em-dashes, so it folds away
- * instead of costing width. This is the same rule syncColumnVisibility already
- * applies to TYPE and CONTEXT, stated once so the table and its test share it.
+ * Every provider shows the same columns, always — a column with no answers
+ * renders em-dashes, never folds away. This helper only reports data presence
+ * (kept so the table and its test share one definition of "has an answer").
  */
 function columnHasData(factsList, field) {
   return (factsList || []).some((f) => {

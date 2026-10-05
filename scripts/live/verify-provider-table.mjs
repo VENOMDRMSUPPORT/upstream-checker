@@ -10,8 +10,9 @@
 // see.
 //
 // What is being proved is the rule the columns exist for: a fact somebody
-// published is shown, a fact nobody published is an em-dash, and a column no row
-// has an answer for folds away instead of standing there full of dashes. The
+// published is shown, a fact nobody published is an em-dash, and every provider
+// shows the same columns always — a column with no answers renders dashes,
+// never folds away. The
 // mock's three models are the whole tri-state — fixture-alpha publishes a price,
 // fixture-gamma publishes its modalities, fixture-beta publishes nothing — so the
 // three of them together have to produce one priced row, one row of input chips,
@@ -265,13 +266,12 @@ try {
     !!label('SCORE') && !!label('PRICE IN/OUT') && !!label('CAPS') && !!label('TIME'),
     r.heads.map((h) => h.label).join('|'));
 
-  // The bug this whole change is for: CONTEXT came out empty for a provider that
-  // publishes no limits, and syncColumnVisibility then hid the column. The three
-  // real ids are served as bare ids — no limits, no price, no modalities — so
-  // anything shown for them came from the reference, and the whole point is that
-  // the columns are now on the table rather than folded away.
+  // Every provider shows the same columns, always: a column with no answers
+  // renders em-dashes, never folds away. The three real ids are served as bare
+  // ids — no limits, no price, no modalities — so anything shown for them came
+  // from the reference; the point is the columns are painted either way.
   check('the reference cache was seeded into the scratch folder', seeded === true, `seeded=${seeded}`);
-  check('the columns the reference can fill are on the table, not folded',
+  check('CONTEXT, SCORE, PRICE and CAPS are painted, even with no answers',
     r.hidden.context === false && r.hidden.score === false && r.hidden.price === false
       && r.hidden.caps === false,
     JSON.stringify(r.hidden));

@@ -14,9 +14,9 @@ return { TEST_INPUTS, MIN_SAMPLES_FOR_LATENCY, resolveContext, resolveScore, res
   resolveCapabilityRow, resolveInputs, fmtPrice, columnHasData, resolveFacts,
   medianOf, resolveLatency, resolveVision, resolveReasoning, fmtMs, timeClassOf };`)();
 
-// The rule the whole file exists for. A provider that published no limits left
-// the CONTEXT column empty and syncColumnVisibility hid it; a provider that
-// published no score left a column of dashes. Silence is not a zero, and an
+// The rule the whole file exists for. A provider that published no limits leaves
+// CONTEXT as dashes, not as a folded column; a provider that published no score
+// leaves a column of dashes. Silence is not a zero, and an
 // unrated model is not a bad one — so every gap has to come back as null.
 test('a model with nothing published resolves to null, never to zero', () => {
   const f = F.resolveFacts({ id: 'mystery-1' }, null, null);
@@ -125,17 +125,17 @@ test('prices are formatted at a precision that survives the range', () => {
   assert.strictEqual(F.fmtPrice('abc'), '—');
 });
 
-// The rule syncColumnVisibility applies to TYPE and CONTEXT, stated once. A
-// column where no row has an answer is a column of em-dashes and must fold away.
-test('a column folds away only when no row has an answer for it', () => {
+// columnHasData reports data presence per column. Every provider shows the same
+// columns, always — an empty column renders em-dashes rather than folding away.
+test('columnHasData reports whether any row has an answer for a column', () => {
   const none = [F.resolveFacts({ id: 'a' }, null, null)];
   assert.strictEqual(F.columnHasData(none, 'context'), false);
   assert.strictEqual(F.columnHasData(none, 'score'), false);
   assert.strictEqual(F.columnHasData(none, 'price'), false);
   assert.strictEqual(F.columnHasData(none, 'caps'), false);
 
-  // One row with a fact is enough to keep the column — it is per column, not
-  // per row, so a single scored model brings SCORE back for the whole table.
+  // One row with a fact is enough to report data — it is per column, not
+  // per row.
   const one = [F.resolveFacts({ id: 'a' }, null, null),
     F.resolveFacts({ id: 'b' }, { score: 52.7, score_source: 'aa', context_tokens: 128000,
       cost_in_per_m: 1.25, cost_out_per_m: 4.25, input_modalities: 'text' }, null)];
@@ -147,7 +147,7 @@ test('a column folds away only when no row has an answer for it', () => {
   assert.strictEqual(F.columnHasData([], 'score'), false);
   assert.strictEqual(F.columnHasData(null, 'score'), false);
   assert.strictEqual(F.columnHasData(one, 'nonsense'), false);
-  // A free model keeps the PRICE column alive: 0 is an answer, null is not.
+  // A free model reports data for PRICE: 0 is an answer, null is not.
   const free = [F.resolveFacts({ id: 'c' }, { cost_in_per_m: 0, cost_out_per_m: 0 }, null)];
   assert.strictEqual(F.columnHasData(free, 'price'), true);
 });
@@ -192,10 +192,10 @@ test('vision and reasoning are three-state, not the provider boolean', () => {
   assert.strictEqual(F.resolveReasoning(null), null);
 });
 
-test('the latency column folds only when no row has a median', () => {
+test('latency reports data only when a row has a median', () => {
   const none = [F.resolveFacts({ id: 'a' }, null, null, [])];
   assert.strictEqual(F.columnHasData(none, 'latency'), false);
-  // One sample is not a median, so it does not keep the column alive either.
+  // One sample is not a median, so it does not report data either.
   assert.strictEqual(F.columnHasData([F.resolveFacts({ id: 'a' }, null, null, [741])], 'latency'), false);
   const some = [F.resolveFacts({ id: 'a' }, null, null, [741]), F.resolveFacts({ id: 'b' }, null, null, [800, 900])];
   assert.strictEqual(F.columnHasData(some, 'latency'), true);

@@ -536,57 +536,63 @@
     return { p50: sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2), n: samples.length };
   }
 
-  // Speed resolution: combines tokens-per-second from test runs and health checks,
-  // falling back to latency response times when token counts are not available.
+  // Speed resolution: the pinned TIME value from Route Test runs, as a median.
+  // The table shows the median latency (same number as the TIME column); tok/s
+  // stays in the tooltip when token counts were recorded. Only passed runs and
+  // healthy checks count — a 502 that came back in 0.3s must never make a model
+  // read as fast.
   function modelSpeed(e) {
     if (!e) return null;
 
     // 1. Check test runs recorded for this model in Route Test
-    const runs = historyRuns.get(e.key) || [];
+    const runs = (historyRuns.get(e.key) || []).filter((r) => r.ok !== false);
     const validRunTps = runs.map((r) => r.tps).filter((v) => Number.isFinite(v) && v > 0);
     const validRunMs = runs.map((r) => r.ms).filter((v) => Number.isFinite(v) && v > 0);
 
-    // 2. Check health checks
-    const healthChecks = (e.health && Array.isArray(e.health.checks)) ? e.health.checks : [];
+    // 2. Check health checks (healthy ones only)
+    const healthChecks = (e.health && Array.isArray(e.health.checks)) ? e.health.checks.filter((c) => c.status === 'healthy') : [];
     const validHealthTps = healthChecks.map((c) => c.tps).filter((v) => Number.isFinite(v) && v > 0);
-    const validHealthMs = ((e.health && e.health.latencies) || []).map((s) => s.ms).filter((n) => Number.isFinite(n) && n > 0);
+    const validHealthMs = healthChecks.map((c) => c.ms).filter((v) => Number.isFinite(v) && v > 0);
 
     const allTps = [...validRunTps, ...validHealthTps];
     const allMs = [...validRunMs, ...validHealthMs];
 
+    if (!allMs.length && !allTps.length) return null;
+
+    let medMs = null;
+    if (allMs.length > 0) {
+      const sortedMs = allMs.slice().sort((a, b) => a - b);
+      const midMs = Math.floor(sortedMs.length / 2);
+      medMs = sortedMs.length % 2 ? sortedMs[midMs] : Math.round((sortedMs[midMs - 1] + sortedMs[midMs]) / 2);
+    }
+    let medTps = null;
     if (allTps.length > 0) {
       const sorted = allTps.slice().sort((a, b) => a - b);
       const mid = Math.floor(sorted.length / 2);
-      const medTps = sorted.length % 2 ? sorted[mid] : Math.round(((sorted[mid - 1] + sorted[mid]) / 2) * 10) / 10;
-      const sortedMs = allMs.slice().sort((a, b) => a - b);
-      const medMs = sortedMs.length ? (sortedMs.length % 2 ? sortedMs[Math.floor(sortedMs.length / 2)] : Math.round((sortedMs[Math.floor(sortedMs.length / 2) - 1] + sortedMs[Math.floor(sortedMs.length / 2)]) / 2)) : null;
-      return { tps: medTps, ms: medMs, samples: allTps.length };
+      medTps = sorted.length % 2 ? sorted[mid] : Math.round(((sorted[mid - 1] + sorted[mid]) / 2) * 10) / 10;
     }
-
-    if (allMs.length > 0) {
-      const sorted = allMs.slice().sort((a, b) => a - b);
-      const mid = Math.floor(sorted.length / 2);
-      const medMs = sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
-      return { tps: null, ms: medMs, samples: allMs.length };
-    }
-
-    return null;
+    return { tps: medTps, ms: medMs, samples: allMs.length || allTps.length };
   }
 
   function speedCell(e, { compact = false } = {}) {
     const s = modelSpeed(e);
     if (!s) return '<span class="dt-muted">—</span>';
+    // The cell pins the TIME-column median: the number a test run would show for
+    // this model, in the same colours. tok/s is extra info for the tooltip.
+    if (s.ms != null) {
+      const tip = `Median test time: ${fmtMs(s.ms)} (${s.samples} sample${s.samples === 1 ? '' : 's'}${s.tps != null ? `, ${s.tps} tok/s` : ''})`;
+      if (compact) {
+        return `<span class="${timeClass(s.ms)}" title="${escapeHtml(tip)}">${fmtMs(s.ms)}</span>`;
+      }
+      return `<span class="${timeClass(s.ms)}" title="${escapeHtml(tip)}"><span class="mc-speed-val">${fmtMs(s.ms)}</span></span>`;
+    }
     if (s.tps != null) {
       const cls = s.tps >= 60 ? 'time-fast' : s.tps >= 25 ? 'time-mid' : 'time-slow';
-      const tip = `Generation speed: ${s.tps} tokens/sec (${s.samples} sample${s.samples === 1 ? '' : 's'}${s.ms ? `, median latency ${fmtMs(s.ms)}` : ''})`;
+      const tip = `Generation speed: ${s.tps} tokens/sec (${s.samples} sample${s.samples === 1 ? '' : 's'})`;
       if (compact) {
         return `<span class="${cls}" title="${escapeHtml(tip)}">${s.tps} tok/s</span>`;
       }
       return `<span class="${cls}" title="${escapeHtml(tip)}"><span class="mc-speed-val">${s.tps}</span><span class="mc-speed-unit">tok/s</span></span>`;
-    }
-    if (s.ms != null) {
-      const tip = `Median latency: ${fmtMs(s.ms)} (${s.samples} sample${s.samples === 1 ? '' : 's'})`;
-      return `<span class="${timeClass(s.ms)}" title="${escapeHtml(tip)}"><span class="mc-speed-val">${fmtMs(s.ms)}</span></span>`;
     }
     return '<span class="dt-muted">—</span>';
   }
@@ -1474,8 +1480,15 @@
       speed: (a, b) => {
         const sa = modelSpeed(a);
         const sb = modelSpeed(b);
-        const va = sa ? (sa.tps != null ? sa.tps : (sa.ms ? 100000 / sa.ms : null)) : null;
-        const vb = sb ? (sb.tps != null ? sb.tps : (sb.ms ? 100000 / sb.ms : null)) : null;
+        // Fastest TIME median first: lower ms wins. tok/s only breaks ties in
+        // the (rare) ms-only-vs-tps-only case — this column is the pinned TIME.
+        const ma = sa ? sa.ms : null;
+        const mb = sb ? sb.ms : null;
+        if (ma != null && mb != null && ma !== mb) return ma - mb;
+        if (ma != null && mb == null) return -1;
+        if (ma == null && mb != null) return 1;
+        const va = sa ? sa.tps : null;
+        const vb = sb ? sb.tps : null;
         return num(vb) - num(va);
       },
       latency: (a, b) => num(latencyP50(a) ? latencyP50(a).p50 : null) - num(latencyP50(b) ? latencyP50(b).p50 : null),
@@ -1863,6 +1876,15 @@
       if (Date.now() - state.lastSyncAt > minutes * 60 * 1000) syncAll({ reason: 'focus' });
     });
     window.addEventListener('online', () => syncAll({ reason: 'online' }));
+    // Route Test pins TIME values as Speed: after a run lands, re-read the
+    // history so the rows show it without waiting for a revisit.
+    let historyTimer = null;
+    window.addEventListener('history-updated', () => {
+      clearTimeout(historyTimer);
+      historyTimer = setTimeout(() => {
+        loadHistoryRuns().then(() => renderIfShown()).catch(() => {});
+      }, 400);
+    });
     COMPACT_LAYOUT.addEventListener('change', (mq) => {
       ui.view = mq.matches ? 'cards' : 'table';
       renderIfShown();
