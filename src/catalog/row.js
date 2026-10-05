@@ -15,7 +15,7 @@
 const {
   asNumber, perMillion, uniqueJoin, unixToDate, boolOrNull, hasParam, listHas, providerOf,
 } = require('./util');
-const { LAB_PROVIDERS } = require('./keys');
+const { LAB_PROVIDERS, VARIANT_MODIFIERS } = require('./keys');
 
 const ROW_FIELDS = ['id', 'name', 'description', 'family', 'context_tokens', 'output_tokens',
   'input_modalities', 'output_modalities', 'tools', 'reasoning', 'structured', 'attachment',
@@ -214,13 +214,76 @@ function matchIds(id) {
     rest.replace(/-(\d+(?:\.\d+)?)/, '-v$1'), `${lab}/${rest}`]);
 }
 
-/** For a `-thinking` route, the base route's first match id — its quality proxy. */
+/**
+ * The base routes a derivative build should borrow from — its quality proxies.
+ *
+ * A route that names the same weights with one word changed ("big-pickle-unrestricted"
+ * against the catalogue's "big-pickle") describes the base model's quality, so the
+ * base route's row is the right row to read. Two families reach here:
+ *
+ *   - inference routes the catalogue also ships and spells the same way (`-thinking`);
+ *   - moderation variants, which every host names differently — Dark API ships
+ *     `-unrestricted` where models.dev ships `-uncensored` for the same idea — so
+ *     all of them are stripped to the base rather than matched word for word.
+ *
+ * Only a base `matchIds` can carry is returned, and a bare lab token is refused
+ * outright: every strip that leaves just a lab name ("deepseek-unrestricted" →
+ * "deepseek") has named a company, not a model, and no reference row describes a
+ * company. Borrowing one would be the guess this module exists to refuse.
+ */
 function qualityProxyIds(id) {
   const cleaned = String(id || '').toLowerCase();
-  if (!/-thinking$/.test(cleaned)) return [];
-  const base = cleaned.replace(/-thinking$/, '');
+  const parts = cleaned.split('-').filter(Boolean);
+  if (parts.length < 2) return [];
+  const last = parts[parts.length - 1];
+  if (last !== 'thinking' && !VARIANT_MODIFIERS.has(last)) return [];
+  const base = parts.slice(0, -1).join('-');
+  if (!base || LAB_PROVIDERS.includes(base)) return [];
   const first = matchIds(base)[0];
   return first ? [first] : [];
+}
+
+/**
+ * The provider's own roster entry a variant borrows from, when it is the only
+ * one that can be meant.
+ *
+ * A host names its variants after a model it also serves, but not always with
+ * the model's full name: Dark API declares `longcat`, `muse` and `step-3.7` as
+ * the bases for their `-unrestricted` routes, while the only things it actually
+ * serves under those prefixes are `longcat-2.5-preview`, `muse-spark-1.3-contributor`
+ * and `step-3.7-flash`. The reference cannot resolve a truncated name — no row is
+ * called `longcat` — so the base is resolved against the roster that named it.
+ *
+ * Uniqueness is the whole rule, and it is what keeps this from being a guess: a
+ * prefix that matches more than one served model is returned as nothing at all,
+ * and a variant that is the only thing under its own prefix borrows from nothing.
+ * `-unrestricted` is itself excluded from the candidates, so two variants of one
+ * base can never resolve to each other.
+ */
+function rosterProxyIds(id, roster) {
+  const cleaned = String(id || '').toLowerCase();
+  const parts = cleaned.split('-').filter(Boolean);
+  if (parts.length < 2) return [];
+  const last = parts[parts.length - 1];
+  if (last !== 'thinking' && !VARIANT_MODIFIERS.has(last)) return [];
+  // The base the id asserts: everything before the variant token. A declared
+  // proxy may be shorter than that (`longcat` for `longcat-unrestricted`); the
+  // prefix test below catches both spellings.
+  const base = parts.slice(0, -1).join('-');
+  const strip = (v) => String(v || '').toLowerCase().split('/').pop().split(':')[0];
+  const isVariant = (v) => {
+    const tail = strip(v).split('-').filter(Boolean).pop();
+    return tail === 'thinking' || VARIANT_MODIFIERS.has(tail);
+  };
+  const candidates = (roster || []).filter((other) => {
+    const otherId = typeof other === 'string' ? other : other && other.id;
+    if (!otherId) return false;
+    const slug = strip(otherId);
+    if (slug === cleaned || String(otherId).toLowerCase() === cleaned) return false;
+    if (isVariant(otherId)) return false;
+    return slug === base || slug.startsWith(`${base}-`);
+  });
+  return candidates.length === 1 ? [String(candidates[0].id || candidates[0])] : [];
 }
 
 function providerRow(model, providerId) {
@@ -258,5 +321,5 @@ function providerRow(model, providerId) {
 
 module.exports = {
   ROW_FIELDS, providerRow, readPricing, costKind,
-  readsTools, readsReasoning, readsStructured, readsAttachment, matchIds, qualityProxyIds,
+  readsTools, readsReasoning, readsStructured, readsAttachment, matchIds, qualityProxyIds, rosterProxyIds,
 };

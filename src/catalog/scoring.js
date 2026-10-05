@@ -19,6 +19,7 @@ const {
   qualityModelKey,
   qualityNameKey,
   bareModelKey,
+  looseModelKey,
   nameKeyIsSafe,
   pricingTokenCount,
 } = require("./keys");
@@ -27,10 +28,15 @@ const MIN_FIT_SAMPLES = 30;
 const MIN_FIT_R2 = 0.3;
 const SPEC_AGE_CAP_MONTHS = 36;
 
-// Lower is better: measured AA < blended estimate < no score at all.
+// Lower is better: a measured AA index beats an estimate inherited from the
+// reference, which beats an estimate from the row's own declared facts, which
+// beats having no score at all.
+const SCORE_QUALITY = { aa: 0, est: 1, proxy: 1, local: 2 };
+
 function scoreQuality(row) {
-  if (row.score == null) return 2;
-  return row.score_source === "aa" ? 0 : 1;
+  if (row.score == null) return 3;
+  const rank = SCORE_QUALITY[row.score_source];
+  return rank == null ? 1 : rank;
 }
 
 /** Simple linear regression y = a + b*x. Returns null when too few points or too weak. */
@@ -89,7 +95,14 @@ function solveLinear(matrix, vector) {
 // the model. Weak on its own, but the fit against measured AA rows tells us
 // exactly how weak (its R²), and that is the weight it gets in the blend.
 function specFeatures(row, defaults) {
-  const cost = row.cost_in_per_m != null ? row.cost_in_per_m : defaults.cost;
+  const rawCost = row.cost_in_per_m;
+  // A promotional or free price is NOT a quality signal. The fit learned
+  // "pricier means smarter" from list prices, so feeding it a $0.00 stealth
+  // launch drags the estimate to the bottom of the range: big-pickle carries a
+  // $0 price, one host and an eleven-month-old release date, and scored 0.2
+  // while the same row at the training median price scores 11.1. A zero is
+  // treated as unknown and falls back to the median instead of reading as cheap.
+  const cost = typeof rawCost === 'number' && rawCost > 0 ? rawCost : defaults.cost;
   const age = monthsSince(row.release_date);
   return [
     1,
@@ -104,7 +117,11 @@ function specFeatures(row, defaults) {
 
 function fitSpec(rows) {
   const train = rows.filter(
-    (r) => r.aa_intelligence != null && r.cost_in_per_m != null && monthsSince(r.release_date) != null,
+    // `cost > 0`, not merely `cost != null`: a free row is not evidence that the
+    // cheap end is bad, and letting one into the training set lets the fit read a
+    // $0.00 launch as the lowest price the market has and learn from it.
+    (r) => r.aa_intelligence != null && r.cost_in_per_m != null && r.cost_in_per_m > 0
+      && monthsSince(r.release_date) != null,
   );
   if (train.length < MIN_FIT_SAMPLES * 3) return null;
   const defaults = {
@@ -139,6 +156,58 @@ function fitSpec(rows) {
   return { n: train.length, r2, predict: (row) => dot(specFeatures(row, defaults)) };
 }
 
+// Only a row that declared something is estimated. With no cost, no context, no
+// release date and no capabilities, the fit would answer from the training
+// medians alone — a number describing the market, not the model.
+// An empty string is not a declaration. The adapters hand back `release_date: ""`
+// for a model they know nothing about, and `"" != null` is true — so every thin
+// row used to pass this test and take the training mean as its score.
+function hasSpecSignal(row) {
+  if (typeof row.cost_in_per_m === "number" && row.cost_in_per_m > 0) return true;
+  if (typeof row.context_tokens === "number" && row.context_tokens > 0) return true;
+  if (typeof row.release_date === "string" && row.release_date.trim() !== "") return true;
+  return row.reasoning === true || row.tools === true;
+}
+
+// The spec fit lives in a WeakMap keyed by the catalog row array, because
+// attachScores is handed the same array on every render: one sync pays for one
+// fit and every render after it is free.
+const specModelCache = new WeakMap();
+
+/**
+ * The local estimator, fitted on the catalog and cached against it.
+ *
+ * This is what scores a row the reference does not carry. A provider that adds a
+ * model tomorrow cannot be matched against a catalog that has never heard of it,
+ * but it can still declare a price, a context window and its capabilities — and
+ * those are exactly the features the fit regressed onto the AA scale. So the
+ * score comes out of arithmetic over metadata already on hand: no request, no
+ * key, no quota, and nothing to wait for.
+ *
+ * Returns null when the catalog is too thin to fit.
+ */
+function specModelFor(catalogRows) {
+  if (!catalogRows || !catalogRows.length) return null;
+  const cached = specModelCache.get(catalogRows);
+  if (cached !== undefined) return cached;
+  const fit = fitSpec(catalogRows);
+  let model = null;
+  if (fit) {
+    const measured = catalogRows.filter((r) => r.aa_intelligence != null);
+    const lowest = measured.reduce((min, r) => Math.min(min, r.aa_intelligence), Infinity);
+    const highest = measured.reduce((max, r) => Math.max(max, r.aa_intelligence), 0);
+    model = {
+      predict: fit.predict,
+      r2: fit.r2,
+      n: fit.n,
+      floor: Number.isFinite(lowest) ? lowest * 0.9 : 0,
+      ceiling: highest * 1.1 || 100,
+    };
+  }
+  specModelCache.set(catalogRows, model);
+  return model;
+}
+
 /**
  * Set score / score_source / score_basis on every row.
  * Returns a summary of the fits ({ n, r2 } per estimator, or null) for /api/health.
@@ -153,7 +222,18 @@ function assignScores(rows) {
     arena_text: fitLinear(measured.filter((r) => r.lmarena_elo != null).map((r) => [r.lmarena_elo, r.aa_intelligence])),
     spec: fitSpec(rows),
   };
+  // The estimate is clamped to the range the reference actually measured, on both
+  // ends. The ceiling has always been here; the floor was 0, and 0 is not a score
+  // anything in the reference has ever had — the lowest measured index is well
+  // above it. Without a floor the fit extrapolates below everything it learned
+  // from and 558 of 3283 estimates (17%) come out pinned at exactly 0, which
+  // reads as "this model is worthless" rather than "this model is the weakest
+  // thing anyone has measured".
+  //
+  // 0.9x the lowest measured, symmetric with the 1.1x ceiling above.
+  const lowestMeasured = measured.reduce((min, r) => Math.min(min, r.aa_intelligence), Infinity);
   const ceiling = measured.reduce((max, r) => Math.max(max, r.aa_intelligence), 0) * 1.1 || 100;
+  const floor = Number.isFinite(lowestMeasured) ? lowestMeasured * 0.9 : 0;
   for (const row of rows) {
     if (row.aa_intelligence != null) {
       row.score = row.aa_intelligence;
@@ -184,7 +264,7 @@ function assignScores(rows) {
       sum += value * r2;
       weight += r2;
     }
-    row.score = Math.round(clamp(sum / weight, 0, ceiling) * 10) / 10;
+    row.score = Math.round(clamp(sum / weight, floor, ceiling) * 10) / 10;
     row.score_source = "est";
     row.score_basis = parts.map((p) => p[0]);
   }
@@ -237,7 +317,32 @@ function preferredListing(a, b) {
   return order <= 0 ? a : b;
 }
 
-function putMatch(map, key, row) {
+/** The model's own segment, with every routing segment in front of it dropped. */
+function lastSegmentOf(id) {
+  const segments = cleanModelId(id).split("/").filter(Boolean);
+  return segments.length ? segments[segments.length - 1] : "";
+}
+
+/**
+ * Whether two catalogue listings are the same model under different routing.
+ *
+ * A routing prefix is not identity, and a listing hosted two segments deep keeps
+ * the middle one: `kilo/stealth/space-bunny-alpha` and `stealth/space-bunny-alpha`
+ * are one model, because the shorter route is a SUFFIX of the longer one. Two
+ * paths that disagree anywhere else are two models — `host-a/lab/x` and
+ * `host-b/other/x` share a last segment and nothing else, and merging those would
+ * be the guess the bare-key rule already refuses.
+ */
+function sameModelPath(a, b) {
+  const left = cleanModelId(a).split("/").filter(Boolean);
+  const right = cleanModelId(b).split("/").filter(Boolean);
+  if (!left.length || !right.length) return false;
+  const [longer, shorter] = left.length >= right.length ? [left, right] : [right, left];
+  const tail = longer.slice(longer.length - shorter.length);
+  return tail.every((segment, i) => segment === shorter[i]);
+}
+
+function putMatch(map, key, row, sameIdentity) {
   if (!key) return;
   const current = map.get(key);
   if (!current) {
@@ -245,7 +350,13 @@ function putMatch(map, key, row) {
     return;
   }
   if (current === MATCH_AMBIGUOUS || current === row) return;
-  if (qualityModelKey(current.id, current.name) !== qualityModelKey(row.id, row.name)) {
+  // The default identity is the precise key: two listings of one model agree on
+  // it, and two different models do not. An index built on a looser key supplies
+  // its own test, because under that key the two ARE being declared one model.
+  const same = sameIdentity
+    ? sameIdentity(current, row)
+    : qualityModelKey(current.id, current.name) === qualityModelKey(row.id, row.name);
+  if (!same) {
     map.set(key, MATCH_AMBIGUOUS);
     return;
   }
@@ -256,6 +367,7 @@ function buildMatchIndex(catalogRows) {
   const byExactId = new Map();
   const byId = new Map();
   const byBare = new Map();
+  const byLoose = new Map();
   const byName = new Map();
   for (const row of catalogRows) {
     putMatch(byExactId, cleanModelId(row.id), row);
@@ -272,10 +384,22 @@ function buildMatchIndex(catalogRows) {
     // marks a collision ambiguous rather than picking — so a loose key can
     // never quietly attach one model's number to another.
     putMatch(byBare, bareModelKey(row.id), row);
+    // The last resort, for a host that decorated the name with an edition tag or
+    // spelled the version another way. Its identity test asks whether one listing's
+    // route is a SUFFIX of the other's, because `qualityModelKey` cuts at the first
+    // slash: a listing two segments deep keeps the routing segment inside its key,
+    // so the same model at two hosts reads as two identities and would be refused
+    // as ambiguous. `kilo/stealth/space-bunny-alpha` and `stealth/space-bunny-alpha`
+    // are one model, and this is the index that has to say so.
+    //
+    // Two paths that disagree anywhere but their tail are still refused: this
+    // widens what counts as one host's listing, never what counts as one model.
+    putMatch(byLoose, looseModelKey(row.id), row,
+      (a, b) => sameModelPath(lastSegmentOf(a.id), lastSegmentOf(b.id)) && sameModelPath(a.id, b.id));
     // A row whose name hides what its id says is reachable by id only.
     if (nameKeyIsSafe(row.id, row.name)) putMatch(byName, qualityNameKey(row.name), row);
   }
-  return { byExactId, byId, byBare, byName };
+  return { byExactId, byId, byBare, byLoose, byName };
 }
 
 function hitOf(map, key) {
@@ -331,8 +455,21 @@ function lookupCatalogRow(row, index) {
   const bareBest = bestCandidate(bare);
   if (bareBest) return bareBest;
 
-  if (!nameKeyIsSafe(row.id, row.name)) return null;
-  return hitOf(index.byName, qualityNameKey(row.name));
+  if (nameKeyIsSafe(row.id, row.name)) {
+    const named = hitOf(index.byName, qualityNameKey(row.name));
+    if (named) return named;
+  }
+
+  // Last resort, and the only place a decorated name is tolerated: the loose key
+  // drops the edition tags a host appends and settles the two spellings of a
+  // version. Both the id and the display name are tried, because either can be
+  // the one that carries the model — `xiaomi` names nothing, while the name on
+  // the same row names the model.
+  //
+  // It answers only when one catalogue model owns the key: `putMatch` marks a
+  // shared key ambiguous, and `hitOf` treats ambiguous as a miss.
+  return hitOf(index.byLoose, looseModelKey(row.id))
+    || hitOf(index.byLoose, looseModelKey(row.name));
 }
 
 /** The adapter-declared base route of a provider-only variant, if the catalog has it. */
@@ -415,6 +552,21 @@ function attachScores(rows, catalogRows) {
       row.score_proxy_for = row.id;
       continue;
     }
+    // Nothing in the reference carries this model. Rather than leave the row
+    // blank, estimate it from the facts the provider declared, using the same
+    // fit that scores the reference's own unmeasured rows — flagged "local" so
+    // the number is never mistaken for a borrowed or measured one.
+    const local = specModelFor(catalogRows);
+    if (local && hasSpecSignal(row)) {
+      row.score = Math.round(clamp(local.predict(row), local.floor, local.ceiling) * 10) / 10;
+      row.score_source = "local";
+      row.score_basis = ["spec"];
+      row.catalog_rank = null;
+      row.matched_id = null;
+      row.bench_id = null;
+      delete row.score_proxy_for;
+      continue;
+    }
     row.score = null;
     row.score_source = null;
     row.score_basis = [];
@@ -435,4 +587,6 @@ module.exports = {
   buildMatchIndex,
   lookupCatalogRow,
   attachScores,
+  specModelFor,
+  hasSpecSignal,
 };

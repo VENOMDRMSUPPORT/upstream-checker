@@ -40,7 +40,7 @@
 // mean "everything" — and a provider with nothing to serve is named with a code
 // rather than dropped from the reply (ref §9 readConnected, NO_SNAPSHOT).
 
-const { providerRow, matchIds, qualityProxyIds } = require('./row');
+const { providerRow, matchIds, qualityProxyIds, rosterProxyIds } = require('./row');
 const { syncSnapshot, dropNonText, validateProviderRows, providerRowSnapshot,
   restoreLastGoodRows } = require('./snapshot');
 
@@ -100,6 +100,22 @@ function appendLatency(previous, at, ms) {
   return ring.slice(-LATENCY_SAMPLES_KEPT);
 }
 
+const CHECKS_SAMPLES_KEPT = 30;
+function appendCheck(previous, check) {
+  const ring = ((previous && previous.checks) || []).slice();
+  if (check && check.status) {
+    ring.push({
+      at: check.at || Date.now(),
+      status: check.status,
+      note: check.note || null,
+      ms: Number.isFinite(check.ms) ? Math.round(check.ms) : null,
+      tokens: Number.isFinite(check.tokens) ? check.tokens : null,
+      tps: Number.isFinite(check.tps) ? Math.round(check.tps * 10) / 10 : null,
+    });
+  }
+  return ring.slice(-CHECKS_SAMPLES_KEPT);
+}
+
 /**
  * The aliases a row may be matched by, and the base route it may borrow a score
  * from. Both are PROVIDER facts and both must reach `summary_json`, or the row
@@ -115,13 +131,21 @@ function appendLatency(previous, at, ms) {
  * generated ones, deduped. A `-thinking` route with no declared proxy gets the
  * one derivable from its id.
  */
-function withAliases(row, model) {
+function withAliases(row, model, roster) {
   const declared = Array.isArray(model && model.match_ids)
     ? model.match_ids.filter((alias) => typeof alias === 'string' && alias.trim()) : [];
   row.match_ids = [...new Set([...declared, ...matchIds(row.id)])];
   const proxies = Array.isArray(model && model.quality_proxy_ids)
     ? model.quality_proxy_ids.filter((alias) => typeof alias === 'string' && alias.trim()) : [];
-  row.quality_proxy_ids = proxies.length ? proxies : qualityProxyIds(row.id);
+  // Order is precedence: what the adapter declared wins, then the base the
+  // provider's own roster makes unambiguous, then the one derivable from the id
+  // alone. `lookupQualityProxy` takes the first of these the reference can
+  // resolve, so a later candidate can never displace an earlier one.
+  row.quality_proxy_ids = [...new Set([
+    ...proxies,
+    ...rosterProxyIds(row.id, roster),
+    ...qualityProxyIds(row.id),
+  ])];
   return row;
 }
 
@@ -161,7 +185,11 @@ function createCatalogIpc({ ipcMain, repos, engine, log = console, onRosterWritt
   }
 
   function mapRows(providerId, models) {
-    return models.map((m) => withAliases(providerRow(m, providerId), m));
+    // The roster is read once and handed to every row: a variant's base is
+    // resolved against the models this provider actually serves, so the whole
+    // list has to be known before any one row's proxies can be derived.
+    const roster = models.map((m) => String((m && m.id) || '')).filter(Boolean);
+    return models.map((m) => withAliases(providerRow(m, providerId), m, roster));
   }
 
   // "How did the last attempt end", recorded where the read path can find it.
@@ -325,6 +353,14 @@ function createCatalogIpc({ ipcMain, repos, engine, log = console, onRosterWritt
       status: result.status, note: result.note || null, httpStatus: result.httpStatus ?? null,
       at: result.at || Date.now(),
       latencies: appendLatency(previous, result.at || Date.now(), result.timeMs),
+      checks: appendCheck(previous, {
+        at: result.at || Date.now(),
+        status: result.status,
+        note: result.note || null,
+        ms: result.timeMs,
+        tokens: result.tokens,
+        tps: result.tps,
+      }),
     };
     try {
       repos.snapshots.setHealth(provider, modelId, stored);
@@ -413,4 +449,4 @@ function createCatalogIpc({ ipcMain, repos, engine, log = console, onRosterWritt
 }
 
 module.exports = { createCatalogIpc, COMPARE_FIELDS, diffRow, readHealth, appendLatency,
-  withAliases, LATENCY_SAMPLES_KEPT };
+  appendCheck, CHECKS_SAMPLES_KEPT, withAliases, LATENCY_SAMPLES_KEPT };

@@ -487,17 +487,28 @@ test("fitSpec fills a missing training value with the training median, never 0",
   // The 95 measured rows above price from 0.5 to 9.9 per million, so their
   // median is 5.2. A row that publishes no price is estimated as if it sat at
   // that median; read as 0 it would be scored as the cheapest model in the pool.
+  //
+  // A published 0 is the same case, not a different one. A $0.00 cover price is a
+  // promotional or free listing, not evidence about quality, and the fit learned
+  // "pricier means smarter" from list prices — so a zero must read as unknown
+  // rather than as the bottom of the market. Measured on the real catalog:
+  // opencode/big-pickle (price 0, one host, eleven months old) scored 0.2, and the
+  // same row at the training median scores 11.2.
   const rows = Array.from({ length: 95 }, (_, i) => makeMeasuredRow(i));
   const base = { name: "Thin", context_tokens: null, release_date: "", reasoning: null, tools: null, provider_count: null };
   const blank = { id: "blank", ...base, cost_in_per_m: null };
   const atMedian = { id: "at-median", ...base, cost_in_per_m: 5.2 };
   const atZero = { id: "at-zero", ...base, cost_in_per_m: 0 };
+  const atNegative = { id: "at-negative", ...base, cost_in_per_m: -1 };
 
-  assignScores(rows.concat([blank, atMedian, atZero]));
+  assignScores(rows.concat([blank, atMedian, atZero, atNegative]));
 
   assert.equal(blank.score_source, "est");
   assert.equal(blank.score, atMedian.score, "a null price reads as the pool's median price");
-  assert.ok(blank.score > atZero.score + 3, `${blank.score} vs ${atZero.score}: the default is not 0`);
+  assert.equal(atZero.score, blank.score, "a published 0 is unknown too, not the cheapest seat in the pool");
+  assert.equal(atNegative.score, blank.score, "and neither is a negative cover price");
+  // The point of the fallback: the estimate does not collapse to the floor.
+  assert.ok(blank.score > 3, `${blank.score}: the default is not 0`);
 });
 
 test("attachScores: a thin provider row borrows the reference's output modality", () => {
