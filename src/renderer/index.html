@@ -390,7 +390,6 @@
           <div class="pv-toolbar pt-toolbar">
             <nav class="crumbs" id="pt-crumbs" aria-label="Breadcrumb"></nav>
             <div class="pt-actions">
-              <span class="pt-health" id="pt-health"></span>
               <button class="btn btn-ghost" id="pt-edit" type="button" title="Edit provider">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>
                 Edit
@@ -407,6 +406,7 @@
           </div>
 
           <div id="pt-kpis"></div>
+          <div id="pt-legend"></div>
 
           <div class="pt-grid">
             <div class="pt-side">
@@ -469,17 +469,17 @@
                 <table class="results-table" id="results-table" style="display: none;">
                   <thead>
                     <tr>
-                      <th class="th-status th-sortable" data-sort="status">STATUS</th>
+                      <th class="th-index">#</th>
                       <th class="th-model th-sortable" data-sort="model">MODEL</th>
                       <th class="th-type">TYPE</th>
                       <th class="th-context th-sortable" data-sort="context">CONTEXT</th>
+                      <th class="th-score th-sortable" data-sort="score" title="Reference score. aa = measured Artificial Analysis index; est = estimated from correlated public signals">SCORE</th>
+                      <th class="th-price th-sortable" data-sort="price" title="Input / output price per million tokens, from the reference">PRICE IN/OUT</th>
+                      <th class="th-caps" title="Capabilities the reference resolves for this model">CAPS</th>
                       <th class="th-time th-sortable" data-sort="time">TIME</th>
-                      <th class="th-tokens th-sortable" data-sort="tokens">TOKENS</th>
-                      <th class="th-tps th-sortable" data-sort="tps" title="Completion tokens per second of total response time">TPS</th>
-                      <th class="th-correct th-sortable" data-sort="correct" title="Whether the response contains the expected answer">OK?</th>
-                      <th class="th-uptime th-sortable" data-sort="uptime" title="Share of recorded runs this model passed, newest run on the right">UPTIME</th>
+                      <th class="th-status th-sortable" data-sort="status">STATUS</th>
                       <th class="th-response">RESPONSE</th>
-                      <th class="th-actions"></th>
+                      <th class="th-actions">ACTIONS</th>
                     </tr>
                   </thead>
                   <tbody id="results-body"></tbody>
@@ -1649,9 +1649,10 @@
   <script src="ulid.js"></script>
   <script src="lock.js"></script>
   <script src="profile.js"></script>
+  <script src="provider-facts.js"></script>
+  <script src="catalog-caps.js"></script>
   <script src="app.js"></script>
   <script src="key-usage.js"></script>
-  <script src="catalog-caps.js"></script>
   <script src="catalog.js"></script>
   <script src="logs-format.js"></script>
   <script src="logs.js"></script>

@@ -33,8 +33,7 @@
     timer: null,
     expanded: new Set(),
     shell: false,
-    // The capabilities legend starts open: it names the icons in the table, and a
-    // key nobody asked to open is not a key. The toggle is the only way it folds.
+    // The capabilities legend starts closed by default. The toggle folds/unfolds it.
     legendOpen: true,
     pendingRender: null,
     healthBusy: new Set(), // keys whose health check is in flight
@@ -62,6 +61,7 @@
     tab: 'connected',
     search: '',
     filter: 'all',
+    costTab: 'all',
     sort: 'rank',
     provider: 'all',
     view: COMPACT_LAYOUT.matches ? 'cards' : 'table',
@@ -78,11 +78,41 @@
     return Object.values(PROVIDERS).filter(isConnected).map((p) => p.id);
   }
 
+  const historyRuns = new Map();
+  async function loadHistoryRuns() {
+    try {
+      if (window.electronAPI && typeof window.electronAPI.readHistory === 'function') {
+        const data = await window.electronAPI.readHistory();
+        historyRuns.clear();
+        (data.runs || []).forEach((run) => {
+          (run.results || []).forEach((r) => {
+            const key = keyOf(run.provider, r.model);
+            if (!historyRuns.has(key)) historyRuns.set(key, []);
+            const ms = Number.isFinite(r.time) ? r.time : null;
+            const cTokens = Number.isFinite(r.completionTokens) ? r.completionTokens : null;
+            const tps = (cTokens && ms && ms > 0) ? Math.round((cTokens / (ms / 1000)) * 10) / 10 : null;
+            historyRuns.get(key).push({
+              at: run.at,
+              ok: r.status === 'pass',
+              status: r.status === 'pass' ? 'healthy' : 'error',
+              note: r.status === 'pass' ? 'Test passed' : (r.error || 'Test failed'),
+              ms,
+              tokens: r.tokens,
+              completionTokens: cTokens,
+              tps,
+            });
+          });
+        });
+      }
+    } catch (_) { /* ignore */ }
+  }
+
   let loadPromise = null;
   function load() {
     if (state.loaded) return Promise.resolve(state.models);
     if (loadPromise) return loadPromise;
     loadPromise = (async () => {
+      loadHistoryRuns().catch(() => {});
       const reply = await window.electronAPI.catalogRead({ providerIds: connectedIds() });
       if (reply && reply.ok === false) {
         // The read answers its refusals as data; a rejected call here is a
@@ -100,6 +130,24 @@
       return state.models;
     });
     return loadPromise;
+  }
+
+  /**
+   * Drop what is held and read again.
+   *
+   * The reference is fetched on a TTL and re-scored when a fetch lands, so a page
+   * still holding rows from before a refresh shows yesterday's number beside
+   * today's. The test table forces a sync before every run; this is what it calls
+   * afterwards, so the Models page and the test table cannot disagree about the
+   * same model.
+   */
+  function reload() {
+    state.loaded = false;
+    loadPromise = null;
+    return load().then(() => {
+      renderIfShown();
+      return state.models;
+    });
   }
 
   function applyRead(reply) {
@@ -319,27 +367,35 @@
   function readHealth(res) {
     const at = Date.now();
     if (res.networkError || res.timedOut) {
-      return { status: 'unreachable', note: res.error || 'No response', httpStatus: 0, at, timeMs: res.elapsed };
+      return { status: 'unreachable', note: res.error || 'No response', httpStatus: 0, at, timeMs: res.elapsed, tokens: null, tps: null };
     }
     let j = null;
     try { j = JSON.parse(res.body); } catch (_) { /* not JSON */ }
     const errMsg = j && j.error ? (j.error.message || j.error.code || j.error.type || String(j.error)) : '';
+    let completionTokens = null;
+    let tps = null;
+    if (j && j.usage && Number.isFinite(j.usage.completion_tokens)) {
+      completionTokens = j.usage.completion_tokens;
+      if (res.elapsed && res.elapsed > 0 && completionTokens > 0) {
+        tps = Math.round((completionTokens / (res.elapsed / 1000)) * 10) / 10;
+      }
+    }
     if (res.status !== 200) {
       const status = classifyHealthText(errMsg)
         || (res.status === 429 ? 'rate-limited' : res.status === 401 || res.status === 403 ? 'auth' : 'error');
-      return { status, note: errMsg || `HTTP ${res.status}`, httpStatus: res.status, at, timeMs: res.elapsed };
+      return { status, note: errMsg || `HTTP ${res.status}`, httpStatus: res.status, at, timeMs: res.elapsed, tokens: completionTokens, tps };
     }
     if (errMsg) {
-      return { status: classifyHealthText(errMsg) || 'error', note: errMsg, httpStatus: 200, at, timeMs: res.elapsed };
+      return { status: classifyHealthText(errMsg) || 'error', note: errMsg, httpStatus: 200, at, timeMs: res.elapsed, tokens: completionTokens, tps };
     }
     if (j && Array.isArray(j.choices) && j.choices.length) {
       let content = '';
       try { content = parseChatCompletion(res.body).content || ''; } catch (_) { /* unreadable */ }
       const cls = classifyHealthText(content);
-      if (cls) return { status: cls, note: content.slice(0, 140), httpStatus: 200, at, timeMs: res.elapsed };
-      return { status: 'healthy', note: 'Responded normally', httpStatus: 200, at, timeMs: res.elapsed };
+      if (cls) return { status: cls, note: content.slice(0, 140), httpStatus: 200, at, timeMs: res.elapsed, tokens: completionTokens, tps };
+      return { status: 'healthy', note: 'Responded normally', httpStatus: 200, at, timeMs: res.elapsed, tokens: completionTokens, tps };
     }
-    return { status: 'error', note: '200 OK but an unreadable response', httpStatus: 200, at, timeMs: res.elapsed };
+    return { status: 'error', note: '200 OK but an unreadable response', httpStatus: 200, at, timeMs: res.elapsed, tokens: completionTokens, tps };
   }
 
   async function healthCheck(key) {
@@ -368,7 +424,15 @@
         notify(`Health check refused: ${reply.message || reply.code}`, 'fail');
         return;
       }
-      e.health = h;
+      const prevChecks = ((e.health && e.health.checks) || []).slice();
+      prevChecks.push({ at: h.at, status: h.status, note: h.note, ms: h.timeMs, tokens: h.tokens, tps: h.tps });
+      const prevLatencies = ((e.health && e.health.latencies) || []).slice();
+      if (Number.isFinite(h.timeMs)) prevLatencies.push({ at: h.at, ms: Math.round(h.timeMs) });
+      e.health = {
+        ...h,
+        checks: prevChecks.slice(-30),
+        latencies: prevLatencies.slice(-20),
+      };
       const meta = HEALTH_META[h.status] || HEALTH_META.error;
       showHealthAct(key, meta);
       notify(`${e.name || e.id}: ${meta.label}${h.note && h.status !== 'healthy' ? ` — ${h.note}` : ''}`, meta.tone);
@@ -472,10 +536,146 @@
     return { p50: sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2), n: samples.length };
   }
 
+  // Speed resolution: combines tokens-per-second from test runs and health checks,
+  // falling back to latency response times when token counts are not available.
+  function modelSpeed(e) {
+    if (!e) return null;
+
+    // 1. Check test runs recorded for this model in Route Test
+    const runs = historyRuns.get(e.key) || [];
+    const validRunTps = runs.map((r) => r.tps).filter((v) => Number.isFinite(v) && v > 0);
+    const validRunMs = runs.map((r) => r.ms).filter((v) => Number.isFinite(v) && v > 0);
+
+    // 2. Check health checks
+    const healthChecks = (e.health && Array.isArray(e.health.checks)) ? e.health.checks : [];
+    const validHealthTps = healthChecks.map((c) => c.tps).filter((v) => Number.isFinite(v) && v > 0);
+    const validHealthMs = ((e.health && e.health.latencies) || []).map((s) => s.ms).filter((n) => Number.isFinite(n) && n > 0);
+
+    const allTps = [...validRunTps, ...validHealthTps];
+    const allMs = [...validRunMs, ...validHealthMs];
+
+    if (allTps.length > 0) {
+      const sorted = allTps.slice().sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      const medTps = sorted.length % 2 ? sorted[mid] : Math.round(((sorted[mid - 1] + sorted[mid]) / 2) * 10) / 10;
+      const sortedMs = allMs.slice().sort((a, b) => a - b);
+      const medMs = sortedMs.length ? (sortedMs.length % 2 ? sortedMs[Math.floor(sortedMs.length / 2)] : Math.round((sortedMs[Math.floor(sortedMs.length / 2) - 1] + sortedMs[Math.floor(sortedMs.length / 2)]) / 2)) : null;
+      return { tps: medTps, ms: medMs, samples: allTps.length };
+    }
+
+    if (allMs.length > 0) {
+      const sorted = allMs.slice().sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      const medMs = sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+      return { tps: null, ms: medMs, samples: allMs.length };
+    }
+
+    return null;
+  }
+
+  function speedCell(e, { compact = false } = {}) {
+    const s = modelSpeed(e);
+    if (!s) return '<span class="dt-muted">—</span>';
+    if (s.tps != null) {
+      const cls = s.tps >= 60 ? 'time-fast' : s.tps >= 25 ? 'time-mid' : 'time-slow';
+      const tip = `Generation speed: ${s.tps} tokens/sec (${s.samples} sample${s.samples === 1 ? '' : 's'}${s.ms ? `, median latency ${fmtMs(s.ms)}` : ''})`;
+      if (compact) {
+        return `<span class="${cls}" title="${escapeHtml(tip)}">${s.tps} tok/s</span>`;
+      }
+      return `<span class="${cls}" title="${escapeHtml(tip)}"><span class="mc-speed-val">${s.tps}</span><span class="mc-speed-unit">tok/s</span></span>`;
+    }
+    if (s.ms != null) {
+      const tip = `Median latency: ${fmtMs(s.ms)} (${s.samples} sample${s.samples === 1 ? '' : 's'})`;
+      return `<span class="${timeClass(s.ms)}" title="${escapeHtml(tip)}"><span class="mc-speed-val">${fmtMs(s.ms)}</span></span>`;
+    }
+    return '<span class="dt-muted">—</span>';
+  }
+
   function latencyCell(e) {
-    const l = latencyP50(e);
-    if (!l) return '<span class="dt-muted">—</span>';
-    return `<span class="${timeClass(l.p50)}" title="Median of ${l.n} health-check request${l.n === 1 ? '' : 's'}">${fmtMs(l.p50)}</span>`;
+    return speedCell(e);
+  }
+
+  function healthBarHTML(e) {
+    const TOTAL_TICKS = 24;
+    const checks = [];
+
+    // 1. Health checks ring or status
+    if (e.health && Array.isArray(e.health.checks)) {
+      checks.push(...e.health.checks);
+    } else if (e.health && Array.isArray(e.health.latencies) && e.health.latencies.length) {
+      e.health.latencies.forEach((l) => {
+        checks.push({
+          at: l.at,
+          status: l.status || e.health.status || 'healthy',
+          note: e.health.note,
+          ms: l.ms,
+        });
+      });
+    } else if (e.health && e.health.status) {
+      checks.push({
+        at: e.health.at,
+        status: e.health.status,
+        note: e.health.note,
+        ms: latencyP50(e) ? latencyP50(e).p50 : null,
+      });
+    }
+
+    // 2. Test runs from history
+    const runs = historyRuns.get(e.key) || [];
+    runs.forEach((r) => { checks.push(r); });
+
+    // Deduplicate and sort oldest first (PAST -> NOW)
+    const unique = [];
+    const seen = new Set();
+    checks.sort((a, b) => (a.at || 0) - (b.at || 0));
+    for (const c of checks) {
+      const stamp = `${c.at || 0}_${c.status}`;
+      if (!seen.has(stamp)) {
+        seen.add(stamp);
+        unique.push(c);
+      }
+    }
+
+    const recent = unique.slice(-TOTAL_TICKS);
+    const emptyCount = TOTAL_TICKS - recent.length;
+
+    const ticks = [];
+    for (let i = 0; i < emptyCount; i++) {
+      ticks.push('<span class="mc-health-tick empty" title="No check recorded"></span>');
+    }
+
+    let passCount = 0;
+    for (const c of recent) {
+      const isPass = c.status === 'healthy' || c.status === 'pass' || c.ok === true;
+      const isWarn = c.status === 'warn';
+      const stateCls = isPass ? 'pass' : isWarn ? 'warn' : 'fail';
+      if (isPass) passCount++;
+
+      const ago = c.at ? formatAgo(c.at) : '';
+      const meta = HEALTH_META[c.status] || { label: c.status || (isPass ? 'Healthy' : 'Error') };
+      const msText = c.ms ? fmtMs(c.ms) : '';
+      const tpsText = c.tps ? `${c.tps} tok/s` : '';
+      const perf = [msText, tpsText].filter(Boolean).join(' · ');
+      const title = `${ago ? `${ago}: ` : ''}${meta.label || 'Check'}${c.note ? ` — ${c.note}` : ''}${perf ? ` (${perf})` : ''}`;
+
+      ticks.push(`<span class="mc-health-tick ${stateCls}" title="${escapeHtml(title)}"></span>`);
+    }
+
+    const overallTitle = recent.length
+      ? `${passCount}/${recent.length} checks healthy${recent.length ? ` · latest: ${(HEALTH_META[recent[recent.length - 1].status] || {}).label || 'Recorded'}` : ''}`
+      : 'No checks recorded yet — click the heart icon in Actions to check health';
+
+    return `<div class="mc-health-bar-wrap" role="img" aria-label="${escapeHtml(overallTitle)}" title="${escapeHtml(overallTitle)}">
+      <div class="mc-health-ticks">${ticks.join('')}</div>
+      <div class="mc-health-labels">
+        <span class="mc-health-label">PAST</span>
+        <span class="mc-health-label">NOW</span>
+      </div>
+    </div>`;
+  }
+
+  function healthCell(e) {
+    return healthBarHTML(e);
   }
 
   // ---- toast notifications ---------------------------------------------------
@@ -771,7 +971,7 @@
     trophy: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 6h3v2a3 3 0 0 1-3 3M7 6H4v2a3 3 0 0 0 3 3"/></svg>',
     clock: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
     eye: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
-    brain: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4a3 3 0 0 0-3 3v10a3 3 0 0 0 6 0V7a3 3 0 0 0-3-3z"/><path d="M9 9H7a3 3 0 0 0 0 6h2M15 9h2a3 3 0 0 1 0 6h-2"/></svg>',
+    brain: '<span class="emoji-cap" aria-hidden="true">🧠</span>',
     pass: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
     fail: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
     empty: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/></svg>',
@@ -779,6 +979,9 @@
     heart: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/><path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/></svg>',
     send: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
     close: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+    search: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>',
+    server: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></svg>',
+    funnel: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>',
   };
 
   // The eight capability icons, one per CAT_CAPABILITIES entry, so a tile in the
@@ -798,6 +1001,7 @@
     audio: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/></svg>',
     video: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5.22 3.48a.5.5 0 0 0 .78-.42V7.9a.5.5 0 0 0-.75-.43L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>',
     files: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.23 20.25 21 12.3"/><path d="m16 6-8.41 8.59a2 2 0 0 0 0 2.82 2 2 0 0 0 2.83 0l8.41-8.59a4 4 0 0 0 0-5.65 4 4 0 0 0-5.65 0l-8.42 8.59a6 6 0 1 0 8.49 8.48"/></svg>',
+    decision: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M5 7h14"/><path d="M5 7l-3 7a3 3 0 006 0z"/><path d="M19 7l-3 7a3 3 0 006 0z"/></svg>',
   };
 
   // The row field each capability is read from, so a value the reference filled
@@ -812,6 +1016,7 @@
     audio: 'input_modalities',
     video: 'output_modalities',
     files: 'attachment',
+    decision: 'kind',
   };
 
   // Where each answer was read, in the owner's words rather than the code's.
@@ -835,7 +1040,7 @@
       { value: 'rank', label: 'Rank' },
       { value: 'context', label: 'Context' },
       { value: 'price', label: 'Price' },
-      { value: 'latency', label: 'Latency' },
+      { value: 'speed', label: 'Speed' },
       { value: 'newest', label: 'Newest' },
       { value: 'name', label: 'Name' },
       { value: 'provider', label: 'Provider' },
@@ -857,7 +1062,7 @@
 
   function fmtContext(n) {
     if (!Number.isFinite(n)) return '';
-    if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M`;
+    if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M`.replace(/\.0M$/, 'M');
     if (n >= 1e3) return `${Math.round(n / 1e3)}K`;
     return String(n);
   }
@@ -883,8 +1088,8 @@
   }
 
   function scoreCell(e) {
-    if (e.score == null) return '<span class="dt-muted">Unrated</span>';
-    return scoreBar(e.score);
+    if (e.score == null) return '<div class="mc-quality-cell"><span class="mc-quality-val dt-muted">—</span></div>';
+    return `<div class="mc-quality-cell"><span class="mc-quality-val">${escapeHtml(String(e.score))}</span></div>`;
   }
 
   function scoreBar(score, cls = '') {
@@ -907,7 +1112,7 @@
 
   function contextCell(e) {
     if (e.context_tokens == null) return '<span class="dt-muted">—</span>';
-    return borrowed(e, 'context_tokens', escapeHtml(fmtContext(e.context_tokens)));
+    return borrowed(e, 'context_tokens', `<span class="mc-ctx-val">${escapeHtml(fmtContext(e.context_tokens))}</span>`);
   }
 
   function outputCell(e) {
@@ -915,15 +1120,53 @@
     return borrowed(e, 'output_tokens', escapeHtml(fmtContext(e.output_tokens)));
   }
 
-  function priceCell(e) {
-    if (e.cost_in_per_m == null && e.cost_out_per_m == null) {
-      return '<span class="dt-muted" title="Nobody published a price for this model">—</span>';
+  function formatPriceNum(v) {
+    if (v == null) return '—';
+    if (v === 0) return '$0';
+    if (v >= 10) return `$${v.toFixed(0)}`;
+    if (v >= 1) {
+      const s = v.toFixed(2);
+      return `$${s.endsWith('.00') ? v.toFixed(0) : s}`;
     }
-    const f = (v) => (v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(2) : v.toFixed(3)).replace(/\.?0+$/, '');
-    const free = e.cost_in_per_m === 0 && e.cost_out_per_m === 0;
-    if (free) return '<span class="mc-price-free">free</span>';
-    const text = `$${f(e.cost_in_per_m ?? 0)} / $${f(e.cost_out_per_m ?? 0)}`;
-    return borrowed(e, 'cost_in_per_m', escapeHtml(text));
+    if (v < 0.01) {
+      return `$${v.toFixed(3).replace(/\.?0+$/, '')}`;
+    }
+    return `$${v.toFixed(2)}`;
+  }
+
+  function priceCell(e, { compact = false } = {}) {
+    if (e.cost_in_per_m == null && e.cost_out_per_m == null) {
+      return compact
+        ? '<span class="dt-muted">—</span>'
+        : '<div class="mc-pricing-cell"><span class="dt-muted" title="Nobody published a price for this model">—</span></div>';
+    }
+    const isFree = e.cost_kind === 'free' || (e.cost_in_per_m === 0 && e.cost_out_per_m === 0);
+    if (compact) {
+      if (isFree) return '<span class="mc-price-free"><span class="mc-cost-dot" style="--dot:var(--type-free)"></span>free</span>';
+      const text = `${formatPriceNum(e.cost_in_per_m ?? 0)} / ${formatPriceNum(e.cost_out_per_m ?? 0)}`;
+      return borrowed(e, 'cost_in_per_m', `<span class="mc-price-paid"><span class="mc-cost-dot" style="--dot:var(--type-apikey)"></span>${escapeHtml(text)}</span>`);
+    }
+
+    const inVal = isFree ? '$0' : formatPriceNum(e.cost_in_per_m ?? 0);
+    const outVal = isFree ? '$0' : formatPriceNum(e.cost_out_per_m ?? 0);
+    const planBadge = isFree ? 'Free plan' : 'Included plan';
+
+    const box = `<div class="mc-pricing-cell">
+      <div class="mc-pricing-box">
+        <div class="mc-pricing-col">
+          <span class="mc-pricing-lbl">IN</span>
+          <span class="mc-pricing-val in-val">${escapeHtml(inVal)}</span>
+        </div>
+        <div class="mc-pricing-sep"></div>
+        <div class="mc-pricing-col">
+          <span class="mc-pricing-lbl">OUT</span>
+          <span class="mc-pricing-val out-val">${escapeHtml(outVal)}</span>
+        </div>
+      </div>
+      <div class="mc-pricing-plan-badge">${planBadge}</div>
+    </div>`;
+
+    return borrowed(e, 'cost_in_per_m', box);
   }
 
   // Eight capabilities, as icons. Three states, and the middle one is the whole
@@ -934,22 +1177,15 @@
   // is "has never been heard of". The row's detail panel still spells every one
   // of them out in words, so nothing is lost by not drawing it.
   function capsHTML(e) {
-    // A row whose provider published nothing at all — no flags and no modality
-    // list — wears no marks whatsoever. Eight dim icons would be eight claims,
-    // and an empty cell says "nothing published" better than a shelf of
-    // question marks. Silence is checked across all eight, not per capability,
-    // so a row that published one thing shows that one thing lit and nothing
-    // else.
-    const anyPublished = CAT_CAPABILITIES.some((cap) => capabilityState(e, cap.id) !== null);
-    if (!anyPublished) return '<span class="mc-caps is-silent"></span>';
+    // All 8 capabilities are drawn on every row: lit (is-yes) when supported,
+    // and dimmed (is-unknown) when not supported or unknown, keeping icons
+    // perfectly aligned in fixed positions across all rows.
     const cells = CAT_CAPABILITIES.map((cap) => {
       const value = capabilityState(e, cap.id);
-      if (value !== true && value !== null) return '';
-      const label = `${cap.label}: ${value === true ? 'yes' : 'nobody published this'}`;
-      // The legend below states the whole story once; the cell only says what
-      // this model is, so the tooltip stays one line.
+      const isYes = value === true;
+      const label = `${cap.label}: ${isYes ? 'yes' : 'no'}`;
       const tip = `${label} — ${cap.blurb.toLowerCase()}`;
-      return `<span class="mc-cap-ico mc-cap-${cap.tone} ${value === true ? 'is-yes' : 'is-unknown'}"
+      return `<span class="mc-cap-ico mc-cap-${cap.tone} ${isYes ? 'is-yes' : 'is-unknown'}"
         title="${escapeHtml(tip)}" aria-label="${escapeHtml(label)}">${CAP_ICON[cap.id]}</span>`;
     }).join('');
     return `<span class="mc-caps">${cells}</span>`;
@@ -985,7 +1221,7 @@
     const body = `<div class="pv-legend-body mc-legend-body mc-legend-grid" id="mc-legend-body"${state.legendOpen ? '' : ' hidden'}>
       ${CAT_CAPABILITIES.map((cap) => {
         const n = counts[cap.id] || 0;
-        return `<div class="pv-legend-item mc-legend-tile" style="--c:var(--cap)">
+        return `<div class="pv-legend-item mc-legend-tile mc-cap-${cap.tone} ${n ? '' : 'empty'}" style="--c:var(--cap)">
           <span class="pv-legend-chip mc-legend-ico mc-cap-${cap.tone}">${CAP_ICON[cap.id]}</span>
           <div class="pv-legend-text">
             <div class="pv-legend-name">
@@ -1061,10 +1297,10 @@
         <div class="dt-provider-host mc-sub">${healthDotHTML(p)}${escapeHtml(p.name)}${e.name && e.name !== e.id ? ` · <code>${escapeHtml(e.id)}</code>` : ''}${e.family ? ` · ${escapeHtml(e.family)}` : ''}${costLabel}</div></div>
       </div></td>
       <td class="col-score" title="${escapeHtml(scoreTip(e))}">${scoreCell(e)}</td>
-      <td class="dt-num col-ctx">${contextCell(e)}</td>
-      <td class="dt-num col-price">${priceCell(e)}</td>
+      <td class="col-ctx">${contextCell(e)}</td>
+      <td class="col-price">${priceCell(e)}</td>
       <td class="col-caps">${capsHTML(e)}</td>
-      <td class="dt-num col-lat">${latencyCell(e)}</td>
+      <td class="dt-num col-speed">${speedCell(e)}</td>
       <td class="col-health">${healthCell(e)}</td>
       <td class="dt-actions-col"><div class="dt-row-actions">${actionButtons(e)}</div></td>
     </tr>`;
@@ -1084,9 +1320,10 @@
       <div class="pv-stats">
         <div class="pv-stat" title="${escapeHtml(scoreTip(e))}"><span class="pv-stat-label">Score</span><span class="pv-stat-value">${e.score == null ? '—' : e.score}</span></div>
         <div class="pv-stat"><span class="pv-stat-label">Context</span><span class="pv-stat-value">${e.context_tokens == null ? '—' : escapeHtml(fmtContext(e.context_tokens))}</span></div>
-        <div class="pv-stat"><span class="pv-stat-label">Latency</span><span class="pv-stat-value">${fmtMs(latencyP50(e) ? latencyP50(e).p50 : null)}</span></div>
-        <div class="pv-stat"><span class="pv-stat-label">Price</span><span class="pv-stat-value">${priceCell(e)}</span></div>
+        <div class="pv-stat"><span class="pv-stat-label">Speed</span><span class="pv-stat-value">${speedCell(e, { compact: true })}</span></div>
+        <div class="pv-stat"><span class="pv-stat-label">Price</span><span class="pv-stat-value">${priceCell(e, { compact: true })}</span></div>
       </div>
+      <div class="mc-card-health">${healthBarHTML(e)}</div>
       <div class="mc-card-caps">${capsHTML(e)}</div>
       <div class="pv-card-actions">
         <button class="btn btn-ghost btn-mini" type="button" data-mc-details="${key}">Details</button>
@@ -1135,6 +1372,7 @@
           ${row('First seen', e.first_seen ? escapeHtml(formatAgo(e.first_seen)) : '<span class="dt-muted">—</span>')}
           ${health ? row('Last health check', escapeHtml(`${(HEALTH_META[health.status] || HEALTH_META.error).label} · ${formatAgo(health.at)}${health.note ? ` · ${health.note}` : ''}`))
             : row('Last health check', '<span class="dt-muted">never checked</span>')}
+          ${row('Health history', healthBarHTML(e))}
         </div>
       </div>
         <div class="mc-panel">
@@ -1164,25 +1402,82 @@
 
   // ---- list / filter / sort ------------------------------------------------
 
+  function isFreeModel(e) {
+    return e.cost_kind === 'free' || (e.cost_in_per_m === 0 && e.cost_out_per_m === 0);
+  }
+
   function filtered(list) {
     const q = ui.search.trim().toLowerCase();
     let out = list.filter((e) => {
       const p = PROVIDERS[e.providerId];
       if (ui.provider !== 'all' && e.providerId !== ui.provider) return false;
-      if (q && !`${e.name} ${e.id} ${p ? p.name : ''} ${e.family || ''}`.toLowerCase().includes(q)) return false;
-      if (ui.filter === 'new') return !!e.isNew;
-      if (ui.filter === 'measured') return e.score_source === 'aa';
-      if (ui.filter === 'estimated') return e.score_source === 'est' || e.score_source === 'proxy';
-      if (ui.filter === 'unrated') return e.score == null;
+
+      // Price filter tabs: all / free / paid
+      if (ui.costTab === 'free' && !isFreeModel(e)) return false;
+      if (ui.costTab === 'paid' && isFreeModel(e)) return false;
+
+      // Model filter dropdown
+      if (ui.filter === 'connected') {
+        if (!p || !isConnected(p)) return false;
+      } else if (ui.filter === 'new') {
+        if (!e.isNew) return false;
+      } else if (ui.filter === 'measured') {
+        if (e.score_source !== 'aa') return false;
+      } else if (ui.filter === 'estimated') {
+        if (e.score_source !== 'est' && e.score_source !== 'proxy') return false;
+      } else if (ui.filter === 'unrated') {
+        if (e.score != null) return false;
+      } else if (ui.filter === 'chat') {
+        if (e.kind && e.kind !== 'chat') return false;
+      } else if (ui.filter === 'reasoning') {
+        if (capabilityState(e, 'reasoning') !== true) return false;
+      } else if (ui.filter === 'vision') {
+        if (capabilityState(e, 'vision') !== true) return false;
+      } else if (ui.filter === 'tools') {
+        if (capabilityState(e, 'tools') !== true) return false;
+      }
+
+      if (q && !`${e.name || ''} ${e.id || ''} ${p ? p.name : ''} ${e.family || ''}`.toLowerCase().includes(q)) return false;
       return true;
     });
+    // Rank models at the catalog level based on score descending (highest score = #1).
+    // Equal scores share a dense rank. Unrated models have no rank.
+    const ratedCatalog = [...state.models.values()]
+      .filter((e) => e.score != null)
+      .sort((a, b) => b.score - a.score || (a.name || a.id).localeCompare(b.name || b.id));
+
     const rank = new Map();
-    list.filter((e) => e.rank != null).sort((a, b) => a.rank - b.rank).forEach((e, i) => rank.set(e.key, i + 1));
+    let currentDenseRank = 0;
+    let prevScoreVal = null;
+    for (const e of ratedCatalog) {
+      if (prevScoreVal == null || e.score !== prevScoreVal) {
+        currentDenseRank += 1;
+      }
+      rank.set(e.key, currentDenseRank);
+      e.rank = currentDenseRank;
+      prevScoreVal = e.score;
+    }
+
     const num = (v) => (v == null ? Infinity : v);
     const by = {
-      rank: (a, b) => num(a.rank) - num(b.rank) || (a.name || a.id).localeCompare(b.name || b.id),
+      rank: (a, b) => {
+        const rA = rank.get(a.key) ?? Infinity;
+        const rB = rank.get(b.key) ?? Infinity;
+        if (rA !== rB) return rA - rB;
+        if (a.score != null && b.score != null && a.score !== b.score) return b.score - a.score;
+        if (a.score != null && b.score == null) return -1;
+        if (a.score == null && b.score != null) return 1;
+        return (a.name || a.id).localeCompare(b.name || b.id);
+      },
       context: (a, b) => num(b.context_tokens) - num(a.context_tokens),
       price: (a, b) => num(a.cost_in_per_m) - num(b.cost_in_per_m),
+      speed: (a, b) => {
+        const sa = modelSpeed(a);
+        const sb = modelSpeed(b);
+        const va = sa ? (sa.tps != null ? sa.tps : (sa.ms ? 100000 / sa.ms : null)) : null;
+        const vb = sb ? (sb.tps != null ? sb.tps : (sb.ms ? 100000 / sb.ms : null)) : null;
+        return num(vb) - num(va);
+      },
       latency: (a, b) => num(latencyP50(a) ? latencyP50(a).p50 : null) - num(latencyP50(b) ? latencyP50(b).p50 : null),
       newest: (a, b) => num(b.first_seen) - num(a.first_seen),
       name: (a, b) => (a.name || a.id).localeCompare(b.name || b.id),
@@ -1204,18 +1499,60 @@
         meter: total ? connected.length / total : 0, foot: 'connected' },
       { label: 'Rated', value: rated, sub: `/ ${list.length}`, icon: ICON.trophy,
         meter: list.length ? rated / list.length : 0,
-        foot: rated ? `${measured} measured · ${rated - measured} estimated` : 'no entry in the sources describes these yet' },
+        foot: rated ? `${measured} measured · ${rated - measured} estimated` : 'not rated in sources yet' },
       { label: 'Last sync', value: lastSync ? escapeHtml(formatAgo(lastSync)) : '—', icon: ICON.clock,
         foot: state.syncing ? 'syncing…' : `${state.syncNote || 'every'} · every ${Math.max(1, Number(settings.catalogSyncMinutes) || 5)} min` },
     ]);
   }
 
-  function providerSelectHTML() {
-    const ps = Object.values(PROVIDERS).filter(isConnected).sort((a, b) => a.name.localeCompare(b.name));
-    return `<label class="dt-select mc-provider-select">Provider<select data-mc-provider aria-label="Provider">
-      <option value="all" ${ui.provider === 'all' ? 'selected' : ''}>All</option>
-      ${ps.map((p) => `<option value="${escapeHtml(p.id)}" ${ui.provider === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
-    </select></label>`;
+  function providerOptionsList() {
+    const connected = Object.values(PROVIDERS).filter(isConnected);
+    const list = (ui.tab === 'all' || !connected.length)
+      ? Object.values(PROVIDERS).filter((p) => entriesOf(p.id).length > 0 || isConnected(p))
+      : connected;
+    const sorted = [...list].sort((a, b) => a.name.localeCompare(b.name));
+    return sorted.map((p) => ({ value: p.id, label: p.name }));
+  }
+
+  function catalogToolbarConfig() {
+    return {
+      placeholder: 'Search all models by name or ID...',
+      filterKey: 'costTab',
+      chipsLabel: 'Cost filter',
+      filters: [
+        { value: 'all', label: 'All', dot: 'var(--text-3)' },
+        { value: 'free', label: 'Free', dot: 'var(--type-free)' },
+        { value: 'paid', label: 'Paid', dot: 'var(--type-apikey)' },
+      ],
+      selects: [
+        {
+          key: 'provider',
+          icon: 'server',
+          label: 'All Providers',
+          options: [
+            { value: 'all', label: 'All Providers' },
+            ...providerOptionsList(),
+          ],
+        },
+        {
+          key: 'filter',
+          icon: 'funnel',
+          label: 'All Models',
+          options: [
+            { value: 'all', label: 'All Models' },
+            { value: 'connected', label: 'Connected Models' },
+            { value: 'new', label: 'New Models' },
+            { value: 'measured', label: 'Measured (AA)' },
+            { value: 'estimated', label: 'Estimated' },
+            { value: 'unrated', label: 'Unrated' },
+            { value: 'chat', label: 'Chat Models' },
+            { value: 'reasoning', label: 'Reasoning' },
+            { value: 'vision', label: 'Vision' },
+            { value: 'tools', label: 'Tool Calling' },
+          ],
+        },
+      ],
+    };
   }
 
   // A provider whose last attempt failed is said so in its own column, rather
@@ -1223,31 +1560,54 @@
   // table, above it: the tabs count models, not attempts, and a provider that
   // did not answer has models in the tab count it never proved.
   function staleBanner(list) {
-    const bad = state.providers.filter((p) => !p.ok || p.stale);
-    if (!bad.length) return '';
-    const bits = bad.map((p) => p.ok
-      ? `${escapeHtml((PROVIDERS[p.providerId] || {}).name || p.providerId)} is stale — ${escapeHtml(p.warning || 'the last attempt failed')}`
-      : `${escapeHtml((PROVIDERS[p.providerId] || {}).name || p.providerId)}: ${escapeHtml(p.message || p.code)}`);
-    return `<div class="mc-source-error" role="status">${bits.join(' · ')}</div>`;
+    return '';
   }
 
-  // The filter chips' own counts. Counted over the SEARCHED list rather than
-  // the filtered one, so a chip never reads 0 because its own filter is off.
-  // q/count keep their names: this is the original code, only renamed so the
-  // legend below can have them.
   function renderResults() {
     const list = visibleEntries();
     const q = ui.search.trim().toLowerCase();
-    const searched = list.filter((e) => (ui.provider === 'all' || e.providerId === ui.provider)
-      && (!q || `${e.name} ${e.id} ${(PROVIDERS[e.providerId] || {}).name || ''}`.toLowerCase().includes(q)));
-    const count = { all: searched.length, new: 0, measured: 0, estimated: 0, unrated: 0 };
-    searched.forEach((e) => {
-      if (e.isNew) count.new += 1;
-      if (e.score_source === 'aa') count.measured += 1;
-      if (e.score_source === 'est' || e.score_source === 'proxy') count.estimated += 1;
-      if (e.score == null) count.unrated += 1;
+
+    // Base candidate list before costTab to compute All / Free / Paid counts
+    const baseList = list.filter((e) => {
+      const p = PROVIDERS[e.providerId];
+      if (ui.provider !== 'all' && e.providerId !== ui.provider) return false;
+      if (q && !`${e.name || ''} ${e.id || ''} ${(PROVIDERS[e.providerId] || {}).name || ''} ${e.family || ''}`.toLowerCase().includes(q)) return false;
+      if (ui.filter === 'connected') {
+        if (!p || !isConnected(p)) return false;
+      } else if (ui.filter === 'new') {
+        if (!e.isNew) return false;
+      } else if (ui.filter === 'measured') {
+        if (e.score_source !== 'aa') return false;
+      } else if (ui.filter === 'estimated') {
+        if (e.score_source !== 'est' && e.score_source !== 'proxy') return false;
+      } else if (ui.filter === 'unrated') {
+        if (e.score != null) return false;
+      } else if (ui.filter === 'chat') {
+        if (e.kind && e.kind !== 'chat') return false;
+      } else if (ui.filter === 'reasoning') {
+        if (capabilityState(e, 'reasoning') !== true) return false;
+      } else if (ui.filter === 'vision') {
+        if (capabilityState(e, 'vision') !== true) return false;
+      } else if (ui.filter === 'tools') {
+        if (capabilityState(e, 'tools') !== true) return false;
+      }
+      return true;
     });
-    $$('#mc-toolbar [data-dt-count]').forEach((el) => { el.textContent = count[el.dataset.dtCount] ?? 0; });
+
+    let totalAll = baseList.length;
+    let totalFree = 0;
+    let totalPaid = 0;
+    for (const e of baseList) {
+      if (isFreeModel(e)) totalFree++;
+      else totalPaid++;
+    }
+
+    const cAll = document.querySelector('#mc-toolbar [data-dt-count="all"], #mc-toolbar [data-cost-count="all"]');
+    if (cAll) cAll.textContent = totalAll.toLocaleString();
+    const cFree = document.querySelector('#mc-toolbar [data-dt-count="free"], #mc-toolbar [data-cost-count="free"]');
+    if (cFree) cFree.textContent = totalFree.toLocaleString();
+    const cPaid = document.querySelector('#mc-toolbar [data-dt-count="paid"], #mc-toolbar [data-cost-count="paid"]');
+    if (cPaid) cPaid.textContent = totalPaid.toLocaleString();
 
     // The legend is drawn from the same filtered list the table is, so a search
     // that narrows to three models moves its numbers with it. It is written as
@@ -1273,15 +1633,39 @@
     results.innerHTML = `${banner}<div class="dt-table-wrap mc-table-wrap"><table class="dt-table mc-table">
       <thead><tr>
         <th class="col-rank">#</th><th>Model</th>
-        <th class="col-score" title="Where the score comes from: measured from Artificial Analysis, estimated from the sources, or a proxy of a measured route. A model no source describes reads Unrated.">Score</th>
-        <th class="col-ctx" title="Context window, as published by the provider or filled from the sources">Context</th>
-        <th class="col-price" title="Price per million tokens, in and out">In / Out $</th>
+        <th class="col-score" title="Where the score comes from: measured from Artificial Analysis, estimated from the sources, or a proxy of a measured route. A model no source describes reads Unrated.">QUALITY</th>
+        <th class="col-ctx" title="Context window, as published by the provider or filled from the sources">CONTEXT</th>
+        <th class="col-price" title="Price per million tokens, in and out">PRICING</th>
         <th class="col-caps" title="What this model can do. Lit = the provider published it. Dimmed = nobody has, which is not a refusal; a published “no” is left out and is spelled out in the row’s details. The legend above names every icon.">Capabilities</th>
-        <th class="col-lat" title="Median latency of this model’s health-check requests">Latency p50</th>
-        <th class="col-health">Health</th><th class="dt-actions-col">Actions</th>
+        <th class="col-speed" title="Generation speed in tokens per second (or median response time)">SPEED</th>
+        <th class="col-health" title="Health check status and availability history">Health</th><th class="dt-actions-col">Actions</th>
       </tr></thead>
       <tbody>${out.map((e) => rowHTML(e, rank.get(e.key))).join('')}</tbody>
     </table></div>`;
+
+    const tableEl = results.querySelector('.mc-table');
+    if (tableEl) {
+      const headerSortMap = [
+        { sel: 'th.col-rank', sort: 'rank' },
+        { sel: 'th:nth-child(2)', sort: 'name' },
+        { sel: 'th.col-score', sort: 'rank' },
+        { sel: 'th.col-ctx', sort: 'context' },
+        { sel: 'th.col-price', sort: 'price' },
+        { sel: 'th.col-speed', sort: 'speed' },
+        { sel: 'th.col-lat', sort: 'speed' },
+      ];
+      headerSortMap.forEach(({ sel, sort }) => {
+        const th = tableEl.querySelector(sel);
+        if (th) {
+          th.style.cursor = 'pointer';
+          th.title = (th.title ? `${th.title} — ` : '') + 'Click to sort';
+          th.addEventListener('click', () => {
+            ui.sort = sort;
+            renderResults();
+          });
+        }
+      });
+    }
   }
 
   // Re-render just one row (a health verdict landing) without rebuilding the
@@ -1350,6 +1734,17 @@
     if (syncOrb) syncOrb.classList.toggle('spin', state.syncing);
   }
 
+  function open() {
+    ui.tab = 'connected';
+    ui.costTab = 'all';
+    ui.filter = 'all';
+    ui.provider = 'all';
+    ui.search = '';
+    state.legendOpen = true;
+    state.shell = false;
+    render();
+  }
+
   function render() {
     if (!state.loaded) { load().then(render); return; }
     const body = $('#mc-body');
@@ -1369,29 +1764,27 @@
     }
     if (!state.shell) {
       state.shell = true;
+      const cfg = catalogToolbarConfig();
       body.innerHTML = `<div id="mc-kpis"></div>
         <div id="mc-legend"></div>
-        <div id="mc-toolbar">${dataToolbarHTML(TOOLBAR, ui)}</div>
+        <div id="mc-toolbar">${dataToolbarHTML(cfg, ui)}</div>
         <div id="mc-results"></div>`;
       const tb = $('#mc-toolbar');
-      bindDataToolbar(tb, ui, () => renderResults());
-      tb.querySelector('.dt-left').insertAdjacentHTML('beforeend', providerSelectHTML());
-      tb.querySelector('[data-mc-provider]').addEventListener('change', (ev) => {
-        ui.provider = ev.target.value;
-        renderCrumbs();
+      bindDataToolbar(tb, ui, (key) => {
+        if (key === 'provider') renderCrumbs();
         renderResults();
-      });
+      }, cfg);
     } else {
       // Providers may have connected or disconnected since the shell was built.
-      const sel = $('#mc-toolbar .mc-provider-select');
-      if (sel) {
+      const provSelect = $('#mc-toolbar [data-dt-select="provider"], #mc-toolbar [data-mc-provider]');
+      if (provSelect) {
         if (ui.provider !== 'all' && !(PROVIDERS[ui.provider] && isConnected(PROVIDERS[ui.provider]))) ui.provider = 'all';
-        sel.outerHTML = providerSelectHTML();
-        $('#mc-toolbar [data-mc-provider]').addEventListener('change', (ev) => {
-          ui.provider = ev.target.value;
-          renderCrumbs();
-          renderResults();
-        });
+        const opts = [{ value: 'all', label: 'All Providers' }, ...providerOptionsList()];
+        provSelect.innerHTML = opts.map(o => `<option value="${escapeHtml(o.value)}" ${ui.provider === o.value ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('');
+        if (provSelect._uiTrigger) {
+          const valEl = provSelect._uiTrigger.querySelector('.ui-select-value');
+          if (valEl) valEl.textContent = provSelect.options[provSelect.selectedIndex]?.textContent || 'All Providers';
+        }
       }
     }
     renderKpis(visibleEntries());
@@ -1563,10 +1956,12 @@
     init,
     flush,
     render,
+    open,
     renderIfShown,
     syncAll,
     fillSettings,
     load,
+    reload,
     visibleEntries,
     keyModels,
     providerModelCount,

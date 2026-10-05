@@ -24,6 +24,21 @@ window.INTEGRATED_PROVIDERS.darkapi = {
     },
   },
 
+  // Dark API's uncensored routes are named `<base>-unrestricted`, and every one
+  // of those is resolvable: the base is a model the reference carries, or a model
+  // this provider serves under its full name, and the row inherits that model's
+  // facts as a labelled `proxy`.
+  //
+  // The bare `unrestricted` is none of those. It names no base at all — it is the
+  // modifier with the model left off — so there is nothing to look up, nothing to
+  // inherit, and no reference row it could ever borrow from. It is not a model
+  // this app can measure; it is a route that has to be excluded rather than shown
+  // as a row of dashes that reads like a failure of the data.
+  excludeModel(model) {
+    const id = String((model && model.id) || '').trim();
+    return /^(unrestricted|uncensored|unsencored|abliterated|raw)$/i.test(id);
+  },
+
   // No custom fetchModels: Dark API is a plain OpenAI-compatible provider with no
   // free / free-for-paid tiers, so app.js's default discovery (GET /models → show
   // every model) is used. Provider-specific discovery only lives here when a
