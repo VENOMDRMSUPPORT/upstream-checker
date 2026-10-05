@@ -17,6 +17,15 @@
   let owner = null;    // the select it belongs to
   let active = -1;     // keyboard-highlighted option index
 
+  const LEAD_ICONS = {
+    server: '<svg class="ui-select-lead-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></svg>',
+    funnel: '<svg class="ui-select-lead-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>',
+    sort: '<svg class="ui-select-lead-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="15" x2="15" y1="18" y2="6"/><polyline points="11 10 15 6 19 10"/><line x1="9" x2="9" y1="6" y2="18"/><polyline points="5 14 9 18 13 14"/></svg>',
+    database: '<svg class="ui-select-lead-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>',
+    clock: '<svg class="ui-select-lead-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+    cpu: '<svg class="ui-select-lead-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>',
+  };
+
   function labelOf(select) {
     const opt = select.options[select.selectedIndex];
     return opt ? opt.textContent : '';
@@ -25,7 +34,8 @@
   function sync(select) {
     const trigger = select._uiTrigger;
     if (!trigger) return;
-    trigger.querySelector('.ui-select-value').textContent = labelOf(select);
+    const valEl = trigger.querySelector('.ui-select-value');
+    if (valEl) valEl.textContent = labelOf(select);
     trigger.disabled = select.disabled;
   }
 
@@ -38,11 +48,15 @@
     // inside a labelled box (the toolbar's "Sort") stays flush with its box.
     trigger.className = `ui-select${select.classList.contains('prompt-input') ? ' ui-select-field' : ''}`;
     if (select.classList.contains('narrow')) trigger.classList.add('narrow');
+    if (select.dataset.uiClass) {
+      select.dataset.uiClass.split(/\s+/).filter(Boolean).forEach((c) => trigger.classList.add(c));
+    }
     trigger.setAttribute('aria-haspopup', 'listbox');
     trigger.setAttribute('aria-expanded', 'false');
     const label = select.getAttribute('aria-label') || (select.id && document.querySelector(`label[for="${CSS.escape(select.id)}"]`)?.textContent.trim());
     if (label) trigger.setAttribute('aria-label', label);
-    trigger.innerHTML = `<span class="ui-select-value"></span>${CHEVRON}`;
+    const lead = select.dataset.leadIcon ? `<span class="ui-select-lead-icon-wrap">${LEAD_ICONS[select.dataset.leadIcon] || select.dataset.leadIcon}</span>` : '';
+    trigger.innerHTML = `${lead}<span class="ui-select-value"></span>${CHEVRON}`;
     select.classList.add('ui-select-native');
     select.tabIndex = -1;
     select.setAttribute('aria-hidden', 'true');

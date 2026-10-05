@@ -24,8 +24,13 @@ export function assertScratchDir(dir) {
 
 // NODE_ENV=development skips the update check (no GitHub traffic), and
 // ELECTRON_RUN_AS_NODE must not leak in from a test shell.
+//
+// VENOM_NO_DEV_WATCH keeps a gate's window stable. Anything else editing
+// src/renderer while a gate runs reloads the page, and a reload during startup
+// aborts init() — the gate then measures an empty shell and reports the app as
+// broken. A gate must observe the code, not race whoever is writing it.
 export function appEnv() {
-  const env = { ...process.env, NODE_ENV: 'development' };
+  const env = { ...process.env, NODE_ENV: 'development', VENOM_NO_DEV_WATCH: '1' };
   delete env.ELECTRON_RUN_AS_NODE;
   return env;
 }
@@ -146,8 +151,14 @@ export async function launch({ userDataDir, port = 9333, entry = '.', extraArgs 
   async function unlock(password = 'habiba77Hm') {
     return evaluate(`(async () => {
       const before = await window.electronAPI.authStatus();
-      if (before && before.locked === false) return { ok: true, alreadyOpen: true };
+      if (before && before.locked === false) {
+        if (window.LOCK && typeof window.LOCK.hide === 'function') window.LOCK.hide();
+        return { ok: true, alreadyOpen: true };
+      }
       const reply = await window.electronAPI.authUnlock(${JSON.stringify(password)});
+      if (reply && reply.ok && window.LOCK && typeof window.LOCK.hide === 'function') {
+        window.LOCK.hide();
+      }
       return reply;
     })()`, 30000);
   }

@@ -368,6 +368,12 @@ let devWatcher = null;
 
 function watchRendererInDev(win) {
   if (app.isPackaged || devWatcher) return;
+  // Automated gates drive this window over CDP, and a reload that lands
+  // mid-startup aborts init(): the window is left on an empty shell with no
+  // providers loaded, which reads as a broken app rather than as a test that
+  // raced whatever else was writing to src/renderer. The gates set this; a
+  // person never should — live reload is the point when you are editing.
+  if (process.env.VENOM_NO_DEV_WATCH === '1') return;
   const dir = path.join(__dirname, 'renderer');
   let timer = null;
   let sheets = new Set();
