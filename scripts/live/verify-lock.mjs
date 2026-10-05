@@ -77,7 +77,7 @@ const PORT = 47861;
 // and the canvas field is running — not when PROVIDERS exists.
 const READY = "!!document.getElementById('lock-screen') && !document.getElementById('lock-screen').hidden && !!window.LOCK";
 
-const DEFAULT_PASSWORD = 'habiba77Hm';
+const DEFAULT_PASSWORD = '123456';
 
 async function measure(app) {
   return app.evaluate(`(async () => {

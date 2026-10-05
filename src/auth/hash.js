@@ -18,7 +18,7 @@ const crypto = require('crypto');
 // source knows it. It exists so the first launch has a way in, and Settings
 // says so until it is changed. `is_default` on the stored row is what the UI
 // reads; this constant is only what gets hashed for that first row.
-const DEFAULT_PASSWORD = 'habiba77Hm';
+const DEFAULT_PASSWORD = '123456';
 
 const ALGO = 'scrypt';
 const N = 16384; // CPU/memory cost. ~50-70 ms per derivation on this machine.

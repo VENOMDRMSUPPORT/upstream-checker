@@ -63,7 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### The app lock
 
-- **The app opens on a password screen.** It ships with `habiba77Hm` as the
+- **The app opens on a password screen.** It ships with `123456` as the
   owner password and asks for it at every launch; nothing in the app — no page,
   no provider, no key, no request — is reachable until it is entered. The screen
   is the brand's front door: the cyan emblem at 176 px, breathing under a

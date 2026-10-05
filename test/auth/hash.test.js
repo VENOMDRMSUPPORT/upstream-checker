@@ -20,7 +20,7 @@ test('the shipped default is not stored in a comparable form', () => {
 
 test('a wrong password is refused', () => {
   const { value } = hashPassword(DEFAULT_PASSWORD, fast);
-  for (const attempt of ['', 'habiba77HM', 'habiba77Hm ', ' habiba77Hm', 'x']) {
+  for (const attempt of ['', '123457', '123456 ', ' 123456', 'x']) {
     assert.strictEqual(verifyPassword(attempt, value), false, `"${attempt}" must not unlock`);
   }
 });

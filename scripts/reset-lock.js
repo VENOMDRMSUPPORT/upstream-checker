@@ -112,7 +112,7 @@ app.whenReady().then(() => {
     } else {
       console.log('  Removed 1 row from app_lock.');
     }
-    console.log('\n  Done. Start VENOM Router and log in with habiba77Hm.\n');
+    console.log('\n  Done. Start VENOM Router and log in with 123456.\n');
     app.exit(0);
   } catch (err) {
     try { db.close(); } catch (_) { /* dying anyway */ }

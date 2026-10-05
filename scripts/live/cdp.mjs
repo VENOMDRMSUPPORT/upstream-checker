@@ -148,7 +148,7 @@ export async function launch({ userDataDir, port = 9333, entry = '.', extraArgs 
   // It resolves the same { ok, ... } value auth:unlock always does, so a gate can
   // assert the unlock happened instead of assuming it. A session that is already
   // unlocked (a reload) answers ok with no work.
-  async function unlock(password = 'habiba77Hm') {
+  async function unlock(password = '123456') {
     return evaluate(`(async () => {
       const before = await window.electronAPI.authStatus();
       if (before && before.locked === false) {

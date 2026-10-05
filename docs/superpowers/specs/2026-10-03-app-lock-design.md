@@ -22,7 +22,7 @@ document says plainly what the lock does and does not protect against.
 | Session expiry | The unlock lives in main memory only — a restart always asks again |
 | Login-screen title bar | Drag, minimize, close. Settings, accent and theme buttons are removed while locked |
 | Forgotten password | Documented recovery: delete the `app_lock` row. No in-app back door |
-| Default password | `habiba77Hm`, shipped. Settings warns while it is unchanged; it is never forced |
+| Default password | `123456`, shipped. Settings warns while it is unchanged; it is never forced |
 | Lock screen colours | Cyan on black, always. Never follows `settings.theme` or `settings.accent` |
 | Animation | CSS layers (grid, aurora, logo glow and orbit ring) **plus** a canvas particle field |
 | Motion off | The existing **Reduce motion** setting is wired to it. It is currently saved but read by nothing |
@@ -94,7 +94,7 @@ CREATE TABLE app_lock (
   changed. The migration creates the empty table and `ensureDefault()` writes the
   row when it is absent.
 - **No row means the default password.** A fresh database, and a database just
-  reset by the recovery script, both read as "locked with `habiba77Hm`".
+  reset by the recovery script, both read as "locked with `123456`".
 
 **The hash is not wrapped in the `enc:v1:` DPAPI envelope.** Provider keys are,
 because losing them is recoverable ("locked key", the UI says so). Losing the
@@ -110,7 +110,7 @@ oversight.
 // invalidate a password set today: an old string still verifies with its own
 // parameters, and the next change re-hashes with the current ones.
 //   scrypt$16384$8$1$<salt base64>$<hash base64>
-const DEFAULT_PASSWORD = 'habiba77Hm'; // bootstrap value, not a secret: it is in this repo
+const DEFAULT_PASSWORD = '123456'; // bootstrap value, not a secret: it is in this repo
 ```
 
 - `hashPassword(password)` → `{ value, params }` with a fresh 16-byte salt and
@@ -361,7 +361,7 @@ reload does not re-prompt. That is correct: reloading is not a new launch.
 - It prints the resolved path and what it is about to do, then `DELETE FROM
   app_lock` — one row, in one table. Providers, keys, history, logs and settings
   are not touched.
-- The next launch sees no row and re-creates the default, which is `habiba77Hm`.
+- The next launch sees no row and re-creates the default, which is `123456`.
 
 This is a documented recovery, not a back door: it needs filesystem access to the
 data folder, which already implies the ability to do anything to this app.
@@ -461,6 +461,6 @@ source file, so `docs/CODE_MAP.md` must be updated in the same change.
 ## 14. What the owner will see
 
 `npm start` in `C:\Users\venom\Desktop\UPSTREAM CHECKER` — the same command and
-the same data folder — now opens on the lock screen. Enter `habiba77Hm` and the
+the same data folder — now opens on the lock screen. Enter `123456` and the
 app is exactly as it was today. This is the behaviour that was asked for, and it
 changes the first thing the app shows, so it is stated here rather than found.
