@@ -49,13 +49,117 @@
     return state.info;
   }
 
+  const LOG_ICONS = {
+    runs: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+    requests: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
+    pass: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+    latency: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 14 10"/></svg>',
+    cost: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
+  };
+
   function emptyState(title, detail) {
-    return `<div class="log-empty"><p class="log-empty-title">${title}</p><p class="log-empty-detail">${detail}</p></div>`;
+    return `<div class="log-empty log-empty-card">
+      <div class="log-empty-badge">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      </div>
+      <p class="log-empty-title">${title}</p>
+      <p class="log-empty-detail">${detail}</p>
+    </div>`;
   }
 
   function loggingOffMarkup() {
     const why = state.info && state.info.error ? logEscape(state.info.error) : 'Logging is turned off.';
     return emptyState('No request log', `${why} Turn request logging on in Settings to start recording.`);
+  }
+
+  function renderCrumbs() {
+    const crumbsEl = el('log-crumbs');
+    if (!crumbsEl || typeof breadcrumbHTML !== 'function') return;
+    const items = [
+      { label: 'Overview', page: 'overview' },
+      { label: 'Test History', page: 'history', icon: 'history' },
+      { label: state.tab === 'runs' ? 'Runs' : 'Requests' },
+    ];
+    if (state.filters.runId) {
+      items.push({ label: `Run ${state.filters.runId.slice(0, 8)}…` });
+    }
+    crumbsEl.innerHTML = breadcrumbHTML(items);
+  }
+
+  function updateTabCounts() {
+    const runsCountEl = el('log-count-runs');
+    const reqsCountEl = el('log-count-requests');
+    if (runsCountEl) {
+      if (state.tab === 'runs' && state.rows) {
+        runsCountEl.textContent = state.rows.length + (state.cursor ? '+' : '');
+      }
+    }
+    if (reqsCountEl) {
+      if (state.info && state.info.rows != null) {
+        reqsCountEl.textContent = formatTokens(state.info.rows);
+      } else if (state.tab === 'requests' && state.rows) {
+        reqsCountEl.textContent = state.rows.length + (state.cursor ? '+' : '');
+      }
+    }
+  }
+
+  function renderStats() {
+    const container = el('log-stats');
+    if (!container) return;
+    if (!state.info || !state.info.enabled || !state.rows || !state.rows.length) {
+      container.innerHTML = '';
+      return;
+    }
+    const isRuns = state.tab === 'runs';
+    let totalCount, passRate, avgLat, costMicros;
+    if (isRuns) {
+      totalCount = state.rows.length;
+      const totalAttempts = state.rows.reduce((sum, r) => sum + (r.requests - (r.cancelled || 0) - (r.blocked || 0)), 0);
+      const totalOk = state.rows.reduce((sum, r) => sum + (r.ok || 0), 0);
+      passRate = totalAttempts > 0 ? totalOk / totalAttempts : null;
+      avgLat = totalAttempts > 0 ? Math.round(state.rows.reduce((sum, r) => sum + ((r.avg_latency_ms || 0) * ((r.requests - (r.cancelled || 0) - (r.blocked || 0)) || 1)), 0) / totalAttempts) : 0;
+      costMicros = state.rows.reduce((sum, r) => sum + (r.cost_micros || 0), 0);
+    } else {
+      totalCount = state.rows.length;
+      const okCount = state.rows.filter((r) => r.status === 'ok').length;
+      const nonMuted = state.rows.filter((r) => r.status !== 'cancelled').length;
+      passRate = nonMuted > 0 ? okCount / nonMuted : null;
+      const validLats = state.rows.map((r) => r.latency_ms).filter((n) => Number.isFinite(n) && n > 0);
+      avgLat = validLats.length ? Math.round(validLats.reduce((a, b) => a + b, 0) / validLats.length) : 0;
+      costMicros = state.rows.reduce((sum, r) => sum + (r.cost_micros || 0), 0);
+    }
+
+    const rangeLabel = RANGE_LABELS[state.filters.range] || 'Selected range';
+    if (typeof statCardsHTML === 'function') {
+      container.innerHTML = statCardsHTML([
+        {
+          label: isRuns ? 'Total Runs' : 'Total Requests',
+          value: formatTokens(totalCount),
+          icon: isRuns ? LOG_ICONS.runs : LOG_ICONS.requests,
+          foot: rangeLabel,
+        },
+        {
+          label: 'Success Rate',
+          value: passRateText(passRate),
+          icon: LOG_ICONS.pass,
+          meter: passRate,
+          tone: passRate !== null && passRate >= 0.9 ? 'pass' : (passRate !== null && passRate < 0.5 ? 'fail' : null),
+          foot: isRuns ? 'across tested runs' : 'successful outcomes',
+        },
+        {
+          label: 'Average Latency',
+          value: formatDuration(avgLat),
+          icon: LOG_ICONS.latency,
+          foot: 'mean response duration',
+        },
+        {
+          label: 'Total Spend',
+          value: formatCost(costMicros),
+          icon: LOG_ICONS.cost,
+          foot: 'accumulated token cost',
+        },
+      ]);
+    }
   }
 
   async function render() {
@@ -65,14 +169,19 @@
     }
     await loadInfo();
     renderTabs();
+    renderCrumbs();
     if (!state.info.enabled) {
       el('log-filters').innerHTML = '';
       el('log-body').innerHTML = loggingOffMarkup();
+      const stats = el('log-stats');
+      if (stats) stats.innerHTML = '';
       syncTail();
       return;
     }
     if (state.tab === 'runs') await renderRuns();
     else await renderRequests();
+    renderStats();
+    updateTabCounts();
     syncTail();
   }
 
@@ -168,28 +277,48 @@
       ? `<span class="log-chip">Run ${logEscape(state.filters.runId)}<button class="log-chip-x" type="button" id="log-clear-run" aria-label="Clear the run filter">&times;</button></span>`
       : '';
     el('log-filters').innerHTML = `
-      <select class="prompt-input narrow" id="log-range">
-        ${Object.entries(RANGE_LABELS).map(([k, l]) => opt(k, l, state.filters.range)).join('')}
-      </select>
-      <select class="prompt-input narrow" id="log-provider">
-        ${opt('', 'Every provider', state.filters.providerId[0] || '')}
-        ${facets.providers.map((p) => opt(p.id, providerLabel(p.id, p.name), state.filters.providerId[0] || '')).join('')}
-      </select>
-      <select class="prompt-input narrow" id="log-model">
-        ${opt('', 'Every model', state.filters.model)}
-        ${facets.models.map((m) => opt(m, m, state.filters.model)).join('')}
-      </select>
-      <select class="prompt-input narrow" id="log-source">
-        ${opt('', 'Every source', state.filters.source[0] || '')}
-        ${facets.sources.map((s) => opt(s, s, state.filters.source[0] || '')).join('')}
-      </select>
-      ${runsTab ? '' : `<select class="prompt-input narrow" id="log-status">
-        ${opt('', 'Any outcome', state.filters.status[0] || '')}
-        ${['ok', 'error', 'cancelled'].map((v) => opt(v, v, state.filters.status[0] || '')).join('')}
-      </select>`}
-      <input class="prompt-input" id="log-text" placeholder="${runsTab ? 'Search run id' : 'Search id, run or error'}" value="${logEscape(state.filters.text)}">
-      ${chip}
-      ${runsTab ? '' : '<button class="btn btn-ghost" type="button" id="log-export">Export CSV</button>'}`;
+      <div class="dt-toolbar log-dt-toolbar">
+        <div class="dt-left">
+          <label class="dt-search">
+            <span class="dt-search-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>
+            <input type="search" data-dt="search" id="log-text" placeholder="${runsTab ? 'Search run id…' : 'Search id, run or error…'}" value="${logEscape(state.filters.text)}" autocomplete="off" spellcheck="false" aria-label="Search">
+            <kbd>/</kbd>
+          </label>
+          <div class="ui-select-wrap">
+            <select class="ui-select-native" id="log-range" data-lead-icon="clock" data-ui-class="ui-select-toolbar" aria-label="Time range">
+              ${Object.entries(RANGE_LABELS).map(([k, l]) => opt(k, l, state.filters.range)).join('')}
+            </select>
+          </div>
+          <div class="ui-select-wrap">
+            <select class="ui-select-native" id="log-provider" data-lead-icon="server" data-ui-class="ui-select-toolbar" aria-label="Provider">
+              ${opt('', 'Every provider', state.filters.providerId[0] || '')}
+              ${facets.providers.map((p) => opt(p.id, providerLabel(p.id, p.name), state.filters.providerId[0] || '')).join('')}
+            </select>
+          </div>
+          <div class="ui-select-wrap">
+            <select class="ui-select-native" id="log-model" data-lead-icon="cpu" data-ui-class="ui-select-toolbar" aria-label="Model">
+              ${opt('', 'Every model', state.filters.model)}
+              ${facets.models.map((m) => opt(m, m, state.filters.model)).join('')}
+            </select>
+          </div>
+          <div class="ui-select-wrap">
+            <select class="ui-select-native" id="log-source" data-lead-icon="funnel" data-ui-class="ui-select-toolbar" aria-label="Source">
+              ${opt('', 'Every source', state.filters.source[0] || '')}
+              ${facets.sources.map((s) => opt(s, s, state.filters.source[0] || '')).join('')}
+            </select>
+          </div>
+          ${runsTab ? '' : `<div class="ui-select-wrap">
+            <select class="ui-select-native" id="log-status" data-lead-icon="funnel" data-ui-class="ui-select-toolbar" aria-label="Outcome">
+              ${opt('', 'Any outcome', state.filters.status[0] || '')}
+              ${['ok', 'error', 'cancelled'].map((v) => opt(v, v, state.filters.status[0] || '')).join('')}
+            </select>
+          </div>`}
+        </div>
+        <div class="dt-right">
+          ${chip}
+          ${runsTab ? '' : '<button class="btn btn-ghost log-export-btn" type="button" id="log-export"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV</button>'}
+        </div>
+      </div>`;
   }
 
   function reload() {
@@ -226,23 +355,24 @@
   // ---- the requests table --------------------------------------------
 
   const COLUMNS = [
-    { label: 'Time', sort: 'time' },
-    { label: 'Source' },
-    { label: 'Provider' },
-    { label: 'Model' },
-    { label: 'Outcome' },
-    { label: 'Latency', sort: 'latency' },
-    { label: 'TTFT', sort: 'ttft' },
-    { label: 'Tokens' },
-    { label: 'Cost', sort: 'cost' },
+    { label: 'Time', sort: 'time', cls: 'col-time' },
+    { label: 'Source', cls: 'col-source' },
+    { label: 'Provider', cls: 'col-provider' },
+    { label: 'Model', cls: 'col-model' },
+    { label: 'Outcome', cls: 'col-outcome' },
+    { label: 'Latency', sort: 'latency', cls: 'col-latency dt-num' },
+    { label: 'TTFT', sort: 'ttft', cls: 'col-ttft dt-num' },
+    { label: 'Tokens', cls: 'col-tokens dt-num' },
+    { label: 'Cost', sort: 'cost', cls: 'col-cost dt-num' },
   ];
 
   function headerCell(col) {
-    if (!col.sort) return `<th>${col.label}</th>`;
+    const cls = col.cls ? ` class="${col.cls}"` : '';
+    if (!col.sort) return `<th${cls}>${col.label}</th>`;
     const on = state.sort === col.sort;
     // A second click on a sorted column goes back to time order rather than
     // reversing: every sort is descending (query.js, SORT_COLUMNS).
-    return `<th><button class="log-sort${on ? ' active' : ''}" type="button" data-sort="${col.sort}">${col.label}${on ? ' ↓' : ''}</button></th>`;
+    return `<th${cls}><button class="log-sort${on ? ' active' : ''}" type="button" data-sort="${col.sort}">${col.label}${on ? ' ↓' : ''}</button></th>`;
   }
 
   async function renderRequests() {
@@ -266,12 +396,27 @@
     state.cursor = page.nextCursor;
     if (!state.rows.length) {
       el('log-body').innerHTML = emptyState('No requests in this range', 'Widen the range, or clear a filter.');
+      renderStats();
+      updateTabCounts();
       return;
     }
-    el('log-body').innerHTML = `<div class="log-scroll"><table class="log-table">
-      <thead><tr>${COLUMNS.map(headerCell).join('')}</tr></thead>
-      <tbody id="log-rows">${rowsMarkup()}</tbody></table></div>
-      ${state.cursor ? '<button class="btn btn-ghost" type="button" id="log-more">Show more</button>' : ''}`;
+    el('log-body').innerHTML = `
+      <section class="dt-table-wrap log-table-wrap">
+        <div class="ov-panel-head log-table-head">
+          <div class="log-table-title-wrap">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            <span class="log-table-title">Logged Requests</span>
+            <span class="log-table-count-pill">${state.rows.length} loaded</span>
+          </div>
+          <div class="log-table-head-meta">Click a request to inspect payloads &amp; headers</div>
+        </div>
+        <table class="dt-table log-table">
+          <thead><tr>${COLUMNS.map(headerCell).join('')}</tr></thead>
+          <tbody id="log-rows">${rowsMarkup()}</tbody></table>
+        ${state.cursor ? '<div class="log-table-footer"><button class="btn btn-ghost" type="button" id="log-more">Show more</button></div>' : ''}
+      </section>`;
+    renderStats();
+    updateTabCounts();
   }
 
   // Split out so the live tail can redraw the body alone and leave the
@@ -280,9 +425,15 @@
     return state.rows.map((row) => {
       const vm = toViewModel(row, state.providerNames);
       return `<tr class="log-row" data-id="${vm.id}">
-        <td>${vm.when}</td><td>${vm.source}</td><td>${vm.provider}</td><td>${vm.model}</td>
-        <td><span class="log-pill ${vm.tone}">${vm.errorClass || vm.status}</span></td>
-        <td>${vm.latency}</td><td>${vm.ttft}</td><td>${vm.tokens}</td><td>${vm.cost}</td>
+        <td class="col-time">${vm.when}</td>
+        <td class="col-source">${vm.source}</td>
+        <td class="col-provider"><strong>${vm.provider}</strong></td>
+        <td class="col-model">${vm.model}</td>
+        <td class="col-outcome"><span class="log-pill ${vm.tone}">${vm.errorClass || vm.status}</span></td>
+        <td class="col-latency dt-num">${vm.latency}</td>
+        <td class="col-ttft dt-num">${vm.ttft}</td>
+        <td class="col-tokens dt-num">${vm.tokens}</td>
+        <td class="col-cost dt-num">${vm.cost}</td>
       </tr>`;
     }).join('');
   }
@@ -560,6 +711,46 @@
 
   // ---- the runs table --------------------------------------------------
 
+  function runsTrendChartHTML(rows) {
+    if (!rows || !rows.length) return '';
+    const recent = rows.slice(0, 24).reverse();
+    const maxLat = Math.max(1, ...recent.map((r) => r.avg_latency_ms || 0));
+
+    const bars = recent.map((r) => {
+      const attempted = r.requests - (r.cancelled || 0) - (r.blocked || 0);
+      const rate = attempted > 0 ? r.ok / attempted : null;
+      const heightPct = Math.max(16, Math.min(100, Math.round(((r.avg_latency_ms || 0) / maxLat) * 100)));
+      let toneClass = 'pass';
+      if (rate === null || rate < 0.5) toneClass = 'fail';
+      else if (rate < 0.95) toneClass = 'warn';
+      const timeStr = formatWhen(r.started_at);
+      const title = `${timeStr} · ${r.requests} reqs · ${passRateText(rate)} pass · ${formatDuration(r.avg_latency_ms)} · ${formatCost(r.cost_micros)}`;
+      return `<div class="log-trend-bar-wrap" data-trend-run="${logEscape(r.run_id)}" title="${logEscape(title)}">
+        <div class="log-trend-bar ${toneClass}" style="height: ${heightPct}%;"></div>
+        <span class="log-trend-label">${timeStr.split(' ')[1] || timeStr.slice(-5)}</span>
+      </div>`;
+    }).join('');
+
+    return `<div class="ov-panel log-trend-panel">
+      <div class="ov-panel-head log-trend-head">
+        <div class="log-trend-title">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          <span>Run Activity &amp; Latency Timeline</span>
+        </div>
+        <div class="log-trend-legend">
+          <span class="log-trend-dot pass"></span><span>100% Passed</span>
+          <span class="log-trend-dot warn"></span><span>Partial</span>
+          <span class="log-trend-dot fail"></span><span>Errors</span>
+        </div>
+      </div>
+      <div class="log-trend-body">
+        <div class="log-trend-bars">
+          ${bars}
+        </div>
+      </div>
+    </div>`;
+  }
+
   async function renderRuns() {
     const facets = await loadFacets();
     renderFilters(facets);
@@ -579,6 +770,8 @@
     state.cursor = page.nextCursor;
     if (!state.rows.length) {
       el('log-body').innerHTML = emptyState('No runs in this range', 'A Route Test or a health check creates a run. Widen the range, or clear a filter.');
+      renderStats();
+      updateTabCounts();
       return;
     }
     const body = state.rows.map((r) => {
@@ -591,20 +784,34 @@
       const attempted = r.requests - (r.cancelled || 0) - (r.blocked || 0);
       const rate = attempted > 0 ? r.ok / attempted : null;
       return `<tr class="log-run" data-run="${logEscape(r.run_id)}">
-        <td>${formatWhen(r.started_at)}</td>
-        <td>${logEscape(r.source)}</td>
-        <td>${r.requests}</td>
-        <td>${passRateText(rate)}</td>
-        <td>${r.models}</td>
-        <td>${formatDuration(r.avg_latency_ms)}</td>
-        <td>${formatCost(r.cost_micros)}</td>
+        <td class="col-started">${formatWhen(r.started_at)}</td>
+        <td class="col-source">${logEscape(r.source)}</td>
+        <td class="col-requests dt-num">${r.requests}</td>
+        <td class="col-passed">${passRateText(rate)}</td>
+        <td class="col-models dt-num">${r.models}</td>
+        <td class="col-latency dt-num">${formatDuration(r.avg_latency_ms)}</td>
+        <td class="col-cost dt-num">${formatCost(r.cost_micros)}</td>
       </tr>`;
     }).join('');
-    el('log-body').innerHTML = `<div class="log-scroll"><table class="log-table">
-      <thead><tr><th>Started</th><th>Source</th><th>Requests</th><th>Passed</th><th>Models</th>
-      <th>Avg latency</th><th>Cost</th></tr></thead>
-      <tbody>${body}</tbody></table></div>
-      ${state.cursor ? '<button class="btn btn-ghost" type="button" id="log-more">Show more</button>' : ''}`;
+    el('log-body').innerHTML = `
+      ${runsTrendChartHTML(state.rows)}
+      <section class="dt-table-wrap log-table-wrap">
+        <div class="ov-panel-head log-table-head">
+          <div class="log-table-title-wrap">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <span class="log-table-title">Test Runs</span>
+            <span class="log-table-count-pill">${state.rows.length} loaded</span>
+          </div>
+          <div class="log-table-head-meta">Click a run to inspect summary &amp; percentiles</div>
+        </div>
+        <table class="dt-table log-table">
+          <thead><tr><th class="col-started">Started</th><th class="col-source">Source</th><th class="col-requests dt-num">Requests</th><th class="col-passed">Passed</th><th class="col-models dt-num">Models</th>
+          <th class="col-latency dt-num">Avg latency</th><th class="col-cost dt-num">Cost</th></tr></thead>
+          <tbody>${body}</tbody></table>
+        ${state.cursor ? '<div class="log-table-footer"><button class="btn btn-ghost" type="button" id="log-more">Show more</button></div>' : ''}
+      </section>`;
+    renderStats();
+    updateTabCounts();
   }
 
   async function expandRun(tr, runId) {
@@ -627,20 +834,74 @@
     const clipped = !!listed && listed.requests !== s.count;
     const errors = Object.entries(s.errorsByClass).filter(([, n]) => n > 0)
       .map(([cls, n]) => `${logEscape(cls)} ${n}`).join(' · ') || 'none';
-    host.innerHTML = `<div class="log-detail">
-      ${field('Requests', `${s.count} · ${s.ok} passed · ${s.cancelled} cancelled`)}
-      ${clipped ? field('', '<span class="log-note">The row above counts the whole run; the table counts only the part inside the chosen range.</span>') : ''}
-      ${field('Pass rate', passRateText(s.passRate))}
-      ${field('Median latency', formatDuration(s.medianLatencyMs))}
-      ${field('Median first token', formatDuration(s.medianTtftMs))}
-      ${field('Cost', formatCost(s.costMicros))}
-      ${field('Models', logEscape(s.models.join(', ')) || '—')}
-      ${field('Errors', errors)}
+    const rateText = passRateText(s.passRate);
+    const ratePct = s.passRate != null ? Math.round(s.passRate * 100) : 0;
+
+    host.innerHTML = `
+      <div class="log-run-card">
+        <div class="log-run-card-header">
+          <div class="log-run-card-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <span>Run Summary: <code>${logEscape(runId)}</code></span>
+          </div>
+          <button class="btn btn-accent btn-sm log-run-action" type="button" data-see-requests="${logEscape(runId)}">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            See its requests
+          </button>
+        </div>
+        <div class="log-run-kpis">
+          <div class="log-run-kpi">
+            <span class="log-run-kpi-label">Requests</span>
+            <span class="log-run-kpi-val">${s.count}</span>
+            <span class="log-run-kpi-sub">${s.ok} passed · ${s.cancelled} cancelled</span>
+          </div>
+          <div class="log-run-kpi">
+            <span class="log-run-kpi-label">Pass rate</span>
+            <span class="log-run-kpi-val ${s.passRate >= 0.9 ? 'tone-pass' : (s.passRate < 0.5 ? 'tone-fail' : '')}">${rateText}</span>
+            <div class="log-run-progress"><div class="log-run-progress-bar" style="width: ${ratePct}%;"></div></div>
+          </div>
+          <div class="log-run-kpi">
+            <span class="log-run-kpi-label">Median latency</span>
+            <span class="log-run-kpi-val">${formatDuration(s.medianLatencyMs)}</span>
+            <span class="log-run-kpi-sub">50th percentile</span>
+          </div>
+          <div class="log-run-kpi">
+            <span class="log-run-kpi-label">Median first token</span>
+            <span class="log-run-kpi-val">${formatDuration(s.medianTtftMs)}</span>
+            <span class="log-run-kpi-sub">TTFT response</span>
+          </div>
+          <div class="log-run-kpi">
+            <span class="log-run-kpi-label">Cost</span>
+            <span class="log-run-kpi-val">${formatCost(s.costMicros)}</span>
+            <span class="log-run-kpi-sub">Run spend</span>
+          </div>
+        </div>
+        ${clipped ? '<div class="log-run-clipped"><span class="log-note">The row above counts the whole run; the table counts only the part inside the chosen range.</span></div>' : ''}
+        <div class="log-run-meta-grid">
+          <div class="log-run-meta-item">
+            <span class="log-run-meta-key">Models</span>
+            <span class="log-run-meta-value">${logEscape(s.models.join(', ')) || '—'}</span>
+          </div>
+          <div class="log-run-meta-item">
+            <span class="log-run-meta-key">Errors</span>
+            <span class="log-run-meta-value">${errors}</span>
+          </div>
+        </div>
       </div>
-      <button class="btn btn-ghost" type="button" data-see-requests="${logEscape(runId)}">See its requests</button>`;
+    `;
   }
 
   document.addEventListener('click', (e) => {
+    const trendBar = e.target.closest('[data-trend-run]');
+    if (trendBar) {
+      const runId = trendBar.dataset.trendRun;
+      const targetRow = document.querySelector(`.log-run[data-run="${runId}"]`);
+      if (targetRow) {
+        targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        targetRow.click();
+      }
+      return;
+    }
     const see = e.target.closest('[data-see-requests]');
     if (see) {
       // A filter change inside the page, not a navigation.
@@ -786,6 +1047,49 @@
   }
 
   function totalsMarkup(t) {
+    const passFrac = Number.isFinite(t.okPct) ? t.okPct / 100 : null;
+    if (typeof statCardsHTML === 'function') {
+      return statCardsHTML([
+        {
+          label: 'Requests',
+          value: formatTokens(t.requests),
+          icon: LOG_ICONS.requests,
+          foot: 'total recorded',
+        },
+        {
+          label: 'Passed',
+          value: passRateText(passFrac),
+          meter: passFrac,
+          tone: passFrac !== null && passFrac >= 0.9 ? 'pass' : (passFrac !== null && passFrac < 0.5 ? 'fail' : null),
+          icon: LOG_ICONS.pass,
+          foot: 'success rate',
+        },
+        {
+          label: 'Average latency',
+          value: formatDuration(t.avgLatencyMs),
+          icon: LOG_ICONS.latency,
+          foot: 'mean response time',
+        },
+        {
+          label: 'p95 latency',
+          value: formatDuration(t.p95LatencyMs),
+          icon: LOG_ICONS.latency,
+          foot: '95th percentile',
+        },
+        {
+          label: 'Tokens',
+          value: formatTokens((t.inputTokens || 0) + (t.outputTokens || 0)),
+          icon: LOG_ICONS.runs,
+          foot: 'input + output',
+        },
+        {
+          label: 'Cost',
+          value: formatCost(t.costMicros),
+          icon: LOG_ICONS.cost,
+          foot: 'total spend',
+        },
+      ]);
+    }
     const tile = (label, value, foot) => `<div class="ov-kpi">
       <span class="ov-kpi-label">${label}</span>
       <span class="ov-kpi-value">${value}</span>
@@ -793,7 +1097,7 @@
     </div>`;
     return `<div class="ov-kpis">
       ${tile('Requests', formatTokens(t.requests), 'total recorded')}
-      ${tile('Passed', passRateText(Number.isFinite(t.okPct) ? t.okPct / 100 : null), 'success rate')}
+      ${tile('Passed', passRateText(passFrac), 'success rate')}
       ${tile('Average latency', formatDuration(t.avgLatencyMs), 'mean response time')}
       ${tile('p95 latency', formatDuration(t.p95LatencyMs), '95th percentile')}
       ${tile('Tokens', formatTokens((t.inputTokens || 0) + (t.outputTokens || 0)), 'input + output')}
@@ -822,30 +1126,84 @@
     // A Map, not indexOf: a 12-month hourly range is ~8760 buckets, and one
     // linear scan per point is 38 million comparisons on the main thread.
     const at = new Map(buckets.map((b, i) => [b, i]));
-    const x = (b) => (at.get(b) / Math.max(1, buckets.length - 1)) * 100;
-    const y = (v) => 40 - (v / max) * 38;
+    const x = (b) => (at.get(b) / Math.max(1, buckets.length - 1)) * 680 + 10;
+    const y = (v) => 108 - (v / max) * 94;
+
+    const defs = `
+      <defs>
+        ${[...groups.keys()].map((_, i) => `
+          <linearGradient id="chart-grad-${i}" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="var(--chart-series-${i % 6})" stop-opacity="0.30" />
+            <stop offset="80%" stop-color="var(--chart-series-${i % 6})" stop-opacity="0.04" />
+            <stop offset="100%" stop-color="var(--chart-series-${i % 6})" stop-opacity="0.00" />
+          </linearGradient>
+        `).join('')}
+      </defs>
+    `;
+
+    const gridLines = `
+      <line class="log-grid-line" x1="0" y1="14" x2="700" y2="14" stroke="currentColor" stroke-dasharray="4,4" stroke-width="0.8" opacity="0.14" />
+      <line class="log-grid-line" x1="0" y1="61" x2="700" y2="61" stroke="currentColor" stroke-dasharray="4,4" stroke-width="0.8" opacity="0.14" />
+      <line class="log-grid-line" x1="0" y1="108" x2="700" y2="108" stroke="currentColor" stroke-width="1" opacity="0.25" />
+    `;
+
+    const areas = [...groups.entries()].map(([, pts], i) => {
+      const sorted = pts.slice().sort((a, b) => (a[0] > b[0] ? 1 : -1));
+      if (sorted.length < 2) return '';
+      const firstX = x(sorted[0][0]).toFixed(1);
+      const lastX = x(sorted[sorted.length - 1][0]).toFixed(1);
+      const linePts = sorted.map(([b, v]) => `${x(b).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+      const polyPts = `${linePts} ${lastX},108 ${firstX},108`;
+      return `<polygon class="log-series-area" points="${polyPts}" fill="url(#chart-grad-${i})" />`;
+    }).join('');
+
     const lines = [...groups.entries()].map(([, pts], i) => {
       const sorted = pts.slice().sort((a, b) => (a[0] > b[0] ? 1 : -1));
       // One point draws nothing as a polyline, so it gets a dot.
       if (sorted.length === 1) {
-        return `<circle class="log-series s${i % 6}" cx="${x(sorted[0][0]).toFixed(2)}" cy="${y(sorted[0][1]).toFixed(2)}" r="1.2" fill="currentColor"/>`;
+        return `<circle class="log-series s${i % 6}" cx="${x(sorted[0][0]).toFixed(1)}" cy="${y(sorted[0][1]).toFixed(1)}" r="4.5" fill="currentColor"/>`;
       }
-      const d = sorted.map(([b, v]) => `${x(b).toFixed(2)},${y(v).toFixed(2)}`).join(' ');
-      return `<polyline class="log-series s${i % 6}" points="${d}" fill="none" stroke="currentColor" stroke-width="0.6"/>`;
+      const d = sorted.map(([b, v]) => `${x(b).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+      return `<polyline class="log-series s${i % 6}" points="${d}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
     }).join('');
+
     // A single series still gets a legend when it is the unknown group: a
     // chart of nothing but unlabelled traffic is the case Review Focus 5 is
     // about.
     const keys = [...groups.keys()];
     const label = (k) => (k === 'unknown' ? (byProvider ? 'Unknown provider' : 'Unknown') : logEscape(k));
     const legend = keys.length > 1 || keys[0] === 'unknown'
-      ? `<ul class="log-legend">${keys.map((k, i) => `<li class="log-series s${i % 6}">${label(k)}</li>`).join('')}</ul>`
+      ? `<ul class="log-legend">${keys.map((k, i) => `<li class="log-series s${i % 6}"><span class="log-legend-dot s${i % 6}"></span><span>${label(k)}</span></li>`).join('')}</ul>`
       : '';
-    return `<section class="ov-panel">
-      <div class="ov-panel-head">${title}</div>
-      <div style="flex: 1; display: flex; flex-direction: column;">
-        <svg viewBox="0 0 100 42" preserveAspectRatio="none" role="img" aria-label="${title}" style="flex: 1; display: block; background: var(--bg-1); padding: 10px 12px; box-sizing: border-box; color: var(--accent);">${lines}</svg>
-        <div class="log-chart-axis"><span>${bucketLabel(buckets[0])}</span><span>${bucketLabel(buckets[buckets.length - 1])}</span></div>
+
+    let chartIcon = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>';
+    if (title.toLowerCase().includes('latency')) {
+      chartIcon = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 14 10"/></svg>';
+    } else if (title.toLowerCase().includes('cost')) {
+      chartIcon = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>';
+    } else if (title.toLowerCase().includes('error')) {
+      chartIcon = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+    }
+
+    return `<section class="ov-panel log-chart-panel">
+      <div class="ov-panel-head log-chart-head">
+        <div class="log-chart-head-info">
+          <span class="log-chart-icon">${chartIcon}</span>
+          <span class="log-chart-title">${title}</span>
+        </div>
+        <div class="log-chart-peak"><span class="log-peak-label">Peak</span> <span class="log-peak-value">${formatTokens(max)}</span></div>
+      </div>
+      <div class="log-chart-canvas-wrap">
+        <svg viewBox="0 0 700 120" preserveAspectRatio="none" role="img" aria-label="${title}" class="log-chart-svg">
+          ${defs}
+          ${gridLines}
+          ${areas}
+          ${lines}
+        </svg>
+        <div class="log-chart-axis">
+          <span>${bucketLabel(buckets[0])}</span>
+          <span>${bucketLabel(buckets[buckets.length - 1])}</span>
+        </div>
         ${legend}
       </div>
     </section>`;
@@ -924,6 +1282,22 @@
     // Whatever the log pages are showing is now gone.
     state.cursor = null;
     state.rows = [];
+  });
+
+  document.addEventListener('click', async (e) => {
+    const refreshBtn = e.target.closest('#log-refresh');
+    if (!refreshBtn) return;
+    refreshBtn.classList.add('spinning');
+    state.facets = null;
+    state.facetsRange = null;
+    state.cursor = null;
+    state.rows = [];
+    try {
+      await loadInfo();
+      await render();
+    } finally {
+      setTimeout(() => refreshBtn.classList.remove('spinning'), 500);
+    }
   });
 
   // `tab` is what syncRoute reads to build #/history/<sub>. Without it the

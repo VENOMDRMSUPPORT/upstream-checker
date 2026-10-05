@@ -197,4 +197,28 @@ module.exports = [
       `);
     },
   },
+  {
+    version: 4,
+    up(db) {
+      // The app lock (docs/superpowers/specs/2026-10-03-app-lock-design.md).
+      // The table is created empty: the password hash is written by src/auth at
+      // startup, not here. A migration that has shipped is never edited, so a
+      // hash frozen into one could never be changed — and a row written from
+      // src/auth can be re-derived on the next launch after a reset.
+      //
+      // One row, enforced by the schema: no code has to decide which row wins.
+      // No row means the default password.
+      db.exec(`
+        CREATE TABLE app_lock (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          hash TEXT NOT NULL,
+          is_default INTEGER NOT NULL DEFAULT 1,
+          failed_attempts INTEGER NOT NULL DEFAULT 0,
+          locked_until INTEGER NOT NULL DEFAULT 0,
+          changed_at INTEGER,
+          created_at INTEGER NOT NULL
+        );
+      `);
+    },
+  },
 ];

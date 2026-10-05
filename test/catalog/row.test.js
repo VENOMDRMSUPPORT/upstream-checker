@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  providerRow, costKind, readPricing, matchIds, qualityProxyIds, ROW_FIELDS,
+  providerRow, costKind, readPricing, matchIds, qualityProxyIds, rosterProxyIds, ROW_FIELDS,
 } = require('../../src/catalog/row');
 
 const base = (over = {}) => ({ id: 'lab/model', name: 'Model', ...over });
@@ -297,4 +297,49 @@ test('matchIds emits the precise form before any loose variant and never a bare 
 test('qualityProxyIds points a thinking route at its base route', () => {
   assert.deepEqual(qualityProxyIds('nexum/deepseek-v4-thinking'), ['deepseek/deepseek-v4']);
   assert.deepEqual(qualityProxyIds('nexum/deepseek-v4'), []);
+});
+
+// The rule that carries a variant to its base when the provider declared a
+// truncated name. Dark API declares `longcat`, `muse` and `step-3.7` for its
+// -unrestricted routes; the only seven things it serves under those prefixes are
+// the full names below. Uniqueness is the whole rule: two candidates means no
+// answer, because picking one of two would be a guess.
+test('rosterProxyIds resolves a truncated base against the roster that named it', () => {
+  const roster = ['longcat-2.5-preview', 'longcat-unrestricted',
+    'muse-spark-1.3-contributor', 'muse-unrestricted',
+    'step-3.7-flash', 'step-3.7-unrestricted', 'unrestricted'];
+  assert.deepEqual(rosterProxyIds('longcat-unrestricted', roster), ['longcat-2.5-preview']);
+  assert.deepEqual(rosterProxyIds('muse-unrestricted', roster), ['muse-spark-1.3-contributor']);
+  assert.deepEqual(rosterProxyIds('step-3.7-unrestricted', roster), ['step-3.7-flash']);
+});
+
+// Two served models under one prefix is not an answer. A variant that is the
+// only thing under its own prefix borrows from nothing, and a bare token has no
+// base to look for at all.
+test('rosterProxyIds refuses anything that is not unique', () => {
+  const two = ['acme-1', 'acme-2', 'acme-unrestricted'];
+  assert.deepEqual(rosterProxyIds('acme-unrestricted', two), []);
+  assert.deepEqual(rosterProxyIds('longcat-unrestricted', ['longcat-unrestricted']), []);
+  assert.deepEqual(rosterProxyIds('unrestricted', ['longcat-2.5-preview']), []);
+  assert.deepEqual(rosterProxyIds('longcat-2.5-preview', ['longcat-2.5-preview']), []);
+  assert.deepEqual(rosterProxyIds('plain-model', ['plain-model']), []);
+  assert.deepEqual(rosterProxyIds('', []), []);
+});
+
+// A variant never resolves to another variant, or two of them would point at
+// each other and the reference would be asked for a score neither could supply.
+test('rosterProxyIds never points a variant at another variant', () => {
+  const roster = ['acme-model', 'acme-model-uncensored', 'acme-model-unrestricted'];
+  assert.deepEqual(rosterProxyIds('acme-model-unrestricted', roster), ['acme-model']);
+  const only = ['acme-model-uncensored', 'acme-model-unrestricted'];
+  assert.deepEqual(rosterProxyIds('acme-model-unrestricted', only), []);
+});
+
+// The host's spelling is kept; the wrong one is understood. Dark API serves
+// qwen3.8-27b-unsencored beside qwen3.8-27b, and only the base has a reference row.
+test('a misspelled variant token still reaches its base', () => {
+  const roster = ['qwen3.8-27b', 'qwen3.8-27b-unsencored'];
+  assert.deepEqual(rosterProxyIds('qwen3.8-27b-unsencored', roster), ['qwen3.8-27b']);
+  assert.deepEqual(qualityProxyIds('qwen3.8-27b-unsencored'), ['qwen3.8-27b']);
+  assert.deepEqual(qualityProxyIds('acme-model-uncensored'), ['acme-model']);
 });

@@ -42,9 +42,32 @@ test('requests.log is no longer written; showing and clearing it still work', ()
 });
 
 test('api-request goes through the requester and takes no logLevel', () => {
-  assert.ok(src.includes("ipcMain.handle('api-request', (_event, args) => requester.request(args || {}));"));
+  assert.ok(src.includes('requester.request(args || {})'));
   assert.ok(!/logLevel\s*[,}]/.test(block("ipcMain.handle('api-request'", '\n')));
   assert.ok(src.includes('requester.cancel(requestId, reason)'));
+});
+
+test('api-request is gated by the app lock, and a gated call spends nothing', () => {
+  const gate = block("ipcMain.handle('api-request'", '\n});\n');
+  // The gate must come before the request goes out, and must return a value the
+  // renderer can read — not throw, because a code on a rejection does not cross.
+  assert.ok(gate.includes('auth.isLocked()'), 'the lock is consulted');
+  assert.ok(gate.indexOf('auth.isLocked()') < gate.indexOf('requester.request(args || {})'),
+    'and consulted before the request is sent');
+  assert.ok(/outcome:\s*'locked'/.test(gate), 'the refusal is a value with an outcome, not a throw');
+  // Main's own code counts as activity, so the idle deadline does not depend on
+  // the renderer having reported anything.
+  assert.ok(gate.includes('auth.noteActivity()'));
+});
+
+test('the app lock is built after the database opens and before the window', () => {
+  const ready = block('app.whenReady().then(async () => {');
+  const steps = ['startDatabase()', 'startLogs()', 'createAuthLock(', 'auth.ensureDefault()', 'registerAuthIpc(', 'createWindow()'];
+  const at = steps.map((s) => ready.indexOf(s));
+  at.forEach((i, n) => assert.ok(i >= 0, `${steps[n]} missing from whenReady`));
+  assert.deepStrictEqual([...at].sort((x, y) => x - y), at,
+    'the lock row lives in venom.db, so it cannot be built before the store is open');
+  assert.ok(ready.indexOf('startDatabase()') < ready.indexOf('createAuthLock('));
 });
 
 test('the catalog starts after both databases and both IPC blocks, before the window', () => {

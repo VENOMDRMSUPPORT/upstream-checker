@@ -96,12 +96,14 @@ test('capabilityCounts counts only published yes, and every id is present', () =
     { tools: true, reasoning: true },
     { tools: true, input_modalities: 'text, image' },
     { tools: false, reasoning: null },
+    { kind: 'decision' },
     {},
   ]);
   assert.strictEqual(counts.tools, 2);
   assert.strictEqual(counts.reasoning, 1);
   assert.strictEqual(counts.vision, 1);
   assert.strictEqual(counts.audio, 0);
+  assert.strictEqual(counts.decision, 1);
   for (const id of IDS) assert.ok(id in counts, `${id} missing from the counts`);
   // An empty roster is all zeros, not an empty object — a tile would otherwise
   // read "undefined models".
@@ -112,11 +114,26 @@ test('capabilityCounts counts only published yes, and every id is present', () =
 
 // The tiles are drawn from this list, so it is UI: a duplicate id would make two
 // tiles draw the same capability and one count go missing.
-test('the eight capabilities are distinct and each has the fields a tile draws', () => {
-  assert.strictEqual(IDS.length, 8);
-  assert.strictEqual(new Set(IDS).size, 8);
+test('the nine capabilities are distinct and each has the fields a tile draws', () => {
+  assert.strictEqual(IDS.length, 9);
+  assert.strictEqual(new Set(IDS).size, 9);
   for (const cap of F.CAT_CAPABILITIES) {
     assert.ok(cap.id && cap.label && cap.blurb && cap.tone,
       `incomplete capability: ${JSON.stringify(cap)}`);
   }
+});
+
+// A decision model is a kind, not a flag: the renderer's own classification
+// (supports_decisions, the adapter's classify, then name matching) answers the
+// same way outputState answers for the generators.
+test('decision answers from the declared kind', () => {
+  assert.strictEqual(F.capabilityState({ kind: 'decision' }, 'decision'), true);
+  // A declared kind wins over everything else, like the generators above it.
+  assert.strictEqual(F.capabilityState({ kind: 'decision', output_modalities: 'text' }, 'decision'), true);
+  // A stated kind that is not decision is a no, not silence.
+  assert.strictEqual(F.capabilityState({ kind: 'chat' }, 'decision'), false);
+  assert.strictEqual(F.capabilityState({ kind: 'image' }, 'decision'), false);
+  // With no kind at all there is nothing to read, the generics' own rule.
+  assert.strictEqual(F.capabilityState({}, 'decision'), null);
+  assert.deepStrictEqual(F.capabilityOrigin({ kind: 'decision' }, 'decision'), { value: true, from: 'kind' });
 });

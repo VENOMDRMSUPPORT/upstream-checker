@@ -161,6 +161,16 @@ const DEFAULT_SETTINGS = {
   accent: 'emerald',
   density: 'normal',
 
+  // The app lock. Minutes of inactivity before the window asks for the password
+  // again; it always asks on launch. main reads this row for its own copy of the
+  // limit (src/main.js idleLimitMs), so a change here is re-read on every save.
+  lockIdleMin: 60,
+
+  // Turns off transitions and animated flourishes. The stylesheet honours it on
+  // the lock screen through html[data-motion="reduced"]; the OS's own
+  // prefers-reduced-motion is honoured as well and is not overridable from here.
+  reduceMotion: false,
+
   // Request bodies in the request log: off | errors (Failed only) | all. The
   // metadata of every request is recorded whatever this says. Main reads it
   // from the saved settings row: a row without it (a new install) means
@@ -222,6 +232,10 @@ function applyAppearance() {
   el.setAttribute('data-theme', theme);
   el.setAttribute('data-density', settings.density);
   el.setAttribute('data-accent', settings.accent);
+  // The lock screen's motion switch. It reads this attribute in CSS and in
+  // lock.js, so flipping the setting takes effect without a reload — and the
+  // OS's own prefers-reduced-motion is honoured on top of it, in both places.
+  el.setAttribute('data-motion', settings.reduceMotion ? 'reduced' : 'normal');
   queueBrandIcon(settings.accent);
 
   const toggle = document.getElementById('btn-theme-toggle');
@@ -369,6 +383,7 @@ let runTotal = null; // models covered by the current/last run; null = no run ye
 let lastRun = null; // { done, total, stopped } — lets the summary be re-stated
 let isTesting = false;
 let abortTesting = false;
+let runStartTime = null; // Date.now() when the current run began — for elapsed display
 let updateInfo = null;
 let isUpdateDownloading = false;
 let isUpdateReady = false;
@@ -479,6 +494,10 @@ function adoptSavedKeys(p, saved) {
     k.key = s.key;
     k.hint = s.hint;
     k.locked = s.locked;
+    // A save payload never carries a quotaSpent: the key's live refusal state
+    // stays the renderer's, so a save (rekey, toggle, TTL cleanup…) never
+    // wipes it by omitting it. Only adopt an explicit one.
+    if (Object.hasOwn(s, 'quotaSpent')) k.quotaSpent = s.quotaSpent || null;
   });
 }
 
@@ -548,7 +567,11 @@ function foldRun(run) {
   (run.results || []).forEach((r) => {
     const key = historyKey(run.provider, r.model);
     if (!history.has(key)) history.set(key, []);
-    history.get(key).push({ at: run.at, ok: r.status === 'pass', seq });
+    // `ms` is the response time that run measured, kept so the table can show a
+    // median over the model's own runs. A failed run has no time and contributes
+    // nothing: null is filtered out rather than counted as a zero.
+    history.get(key).push({ at: run.at, ok: r.status === 'pass', seq,
+      ms: Number.isFinite(r.time) ? r.time : null });
   });
 }
 
@@ -574,6 +597,13 @@ function capHistory() {
 
 function modelHistory(modelId) {
   return history.get(historyKey(activeProvider, modelId)) || [];
+}
+
+// The response times this model's earlier runs recorded, in ms. Failed runs and
+// runs from before `ms` was kept contribute nothing, so the median is over real
+// readings only.
+function runTimesFor(modelId) {
+  return modelHistory(modelId).map((e) => e.ms).filter((v) => Number.isFinite(v));
 }
 
 // null until there are enough runs to mean anything — a single sample rendered
@@ -772,6 +802,20 @@ async function loadAllProviders() {
     }
     PROVIDERS[def.id] = p;
   });
+  // A refusal that named no reset is one model's answer on one day, not a fact
+  // about the key. It TTLs out of the renderer (isKeySpent / quotaSpentExpired)
+  // but the store has no such clock, so a record older than the TTL is dropped
+  // here on load — otherwise it would outlive its meaning in the DB.
+  Object.values(PROVIDERS).forEach((p) => {
+    (p.keys || []).forEach((k) => {
+      if (k && k.quotaSpent && quotaSpentExpired(k.quotaSpent)) {
+        delete k.quotaSpent;
+        window.electronAPI.saveProvider(providerPayload(p.id)).then(
+          (saved) => { if (saved) adoptSavedKeys(p, saved); },
+        ).catch(() => {});
+      }
+    });
+  });
 
   // Nothing below may write when the store could not be read: PROVIDERS is
   // then the bare templates, without a single key. init() shows the error.
@@ -822,7 +866,8 @@ function renderProviderHead() {
     { label: 'Providers', page: 'providers' },
     { label: p.name, iconHTML: `<span class="crumb-mark">${providerMark(p)}</span>` },
   ]);
-  $('#pt-health').innerHTML = providerStatusHTML(p);
+  const healthEl = $('#pt-health');
+  if (healthEl) healthEl.innerHTML = providerStatusHTML(p);
   if (currentPage === 'provider') renderPageHeader('provider');
 }
 
@@ -899,6 +944,8 @@ const STATUS_CAPTION = {
   'Testing…': 'Testing now',
   Unreadable: 'Key unreadable',
   'Not checked': 'Not checked',
+  Disabled: 'Key disabled',
+  'Key disabled': 'Key disabled',
 };
 const STATUS_CAPTION_FALLBACK = { ok: 'Working fine', fail: 'Check failed', none: 'Not checked', pending: 'Checking now', testing: 'Testing now' };
 
@@ -1813,10 +1860,33 @@ function readQuotaError(provider, r) {
   return QUOTA_ERROR_CODES.has(r.errorCode) ? { until: null, message: r.response } : null;
 }
 
+// A refusal that named no reset time is one model's answer on one day, not a
+// fact about the key. Without an expiry it would sit on the key forever —
+// Dark API's generic path (readQuotaError) never sets `until`, so a single
+// exhausted route would read as a dead key for every restart after it.
+const QUOTA_SPENT_TTL_MS = 24 * 60 * 60 * 1000;
+
+function quotaSpentExpired(s) {
+  return !s.until && s.at != null && Date.now() - s.at > QUOTA_SPENT_TTL_MS;
+}
+
 // The key has a spent allowance that has not reset yet (for some models).
 function isKeySpent(k) {
   const s = k && k.quotaSpent;
-  return Boolean(s) && (!s.until || s.until > Date.now());
+  if (!s || quotaSpentExpired(s)) return false;
+  return !s.until || s.until > Date.now();
+}
+
+// The whole key is spent: no model list, so every model sits it out.
+function isKeyFullySpent(k) {
+  return isKeySpent(k) && !(Array.isArray(k.quotaSpent.models) && k.quotaSpent.models.length > 0);
+}
+
+// Only the listed models were refused; the key still serves everything else.
+// This is what the run already does (keysFor filters just these out) — the
+// badge used to claim otherwise.
+function isKeyPartiallySpent(k) {
+  return isKeySpent(k) && !isKeyFullySpent(k);
 }
 
 // The key was refused this model for a spent allowance, and it hasn't reset.
@@ -1836,7 +1906,7 @@ function formatIn(ts) {
 
 function spentHint(k) {
   const s = k.quotaSpent;
-  const reset = s.until ? `resets ${new Date(s.until).toLocaleString()} (in ${formatIn(s.until)})` : 'no reset time given';
+  const reset = s.until ? `resets ${new Date(s.until).toLocaleString()} (in ${formatIn(s.until)})` : 'no reset time given (cleared after 24h)';
   const models = Array.isArray(s.models) && s.models.length ? s.models : null;
   return models
     ? `Quota used up for ${models.length} model${models.length === 1 ? '' : 's'} — ${reset}. Those are skipped on this key until then; other models are still tried.\n\n${models.join('\n')}`
@@ -2829,6 +2899,22 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
   if (reset) {
     testResults = [];
     runTotal = list.length;
+    // The reference facts the table reads are refreshed and fetched BEFORE the
+    // first row is built, not per row: one sync, then one ingest for the whole
+    // roster. Awaited so no row is ever rendered against an empty map and then
+    // silently corrected — and the sync is forced, because a test run is the one
+    // moment the reference has to be today's rather than the cache's.
+    setStatus('running', 'Refreshing the reference...');
+    runStatusText = 'Refreshing the reference...';
+    updateTestAllButton();
+    try {
+      const facts = await loadTestFacts(p.id, list);
+      if (facts && facts.ok === false) {
+        console.warn('reference facts unavailable:', facts.code || facts.message);
+      }
+    } catch (err) {
+      console.warn('reference facts unavailable:', err && err.message);
+    }
     initResultsTable();
     // Pre-create rows in selection order; each is filled in turn, top to bottom.
     list.forEach((model) => addResultRow(model, QUEUED_RESULT));
@@ -2840,6 +2926,7 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
   updateTestAllButton();
   runStatusText = `Testing ${list.length} model${list.length === 1 ? '' : 's'}...`;
   setStatus('running', runStatusText);
+  runStartTime = Date.now();
   showProgress(0, list.length);
 
   // Models are pulled off a shared queue by a fixed number of lanes. Rows were
@@ -3008,7 +3095,7 @@ function addResultRow(model, result) {
   const tr = document.createElement('tr');
   tr.dataset.modelId = model.id;
   tr.className = rowClassFor(result);
-  tr.innerHTML = buildRowHtml(model, result);
+  tr.innerHTML = buildRowHtml(model, result, tableRows.length);
   tbody.appendChild(tr);
   syncColumnVisibility();
 }
@@ -3016,7 +3103,10 @@ function addResultRow(model, result) {
 const SORTERS = {
   status: (e) => ({ fail: 0, skipped: 1, queued: 2, running: 3, pass: e.result.isEmpty ? 4 : 5 })[e.result.status] ?? 6,
   model: (e) => e.model.id.toLowerCase(),
-  context: (e) => e.model.context_window ?? -1,
+  context: (e) => contextOf(e.model) ?? -1,
+  score: (e) => scoreOf(e.model),
+  price: (e) => { const c = costOf(e.model); return c.in == null ? c.out : c.in; },
+  latency: (e) => latencyOf(e.model),
   time: (e) => (e.result.status === 'pass' ? e.result.time : null),
   tokens: (e) => (e.result.status === 'pass' ? e.result.tokens : null),
   tps: (e) => tokensPerSecond(e.result),
@@ -3055,8 +3145,8 @@ function visibleRows() {
 function renderResultsTable() {
   $('#results-body').innerHTML = visibleRows()
     .map(
-      ({ model, result }) =>
-        `<tr class="${rowClassFor(result)}" data-model-id="${escapeHtml(model.id)}">${buildRowHtml(model, result)}</tr>`
+      ({ model, result }, index) =>
+        `<tr class="${rowClassFor(result)}" data-model-id="${escapeHtml(model.id)}">${buildRowHtml(model, result, index + 1)}</tr>`
     )
     .join('');
   syncColumnVisibility();
@@ -3068,9 +3158,12 @@ function syncColumnVisibility() {
   const table = $('#results-table');
   table.classList.toggle('hide-type', !table.querySelector('td.cell-type:not(.cell-na)'));
   table.classList.toggle('hide-context', !table.querySelector('td.cell-context:not(.cell-na)'));
-  // Answer checking is a setting, not a property of the provider, so this is the
-  // one column that hides — and it hides identically whichever provider is open.
-  table.classList.toggle('hide-correct', expectedAnswer.trim() === '');
+  // The reference-backed columns follow the same rule as TYPE and CONTEXT: a
+  // column where no row has an answer is a column of em-dashes, so it folds away
+  // instead of costing width. They come back the moment a row has a fact.
+  table.classList.toggle('hide-score', !table.querySelector('td.cell-score:not(.cell-na)'));
+  table.classList.toggle('hide-price', !table.querySelector('td.cell-price:not(.cell-na)'));
+  table.classList.toggle('hide-caps', !table.querySelector('td.cell-caps:not(.cell-na)'));
 }
 
 $('#results-table thead').addEventListener('click', (e) => {
@@ -3105,6 +3198,16 @@ $('#pt-kpis').addEventListener('keydown', (e) => {
   }
 });
 
+const ptLegend = $('#pt-legend');
+if (ptLegend) {
+  ptLegend.addEventListener('click', (e) => {
+    if (e.target.closest('[data-pt-legend-toggle], .mc-legend-head')) {
+      ptLegendOpen = !ptLegendOpen;
+      renderPtLegend();
+    }
+  });
+}
+
 // Matched on the dataset value rather than an attribute selector, because model
 // ids carry '/', '.' and ':' and would need escaping to be used as a selector.
 function findResultRow(modelId) {
@@ -3135,14 +3238,15 @@ function updateResultRow(model, result) {
   }
   const tr = findResultRow(model.id);
   if (!tr) return;
+  const idx = tableRows.findIndex((e) => e.model.id === model.id);
   tr.className = rowClassFor(result);
-  tr.innerHTML = buildRowHtml(model, result);
+  tr.innerHTML = buildRowHtml(model, result, idx >= 0 ? idx + 1 : null);
 }
 
 // SVG icons for badges
 const ICONS = {
   vision: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
-  think: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.5 2A5.5 5.5 0 005 7.5A5.5 5.5 0 009.5 13H10a4 4 0 014 4v1.5a5.5 5.5 0 00-5.5-5.5z"/><path d="M14.5 13H14a4 4 0 00-4 4v1.5a5.5 5.5 0 005.5-5.5V8a2.5 2.5 0 00-1-5z"/></svg>`,
+  think: `<span class="emoji-cap" aria-hidden="true">🧠</span>`,
   free: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12V8H6a2 2 0 01-2-2V6a2 2 0 012-2h12"/><circle cx="16" cy="16" r="4"/><path d="M16 14v4M14 16h4"/></svg>`,
   timeout: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
   tokens: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9 9h6M9 15h6"/><path d="M12 9v6"/></svg>`,
@@ -3156,24 +3260,24 @@ function iconSpan(key, label, cls) {
   return `<span class="icon-badge ${cls}" title="${label}">${ICONS[key]}</span>`;
 }
 
-// Status badge as icon pill
+// Status badge as compact dot
 function statusIconBadge(status, isEmpty) {
   if (status === 'pass' && !isEmpty) {
-    return `<span class="status-icon pass" title="Pass"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 13l4 4L19 7"/></svg></span>`;
+    return `<span class="status-dot-badge pass" title="Pass">✓</span>`;
   }
   if (status === 'pass' && isEmpty) {
-    return `<span class="status-icon empty" title="Empty response"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 15h8M8 9h8"/></svg></span>`;
+    return `<span class="status-dot-badge empty" title="Empty response">∅</span>`;
   }
   if (status === 'fail') {
-    return `<span class="status-icon fail" title="Failed"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 6l12 12M18 6L6 18"/></svg></span>`;
+    return `<span class="status-dot-badge fail" title="Failed">✗</span>`;
   }
   if (status === 'queued') {
-    return `<span class="status-icon queued" title="Waiting its turn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>`;
+    return `<span class="status-dot-badge queued" title="Waiting its turn">⋯</span>`;
   }
   if (status === 'skipped') {
-    return `<span class="status-icon skipped" title="Not tested"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 12h12"/></svg></span>`;
+    return `<span class="status-dot-badge skipped" title="Not tested">—</span>`;
   }
-  return `<span class="status-icon running" title="Testing"><span class="spinner"></span></span>`;
+  return `<span class="status-dot-badge running" title="Testing"><span class="spinner"></span></span>`;
 }
 
 // What ✓ and ✗ mean depends on the standard the model was judged by.
@@ -3186,13 +3290,255 @@ function correctnessTitles(model) {
   return ['Matches the expected answer', 'Does not contain the expected answer'];
 }
 
-function buildRowHtml(model, result) {
+// ============================================
+// Reference facts for the test table
+// ============================================
+// A provider's /models payload is a roster, not a spec sheet: what it publishes
+// is its own choice, and a thin provider publishes little more than ids — which
+// is why the CONTEXT and TYPE columns came out empty and hid themselves. The
+// facts the row is missing already exist locally, because main holds the merged
+// reference, so the table reads them instead of asking the provider twice.
+//
+// One ingest per roster, never one per row: `catalog:fetch-info` is the same
+// merge behind a single row's button, and it runs a source sync plus a full
+// ingest on every call. Thirty-two models would pay that thirty-two times over.
+// The ingest reply already carries every scored row, so it is read once here.
+let testFacts = new Map();   // model id -> the catalogue row main stored
+let testFactsFor = null;     // the provider the map belongs to
+
+function catalogRowFor(model) {
+  if (!model) return null;
+  const id = String(model.id || '');
+  const fromFacts = testFacts.get(id);
+  if (fromFacts) return fromFacts;
+  if (typeof window !== 'undefined' && window.CATALOG && window.CATALOG.state && window.CATALOG.state.models) {
+    const fromCat = window.CATALOG.state.models.get(`${activeProvider}::${id}`);
+    if (fromCat) return fromCat;
+  }
+  return null;
+}
+
+async function loadTestFacts(providerId, models) {
+  testFacts = new Map();
+  // The cache is keyed by model object, so a re-test of the same objects would
+  // otherwise answer from the previous run's reference rows.
+  factsCache = new WeakMap();
+  testFactsFor = providerId;
+  const api = window.electronAPI;
+  if (!models || !models.length || !api || typeof api.catalogIngest !== 'function') {
+    return { ok: false, code: 'NO_CATALOG' };
+  }
+
+  // Refresh the reference FIRST, then read it. `catalog:ingest` alone answers from
+  // whatever the cache holds, and that cache is only re-fetched once it is fifteen
+  // minutes old — so a model that shipped this morning would be scored against
+  // yesterday's sources and read as unrated. A test run is the moment the answer
+  // has to be current, so the TTL is overridden here.
+  //
+  // A refresh that fails is not a reason to refuse to test: the cached sources are
+  // still the best reference on the machine, and the run goes on against them with
+  // the staleness left visible rather than hidden.
+  let refresh = null;
+  if (typeof api.catalogSources === 'function') {
+    try {
+      refresh = await api.catalogSources({ force: true });
+      if (refresh && refresh.error) {
+        console.warn('reference refresh failed, testing against the cached sources:', refresh.error);
+      }
+    } catch (err) {
+      console.warn('reference refresh failed, testing against the cached sources:', err && err.message);
+    }
+  }
+
+  // The Models page holds its own rows, read on a TTL of its own. A refresh that
+  // this table forced would otherwise leave that page showing the score from
+  // before it — the same model, two numbers, one screen apart. Reloading it here
+  // is what keeps the two surfaces saying the same thing.
+  if (refresh && window.CATALOG && typeof window.CATALOG.reload === 'function') {
+    try {
+      await window.CATALOG.reload();
+    } catch (err) {
+      console.warn('the Models page did not reload after the refresh:', err && err.message);
+    }
+  }
+
+  // And the table already on screen is repainted from the new facts — but only
+  // once the ingest has answered. Repainting before it would render every row
+  // against an empty map and blank the table for a frame.
+  const reply = await api.catalogIngest(providerId, models);
+  if (reply && reply.ok === false) return reply;
+  (reply && reply.rows ? reply.rows : []).forEach((row) => {
+    testFacts.set(String(row.id), row);
+  });
+  if (tableRows.length > 0) {
+    renderResultsTable();
+    updateStats();
+  }
+  return { ...(reply || { ok: true, rows: [] }), refresh };
+}
+
+// The resolution rules live in provider-facts.js, because that file is pure and
+// a test can evaluate it; this file touches window and document at load and
+// cannot be. Keeping the rules there is what stops the table and its test from
+// disagreeing about what silence means.
+//
+// The result is cached per model object because a sort calls the accessors once
+// per comparison, and `testFacts` is cleared on every run so a stale row can
+// never answer for a roster that has since changed.
+let factsCache = new WeakMap();
+
+function factsFor(model) {
+  const cacheable = model && typeof model === 'object';
+  if (cacheable && factsCache.has(model)) return factsCache.get(model);
+  const facts = resolveFacts(model, catalogRowFor(model), readContextWindow(model),
+    runTimesFor(model && model.id));
+  if (cacheable) factsCache.set(model, facts);
+  return facts;
+}
+
+function contextOf(model) { return factsFor(model).context; }
+function scoreOf(model) { return factsFor(model).score; }
+function scoreSourceOf(model) { return factsFor(model).scoreSource; }
+function costOf(model) { return factsFor(model).cost; }
+function capabilityRowFor(model) { return factsFor(model).capRow; }
+function latencyOf(model) { return factsFor(model).latency; }
+function latencySamplesOf(model) { return factsFor(model).latencySamples; }
+
+const MODALITY_ICONS = {
+  text: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+  image: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
+  audio: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5v14M7 5v14M2 9v6M22 9v6"/></svg>',
+  video: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="14" height="14" rx="2"/><path d="m22 8-6 4 6 4V8z"/></svg>',
+  pdf: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
+};
+
+// The modality tokens the model reads, drawn like the CAPS icons: one lit
+// mark per supported input, coloured by token, and nothing for the rest.
+// A supported input is the presence of a chip; `null` stays silence (no chip
+// at all), so a provider that published no modality list never gains invented
+// refusals.
+const MODALITY_TONES = { text: 'tool', image: 'vision', audio: 'audio', video: 'video', pdf: 'files' };
+
+function inputIconsHtml(model) {
+  const inputs = resolveInputs(capabilityRowFor(model));
+  const chips = inputs.filter(({ state }) => state === true).map(({ token }) => {
+    const title = `Reads ${token}`;
+    const tone = MODALITY_TONES[token] || 'tool';
+    return `<span class="mc-cap-ico mc-cap-${tone}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">${MODALITY_ICONS[token] || ''}</span>`;
+  });
+  return chips.length ? `<div class="cell-model-inputs mc-caps">${chips.join('')}</div>` : '';
+}
+
+const CAP_ICONS_MAP = {
+  tools: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>',
+  reasoning: '<span class="emoji-cap" aria-hidden="true">🧠</span>',
+  structured: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1"/><path d="M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1"/></svg>',
+  vision: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+  imageGen: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.14-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.14a.5.5 0 0 1 .96 0L14.06 8.5A2 2 0 0 0 15.5 9.94l6.14 1.58a.5.5 0 0 1 0 .96L15.5 14.06a2 2 0 0 0-1.44 1.44l-1.58 6.14a.5.5 0 0 1-.96 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/></svg>',
+  audio: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/></svg>',
+  video: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5.22 3.48a.5.5 0 0 0 .78-.42V7.9a.5.5 0 0 0-.75-.43L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>',
+  files: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.23 20.25 21 12.3"/><path d="m16 6-8.41 8.59a2 2 0 0 0 0 2.82 2 2 0 0 0 2.83 0l8.41-8.59a4 4 0 0 0 0-5.65 4 4 0 0 0-5.65 0l-8.42 8.59a6 6 0 1 0 8.49 8.48"/></svg>',
+  decision: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M5 7h14"/><path d="M5 7l-3 7a3 3 0 006 0z"/><path d="M19 7l-3 7a3 3 0 006 0z"/></svg>',
+};
+
+const FALLBACK_CAPABILITIES = [
+  { id: 'tools', label: 'Tools', blurb: 'Function calling & external API integration', tone: 'tool' },
+  { id: 'reasoning', label: 'Reasoning', blurb: 'Deep thinking & chain-of-thought processing', tone: 'reasoning' },
+  { id: 'structured', label: 'Structured', blurb: 'Strict JSON schema & grammar-constrained output', tone: 'structured' },
+  { id: 'vision', label: 'Vision', blurb: 'Image & visual comprehension', tone: 'vision' },
+  { id: 'imageGen', label: 'Image Gen', blurb: 'Native image creation & editing', tone: 'imagegen' },
+  { id: 'audio', label: 'Audio', blurb: 'Voice input & speech understanding', tone: 'audio' },
+  { id: 'video', label: 'Video', blurb: 'Video sequence processing', tone: 'video' },
+  { id: 'files', label: 'Files', blurb: 'File & document upload support', tone: 'files' },
+  { id: 'decision', label: 'Decision', blurb: 'Typed yes/no rating of a known state, never prose', tone: 'decision' },
+];
+
+let ptLegendOpen = false;
+try {
+  localStorage.removeItem('venom_pt_legend_open');
+} catch (_) {}
+
+function ptLegendHTML(rows = []) {
+  const list = Array.isArray(rows) ? rows : [];
+  const caps = (typeof CAT_CAPABILITIES !== 'undefined' && Array.isArray(CAT_CAPABILITIES) && CAT_CAPABILITIES.length)
+    ? CAT_CAPABILITIES
+    : (typeof window !== 'undefined' && Array.isArray(window.CAT_CAPABILITIES) && window.CAT_CAPABILITIES.length)
+    ? window.CAT_CAPABILITIES
+    : FALLBACK_CAPABILITIES;
+  const counts = (typeof capabilityCounts === 'function') ? capabilityCounts(list) : {};
+  const total = list.length;
+  for (const cap of caps) {
+    if (counts[cap.id] == null) counts[cap.id] = 0;
+  }
+  const chevron = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>';
+  const topCaps = [...caps]
+    .sort((a, b) => ((counts[b.id] || 0) - (counts[a.id] || 0)) || (caps.indexOf(a) - caps.indexOf(b)))
+    .slice(0, 4);
+  const topIcons = `<span class="mc-legend-top-caps">${topCaps.map((cap) => {
+    const n = counts[cap.id] || 0;
+    const isYes = n > 0;
+    return `<span class="mc-cap-ico mc-cap-${cap.tone} ${isYes ? 'is-yes' : 'is-unknown'}" title="${escapeHtml(cap.label)} (${n} model${n === 1 ? '' : 's'})">${CAP_ICONS_MAP[cap.id] || ''}</span>`;
+  }).join('')}</span>`;
+  const toggle = `<button class="pv-legend-toggle mc-legend-toggle" type="button" data-pt-legend-toggle
+    aria-expanded="${ptLegendOpen}" aria-controls="pt-legend-body"
+    title="${ptLegendOpen ? 'Hide the legend' : 'Show the legend'}">
+    <span>${ptLegendOpen ? 'Hide legend' : 'Show legend'}</span>${chevron}</button>`;
+  const body = `<div class="pv-legend-body mc-legend-body mc-legend-grid" id="pt-legend-body"${ptLegendOpen ? '' : ' hidden'}>
+    ${caps.map((cap) => {
+      const n = counts[cap.id] || 0;
+      return `<div class="pv-legend-item mc-legend-tile mc-cap-${cap.tone} ${n ? '' : 'empty'}" style="--c:var(--cap)">
+        <span class="pv-legend-chip mc-legend-ico mc-cap-${cap.tone}">${CAP_ICONS_MAP[cap.id] || ''}</span>
+        <div class="pv-legend-text">
+          <div class="pv-legend-name">
+            <span class="mc-legend-label">${escapeHtml(cap.label)}</span>
+            <span class="pv-legend-count mc-legend-count${n ? '' : ' is-zero'}" title="${escapeHtml(`${n} of the ${total} model${total === 1 ? '' : 's'} on screen`)}">${n} model${n === 1 ? '' : 's'}</span>
+          </div>
+          <div class="pv-legend-desc mc-legend-blurb">${escapeHtml(cap.blurb)}</div>
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+  return `<section class="pv-legend mc-legend ${ptLegendOpen ? '' : 'collapsed'}" aria-label="Model capabilities legend">
+    <div class="pv-legend-head mc-legend-head">
+      <span class="pv-legend-title">${topIcons}Model Capabilities Legend</span>
+      ${toggle}
+    </div>
+    ${body}
+  </section>`;
+}
+
+function renderPtLegend() {
+  const container = $('#pt-legend');
+  if (!container) return;
+  const p = PROVIDERS[activeProvider];
+  const provModels = (p && p.models) || models || [];
+  const rows = provModels.map((m) => capabilityRowFor(m));
+  container.innerHTML = ptLegendHTML(rows);
+}
+
+function capsIconsHtml(model) {
+  if (typeof CAT_CAPABILITIES === 'undefined' || typeof capabilityState !== 'function') return NA;
+  const row = capabilityRowFor(model);
+  // Only a supported capability draws: the cell shows what the model does, so
+  // an unsupported or unstated one is the absence of an icon rather than a
+  // dimmed mark. The published "no" is still said — in the row's tooltip and in
+  // the Models page detail panel, the only places the refusal lives.
+  const cells = CAT_CAPABILITIES.map((cap) => {
+    if (capabilityState(row, cap.id) !== true) return '';
+    const tip = `${cap.label} — ${cap.blurb.toLowerCase()}`;
+    const icon = CAP_ICONS_MAP[cap.id] || '';
+    return `<span class="mc-cap-ico mc-cap-${cap.tone} is-yes" title="${escapeHtml(tip)}" aria-label="${escapeHtml(cap.label)}">${icon}</span>`;
+  }).join('');
+  if (!cells) return NA;
+  return `<span class="mc-caps">${cells}</span>`;
+}
+
+function buildRowHtml(model, result, rowIndex = null) {
   const isRunning = result.status === 'running' || result.status === 'queued';
   const isFailed = result.status === 'fail';
   const badge = statusIconBadge(result.status, result.isEmpty);
+  const indexNum = rowIndex || (tableRows.findIndex((e) => e.model.id === model.id) + 1) || 1;
 
-  // A failed request's elapsed time is how fast the error came back, not how fast
-  // the model is — it gets the muted "dead" colour, never the fast/slow scale.
   let timeStr = NA;
   let timeClass = 'cell-na';
   if (isRunning) {
@@ -3209,8 +3555,13 @@ function buildRowHtml(model, result) {
   if (model.kind === 'image') typeIcons.push(iconSpan('image', 'Image generator', 'type-media'));
   if (model.kind === 'video') typeIcons.push(iconSpan('video', 'Video generator', 'type-media'));
   if (model.kind === 'decision') typeIcons.push(iconSpan('decision', 'Decision model', 'type-media'));
-  if (model.hasVision) typeIcons.push(iconSpan('vision', 'Vision', 'type-vision'));
-  if (model.hasReasoning) typeIcons.push(iconSpan('think', 'Reasoning', 'type-think'));
+  // Vision and reasoning read the merged row, not the provider's own booleans.
+  // `readsVision` answers false both when a provider refused vision and when it
+  // published nothing, and only one of those may be drawn — so an unstated
+  // capability draws no icon instead of a mark saying the model cannot do it.
+  const factsRow = factsFor(model);
+  if (factsRow.vision === true) typeIcons.push(iconSpan('vision', 'Vision', 'type-vision'));
+  if (factsRow.reasoning === true) typeIcons.push(iconSpan('think', 'Reasoning', 'type-think'));
   if (!model.noPlans) {
     typeIcons.push(
       model.isFree
@@ -3219,24 +3570,35 @@ function buildRowHtml(model, result) {
     );
   }
   const typeHtml = typeIcons.length ? typeIcons.join('') : NA;
-  const contextHtml = model.contextLabel || NA;
 
-  // No tokens on a failed or in-flight request — '0' would read as a measurement.
-  const tokens = isRunning || isFailed || result.tokens == null ? NA : String(result.tokens);
+  const ctxValue = contextOf(model);
+  const ctxLabel = ctxValue != null ? formatContext(ctxValue) : '';
+  const contextHtml = ctxLabel ? `<span class="val-ctx">${ctxLabel}</span>` : NA;
 
-  const tps = tokensPerSecond(result);
-  const tpsHtml = tps == null ? NA : tps >= 100 ? String(Math.round(tps)) : tps.toFixed(1);
+  const score = scoreOf(model);
+  const scoreSrc = scoreSourceOf(model);
+  // The number only: the tier (aa/est/local/proxy) lives in the tooltip, not
+  // beside the value — a tag next to every score doubles the column's noise.
+  const scoreTitle = scoreSrc === 'aa' ? 'Artificial Analysis intelligence index, measured'
+    : scoreSrc === 'est' ? 'Estimated from correlated public signals'
+      : scoreSrc === 'local' ? 'Estimated locally from the facts this model declares — no reference measured it'
+        : scoreSrc === 'proxy' ? 'Inherited from the base route' : '';
+  const scoreHtml = score == null ? NA
+    : `<span class="score-num"${scoreTitle ? ` title="${scoreTitle}"` : ''}>${score}</span>`;
 
-  // Answer correctness is deliberately separate from pass/fail: pass means the
-  // endpoint worked, this means the model got it right. A model that answers
-  // fast and wrong is a different problem from one that 502s.
-  // Reliability over time, next to this run's result: a model that passed now
-  // but fails a third of the time is a different proposition from a steady one.
-  // Which key served this test. Only shown when the provider has more than one,
-  // and it names the key the request actually went out on rather than the ones
-  // that could have — with tiered keys, that is the difference between reading
-  // the result and guessing at it.
+  const cost = costOf(model);
+  const priceHtml = (cost.in == null && cost.out == null) ? NA
+    : `<span class="p-in">${cost.in == null ? '—' : `$${fmtPrice(cost.in)}`}</span>`
+      + `<span class="p-sep">/</span>`
+      + `<span class="p-out">${cost.out == null ? '—' : `$${fmtPrice(cost.out)}`}</span>`;
+
+  const capsHtml = capsIconsHtml(model);
+  // The input modalities sit in the model cell: what a model reads is part of
+  // what it IS, so it belongs beside the name rather than in a column of its own.
+  const inputHtml = inputIconsHtml(model);
+
   const provider = PROVIDERS[activeProvider];
+  const pMark = provider ? providerMark(provider, 'cell-model-logo') : '';
   let keyLine = '';
   if (provider && usableKeys(provider).length > 1) {
     const used = result.keyId ? keyNameById(result.keyId) : '';
@@ -3250,20 +3612,6 @@ function buildRowHtml(model, result) {
     }
   }
 
-  const uptime = uptimeOf(model.id);
-  const uptimeHtml = uptime == null ? NA : `${Math.round(uptime * 100)}%`;
-  const uptimeClass =
-    uptime == null ? 'cell-na' : uptime >= 0.95 ? 'uptime-high' : uptime >= 0.8 ? 'uptime-mid' : 'uptime-low';
-
-  const correct = isCorrect(result, model);
-  const [yesTitle, noTitle] = correctnessTitles(model);
-  const correctHtml =
-    correct == null
-      ? NA
-      : correct
-        ? `<span class="correct-mark yes" title="${yesTitle}">✓</span>`
-        : `<span class="correct-mark no" title="${noTitle}">✗</span>`;
-
   const full = result.response || '';
   const truncated = full.length > RESPONSE_PREVIEW;
   const preview = escapeHtml(full.slice(0, RESPONSE_PREVIEW)) + (truncated ? '…' : '');
@@ -3274,33 +3622,48 @@ function buildRowHtml(model, result) {
     : result.isEmpty
       ? `<span class="response-empty">${preview}</span>`
       : preview;
-  const responseTitle = escapeHtml(truncated ? 'Click to see the full response' : full);
+  // The cell clips by width and the title carries the whole answer on hover;
+  // long answers also open the full-response modal on click.
+  const responseTitle = escapeHtml(full);
 
-  // A row worth re-running gets its own retry button, so one bad model doesn't
-  // cost a full re-test of the whole list.
-  // The reported time covers only the winning attempt, so say when there were more.
   const extraRounds = (result.attempts || 1) - 1;
   const retriesHtml =
     extraRounds > 0
       ? ` <span class="retry-count" title="Retried ${extraRounds} time${extraRounds === 1 ? '' : 's'}; the time shown is the last attempt">↻${extraRounds}</span>`
       : '';
 
-  const canRetry = !isRunning && (isFailed || result.status === 'skipped' || result.isEmpty);
-
+  const canRetry = !isRunning;
   const actionsHtml = canRetry
-    ? `<button class="row-retry-btn" data-model-id="${escapeHtml(model.id)}" title="Retry this model">${ICONS.retry}</button>`
+    ? `<button class="row-retry-btn" data-model-id="${escapeHtml(model.id)}" title="Retry this model" aria-label="Retry ${escapeHtml(model.id)}">${ICONS.retry}</button>`
     : '';
 
   return `
-    <td class="cell-status">${badge}</td>
-    <td class="cell-model">${escapeHtml(model.id)}${keyLine}</td>
+    <td class="cell-index">
+      <span class="cell-row-num">${indexNum}</span>
+    </td>
+    <td class="cell-model">
+      <div class="cell-model-line">
+        ${pMark}
+        <div class="cell-model-block">
+          <span class="cell-model-name" title="${escapeHtml(model.id)}">${escapeHtml(model.id)}</span>
+          ${inputHtml}
+          ${keyLine ? `<span class="cell-model-sub">${keyLine}</span>` : ''}
+        </div>
+      </div>
+    </td>
     <td class="cell-type ${typeIcons.length ? '' : 'cell-na'}">${typeHtml}</td>
-    <td class="cell-context ${model.contextLabel ? '' : 'cell-na'}">${contextHtml}</td>
-    <td class="cell-time ${timeClass}">${timeStr}${retriesHtml}</td>
-    <td class="cell-tokens ${tokens === NA ? 'cell-na' : ''}">${tokens}</td>
-    <td class="cell-tps ${tps == null ? 'cell-na' : ''}">${tpsHtml}</td>
-    <td class="cell-correct ${correct == null ? 'cell-na' : ''}">${correctHtml}</td>
-    <td class="cell-uptime ${uptimeClass}">${uptimeHtml}${sparkline(model.id)}</td>
+    <td class="cell-context ${ctxLabel ? '' : 'cell-na'}">${contextHtml}</td>
+    <td class="cell-score ${score == null ? 'cell-na' : ''}">
+      <span class="score-wrap">${scoreHtml}</span>
+    </td>
+    <td class="cell-price ${(cost.in == null && cost.out == null) ? 'cell-na' : ''}">
+      <span class="price-wrap">${priceHtml}</span>
+    </td>
+    <td class="cell-caps ${capsHtml === NA ? 'cell-na' : ''}">${capsHtml}</td>
+    <td class="cell-time ${timeClass}">
+      <span class="time-val ${timeClass}">${timeStr}${retriesHtml}</span>
+    </td>
+    <td class="cell-status">${badge}</td>
     <td class="cell-response ${truncated ? 'response-expandable' : ''}" title="${responseTitle}">${responseHtml}</td>
     <td class="cell-actions">${actionsHtml}</td>
   `;
@@ -3408,6 +3771,8 @@ function updateStats() {
       foot: 'passed calls only' },
   ]);
 
+  renderPtLegend();
+
   const retryBtn = $('#btn-retry-failed');
   if (retryBtn) retryBtn.disabled = isTesting || retryableModels().length === 0;
 }
@@ -3417,7 +3782,22 @@ function showProgress(current, total) {
   const pct = total > 0 ? Math.round((current / total) * 100) : 0;
   $('#progress-fill').style.width = `${pct}%`;
   $('#progress-count').textContent = `${current}/${total}`;
-  $('#progress-label').textContent = current === total ? 'Complete' : `Testing ${current}/${total}...`;
+  const isDone = current === total;
+  $('#progress-label').textContent = isDone ? 'Complete' : `Testing ${current}/${total}...`;
+
+  // Live pass / fail mini-counters
+  const passed = testResults.filter((r) => r.status === 'pass').length;
+  const failed = testResults.filter((r) => r.status === 'fail').length;
+  $('#progress-pass-count').textContent = passed;
+  $('#progress-fail-count').textContent = failed;
+
+  // Elapsed time
+  const elapsed = runStartTime ? Math.round((Date.now() - runStartTime) / 1000) : 0;
+  const mm = Math.floor(elapsed / 60);
+  const ss = elapsed % 60;
+  $('#progress-elapsed').textContent = elapsed > 0
+    ? mm > 0 ? `${mm}m ${ss}s` : `${ss}s`
+    : '';
 }
 
 function hideProgress() {
@@ -4011,6 +4391,13 @@ const SETTING_INPUTS = [
   ['#set-stats-retention', 'statsRetentionMonths', 'int'],
   ['#set-concurrency', 'concurrency', 'int'],
   ['#set-health-interval', 'healthIntervalMin', 'int'],
+  // Appearance switches that were in the markup and bound to nothing until now:
+  // the setting was saved once and never read again, so flipping it changed
+  // nothing at all. The lock screen's canvas is what reads it now.
+  ['#set-reduce-motion', 'reduceMotion', 'bool'],
+  // The app lock's idle limit. main keeps its own copy and re-reads this row on
+  // every save (src/main.js idleLimitMs), so a change applies without a restart.
+  ['#set-lock-idle', 'lockIdleMin', 'int'],
 ];
 
 function fillSettingsForm() {
@@ -4055,10 +4442,18 @@ function bindSettingsForm() {
       else {
         const n = Number(el.value);
         if (!Number.isFinite(n) || n <= 0) return; // ignore a half-typed number
-        settings[key] = kind === 'sec' ? Math.round(n * 1000) : kind === 'ratio' ? n : Math.round(n);
+        // The idle limit has a floor the app relies on: a saved 0 would mean
+        // "never lock by idle" in src/auth, and the field offers no way to ask
+        // for that. Clamping here keeps the stored row inside the range the
+        // stepper shows.
+        if (key === 'lockIdleMin') settings[key] = Math.min(480, Math.max(5, Math.round(n)));
+        else settings[key] = kind === 'sec' ? Math.round(n * 1000) : kind === 'ratio' ? n : Math.round(n);
       }
       if (key === 'decisionThreshold') renderDecisionThreshold();
       if (key === 'healthIntervalMin') scheduleHealthMonitor();
+      // Appearance keys repaint immediately; the rest of the row is a stored
+      // value main reads on its next save-settings.
+      if (key === 'reduceMotion') applyAppearance();
       queueSettingsSave();
       renderCostEstimate();
       // Colour bands and sparkline length change what is already on screen.
@@ -4254,6 +4649,7 @@ const SETTINGS_SECTIONS_META = {
   'sec-catalog': { label: 'Models Catalog', desc: 'How the model pool syncs, and the sources its facts are scored against' },
   'sec-history': { label: 'History', desc: 'How many runs are kept, and exporting them' },
   'sec-logs': { label: 'Diagnostics & Logs', desc: 'What is logged about each request, and where' },
+  'sec-security': { label: 'Security', desc: 'The owner password, and how long an idle session stays open' },
   'sec-data': { label: 'Data Directory', desc: 'Where your settings, keys and history are stored' },
   'sec-about': { label: 'About VENOM Router', desc: 'Version, providers and updates' }
 };
@@ -4376,6 +4772,9 @@ function switchSettingsSection(sectionId) {
   // Same for the four sources: a report of what is on disk, drawn on entry, and
   // the only network call behind this section is the button's own.
   if (targetId === 'sec-catalog') renderCatalogSources();
+  // The lock's own state is read on entry so the warning and the status line
+  // reflect a password changed in another window, or a session that expired.
+  if (targetId === 'sec-security') renderSecuritySection();
 
   // The page scrolls, not the card. A tab picked while scrolled down opens at
   // its own top, with the categories still stuck in place above the fold.
@@ -4407,6 +4806,7 @@ function prepareSettingsPage() {
   renderAppearancePickers();
   refreshLogInfo();
   renderAbout();
+  renderSecuritySection();
   if (window.CATALOG) window.CATALOG.fillSettings();
   const activeBtn = $('#settings-nav .settings-nav-item.active') || $('#settings-nav .settings-nav-item');
   if (activeBtn) {
@@ -4421,6 +4821,98 @@ function openSettings() {
 }
 
 $('#btn-settings').addEventListener('click', openSettings);
+
+// ============================================
+// Security — the app lock from inside the app
+// ============================================
+// Three things the owner can do here, and the warning that says the shipped
+// password is still in force. Main owns all of it; this section asks for status
+// and shows what comes back.
+let lockStatus = { locked: false, isDefault: true, idleMs: 0 };
+
+function setChangeStatus(text, kind) {
+  const el = $('#lock-change-status');
+  if (!el) return;
+  el.textContent = text || '';
+  el.dataset.kind = kind || '';
+}
+
+async function refreshLockStatus() {
+  try {
+    const reply = await window.electronAPI.authStatus();
+    if (reply && reply.ok) lockStatus = reply;
+  } catch (err) {
+    console.error('Could not read the app lock status:', err);
+  }
+  return lockStatus;
+}
+
+function renderSecuritySection() {
+  const label = $('#lock-status-label');
+  if (label) {
+    label.textContent = lockStatus.locked
+      ? 'locked'
+      : lockStatus.isDefault ? 'open · shipped password' : 'open · password changed';
+  }
+  const warn = $('#lock-default-warning');
+  if (warn) warn.hidden = !lockStatus.isDefault;
+}
+
+// Read once at startup so the warning is right the first time Settings opens,
+// and again on every visit (switchSettingsSection) in case it changed.
+async function primeLockStatus() {
+  await refreshLockStatus();
+  renderSecuritySection();
+}
+
+$('#btn-lock-now-settings')?.addEventListener('click', async () => {
+  try {
+    await window.electronAPI.authLock();
+  } catch (err) {
+    console.error('Could not lock the app:', err);
+  }
+  if (window.LOCK) window.LOCK.show('locked');
+});
+
+$('#btn-lock-change')?.addEventListener('click', async () => {
+  const current = $('#set-lock-current').value;
+  const next = $('#set-lock-new').value;
+  const confirm = $('#set-lock-confirm').value;
+  if (!current || !next) {
+    setChangeStatus('Fill in the current and the new password.', 'error');
+    return;
+  }
+  // Caught here rather than in main: a mistyped confirmation is a typo, not a
+  // rejected password, and main has no business knowing the field exists.
+  if (next !== confirm) {
+    setChangeStatus('The two new passwords do not match.', 'error');
+    return;
+  }
+  const button = $('#btn-lock-change');
+  button.disabled = true;
+  setChangeStatus('Changing…', '');
+  let reply;
+  try {
+    reply = await window.electronAPI.authChange(current, next);
+  } catch (err) {
+    button.disabled = false;
+    setChangeStatus(`Could not change the password: ${err.message}`, 'error');
+    return;
+  }
+  button.disabled = false;
+  if (reply && reply.ok) {
+    ['#set-lock-current', '#set-lock-new', '#set-lock-confirm'].forEach((sel) => { $(sel).value = ''; });
+    setChangeStatus('Password changed.', 'ok');
+    await refreshLockStatus();
+    renderSecuritySection();
+    return;
+  }
+  const code = reply && reply.code;
+  if (code === 'THROTTLED') setChangeStatus(reply.message, 'warn');
+  else if (code === 'WRONG_PASSWORD') setChangeStatus('The current password is not right.', 'error');
+  else if (code === 'WEAK_PASSWORD') setChangeStatus(reply.message, 'error');
+  else setChangeStatus((reply && reply.message) || 'Could not change the password.', 'error');
+});
 
 $('.page-settings').addEventListener('click', (e) => {
   const go = e.target.closest('[data-go]');
@@ -4556,10 +5048,13 @@ function showPage(page) {
     else el.removeAttribute('aria-current');
   });
   renderPageHeader(page);
+  if (page === 'provider') {
+    renderProviderHead();
+    updateStats();
+    renderPtLegend();
+  }
   if (page === 'settings') prepareSettingsPage();
-  if (page === 'provider') renderProviderHead();
-  if (page === 'overview') renderQuickStats();
-  if (page === 'catalog' && window.CATALOG) window.CATALOG.render();
+  if (page === 'catalog' && window.CATALOG) (window.CATALOG.open ? window.CATALOG.open() : window.CATALOG.render());
   if (page === 'database' && window.DATABASE) window.DATABASE.render();
   if (page === 'history' && window.LOGS) window.LOGS.render();
   if (page === 'monitor' && window.LOGS) window.LOGS.renderMonitor();
@@ -5187,7 +5682,7 @@ function providerStatsHTML(p) {
   const s = providerStats(p);
   return `<div class="pv-stats">
       <div class="pv-stat"><span class="pv-stat-label">Keys</span>
-        <span class="pv-stat-value ${s.keys ? '' : 'dim'}">${s.keys ? `${s.activeKeys}/${s.keys}` : '0'}</span></div>
+        <span class="pv-stat-value ${s.keys ? '' : 'dim'}">${s.keys ? String(s.keys) : '0'}</span></div>
       <div class="pv-stat"><span class="pv-stat-label">Models</span>
         <span class="pv-stat-value ${s.models ? '' : 'dim'}">${s.models || '—'}</span></div>
       <div class="pv-stat"><span class="pv-stat-label">Pass rate</span>
@@ -5264,7 +5759,7 @@ function providerLegendHTML(list) {
         <div class="pv-legend-item ${counts[k] ? '' : 'empty'}" style="--c:${t.color}">
           <span class="pv-legend-chip"><i></i></span>
           <div class="pv-legend-text">
-            <div class="pv-legend-name">${t.label}<span class="pv-legend-count">${counts[k]} provider${counts[k] === 1 ? '' : 's'}</span></div>
+            <div class="pv-legend-name">${t.label}<span class="pv-legend-count${counts[k] ? '' : ' is-zero'}">${counts[k]} provider${counts[k] === 1 ? '' : 's'}</span></div>
             <div class="pv-legend-desc">${t.desc}</div>
           </div>
         </div>`).join('')}
@@ -5366,16 +5861,20 @@ function recheckProvider(id) {
   if (window.KEY_USAGE) KEY_USAGE.refreshProvider(id, { force: true });
 }
 
-// What state a key is in, most important first.
+// What state a key is in, most important first. A per-model refusal (the
+// quotaSpent.models list) does not make the key spent: other models still run
+// on it, so it reads as active with the affected models named in the hint.
 function keyState(k) {
   if (k.locked) return { id: 'locked', label: 'Locked', hint: 'Encrypted for another machine — re-add it' };
   if (!k.active) return { id: 'off', label: 'Off', hint: 'Switched off — not used in runs' };
-  if (isKeySpent(k)) return { id: 'spent', label: 'Quota used', hint: spentHint(k) };
+  if (isKeyFullySpent(k)) return { id: 'spent', label: 'Quota used', hint: spentHint(k) };
+  const partialHint = isKeyPartiallySpent(k) ? `${spentHint(k)}\n\nOther models still run on this key.` : null;
   const cool = keyCooldownUntil.get(k.id) || 0;
   if (cool > Date.now()) return { id: 'cooling', label: 'Cooling down', hint: `Rate limited — free again in ${Math.ceil((cool - Date.now()) / 1000)} s` };
   const probe = keyProbe.get(k.id);
   if (probe && probe.state === 'testing') return { id: 'testing', label: 'Testing…', hint: 'Testing connection to endpoint…' };
   if (probe && probe.state === 'fail') return { id: 'fail', label: 'Failing', hint: probe.text };
+  if (partialHint) return { id: 'active', label: 'Active', hint: partialHint };
   return { id: 'active', label: 'Active', hint: 'In use by test runs' };
 }
 
@@ -5423,9 +5922,11 @@ function keyCheckedHTML(probe) {
 
 // When a spent key's quota comes back: its own cell in the list view (under
 // the provider's last-run column) and a meta item in the card view. The
-// countdown is kept current by refreshAgoLabels().
+// countdown is kept current by refreshAgoLabels(). A per-model refusal leaves
+// this cell empty — naming one exhausted model next to every other exhausted
+// fact is the test table's job, not the key row's.
 function keyResetHTML(k, { inline = false } = {}) {
-  if (!isKeySpent(k)) return '';
+  if (!isKeyFullySpent(k) || !k.active) return '';
   const until = k.quotaSpent.until;
   const title = escapeHtml(spentHint(k));
   if (inline) {
@@ -5478,19 +5979,21 @@ function keyParts(p, k, i) {
   // The background check covers every active key, so an unprobed active key
   // is only waiting for it — unless live updates are paused.
   let probeHTML;
-  if (isKeySpent(k) && !isTesting) {
+  if (isTesting) {
+    probeHTML = statusPillHTML('pending', 'Testing…');
+  } else if (!k.active) {
+    probeHTML = statusPillHTML('none', 'Disabled', 'Switched-off keys are excluded from routing and background checks');
+  } else if (isKeyFullySpent(k)) {
     // The models check may still say OK; the spent quota is what decides
     // whether this key can serve, so it takes the badge, with the refusal's
     // status. The reset has its own cell (keyResetHTML).
     const s = k.quotaSpent;
     probeHTML = statusPillHTML('spent', `Quota used · ${s.status ? `HTTP ${s.status}` : '—'}`, `${spentHint(k)}${s.message ? `\n\n${s.message}` : ''}`);
   } else if (probe) {
-    const at = probe.at && !isTesting ? `Checked ${new Date(probe.at).toLocaleTimeString()}` : '';
+    const at = probe.at ? `Checked ${new Date(probe.at).toLocaleTimeString()}` : '';
     probeHTML = statusPillHTML(probe.state, probe.text, at);
   } else if (k.locked) {
     probeHTML = statusPillHTML('none', 'Unreadable', 'Encrypted on another machine — re-add the key');
-  } else if (!k.active) {
-    probeHTML = statusPillHTML('none', 'Not checked', 'Switched-off keys are left out of the background check');
   } else {
     probeHTML = settings.liveUpdates
       ? statusPillHTML('pending', 'Checking…')
@@ -5560,12 +6063,7 @@ function keysPanelHTML(p) {
 function keyRowsHTML(p) {
   return p.keys.map((k, i) => {
     const kp = keyParts(p, k, i);
-    const km = keyModelCount(p, k);
-    const total = p.keys.length > 1 && window.CATALOG ? window.CATALOG.providerModelCount(p.id) : null;
-    const partial = km && total != null && km.count < total;
-    const models = !km
-      ? '<span class="dt-muted">—</span>'
-      : `<span class="${partial ? 'kx-models-partial' : ''}" title="${escapeHtml(partial ? `This key sees ${km.count} of the ${total} models this provider's keys offer` : 'Models this key can use')}">${km.count}${partial ? `<span class="dt-muted"> / ${total}</span>` : ''}</span>`;
+    const kmHTML = keyModelsHTML(p, k);
     // When the key was last checked sits under its buttons, framed to their
     // width, so the check and the controls that act on it read as one block.
     const checked = kp.probe && kp.probe.at && kp.probe.state !== 'testing'
@@ -5575,11 +6073,9 @@ function keyRowsHTML(p) {
     return `<div class="pv-krow${last ? ' last' : ''}" data-state="${kp.st.id}">
       <div class="pv-cell col-provider"><div class="dt-key">
         ${kp.index}
-        <div class="dt-key-text">${kp.name}${kp.secret}</div>
+        <div class="dt-key-text">${kp.name}${kp.secret}${kmHTML ? `<span class="kx-meta">${kmHTML}</span>` : ''}</div>
       </div></div>
       <div class="pv-cell col-status">${kp.probeHTML}</div>
-      <div class="pv-cell col-keys"></div>
-      <div class="pv-cell dt-num col-models">${models}</div>
       <div class="pv-cell col-rate">${window.KEY_USAGE ? KEY_USAGE.quotaCellHTML(p, k) : ''}</div>
       <div class="pv-cell col-last">${keyResetHTML(k) || (window.KEY_USAGE ? KEY_USAGE.expiryCellHTML(p, k) : '')}</div>
       <div class="pv-cell col-actions"><div class="kx-actions-stack"><div class="dt-row-actions">${kp.actions}</div>${checked}</div></div>
@@ -5601,6 +6097,75 @@ function pvGroupHeadHTML(kind, n) {
   </div>`;
 }
 
+const PV_BADGE_ICON = {
+  key: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3"/></svg>',
+  account: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+  model: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
+};
+
+function providerBadgesHTML(p, s) {
+  const isOAuth = providerAuthKinds(p).includes('oauth');
+  const totalKeys = s?.keys ?? p.keys?.length ?? 0;
+  const activeKeys = s?.activeKeys ?? usableKeys(p).length;
+
+  let keyLabel;
+  if (isOAuth) {
+    keyLabel = totalKeys === 1 ? '1 account' : `${totalKeys} accounts`;
+  } else {
+    if (totalKeys === 0) keyLabel = '0 keys';
+    else keyLabel = totalKeys === 1 ? '1 key' : `${totalKeys} keys`;
+  }
+
+  const keyTitle = isOAuth
+    ? `${totalKeys} connected account${totalKeys === 1 ? '' : 's'}`
+    : `${activeKeys} of ${totalKeys} key${totalKeys === 1 ? '' : 's'} active`;
+
+  const keyIcon = isOAuth ? PV_BADGE_ICON.account : PV_BADGE_ICON.key;
+  const keyClass = `pv-badge pv-badge-keys ${isOAuth ? 'is-oauth' : ''} ${totalKeys === 0 ? 'is-empty' : ''}`;
+
+  const modelsCount = Math.max(
+    (window.CATALOG && typeof window.CATALOG.providerModelCount === 'function' ? window.CATALOG.providerModelCount(p.id) : 0) || 0,
+    (Array.isArray(p.models) ? p.models.length : 0),
+    s?.models || 0
+  );
+
+  const modelLabel = modelsCount === 1 ? '1 model' : `${modelsCount} models`;
+  const modelTitle = `${modelsCount} model${modelsCount === 1 ? '' : 's'} available`;
+  const modelClass = `pv-badge pv-badge-models ${modelsCount === 0 ? 'is-empty' : ''}`;
+  const modelIcon = PV_BADGE_ICON.model;
+
+  return `<div class="dt-provider-badges" role="group" aria-label="Provider configuration status">
+    <span class="${keyClass}" title="${escapeHtml(keyTitle)}">${keyIcon}<span class="pv-badge-text">${escapeHtml(keyLabel)}</span></span>
+    <span class="${modelClass}" title="${escapeHtml(modelTitle)}">${modelIcon}<span class="pv-badge-text">${escapeHtml(modelLabel)}</span></span>
+  </div>`;
+}
+
+function pvSparklineHTML(p) {
+  const TOTAL_TICKS = 20;
+  const runs = runLog.filter((r) => r.provider === p.id);
+  const recent = runs.slice(-TOTAL_TICKS);
+  const emptyCount = TOTAL_TICKS - recent.length;
+
+  const ticks = [];
+  for (let i = 0; i < emptyCount; i++) {
+    ticks.push('<span class="pv-tick empty" title="No test recorded"></span>');
+  }
+  for (const r of recent) {
+    let state = 'pass';
+    if (r.total > 0 && r.passed === 0) state = 'fail';
+    else if (r.passed < r.total) state = 'warn';
+    const ago = r.at ? formatAgo(r.at) : '';
+    const title = `${ago ? `${ago}: ` : ''}${r.passed}/${r.total} passed`;
+    ticks.push(`<span class="pv-tick ${state}" title="${escapeHtml(title)}"></span>`);
+  }
+
+  const tip = runs.length
+    ? `${runs.length} test run${runs.length === 1 ? '' : 's'} recorded`
+    : 'No test runs yet';
+
+  return `<div class="pv-sparkline" role="img" aria-label="${escapeHtml(tip)}" title="${escapeHtml(tip)}">${ticks.join('')}</div>`;
+}
+
 // Connected providers as a list of row cards, one per provider with a gap
 // between them, on one column grid shared with each provider's key rows, and
 // grouped by auth kind under a divider each. The whole row opens its keys;
@@ -5610,25 +6175,23 @@ function pvRowsHTML(groups, stats) {
     const s = stats.get(p.id);
     const last = pvLastRun(p);
     const id = escapeHtml(p.id);
-    const rate = s.rate == null
-      ? '<span class="dt-muted">—</span>'
-      : `<div class="dt-rate"><div class="dt-rate-bar"><span class="${scoreClass(s.rate / 100)}" style="width:${s.rate}%"></span></div><b>${s.rate}%</b></div>`;
     const open = pvExpanded.has(p.id);
     return `<div class="pv-rowcard ${open ? 'open' : ''}" role="listitem">
       <div class="pv-row ${open ? 'open' : ''}" data-kx-toggle="${id}" aria-expanded="${open}" tabindex="0">
         <div class="pv-cell col-provider"><div class="dt-provider">${KX_ICON.chevron}
           ${providerLogoHTML(p)}
-          <div><div class="dt-provider-name">${escapeHtml(p.name)}${websiteLinkHTML(p)}</div><div class="dt-provider-host">${escapeHtml(providerHost(p))}</div></div>
+          <div><div class="dt-provider-name">${escapeHtml(p.name)}${websiteLinkHTML(p)}</div>${providerBadgesHTML(p, s)}</div>
         </div></div>
         <div class="pv-cell col-status">${providerStatusHTML(p)}</div>
-        <div class="pv-cell dt-num col-keys">${s.activeKeys}<span class="dt-muted"> / ${s.keys}</span></div>
-        <div class="pv-cell dt-num col-models">${s.models || '<span class="dt-muted">—</span>'}</div>
-        <div class="pv-cell col-rate">${rate}</div>
+        <div class="pv-cell col-rate"></div>
         <div class="pv-cell col-last">${last ? escapeHtml(formatAgo(last)) : '<span class="dt-muted">never</span>'}</div>
-        <div class="pv-cell col-actions"><div class="dt-row-actions">
-          <button class="dt-icon-btn" type="button" data-connect="${id}" title="Add key" aria-label="Add key">${PV_ICON.plus}</button>
-          ${recheckButtonHTML(p)}
-          <button class="dt-icon-btn dt-icon-go" type="button" data-manage="${id}" title="Test models" aria-label="Test ${escapeHtml(p.name)} models">${PV_ICON.flask}</button>
+        <div class="pv-cell col-actions"><div class="pv-actions-stack">
+          <div class="dt-row-actions">
+            <button class="dt-icon-btn" type="button" data-connect="${id}" title="Add key" aria-label="Add key">${PV_ICON.plus}</button>
+            ${recheckButtonHTML(p)}
+            <button class="dt-icon-btn dt-icon-go" type="button" data-manage="${id}" title="Test models" aria-label="Test ${escapeHtml(p.name)} models">${PV_ICON.flask}</button>
+          </div>
+          ${pvSparklineHTML(p)}
         </div></div>
       </div>${open ? `<div class="pv-rowcard-keys">${keyRowsHTML(p)}</div>` : ''}
     </div>`;
@@ -5692,6 +6255,10 @@ async function setKeyActive(pid, kid) {
   const k = p && p.keys.find((x) => x.id === kid);
   if (!k || k.locked) return;
   k.active = !k.active;
+  if (!k.active) {
+    keyProbe.delete(kid);
+    if (window.KEY_USAGE) KEY_USAGE.forget(kid);
+  }
   await saveProviderConfig(pid);
   refreshAfterKeyChange(pid);
 }
@@ -5755,16 +6322,50 @@ const DT_ICON = {
   nomatch: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/><path d="m8.5 8.5 5 5M13.5 8.5l-5 5"/></svg>',
 };
 
-// config: { placeholder, filters: [{ value, label, dot? }], sorts: [{ value, label }] }
+// config: { placeholder, filterKey?, chipsLabel?, filters: [{ value, label, dot? }], statusFilter: { icon, label, key?, options: [{ value, label }] }, sorts: [{ value, label }], selects: [{ key, icon, label, options: [{ value, label }] }] }
 function dataToolbarHTML(config, state) {
+  const filterKey = config.filterKey || 'filter';
   const chips = (config.filters || []).map((f) => `
-    <button class="dt-chip ${state.filter === f.value ? 'active' : ''}" type="button" role="radio"
-            aria-checked="${state.filter === f.value}" data-dt-filter="${f.value}">
+    <button class="dt-chip ${state[filterKey] === f.value ? 'active' : ''}" type="button" role="radio"
+            aria-checked="${state[filterKey] === f.value}" data-dt-filter="${f.value}">
       ${f.dot ? `<span class="dt-chip-dot" style="--dot:${f.dot}"></span>` : ''}${escapeHtml(f.label)}
       <span class="dt-chip-count" data-dt-count="${f.value}">0</span>
     </button>`).join('');
   const sorts = (config.sorts || []).map((s) =>
     `<option value="${s.value}" ${state.sort === s.value ? 'selected' : ''}>${escapeHtml(s.label)}</option>`).join('');
+  const sortSelectHtml = sorts ? `<div class="ui-select-wrap">
+    <select class="ui-select-native" data-dt="sort" data-lead-icon="sort" data-ui-class="ui-select-toolbar" aria-label="Sort">
+      ${sorts}
+    </select>
+  </div>` : '';
+
+  const statusSel = config.statusFilter ? (() => {
+    const key = (config.statusFilter && config.statusFilter.key) || 'status';
+    const opts = config.statusFilter.options.map((o) =>
+      `<option value="${o.value}" ${state[key] === o.value ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('');
+    return `<div class="ui-select-wrap">
+      <select class="ui-select-native" data-dt-status
+              data-lead-icon="${escapeHtml(config.statusFilter.icon || 'server')}"
+              data-ui-class="ui-select-toolbar"
+              aria-label="${escapeHtml(config.statusFilter.label || 'Status')}">
+        ${opts}
+      </select>
+    </div>`;
+  })() : '';
+
+  const extraSelects = (config.selects || []).map((s) => {
+    const opts = s.options.map((o) =>
+      `<option value="${escapeHtml(o.value)}" ${state[s.key] === o.value ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('');
+    return `<div class="ui-select-wrap">
+      <select class="ui-select-native" data-dt-select="${escapeHtml(s.key)}"
+              data-lead-icon="${escapeHtml(s.icon || '')}"
+              data-ui-class="ui-select-toolbar"
+              aria-label="${escapeHtml(s.label || '')}">
+        ${opts}
+      </select>
+    </div>`;
+  }).join('');
+  
   return `<div class="dt-toolbar">
     <div class="dt-left">
       <label class="dt-search"><span class="dt-search-icon" aria-hidden="true">${DT_ICON.search}</span>
@@ -5772,33 +6373,64 @@ function dataToolbarHTML(config, state) {
                value="${escapeHtml(state.search)}" autocomplete="off" spellcheck="false" aria-label="Search">
         <kbd>/</kbd>
       </label>
-      ${sorts ? `<label class="dt-select">Sort<select data-dt="sort" aria-label="Sort">${sorts}</select></label>` : ''}
+      ${sortSelectHtml}
+      ${statusSel}
+      ${extraSelects}
     </div>
     <div class="dt-right">
-      ${chips ? `<div class="dt-chips" role="radiogroup" aria-label="Filter">${chips}</div>` : ''}
+      ${chips ? `<div class="dt-chips" role="radiogroup" aria-label="${escapeHtml(config.chipsLabel || 'Filter')}">${chips}</div>` : ''}
       <div class="dt-actions"></div>
     </div>
   </div>`;
 }
 
-function syncDataToolbar(root, state) {
+function syncDataToolbar(root, state, config = {}) {
+  const filterKey = config.filterKey || 'filter';
   root.querySelectorAll('[data-dt-filter]').forEach((b) => {
-    const on = b.dataset.dtFilter === state.filter;
+    const on = b.dataset.dtFilter === state[filterKey];
     b.classList.toggle('active', on);
     b.setAttribute('aria-checked', String(on));
   });
+  const sel = root.querySelector('[data-dt-status]');
+  if (sel) {
+    const key = (config.statusFilter && config.statusFilter.key) || 'status';
+    sel.value = state[key];
+  }
+  root.querySelectorAll('[data-dt-select]').forEach((s) => {
+    const key = s.dataset.dtSelect;
+    if (key in state) s.value = state[key];
+  });
 }
 
-function bindDataToolbar(root, state, onChange) {
-  root.querySelector('[data-dt="search"]').addEventListener('input', (e) => {
-    state.search = e.target.value;
-    onChange('search');
-  });
+function bindDataToolbar(root, state, onChange, config = {}) {
+  const filterKey = config.filterKey || 'filter';
+  const search = root.querySelector('[data-dt="search"]');
+  if (search) {
+    search.addEventListener('input', (e) => {
+      state.search = e.target.value;
+      onChange('search');
+    });
+  }
   const sort = root.querySelector('[data-dt="sort"]');
   if (sort) sort.addEventListener('change', (e) => { state.sort = e.target.value; onChange('sort'); });
   root.addEventListener('click', (e) => {
     const f = e.target.closest('[data-dt-filter]');
-    if (f) { state.filter = f.dataset.dtFilter; syncDataToolbar(root, state); onChange('filter'); }
+    if (f) { state[filterKey] = f.dataset.dtFilter; syncDataToolbar(root, state, config); onChange(filterKey); }
+  });
+  const statusSel = root.querySelector('[data-dt-status]');
+  if (statusSel) {
+    statusSel.addEventListener('change', (e) => {
+      const key = (config.statusFilter && config.statusFilter.key) || 'status';
+      state[key] = e.target.value;
+      onChange(key);
+    });
+  }
+  root.querySelectorAll('[data-dt-select]').forEach((s) => {
+    s.addEventListener('change', (e) => {
+      const key = s.dataset.dtSelect;
+      state[key] = e.target.value;
+      onChange(key);
+    });
   });
 }
 
@@ -5813,6 +6445,7 @@ const COMPACT_LAYOUT = window.matchMedia('(max-width: 1100px)');
 const pvState = {
   search: '',
   filter: 'all',
+  status: 'all',
   sort: 'name',
   view: COMPACT_LAYOUT.matches ? 'cards' : 'table',
 };
@@ -5820,14 +6453,25 @@ let pvShell = null; // which tab the body skeleton was built for
 
 const PV_TOOLBAR = {
   placeholder: 'Search providers, hosts or URLs…',
+  statusFilter: {
+    icon: 'server',
+    label: 'Provider Status',
+    options: [
+      { value: 'all',     label: 'All Providers' },
+      { value: 'ok',      label: 'Connected' },
+      { value: 'fail',    label: 'Down' },
+      { value: 'pending', label: 'Pending' },
+      { value: 'none',    label: 'No Active Key' },
+    ],
+  },
   filters: [
-    { value: 'all', label: 'All' },
-    { value: 'oauth', label: 'OAuth', dot: 'var(--type-oauth)' },
+    { value: 'all',    label: 'All' },
+    { value: 'oauth',  label: 'OAuth',   dot: 'var(--type-oauth)' },
     { value: 'apikey', label: 'API Key', dot: 'var(--type-apikey)' },
   ],
   sorts: [
-    { value: 'name', label: 'Name' },
-    { value: 'rate', label: 'Pass rate' },
+    { value: 'name',   label: 'Name' },
+    { value: 'rate',   label: 'Pass rate' },
     { value: 'models', label: 'Models' },
     { value: 'recent', label: 'Last run' },
   ],
@@ -5875,11 +6519,19 @@ function renderConnectedKpis(connected, all) {
   ]);
 }
 
+function pvFilterState(p) {
+  const h = providerHealth.get(p.id);
+  if (!h) return 'pending';
+  return h.state;
+}
+
 function pvFiltered(connected) {
   const q = pvState.search.trim().toLowerCase();
   let list = connected.filter((p) => {
     if (q && !`${p.name} ${providerHost(p)} ${p.baseUrl}`.toLowerCase().includes(q)) return false;
-    return pvState.filter === 'all' || providerAuthKinds(p).includes(pvState.filter);
+    if (pvState.filter !== 'all' && !providerAuthKinds(p).includes(pvState.filter)) return false;
+    if (pvState.status !== 'all' && pvFilterState(p) !== pvState.status) return false;
+    return true;
   });
   const stats = new Map(list.map((p) => [p.id, providerStats(p)]));
   const by = {
@@ -5895,9 +6547,13 @@ function pvFiltered(connected) {
 
 function renderConnectedResults(connected) {
   const results = $('#pv-results');
-  // Filter counts reflect the search, so a chip never promises rows it hides.
+  // Filter counts reflect the search and status filter, so a chip never promises rows it hides.
   const q = pvState.search.trim().toLowerCase();
-  const searched = connected.filter((p) => !q || `${p.name} ${providerHost(p)} ${p.baseUrl}`.toLowerCase().includes(q));
+  const searched = connected.filter((p) => {
+    if (q && !`${p.name} ${providerHost(p)} ${p.baseUrl}`.toLowerCase().includes(q)) return false;
+    if (pvState.status !== 'all' && pvFilterState(p) !== pvState.status) return false;
+    return true;
+  });
   const count = { all: searched.length };
   PV_AUTH_GROUPS.forEach((g) => { count[g] = searched.filter((p) => providerAuthKinds(p).includes(g)).length; });
   $$('#pv-toolbar [data-dt-count]').forEach((el) => { el.textContent = count[el.dataset.dtCount] ?? 0; });
@@ -6108,6 +6764,9 @@ async function init() {
   setupUpdateListeners();
   startHealthMonitor();
   renderQuickStats();
+  // The lock's own state, so the Security section and its warning are correct
+  // the first time they are opened rather than after a visit.
+  primeLockStatus();
   // The catalogue needs the providers and their keys, so it starts last.
   if (window.CATALOG) window.CATALOG.init();
   // Last, so the restored page renders with settings and providers in place.
@@ -6119,7 +6778,27 @@ async function init() {
 // parser had run it, so `window.CATALOG` was still missing and the catalogue
 // never started (no sync, no bindings).
 // DOMContentLoaded fires only once every script on the page has run.
-function start() {
+//
+// THE LOCK GATE. Everything init() does reads the owner's data — providers,
+// keys, history, the model pool — so none of it runs until the password is
+// accepted. `authStatus` RESOLVES (see preload.js); the only way it rejects is a
+// defect in main, and that must not be mistaken for "locked" or for "open":
+// it is reported, and the app then opens, because a broken lock is a bug to
+// see and fix, not a reason to sit on an empty screen forever.
+async function start() {
+  let status = null;
+  try {
+    status = await window.electronAPI.authStatus();
+  } catch (err) {
+    console.error('Could not read the app lock state; opening without it:', err);
+  }
+  if (window.LOCK) {
+    window.LOCK.init(status || { locked: false, idleMs: 0 });
+    if (status && status.locked) {
+      const unlocked = await window.LOCK.waitForUnlock();
+      if (!unlocked.ok) return;
+    }
+  }
   init().catch((err) => console.error('Startup failed:', err));
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);

@@ -175,6 +175,9 @@ async function runGuardedSession(dir, report) {
   process.env.BOOT_GUARD_REPORT = report;
   const app = await launch({ userDataDir: dir, port: PORT, entry: 'scripts/live/boot-guard.cjs' });
   try {
+    // The app lock stands in front of the page, so a guarded session opens it
+    // first — the guard is armed against the network, not against the password.
+    await app.unlockAndWait();
     await app.waitFor(READY, 40000);
     check('the app booted under the guard', true);
     const s = await openCatalogAndRead(app);
@@ -254,6 +257,7 @@ async function runPositiveControl(dir, report) {
   console.log('\n--- positive control: the guard must bite when a sync IS asked for ---');
   const app = await launch({ userDataDir: dir, port: PORT + 2, entry: 'scripts/live/boot-guard.cjs' });
   try {
+    await app.unlockAndWait();
     await app.waitFor(READY, 40000);
     const outcome = await app.evaluate(`(async () => {
       try { const r = await window.electronAPI.catalogSources({ force: true }); return { ok: true, r }; }
@@ -276,6 +280,7 @@ async function runSyncedSession(dir) {
   console.log('\n--- session 2: the same folder, and the button really pressed ---');
   const app = await launch({ userDataDir: dir, port: PORT + 1 });
   try {
+    await app.unlockAndWait();
     await app.waitFor(READY, 40000);
     const before = await openCatalogAndRead(app);
     check('the block rendered before anything was clicked', before.hasBlock && before.rowCount === 4,

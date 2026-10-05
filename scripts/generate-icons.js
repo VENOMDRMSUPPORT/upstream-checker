@@ -71,6 +71,12 @@ async function main() {
     }
   }
 
+  // The lock screen draws the cyan emblem at 176 px, so it ships its own 512 px
+  // copy: the 256 px one above is already soft at that size on a 2x display, and
+  // the lock screen is the first thing anyone sees. One extra file beats ten
+  // bigger ones, since only this one is shown this large.
+  fs.writeFileSync(path.join(OUT, 'emblem-cyan-512.png'), await resize(path.join(SRC, 'emblem-cyan.png'), 512));
+
   // Window, taskbar and installer icons. The pack's hinted frames where it has
   // them; 512 is the emerald emblem itself.
   const frames = {};

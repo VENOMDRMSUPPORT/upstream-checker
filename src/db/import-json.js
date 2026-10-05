@@ -127,7 +127,12 @@ function normaliseConfig(config, { cipher, now, report, log }) {
         name: typeof k.name === 'string' && k.name ? k.name : keyId,
         cipher: sealed(value, `the key "${label}"`),
         active: k.active !== false,
-        quotaSpent: isObject(k.quotaSpent) ? k.quotaSpent : null,
+        // A refusal that named no reset is one model's answer on one day, not a
+        // fact about the key: it TTLs out after a day (see isKeySpent in
+        // app.js), so a legacy record older than that is not carried over.
+        quotaSpent: isObject(k.quotaSpent) && !(k.quotaSpent.until == null
+          && Number.isFinite(k.quotaSpent.at) && Date.now() - k.quotaSpent.at > 86400000)
+          ? k.quotaSpent : null,
       });
     });
     out.providers.push({

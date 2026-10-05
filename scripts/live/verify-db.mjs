@@ -502,6 +502,9 @@ const RUN2_END = [checkWriteGate];
 async function session(ctx, steps, { checkFastClose = false } = {}) {
   const app = await launch({ userDataDir: ctx.dir });
   try {
+    // Past the app lock first: it is the front door, and READY is about the app
+    // behind it.
+    await app.unlockAndWait();
     await app.waitFor(READY, 30000);
     for (const step of steps) await step({ ...ctx, app });
   } finally {

@@ -51,13 +51,21 @@ The order is deliberate; each step exists because doing it later caused a bug.
    and purge scheduler. This one *never throws upward*: a log database that
    will not open turns logging off for the session, says why in `logs-info`,
    and the app runs on.
-6. **IPC registration** — `registerDataIpc` (12 channels), `registerLogsIpc`
-   (10 channels), `startCatalog` (the five `catalog:*` channels, which write
-   through `repos.snapshots` and so cannot be registered before the store),
-   `createApiRequester`, then the window.
-7. **Window** — saved bounds, frameless, `icon.ico` on Windows; then
+6. **`createAuthLock()`** — the app lock (`src/auth`). Built after the database,
+   because its one row (`app_lock`, schema v4) lives in `venom.db`, and before
+   the window, because the request gate below consults it. `ensureDefault()`
+   writes the shipped default password when there is no row — a fresh install,
+   or one just reset by `npm run reset:lock`. The idle limit is read from
+   `lockIdleMin` here and re-read on every `save-settings`; it is arithmetic in
+   `isLocked()`, so there is no timer to reschedule.
+7. **IPC registration** — `registerDataIpc` (12 channels; `copy-key` is gated on
+   the lock), `registerLogsIpc` (10 channels), `registerAuthIpc` (5 `auth:*`
+   channels), `startCatalog` (the five `catalog:*` channels, which write through
+   `repos.snapshots` and so cannot be registered before the store),
+   `createApiRequester` (gated on the lock), then the window.
+8. **Window** — saved bounds, frameless, `icon.ico` on Windows; then
    `startUpdateChecks()` (5 s after load, then every 2 h).
-8. **Quit (`will-quit`)** — update timers, then `stopLogs()` (purge timer →
+9. **Quit (`will-quit`)** — update timers, then `stopLogs()` (purge timer →
    writer flush → `wal_checkpoint` → close), then `store.close()`. The log
    flushes before `venom.db` closes because the recorder reads provider and
    price rows from it.
@@ -71,7 +79,7 @@ Everything lives in the user-data folder. `Settings › Data` opens it.
 
 | File | Owner | Contents |
 | --- | --- | --- |
-| `venom.db` | `src/db` | providers, keys, settings, secrets, model pool, run history |
+| `venom.db` | `src/db` | providers, keys, settings, secrets, model pool, run history, the app lock |
 | `venom-logs.db` | `src/logs` | every request, failed-request bodies, hourly roll-ups |
 | `venom.db.bak-v<N>` | `src/db` | copy taken before a migration (newest 3 kept) |
 | `config.imported.json`, … | import | the pre-2.0 files, renamed and never deleted |
@@ -111,13 +119,19 @@ The single path every outbound call takes.
 1. **Renderer** calls `electronAPI.apiRequest({ url, headers, body, requestId, timeoutMs, source, runId, attempt, hedgeIndex, testGroup, trigger })`.
    It never holds a key: where a key goes it writes `venomkey:<keyId>`, and
    `venomsecret:openRouterApiKey` for the OpenRouter key.
-2. **`createKeyResolver`** (`src/db/keys.js`) substitutes tokens — in the URL
+2. **The lock gate** (`src/main.js`) — the only two channels that hand over a
+   secret or spend quota are refused while the app is locked: `api-request`
+   resolves `{ outcome: 'locked' }` here, and `copy-key` answers
+   `{ ok: false, code: 'LOCKED' }` in `src/db/ipc.js`. A request that does go
+   through also counts as activity, so the idle deadline moves on main's own
+   code rather than on the renderer having reported anything.
+3. **`createKeyResolver`** (`src/db/keys.js`) substitutes tokens — in the URL
    (URL-encoded), in a header (raw) and in a JSON body (JSON-escaped) — **only
    when the request's origin is that key's own provider**. A mismatch returns
    `blocked` and the request never leaves. The longest matching key id wins.
    It also returns `refs` (which key/secret) and `substitutions` (the real
    secrets, for the log's scrubber and nowhere else).
-3. **`src/api-request.js`** sends it over `https`/`http` and guarantees the
+4. **`src/api-request.js`** sends it over `https`/`http` and guarantees the
    request **finishes exactly once** — response end, body cut off, socket
    timeout, transport error, or a resolver refusal. `finish()` resolves the
    renderer's promise first; the log record is built in `setImmediate`
@@ -130,8 +144,7 @@ The single path every outbound call takes.
 4. **Cancel** — `cancel-api-request(requestId, reason)` with `hedge_lost`
    (a faster hedge won), `stop` (the user) or `deadline` (per-kind limit).
    Anything else is recorded as `stop`; an unknown or finished id is a no-op.
-5. **`src/logs/recorder.js`** turns the finished request into one row: source,
-   run id, attempt, hedge flag, provider and key (from `refs`, else the single
+5. **`src/logs/recorder.js`** turns the finished request into one row: source,   run id, attempt, hedge flag, provider and key (from `refs`, else the single
    provider with that origin), endpoint, model, status, HTTP status, error
    class/code/message, latency, TTFT, tokens, cost (from the pool's
    `summary_json.pricing`), and a bounded `meta_json`. Stored text is scrubbed
@@ -166,14 +179,15 @@ The single path every outbound call takes.
 
 ## 6. IPC surface
 
-42 channels. The full generated list is in [CODE_MAP.md](CODE_MAP.md#ipc-channels).
+47 channels. The full generated list is in [CODE_MAP.md](CODE_MAP.md#ipc-channels).
 
 | Group | Channels | Notes |
 | --- | --- | --- |
 | Window | `window-minimize`, `window-maximize`, `window-close`, `set-window-icon` | fire-and-forget |
-| Requests | `api-request`, `cancel-api-request` | the only network path |
-| Data | `read-config`, `database-explorer`, `save-settings`, `save-secret`, `save-test-definition`, `save-provider`, `merge-provider`, `delete-provider`, `copy-key`, `read-history`, `append-run`, `clear-history` | one thing per channel, so two writers cannot overwrite each other |
+| Requests | `api-request`, `cancel-api-request` | the only network path. `api-request` **resolves** `{ outcome: 'locked' }` while the app is locked, and is not recorded in the request log — nothing was sent for a row to describe |
+| Data | `read-config`, `database-explorer`, `save-settings`, `save-secret`, `save-test-definition`, `save-provider`, `merge-provider`, `delete-provider`, `copy-key`, `read-history`, `append-run`, `clear-history` | one thing per channel, so two writers cannot overwrite each other. `copy-key` is gated on the lock and answers `{ ok: false, code: 'LOCKED' }` |
 | Catalog | `catalog:ingest`, `catalog:read`, `catalog:health`, `catalog:sources`, `catalog:fetch-info` | the model pool and its four sources. **Every one resolves**: an outcome the page must act on is `{ ok: false, code, message }`, because `err.code` cannot cross `ipcMain.handle` — a rejection becomes a new Error carrying only its message |
+| App lock | `auth:status`, `auth:unlock`, `auth:change`, `auth:lock`, `auth:activity` | same resolving contract. `auth:locked` travels the other way (main→renderer) when the idle limit ends a session. No reply ever carries the stored hash |
 | Request log | `logs-list`, `logs-get`, `logs-stats`, `logs-facets`, `logs-runs`, `logs-run-summary`, `logs-export`, `logs-info`, `logs-clear` | read-only except export and clear |
 | Legacy log file | `read-log-info`, `open-request-log`, `clear-request-log` | the old `requests.log` |
 | App / shell | `get-data-path`, `open-data-folder`, `open-external`, `notify-regression` | `open-external` accepts http(s) only |
@@ -185,9 +199,19 @@ The single path every outbound call takes.
 Load order matters: classic scripts, no modules, globals shared.
 
 `providers/*.js` (register into `window.INTEGRATED_PROVIDERS`) →
-`ui-select.js` → `ulid.js` → **`app.js`** → `key-usage.js` → `catalog.js` →
-`logs-format.js` → `logs.js`.
+`ui-select.js` → `ui-stepper.js` → `ulid.js` → **`lock.js`** → **`profile.js`** →
+**`app.js`** → `key-usage.js` → `catalog-caps.js` → `catalog.js` →
+`logs-format.js` → `logs.js` → `database.js`.
 
+- **`lock.js`** — the app lock screen, `window.LOCK`. Loaded before `app.js`
+  because `app.js`'s `start()` is gated: it asks `auth:status` first and does no
+  startup work at all until the password is accepted. Shows and hides the panel,
+  owns the canvas particle field (stopped on hide, on blur and under reduced
+  motion), and never decides anything — whether the app is locked and whether a
+  password is right are main's answers.
+- **`profile.js`** — the header's Administrator menu: **Lock now** and **Sign
+  out**. Both call `auth:lock`, which clears main's session and sends
+  `auth:locked` back.
 - **`app.js`** is the core: settings, provider/key model, discovery, the test
   engine (hedging, retries, rate-limit pacing), history, exports, the shell and
   the router (`PAGES`, hash routes `#/provider/<id>`, `#/settings/<section>`,
@@ -212,9 +236,11 @@ instead of `escapeHtml`).
 
 | Command | Proves | Does **not** prove |
 | --- | --- | --- |
-| `npm test` | 552 tests over the data, log, request and catalog layers, under Electron's Node (~2 s) | anything in the renderer except the pure helpers it loads by text |
+| `npm test` | 620 tests over the data, log, request, auth and catalog layers, under Electron's Node (~2 s) | anything in the renderer except the pure helpers it loads by text |
 | `npm run verify:live` | the real app, launched on a scratch folder over CDP against a **mock** provider: import, log, pages, drawdown geometry, restart, single instance | a real provider, a real key, a real 429, a real stream |
 | `npm run verify:catalog` | nothing downloads at boot; the four sources fill on a click; the Models page opens on its own path | anything about a real provider or a keyed fetch |
+| `npm run verify:lock` | the lock screen covers the viewport, the emblem paints (its pixels are counted, not its URL read), the shell is `inert`, the colours ignore a forced theme and accent, and the shipped default opens it | that the lock resists anyone with code execution as this Windows user — it does not |
+| `npm run reset:lock -- "<dir>"` | deletes the saved password and nothing else | anything about the rest of the data; it touches one row |
 | `npm run repo:map -- --check` | CODE_MAP.md matches the tree | nothing about behaviour |
 | `npm run check:keystore` | DPAPI round-trips on this machine | — |
 | `npm start` | your build, your data | — |
@@ -224,6 +250,12 @@ Rules learned the hard way, both in [CLAUDE.md](../CLAUDE.md):
 geometry (`getBoundingClientRect`), and always drive a scratch
 `--user-data-dir`, never the owner's folder.
 
+Every live gate opens the app lock first, with `app.unlockAndWait()` from
+`scripts/live/cdp.mjs`: the lock is the front door, so a gate that waited for
+the page without opening it would time out on the panel rather than on what it
+came to measure. It resolves the same `{ ok }` value `auth:unlock` always does,
+so a gate can assert the unlock happened instead of assuming it.
+
 ## 9. Conventions that bite
 
 - The version lives **only** in `package.json`; the window reads it over IPC.
@@ -231,6 +263,13 @@ geometry (`getBoundingClientRect`), and always drive a scratch
   (some plans are 300 KB). Read them for intent, never as current state.
   `docs/INDEX.md` is likewise historical — see its stub.
 - Migration files are append-only: an entry that has shipped is never edited.
+  The app lock's table arrived that way (v4). Its row is written by `src/auth`
+  at startup rather than by the migration, because a password hash frozen into a
+  shipped migration could never be changed.
+- A repo in `src/db/repos` prepares its statements **lazily** if its table
+  arrives in a late migration: `open()` assembles every repo before it knows
+  which migrations will run, and `test/db/open.test.js` opens files against a
+  truncated migration list on purpose.
 - A new column on `request_logs` is a new migration + `ROW_COLUMNS` in the
   writer + the recorder + the query layer. Missing one is silent data loss.
 - `src/renderer/app.js`, `index.html` and `styles.css` are each thousands of

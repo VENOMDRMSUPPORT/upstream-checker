@@ -24,8 +24,13 @@ export function assertScratchDir(dir) {
 
 // NODE_ENV=development skips the update check (no GitHub traffic), and
 // ELECTRON_RUN_AS_NODE must not leak in from a test shell.
+//
+// VENOM_NO_DEV_WATCH keeps a gate's window stable. Anything else editing
+// src/renderer while a gate runs reloads the page, and a reload during startup
+// aborts init() — the gate then measures an empty shell and reports the app as
+// broken. A gate must observe the code, not race whoever is writing it.
 export function appEnv() {
-  const env = { ...process.env, NODE_ENV: 'development' };
+  const env = { ...process.env, NODE_ENV: 'development', VENOM_NO_DEV_WATCH: '1' };
   delete env.ELECTRON_RUN_AS_NODE;
   return env;
 }
@@ -135,7 +140,41 @@ export async function launch({ userDataDir, port = 9333, entry = '.', extraArgs 
     return code;
   }
 
-  return { child, evaluate, waitFor, close, exited, send, output: () => output };
+  // The password the app ships with, and the call that gets a driven session
+  // past the lock screen. Every gate needs this: the lock is the front door now,
+  // and a gate that waited for PROVIDERS without opening it would time out on
+  // the panel rather than on the page it came to measure.
+  //
+  // It resolves the same { ok, ... } value auth:unlock always does, so a gate can
+  // assert the unlock happened instead of assuming it. A session that is already
+  // unlocked (a reload) answers ok with no work.
+  async function unlock(password = 'habiba77Hm') {
+    return evaluate(`(async () => {
+      const before = await window.electronAPI.authStatus();
+      if (before && before.locked === false) {
+        if (window.LOCK && typeof window.LOCK.hide === 'function') window.LOCK.hide();
+        return { ok: true, alreadyOpen: true };
+      }
+      const reply = await window.electronAPI.authUnlock(${JSON.stringify(password)});
+      if (reply && reply.ok && window.LOCK && typeof window.LOCK.hide === 'function') {
+        window.LOCK.hide();
+      }
+      return reply;
+    })()`, 30000);
+  }
+
+  // Unlock, then wait for the app's own startup to have run. The lock gate is
+  // what stands between the two, so this is the pair every gate wants; call it
+  // once, before the first waitFor.
+  async function unlockAndWait(ms = 45000) {
+    const reply = await unlock();
+    if (!reply || reply.ok !== true) {
+      throw new Error(`Could not open the app lock: ${JSON.stringify(reply)}`);
+    }
+    return reply;
+  }
+
+  return { child, evaluate, waitFor, close, exited, send, unlock, unlockAndWait, output: () => output };
 }
 
 // A second, plain instance on the same data folder (no CDP), for the

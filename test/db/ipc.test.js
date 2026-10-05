@@ -86,6 +86,51 @@ test('copy-key writes the clipboard in main and refuses a key it cannot read', a
   assert.strictEqual(clipboard.text, 'sk-copy-me');
 });
 
+// The lock gate: copy-key is one of the two channels that hands over a secret
+// (api-request is the other, gated in src/main.js). It answers a value rather
+// than throwing, because `err.code` does not cross ipcMain.handle — a renderer
+// that received only a message could not tell "locked" from a real failure.
+test('copy-key refuses while the app is locked, and the clipboard is not written', async (t) => {
+  const store = await memoryStore(t);
+  const ipc = fakeIpcMain();
+  const clipboard = { text: null, writeText(value) { this.text = value; } };
+  const locked = { isLocked: () => true };
+  registerDataIpc({ ipcMain: ipc, repos: store.repos, clipboard, log: quietLog, auth: locked });
+  await ipc.invoke('save-provider', nara([{ id: 'key_1', name: 'Main', key: 'sk-copy-me', active: true }]));
+
+  assert.deepStrictEqual(await ipc.invoke('copy-key', 'key_1'),
+    { ok: false, code: 'LOCKED', message: 'The app is locked.' });
+  assert.strictEqual(clipboard.text, null, 'nothing reached the clipboard');
+});
+
+test('copy-key works again once the app is unlocked', async (t) => {
+  const store = await memoryStore(t);
+  const ipc = fakeIpcMain();
+  const clipboard = { text: null, writeText(value) { this.text = value; } };
+  const state = { locked: true };
+  registerDataIpc({
+    ipcMain: ipc, repos: store.repos, clipboard, log: quietLog,
+    auth: { isLocked: () => state.locked },
+  });
+  await ipc.invoke('save-provider', nara([{ id: 'key_1', name: 'Main', key: 'sk-copy-me', active: true }]));
+
+  assert.strictEqual((await ipc.invoke('copy-key', 'key_1')).code, 'LOCKED');
+  state.locked = false;
+  assert.deepStrictEqual(await ipc.invoke('copy-key', 'key_1'), { copied: true });
+  assert.strictEqual(clipboard.text, 'sk-copy-me');
+});
+
+test('no auth object means no gate — the other data channels are unaffected', async (t) => {
+  // The lock is opt-in on this surface, so the existing wiring keeps working
+  // exactly as it did and only copy-key gains a condition.
+  const { ipc, store } = await setup(t);
+  await ipc.invoke('save-provider', nara([{ id: 'key_1', name: 'Main', key: 'sk-x', active: true }]));
+  assert.deepStrictEqual(await ipc.invoke('copy-key', 'key_1'), { copied: true });
+  assert.deepStrictEqual(Object.keys(await ipc.invoke('read-config')).sort(), ['providers', 'version']);
+  assert.strictEqual((await ipc.invoke('read-history')).length ?? 0, 0);
+  assert.ok(store);
+});
+
 test('save-settings drops the key; settings, test and window come back in read-config', async (t) => {
   const { store, ipc } = await setup(t);
   assert.deepStrictEqual(await ipc.invoke('save-settings', { theme: 'daylight', openRouterApiKey: 'or-typed' }), { success: true });

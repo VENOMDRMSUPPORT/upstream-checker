@@ -42,13 +42,13 @@ test('schema v2 added the two snapshot tables and touched models not at all — 
   ['summary_json', 'first_seen', 'last_seen', 'removed_at', 'is_new', 'updated_at'].forEach((name) => {
     assert.ok(cols.includes(name), `v3 keeps ${name}`);
   });
-  assert.strictEqual(store.db.pragma('user_version', { simple: true }), 3);
+  assert.strictEqual(store.db.pragma('user_version', { simple: true }), 4);
 });
 
 // v3 is the irreversible one: it clears the legacy pool on the owner's data. The
 // two things that must both hold — the copy is taken first, and the pool is
 // empty afterwards while the tables the engine needs are untouched.
-test('a v2 file upgrades to v3: backed up first, the legacy pool empty after', async (t) => {
+test('v3 is the irreversible one: backed up first, the legacy pool empty after', async (t) => {
   const dir = tempDir(t);
   const now = Date.now();
   const fixture = new Database(path.join(dir, 'venom.db'));
@@ -65,7 +65,10 @@ test('a v2 file upgrades to v3: backed up first, the legacy pool empty after', a
   fixture.pragma('user_version = 2'); // v1 and v2 applied, v3 pending
   fixture.close();
 
-  const store = await database.open(dir, opts());
+  // Up to v3 only: the point is what v3 itself did, so v4's table must not be
+  // part of the comparison.
+  const throughV3 = database.MIGRATIONS.filter((m) => m.version <= 3);
+  const store = await database.open(dir, { ...opts(), migrations: throughV3 });
   try {
     assert.deepStrictEqual({ from: store.migration.from, to: store.migration.to }, { from: 2, to: 3 });
     assert.strictEqual(store.migration.backup, path.join(dir, 'venom.db.bak-v2'));
@@ -82,8 +85,11 @@ test('a v2 file upgrades to v3: backed up first, the legacy pool empty after', a
 });
 
 // v2 really is additive, and that is worth proving on its own rather than only
-// through v3: a v1 file with a list to run MIGRATIONS up to, so the claim is
-// about v2's own half and not about what v3 did afterwards.
+// through v3: the migration list is truncated at v2 and the file opened against
+// that list, so the claim is about v2's own half and not about what v3 did
+// afterwards. Truncating a list is a supported `open()` call (the sequence tests
+// below use it); repos.auth prepares its statements lazily precisely so this one
+// does not fail on a table v4 has not created yet.
 test('a v1 file upgrades to v2 with every row it held', async (t) => {
   const dir = tempDir(t);
   const now = Date.now();
@@ -163,27 +169,27 @@ test('reopening an up-to-date file runs nothing and makes no backup', async (t) 
   (await database.open(dir, opts())).close();
   const store = await database.open(dir, opts());
   try {
-    assert.deepStrictEqual(store.migration, { from: 3, to: 3, backup: null });
+    assert.deepStrictEqual(store.migration, { from: 4, to: 4, backup: null });
     assert.deepStrictEqual(fs.readdirSync(dir).filter((n) => n.includes('.bak-v')), []);
   } finally {
     store.close();
   }
 });
 
-// The newest shipped version is 3, so a pending migration here is a v4: these
+// The newest shipped version is 4, so a pending migration here is a v5: these
 // three cases are about the migration SEQUENCE, and they read the same whichever
 // version the plan has reached — but their fixtures must sit one above it.
 test('a pending migration backs up first, then runs and bumps user_version', async (t) => {
   const dir = tempDir(t);
   (await database.open(dir, opts())).close();
-  const withV4 = [...database.MIGRATIONS, { version: 4, up(db) { db.exec('CREATE TABLE extra_v4 (x INTEGER)'); } }];
-  const store = await database.open(dir, { ...opts(), migrations: withV4 });
+  const withV5 = [...database.MIGRATIONS, { version: 5, up(db) { db.exec('CREATE TABLE extra_v5 (x INTEGER)'); } }];
+  const store = await database.open(dir, { ...opts(), migrations: withV5 });
   try {
-    assert.strictEqual(store.migration.from, 3);
-    assert.strictEqual(store.migration.to, 4);
-    assert.strictEqual(store.migration.backup, path.join(dir, 'venom.db.bak-v3'));
+    assert.strictEqual(store.migration.from, 4);
+    assert.strictEqual(store.migration.to, 5);
+    assert.strictEqual(store.migration.backup, path.join(dir, 'venom.db.bak-v4'));
     assert.ok(fs.existsSync(store.migration.backup));
-    assert.strictEqual(store.db.pragma('user_version', { simple: true }), 4);
+    assert.strictEqual(store.db.pragma('user_version', { simple: true }), 5);
   } finally {
     store.close();
   }
@@ -193,13 +199,13 @@ test('a migration that throws rolls back and leaves the version', async (t) => {
   const dir = tempDir(t);
   (await database.open(dir, opts())).close();
   const broken = [...database.MIGRATIONS, {
-    version: 4,
+    version: 5,
     up(db) { db.exec('CREATE TABLE half_done (x INTEGER)'); throw new Error('migration bug'); },
   }];
   await assert.rejects(database.open(dir, { ...opts(), migrations: broken }), /migration bug/);
   const store = await database.open(dir, opts());
   try {
-    assert.strictEqual(store.db.pragma('user_version', { simple: true }), 3);
+    assert.strictEqual(store.db.pragma('user_version', { simple: true }), 4);
     assert.strictEqual(store.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'half_done'").get().n, 0);
   } finally {
     store.close();
@@ -210,12 +216,12 @@ test('keeps only the three newest backups', async (t) => {
   const dir = tempDir(t);
   (await database.open(dir, opts())).close();
   const steps = [...database.MIGRATIONS];
-  for (let v = 4; v <= 7; v += 1) {
+  for (let v = 5; v <= 8; v += 1) {
     steps.push({ version: v, up(db) { db.exec(`CREATE TABLE step_${v} (x INTEGER)`); } });
     (await database.open(dir, { ...opts(), migrations: [...steps] })).close();
   }
   const backups = fs.readdirSync(dir).filter((n) => n.startsWith('venom.db.bak-v')).sort();
-  assert.deepStrictEqual(backups, ['venom.db.bak-v4', 'venom.db.bak-v5', 'venom.db.bak-v6']);
+  assert.deepStrictEqual(backups, ['venom.db.bak-v5', 'venom.db.bak-v6', 'venom.db.bak-v7']);
 });
 
 test('downgrade guard: a newer schema is refused and the file is not written', async (t) => {

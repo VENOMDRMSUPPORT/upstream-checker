@@ -61,6 +61,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rectangle with black triangles on hover. The native input stays underneath, so
   typing, arrow keys, min/max and step all behave exactly as before.
 
+### The app lock
+
+- **The app opens on a password screen.** It ships with `habiba77Hm` as the
+  owner password and asks for it at every launch; nothing in the app — no page,
+  no provider, no key, no request — is reachable until it is entered. The screen
+  is the brand's front door: the cyan emblem at 176 px, breathing under a
+  conic ring, over a drifting grid, two cyan blooms and a field of 60 cyan motes
+  on a canvas. It is always cyan on black and does not follow the app's theme or
+  accent, by construction rather than by an opt-out: its colours are declared on
+  the element, not on `:root`.
+- **It locks again after 60 idle minutes**, set under Settings › Security. The
+  idle check is arithmetic in `isLocked()` rather than a timer, so there is no
+  interval to leak and no path where a suspended timer leaves the app open. The
+  session lives in main's memory only — a restart always asks again.
+- **The inside is frozen while locked**, not merely covered: `.shell` carries
+  the `inert` attribute, so no tab stop, click, scroll or focus reaches the app
+  underneath. The window keeps drag, minimize and close, because the window is
+  frameless and removing close would leave Alt+F4 as the only way out of an app
+  you have not logged into yet. Settings, accent, theme and the profile button
+  are hidden.
+- **The two channels that matter are refused**: `api-request` resolves
+  `{ outcome: 'locked' }` and `copy-key` answers `{ ok: false, code: 'LOCKED' }`.
+  The rest of the IPC surface stays answerable — the honest statement is that the
+  lock gates the window entrance and those two, not every channel.
+- **Settings › Security** changes the password (8 characters minimum, current
+  password required), sets the idle limit, and locks the app now. While the
+  shipped password is still in force a warning says so, because it is in this
+  repository and anyone who has read the source knows it. The warning never
+  blocks and is cleared only by changing the password.
+- **The header's profile button is live.** It says **Administrator** instead of
+  Guest, and its menu offers **Lock now** and **Sign out** — both end the
+  session; they differ only in what the owner is told.
+- **Forgotten password**: `npm run reset:lock -- "<data folder>"` deletes the
+  saved password row and nothing else — providers, keys, history, settings and
+  the request log are not touched, and the shipped default applies again. The
+  folder is an explicit argument with no default, so the command can never
+  reach the real data folder because a path was left out.
+- **What it is not**: a local lock on the window, not an account. It does not
+  encrypt the database, does not replace a Windows account password, and does
+  not stop anyone with code execution as this user — they can read the
+  renderer's memory or patch this source. The stored value is a salted scrypt
+  hash, which is what it protects: a copy of `venom.db` does not reveal the
+  password.
+
 ### Changed
 
 - The Models page reads the engine instead of a stored document: there is no

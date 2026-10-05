@@ -8,6 +8,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Taskbar icon in the current accent: main knows the emblem by the accent's id.
   setWindowIcon: (accentId) => ipcRenderer.send('set-window-icon', accentId),
 
+  // App lock (src/auth/ipc.js). Every call RESOLVES:
+  // `{ ok: true, ... }` or `{ ok: false, code, message }` — WRONG_PASSWORD,
+  // THROTTLED, WEAK_PASSWORD, LOCK_NOT_READY. Test `reply.ok`, never `catch`.
+  // The state itself is main's: nothing here reads the stored hash back out.
+  authStatus: () => ipcRenderer.invoke('auth:status'),
+  authUnlock: (candidate) => ipcRenderer.invoke('auth:unlock', candidate),
+  authChange: (current, next) => ipcRenderer.invoke('auth:change', current, next),
+  authLock: () => ipcRenderer.invoke('auth:lock'),
+  authActivity: () => ipcRenderer.invoke('auth:activity'),
+  // Main locked the app by itself. Sent, not invoked: there is nothing for the
+  // window to answer. `reason` is 'expired' (the idle limit) or 'locked' (the
+  // owner asked) — the screen says something different for each, and main is
+  // the side that knows which happened.
+  onAuthLocked: (callback) => ipcRenderer.on('auth:locked', (_, reason) => callback(reason)),
+
   // API requests
   apiRequest: (opts) => ipcRenderer.invoke('api-request', opts),
   // reason: hedge_lost | stop | deadline, recorded in the request log.

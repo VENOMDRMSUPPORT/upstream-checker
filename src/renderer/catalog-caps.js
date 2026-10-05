@@ -69,6 +69,12 @@ const CAT_CAPABILITIES = [
     blurb: 'File & document upload support',
     tone: 'files',
   },
+  {
+    id: 'decision',
+    label: 'Decision',
+    blurb: 'Typed yes/no rating of a known state, never prose',
+    tone: 'decision',
+  },
 ];
 
 /**
@@ -117,6 +123,11 @@ function outputState(row, token, kind) {
 /**
  * One capability of one row, or `null` when the provider said nothing about it.
  *
+ * `decision` is not read off any row field: it is the renderer's own
+ * classification (app.js:classifyModel — `supports_decisions`, the adapter's
+ * classify, then name matching). A declared generator answers the same way
+ * through `outputState`, and this is the row's equivalent for decision models.
+ *
  * @param {object} row  a catalogue row, as catalog:read serves it
  * @param {string} id   one of CAT_CAPABILITIES[].id
  * @returns {boolean|null}
@@ -132,6 +143,8 @@ function capabilityState(row, id) {
     case 'files': return filesState(r);
     case 'imageGen': return outputState(r, 'image', 'image');
     case 'video': return outputState(r, 'video', 'video');
+    case 'decision': return r.kind === 'decision' ? true
+      : r.kind != null ? false : hasModality(r.output_modalities, 'decision');
     default: return null;
   }
 }
@@ -152,7 +165,11 @@ function capabilityOrigin(row, id) {
   const r = row || {};
   const value = capabilityState(r, id);
   if (value === null) return { value, from: 'silent' };
-  if ((id === 'imageGen' && r.kind === 'image') || (id === 'video' && r.kind === 'video')) {
+  // `decision` is answered by the renderer's own kind classification, exactly
+  // like the generators above it: a declared decision model says so by being
+  // one, not by publishing a flag.
+  if ((id === 'imageGen' && r.kind === 'image') || (id === 'video' && r.kind === 'video')
+    || (id === 'decision' && r.kind === 'decision')) {
     return { value, from: 'kind' };
   }
   // `files` is a published flag only when the provider wrote the field; when the
@@ -189,4 +206,10 @@ function capabilityCounts(rows) {
     }
   }
   return counts;
+}
+
+if (typeof window !== 'undefined') {
+  window.CAT_CAPABILITIES = CAT_CAPABILITIES;
+  window.capabilityCounts = capabilityCounts;
+  window.capabilityState = capabilityState;
 }

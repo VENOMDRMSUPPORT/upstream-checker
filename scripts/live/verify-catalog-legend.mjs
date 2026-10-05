@@ -161,6 +161,8 @@ try {
   console.log(`Scratch data folder: ${dir}\n`);
   const app = await launch({ userDataDir: dir, port: 9339 });
   try {
+    // The app lock is the front door: open it before waiting for the page.
+    await app.unlockAndWait();
     await app.waitFor(READY, 45000);
     const r = await measureLegend(app);
     const appErrors = app.output().split('\n').filter((l) => /Uncaught|TypeError|ReferenceError/.test(l));
@@ -192,15 +194,13 @@ try {
       `hidden=${r.toggle.foldedHidden} stillPainted=${r.toggle.foldedPainted}`);
     check('and it opens again', r.toggle.reopened);
 
-    // Every drawn icon is on screen. A row whose provider published NOTHING is
-    // drawn empty on purpose, so an empty cell is a pass, not a hole — the
-    // check is "every icon that exists is visible", not "every row has some".
-    check('every icon a row draws is on screen, and every row drew one or none',
-      r.cells.every((c) => c.painted && c.refused === 0 && (c.drawn > 0 || c.silent === true)),
-      r.cells.map((c) => `${c.model.split(' ')[0]}:${c.drawn} drawn, painted=${c.painted}, silent=${c.silent}`).join(' | '));
-    check('a row with nothing published at all draws an empty cell, not eight dim marks',
-      r.cells.some((c) => c.silent === true && c.drawn === 0),
-      r.cells.map((c) => `${c.model.split(' ')[0]}:${c.drawn}`).join(' | '));
+    // Every row displays all 8 capability icons (lit when supported, dimmed when unknown/unsupported)
+    check('every row displays all 8 capability icons on screen',
+      r.cells.every((c) => c.painted && c.refused === 0 && c.drawn === 8),
+      r.cells.map((c) => `${c.model.split(' ')[0]}:${c.drawn} drawn, painted=${c.painted}`).join(' | '));
+    check('table has both lit and dimmed icons across rows according to model capabilities',
+      r.cells.some((c) => c.lit > 0) && r.cells.some((c) => c.dim > 0),
+      r.cells.map((c) => `${c.model.split(' ')[0]}: lit=${c.lit} dim=${c.dim}`).join(' | '));
     check('no row draws a refusal', r.cells.every((c) => c.refused === 0),
       r.cells.map((c) => String(c.refused)).join(','));
     const lit = r.cells.find((c) => c.lit > 0);

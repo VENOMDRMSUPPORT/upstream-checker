@@ -19,6 +19,8 @@ const { createFetcher, DEFAULT_TIMEOUT_MS } = require('./catalog/fetch');
 const { createSources } = require('./catalog/sources');
 const { createEngine } = require('./catalog/engine');
 const { createCatalogIpc } = require('./catalog/ipc');
+const { createAuthLock } = require('./auth');
+const { registerAuthIpc } = require('./auth/ipc');
 
 // --smoke-test only ever runs on an explicit scratch folder: refused here,
 // before the real data folder is resolved, moved or locked.
@@ -67,6 +69,11 @@ let importReport = null;
 // Swaps key placeholders for secrets in api-request (src/db/keys.js).
 let keyResolver = null;
 
+// The app lock (src/auth). Built right after venom.db opens, before the window:
+// its row lives in that database, and the request gate below consults it on
+// every request. Null only while a startup failure is on its way to quitting.
+let auth = null;
+
 // ============================================
 // Request log — venom-logs.db (src/logs)
 // ============================================
@@ -82,6 +89,24 @@ let purgeScheduler = null;
 // row at startup and again on every save-settings; a request no longer
 // carries logLevel.
 let logSettings = readLogSettings(null);
+
+// The idle limit for the app lock, in ms. A row that failed to read, or a
+// value outside the range the Settings stepper offers, falls back to the
+// documented default of 60 minutes — the lock is a protection, so a broken
+// setting must not silently disable it. `0` is not reachable from the UI; a
+// saved 0 would mean "never lock by idle", which is what src/auth reads it as.
+const DEFAULT_LOCK_IDLE_MIN = 60;
+function idleLimitMs() {
+  try {
+    const saved = store && store.repos.settings.get('settings');
+    const minutes = Number(saved && saved.lockIdleMin);
+    if (!Number.isFinite(minutes) || minutes < 0) return DEFAULT_LOCK_IDLE_MIN * 60 * 1000;
+    return minutes * 60 * 1000;
+  } catch (err) {
+    log.warn('Could not read lockIdleMin; using the default:', err.message);
+    return DEFAULT_LOCK_IDLE_MIN * 60 * 1000;
+  }
+}
 
 function startLogs() {
   try {
@@ -343,6 +368,12 @@ let devWatcher = null;
 
 function watchRendererInDev(win) {
   if (app.isPackaged || devWatcher) return;
+  // Automated gates drive this window over CDP, and a reload that lands
+  // mid-startup aborts init(): the window is left on an empty shell with no
+  // providers loaded, which reads as a broken app rather than as a test that
+  // raced whatever else was writing to src/renderer. The gates set this; a
+  // person never should — live reload is the point when you are editing.
+  if (process.env.VENOM_NO_DEV_WATCH === '1') return;
   const dir = path.join(__dirname, 'renderer');
   let timer = null;
   let sheets = new Set();
@@ -549,6 +580,14 @@ app.whenReady().then(async () => {
   }
   // Never throws: a log database that won't open turns logging off.
   startLogs();
+  // The app lock. Its row is in venom.db, so it comes after startDatabase(); the
+  // idle limit is a saved setting, read here and re-read on every save below.
+  auth = createAuthLock({
+    repo: store.repos.auth,
+    log,
+    idleMs: idleLimitMs(),
+  });
+  auth.ensureDefault();
   try {
     registerDataIpc({
       ipcMain,
@@ -556,13 +595,30 @@ app.whenReady().then(async () => {
       databases: { app: store.db, logs: logs && logs.db },
       clipboard,
       log,
+      auth,
       hooks: {
         onSettingsSaved: (saved) => {
           logSettings = readLogSettings(saved);
+          // A new idle limit applies from the next isLocked() call, which is the
+          // next request — no restart, and no timer to reschedule.
+          if (auth && saved) auth.setIdleMs(idleLimitMs());
         },
       },
     });
     registerLogsIpc({ ipcMain, getState: () => ({ logs, error: logsError }), dialog, getWindow: () => mainWindow, log });
+    // The window hears about a lock it did not ask for — an idle expiry noticed
+    // while a request was being gated — and about one it did, from the profile
+    // menu. The reason travels with it: the screen says something different for
+    // each. A closed or not-yet-created window is not an error; there is simply
+    // nobody to tell.
+    registerAuthIpc({
+      ipcMain,
+      auth,
+      log,
+      onLocked: (reason) => {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('auth:locked', reason || 'locked');
+      },
+    });
     // After both databases and after their IPC, before the window: the catalog
     // writes through repos.snapshots. Disk only at boot — see startCatalog above.
     catalogEngine = startCatalog({
@@ -595,6 +651,7 @@ app.on('will-quit', () => {
   stopUpdateChecks();
   // The request log first, so its queue is flushed before venom.db closes.
   stopLogs();
+  auth = null;
   if (store) {
     store.close();
     store = null;
@@ -641,7 +698,23 @@ const requester = createApiRequester({
   log,
 });
 
-ipcMain.handle('api-request', (_event, args) => requester.request(args || {}));
+ipcMain.handle('api-request', (_event, args) => {
+  // The request gate. A locked app sends nothing: this is one of the two
+  // channels that spend the owner's quota (the other is copy-key, gated in
+  // src/db/ipc.js). It resolves a value rather than throwing, so the renderer
+  // can tell "locked" apart from a request that actually failed.
+  //
+  // A successful request is also proof of activity, so the idle deadline moves
+  // here — main's own code, not the renderer's word for it. The call comes
+  // before isLocked() so a request arriving just under the limit counts.
+  if (auth) {
+    if (auth.isLocked()) {
+      return { outcome: 'locked', error: 'The app is locked.', requestId: args && args.requestId };
+    }
+    auth.noteActivity();
+  }
+  return requester.request(args || {});
+});
 
 // Cancel an in-flight request by id. reason: hedge_lost (a faster attempt
 // won), stop (the user), deadline (the adaptive per-kind limit).

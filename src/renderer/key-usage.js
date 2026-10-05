@@ -82,7 +82,7 @@ window.KEY_USAGE = (() => {
 
   function refresh(pid, kid, { force = false } = {}) {
     const { p, k } = findKey(pid, kid);
-    if (!supports(p) || !k || k.locked) return Promise.resolve();
+    if (!supports(p) || !k || k.locked || !k.active) return Promise.resolve();
     if (p.unlimitedUsage) {
       cache.set(kid, { state: 'ok', usage: localUsage(p), at: Date.now() });
       rerender(pid, kid);
@@ -232,7 +232,7 @@ window.KEY_USAGE = (() => {
   // Quota under the provider's pass-rate column: a bar of what is left, and
   // the amount. The cell opens the usage drawer.
   function quotaCellHTML(p, k) {
-    if (!supports(p) || k.locked) return '';
+    if (!supports(p) || k.locked || !k.active) return '';
     ensureRead(p, k);
     const c = cache.get(k.id);
     const u = c && c.usage;
@@ -269,7 +269,7 @@ window.KEY_USAGE = (() => {
 
   // Expiry under the provider's last-run column.
   function expiryCellHTML(p, k) {
-    if (!supports(p) || k.locked) return '';
+    if (!supports(p) || k.locked || !k.active) return '';
     const c = cache.get(k.id);
     const u = c && c.usage;
     if (!u) return !c || c.state === 'loading' ? '<div class="ku-cell ku-skel"><span></span></div>' : '';
@@ -289,7 +289,7 @@ window.KEY_USAGE = (() => {
 
   // The card view's key rows have no columns: both readings on one line.
   function inlineHTML(p, k) {
-    if (!supports(p) || k.locked) return '';
+    if (!supports(p) || k.locked || !k.active) return '';
     ensureRead(p, k);
     const c = cache.get(k.id);
     const u = c && c.usage;
@@ -325,7 +325,7 @@ window.KEY_USAGE = (() => {
 
   function openDrawer(pid, kid, opener) {
     const { p, k } = findKey(pid, kid);
-    if (!supports(p) || !k) return;
+    if (!supports(p) || !k || !k.active) return;
     Object.assign(drawer, { pid, kid, page: 1, history: null, opener: opener || document.activeElement });
     const el = document.getElementById('ku-drawer');
     el.hidden = false;

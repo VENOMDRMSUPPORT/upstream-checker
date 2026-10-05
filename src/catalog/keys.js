@@ -38,6 +38,26 @@ const QUALITY_MODIFIERS = new Set([
 // they can differ by more than ten points — so the tag is read, not discarded.
 const BUILD_SUFFIX_RE = /-(20\d{6}|\d{8}|\d{4})$/;
 
+// Tokens that mark a DERIVATIVE build of the same weights: re-tuned for what the
+// model will refuse, not for what it can do. A host's word for one of these is
+// not the catalogue's word — Dark API ships `-unrestricted` where models.dev
+// ships `-uncensored` for the same idea — so they are collected into one set and
+// stripped to reach the base route, whose reference row then stands in.
+//
+// Kept out of PRICING_MODIFIERS and QUALITY_MODIFIERS on purpose. A pricing
+// modifier is dropped from every key and changes nothing but the bill; a quality
+// modifier is kept in every key because it changes what runs. These change
+// neither, so a variant keeps its own identity in the index and reaches its base
+// only through the labelled `proxy` route — never by silently merging into it.
+const VARIANT_MODIFIERS = new Set([
+  "unrestricted", "uncensored", "abliterated", "raw",
+  // Spellings hosts actually publish. `unsencored` is a live route on Dark API
+  // (`qwen3.8-27b-unsencored`), and the reference carries the base under its
+  // correct spelling — so the wrong spelling has to be understood, not corrected
+  // in the id, which is the provider's to keep.
+  "unsencored", "uncensored-model", "abliterated-model",
+]);
+
 // Parameter sizes and quantization tags found in LMArena names ("550b", "a55b", "nvfp4").
 const PARAM_SIZE_RE = /^(?:\d+(?:\.\d+)?[bt]|a\d+b|\d+x\d+b)$/;
 const QUANT_TOKENS = new Set(["nvfp4", "fp4", "fp8", "bf16", "fp16", "int4", "int8", "awq", "gptq"]);
@@ -179,6 +199,58 @@ function pricingTokenCount(id) {
   return slugTokens(identityKey(id)).filter((token) => PRICING_MODIFIERS.has(token)).length;
 }
 
+// Tags a host appends that name the HOST, never a different model: `space-bunny-alpha-bynara`
+// is Space Bunny Alpha out of Nara, `jev-latest` is jev, `longcat-2.5-preview` is
+// longcat 2.5. Dropped only by `looseModelKey`, never by the precise keys — a route
+// that says "preview" is still its own identity, and this is the last resort.
+//
+// `preview` and `latest` are deliberately NOT here. They mark an edition rather
+// than a host, and dropping them merges `longcat-2.5` with `longcat-2.5-preview`
+// — two identities the catalogue keeps apart — which the ambiguity rule then
+// refuses anyway. A key that cannot answer is better than one that answers wrong.
+const LOOSE_EDITION_TAGS = new Set([
+  "latest", "bynara", "router", "free", "batch", "hosted",
+  "contributor", "experimental", "exp", "nightly",
+]);
+
+// A company that spells its model prefix differently from its own name. `stepfun`
+// ships `step-3.7-flash`; the catalogue keys it by the model prefix, so an id
+// carrying the company name reaches nothing. Replaced only in the loose key.
+const LOOSE_LAB_SEGMENTS = new Map([["stepfun", "step"]]);
+
+/**
+ * The loosest key a row can be found under, used only after every precise key has
+ * missed.
+ *
+ * A provider names a model the way its own billing does and the reference names
+ * it the way the lab does, and the two disagree about decorations the model does
+ * not have: a version written `3.0` against `3`, a `v` in front of a number, a
+ * trailing `-preview` or `-latest`, a host tag like `-bynara`, a company prefix
+ * where the catalogue expects the model prefix. Each of those is a key that finds
+ * nothing today while the reference row sits one edit away.
+ *
+ * Every lookup through it goes through `putMatch`, so a key two catalogue rows
+ * share is marked ambiguous and answers nothing. Uniqueness is what keeps a
+ * looser key honest — it may only ever find one model.
+ */
+function looseModelKey(id) {
+  const segments = cleanModelId(id).split("/").filter(Boolean);
+  if (!segments.length) return "";
+  let tokens = qualityModelKey(segments[segments.length - 1], "").split("-").filter(Boolean);
+  while (tokens.length > 1 && LOOSE_EDITION_TAGS.has(tokens[tokens.length - 1])) tokens.pop();
+  if (tokens.length && LOOSE_LAB_SEGMENTS.has(tokens[0])) tokens[0] = LOOSE_LAB_SEGMENTS.get(tokens[0]);
+  const key = tokens
+    // `v2` and `2` are one version written two ways, and `.0` is no version at
+    // all: `agnes-3.0-flash` and `agnes-3-flash` are the same model.
+    .map((t) => t.replace(/^v(\d)/, "$1"))
+    .filter((t, i, all) => !(t === "0" && i > 0 && /^\d+$/.test(all[i - 1])))
+    .join("-");
+  // One token is enough HERE, unlike `bareModelKey`: a model whose whole name is
+  // one word (`jev`) is a model, and this key is only ever consulted after every
+  // precise key has missed.
+  return key.length >= 2 ? key : "";
+}
+
 /** Every key a benchmark or Arena entry should be findable under. */
 function benchKeysFromSlug(slug, displayName) {
   const keys = new Set();
@@ -218,6 +290,7 @@ module.exports = {
   LAB_PROVIDERS,
   PRICING_MODIFIERS,
   QUALITY_MODIFIERS,
+  VARIANT_MODIFIERS,
   cleanModelId,
   modelSlug,
   identityKey,
@@ -229,6 +302,7 @@ module.exports = {
   qualityModelKey,
   qualityNameKey,
   bareModelKey,
+  looseModelKey,
   nameKeyIsSafe,
   pricingTokenCount,
   benchKeysFromSlug,
