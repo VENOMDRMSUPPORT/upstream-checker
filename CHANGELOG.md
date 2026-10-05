@@ -5,7 +5,7 @@ All notable changes to VENOM Router (formerly Upstream Checker) will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.1.0] - 2026-10-05
 
 ### Added
 
@@ -144,6 +144,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The custom accent colour.
 - The Route Test entry in the sidebar and the provider list inside the old
   page; the sidebar width setting that belonged to it.
+
+### Fixed
+
+- A per-model quota refusal no longer reads as a spent key. One model's
+  quota-worded error painted the whole key **Quota used** with **No reset
+  time**, beside a usage cell saying Unlimited. The spent state is now full
+  vs partial: a model list means those models sit out while the key stays
+  Active, and a reset-less record TTLs out after a day instead of sitting on
+  the key forever — surviving a restart no longer than a day, and a legacy
+  record older than that stays behind on import.
+- The provider test table: an **ACTIONS** column on every row (not only
+  failures), CAPS and inputs drawing only what a row supports, a ninth
+  **Decision** capability for jev-style models, the score without its tier
+  tag (the tier lives in the tooltip), the provider mark beside each model
+  name, inputs as coloured marks under the name, and the reasoning mark as
+  the emoji itself. Reference facts fill what thin providers leave out, so
+  CONTEXT and friends no longer fold away on id-only rosters.
 
 ## [2.0.0] - 2026-09-27
 
