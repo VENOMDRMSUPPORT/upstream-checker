@@ -1,6 +1,6 @@
 {
   "name": "venom-router",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "LLM model router — one endpoint across every provider and key",
   "main": "src/main.js",
   "scripts": {
