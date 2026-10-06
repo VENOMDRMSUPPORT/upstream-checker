@@ -37,6 +37,29 @@ window.INTEGRATED_PROVIDERS.nara = {
     freeTier: true,
   },
 
+  // TypeSafe /systemone decision protocol — lives here because the wire shape
+  // is this provider family's API. app.js asks the adapter for the request
+  // body (decisionProbe) and the parsed score (readDecisionAnswer); it never
+  // hardcodes either. Experiential's native Jev speaks the same protocol, so
+  // the two modules carry identical hooks.
+  decisionProbe(model, { state, question }) {
+    return {
+      model: model.id,
+      state,
+      questions: { probe: { type: 'noul', instructions: question } },
+    };
+  },
+
+  // One noul question is asked; its probability is the answer. Returns
+  // { score, response } for the result row, or null when no probability came
+  // back (object answer { noul } or a bare number).
+  readDecisionAnswer(data) {
+    const answer = data.answers?.probe;
+    const score = Number(typeof answer === 'object' && answer !== null ? answer.noul : answer);
+    if (answer == null || !Number.isFinite(score)) return null;
+    return { score, response: `noul ${score.toFixed(2)}` };
+  },
+
   // Discovery is driven entirely by NaraRouter's own data, so new models appear
   // with no code changes:
   //   - /api/pricing  → per-model `free_for_paid` flag (+ `free_min_balance`) and

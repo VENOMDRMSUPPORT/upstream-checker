@@ -2368,22 +2368,22 @@ async function attemptVideo(model, provider, key, requestId) {
   }
 }
 
-// A decision model scores a typed question against a state. One noul question is
-// asked; its probability is the answer, judged against decisionThreshold.
+// A decision model scores a typed question against a state. The wire protocol —
+// body shape and answer parsing — belongs to the provider module (see the
+// decision hooks in src/renderer/providers/*.js); this only drives the request
+// and hands the score on for judging against decisionThreshold.
 async function attemptDecision(model, provider, key, requestId) {
-  if (!provider.decisionEndpoint) {
+  const adapter = (window.INTEGRATED_PROVIDERS || {})[provider.id];
+  if (!provider.decisionEndpoint || !adapter || !adapter.decisionProbe || !adapter.readDecisionAnswer) {
     return { status: 'fail', response: `${provider.name} declares no decision endpoint`, time: 0, tokens: 0, keyId: key.id };
   }
   const { deadline } = kindLimits('decision');
+  const body = adapter.decisionProbe(model, { state: settings.decisionState, question: settings.decisionQuestion });
   const res = await window.electronAPI.apiRequest({
     url: `${provider.baseUrl}${provider.decisionEndpoint}`,
     method: 'POST',
     headers: authHeaders(key.key),
-    body: JSON.stringify({
-      model: model.id,
-      state: settings.decisionState,
-      questions: { probe: { type: 'noul', instructions: settings.decisionQuestion } },
-    }),
+    body: JSON.stringify(body),
     requestId,
     timeoutMs: deadline,
     ...routeTestTags(requestId),
@@ -2393,17 +2393,16 @@ async function attemptDecision(model, provider, key, requestId) {
   if (res.status !== 200) return failFromResponse(res, key.id);
 
   const data = JSON.parse(res.body);
-  const answer = data.answers?.probe;
-  const score = Number(typeof answer === 'object' && answer !== null ? answer.noul : answer);
-  if (answer == null || !Number.isFinite(score)) {
+  const answered = adapter.readDecisionAnswer(data);
+  if (!answered) {
     return { ...buildEmptyResult(data.usage || {}, res.elapsed), response: 'No probability returned by provider', keyId: key.id };
   }
   return {
     keyId: key.id,
     status: 'pass',
     isEmpty: false,
-    response: `noul ${score.toFixed(2)}`,
-    decisionScore: score,
+    response: answered.response,
+    decisionScore: answered.score,
     time: res.elapsed,
     tokens: usageTokens(data.usage),
   };
