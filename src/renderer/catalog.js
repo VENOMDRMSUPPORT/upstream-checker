@@ -34,7 +34,7 @@
     expanded: new Set(),
     shell: false,
     // The capabilities legend starts closed by default. The toggle folds/unfolds it.
-    legendOpen: true,
+    legendOpen: false,
     pendingRender: null,
     healthBusy: new Set(), // keys whose health check is in flight
     healthAct: new Map(),  // key -> { tone, icon, label, timer } — the verdict shown on the heart itself
@@ -154,10 +154,12 @@
     if (!reply) return;
     state.models = new Map();
     for (const row of reply.rows || []) {
-      // kind is the renderer's own classification (app.js classifyModel): the
-      // engine stores the provider's facts and never a page decision, and the
-      // three-button gate is a display rule.
-      row.kind = classifyModel(row.providerId, row);
+      // kind is the row's own §8.1 declaration (row.js readsKind of the
+      // provider's explicit supports_* flags, mirrored into COMPARE_FIELDS so
+      // fetch-info diffs it like any other published fact): recomputed only
+      // when the row carries no verdict, so the page never overrules what the
+      // provider published with a name guess.
+      if (row.kind == null) row.kind = classifyModel(row.providerId, row);
       row.key = keyOf(row.providerId, row.id);
       state.models.set(row.key, row);
     }
@@ -192,8 +194,12 @@
     if (state.keyModels[kid]) delete state.keyModels[kid];
   }
 
+  // Broken models are out everywhere: the tabs, the KPIs, the legend, the
+  // ranks and the table all read this. A model that failed its latest check or
+  // run is hidden until a healthy verdict brings it back.
   function visibleEntries() {
     return [...state.models.values()].filter((e) => {
+      if (isBroken(e)) return false;
       const p = PROVIDERS[e.providerId];
       if (ui.tab === 'all') return !!p;
       return p && isConnected(p);
@@ -201,6 +207,22 @@
   }
 
   // ---- model discovery / sync ----------------------------------------------
+
+  // The Providers page needs the adapter verdict before the row is built:
+  // classify() is a stated fact (nexum names its generators), not a guess,
+  // and ingest stores plain data. So the verdict rides the roster as `kind`.
+  function stampKinds(providerId, list) {
+    const adapter = (window.INTEGRATED_PROVIDERS || {})[providerId];
+    if (!adapter || typeof adapter.classify !== 'function') return;
+    for (const m of list) {
+      if (m && m.kind == null) {
+        try {
+          const verdict = adapter.classify(m);
+          if (verdict === 'image' || verdict === 'video' || verdict === 'decision') m.kind = verdict;
+        } catch (_) { /* a verdict that throws is no verdict */ }
+      }
+    }
+  }
 
   // Asks every usable key, unions the answers, and applies the same
   // normalisation the Route Test page applies (dedupe, alias groups,
@@ -236,6 +258,7 @@
     // The raw list is kept as discovered: catalog:fetch-info takes the adapter
     // objects and main maps them, because the aliases an adapter declares are
     // the only way some rows reach the reference at all.
+    stampKinds(p.id, list);
     state.roster.set(p.id, list);
     return list;
   }
@@ -263,7 +286,7 @@
   function applyRows(providerId, rows) {
     rows.forEach((row) => {
       row.providerId = providerId;
-      row.kind = classifyModel(providerId, row);
+      if (row.kind == null) row.kind = classifyModel(providerId, row);
       row.key = keyOf(providerId, row.id);
       state.models.set(row.key, row);
     });
@@ -336,6 +359,30 @@
     if (RATE_LIMIT_RE.test(text)) return 'rate-limited';
     if (AUTH_RE.test(text)) return 'auth';
     return null;
+  }
+
+  // A model that failed its latest check is broken until it proves otherwise:
+  // it leaves the table, the counts and the ranks — everywhere except the
+  // detail drawer — until a healthy check brings it back. `e.health` alone is
+  // not enough: a row that was never checked has no health and is not broken.
+  function isDown(e) {
+    if (!e || !e.health) return false;
+    if (Array.isArray(e.health.checks) && e.health.checks.length) {
+      return e.health.checks[e.health.checks.length - 1].status !== 'healthy';
+    }
+    return !!e.health.status && e.health.status !== 'healthy';
+  }
+
+  // Test runs say the same thing from the other side: a model whose latest
+  // recorded run failed is down even before anyone presses the heart.
+  function isFailedRun(e) {
+    const runs = historyRuns.get(e && e.key) || [];
+    if (!runs.length) return false;
+    return runs[runs.length - 1].ok === false;
+  }
+
+  function isBroken(e) {
+    return isDown(e) || isFailedRun(e);
   }
 
   // The provider and a usable key for a catalogue entry, or why there is none.
@@ -1180,25 +1227,20 @@
     return borrowed(e, 'cost_in_per_m', box);
   }
 
-  // Eight capabilities, as icons. Three states, and the middle one is the whole
-  // reason this is a separate function: `catalog-caps.js` answers true / false /
-  // null, and null means nobody said. A published-yes is lit, a nobody-said is
-  // dim, and a published-NO IS NOT DRAWN — a red cross on every row for every
-  // capability a provider does not mention would say "does not" where the truth
-  // is "has never been heard of". The row's detail panel still spells every one
-  // of them out in words, so nothing is lost by not drawing it.
+  // Eight capabilities, as icons — only what the model does is drawn. A
+  // capability nobody published is the absence of its icon, never a dimmed
+  // mark: painting eight marks on every row says "does not" where the truth is
+  // "has never been heard of", and drowns the few lit marks that carry signal.
+  // The row's detail panel still spells every one of them out in words, so
+  // nothing is lost by not drawing it.
   function capsHTML(e) {
-    // All 8 capabilities are drawn on every row: lit (is-yes) when supported,
-    // and dimmed (is-unknown) when not supported or unknown, keeping icons
-    // perfectly aligned in fixed positions across all rows.
     const cells = CAT_CAPABILITIES.map((cap) => {
-      const value = capabilityState(e, cap.id);
-      const isYes = value === true;
-      const label = `${cap.label}: ${isYes ? 'yes' : 'no'}`;
-      const tip = `${label} — ${cap.blurb.toLowerCase()}`;
-      return `<span class="mc-cap-ico mc-cap-${cap.tone} ${isYes ? 'is-yes' : 'is-unknown'}"
-        title="${escapeHtml(tip)}" aria-label="${escapeHtml(label)}">${CAP_ICON[cap.id]}</span>`;
+      if (capabilityState(e, cap.id) !== true) return '';
+      const tip = `${cap.label} — ${cap.blurb.toLowerCase()}`;
+      return `<span class="mc-cap-ico mc-cap-${cap.tone} is-yes"
+        title="${escapeHtml(tip)}" aria-label="${escapeHtml(cap.label)}">${CAP_ICON[cap.id]}</span>`;
     }).join('');
+    if (!cells) return '<span class="dt-muted">—</span>';
     return `<span class="mc-caps">${cells}</span>`;
   }
 
@@ -1419,7 +1461,17 @@
 
   function filtered(list) {
     const q = ui.search.trim().toLowerCase();
-    let out = list.filter((e) => {
+    // The Broken view is the one place broken models are listed: it reads the
+    // whole map instead of the working list, so a broken model is findable
+    // without polluting any other view.
+    const source = ui.filter === 'broken'
+      ? [...state.models.values()].filter((e) => {
+        const p = PROVIDERS[e.providerId];
+        if (ui.tab === 'all' ? !p : !p || !isConnected(p)) return false;
+        return isBroken(e);
+      })
+      : list;
+    let out = source.filter((e) => {
       const p = PROVIDERS[e.providerId];
       if (ui.provider !== 'all' && e.providerId !== ui.provider) return false;
 
@@ -1427,7 +1479,8 @@
       if (ui.costTab === 'free' && !isFreeModel(e)) return false;
       if (ui.costTab === 'paid' && isFreeModel(e)) return false;
 
-      // Model filter dropdown
+      // Model filter dropdown (`broken` already narrowed the source above, so
+      // every other value keeps its own rule and falls through untouched).
       if (ui.filter === 'connected') {
         if (!p || !isConnected(p)) return false;
       } else if (ui.filter === 'new') {
@@ -1452,9 +1505,11 @@
       return true;
     });
     // Rank models at the catalog level based on score descending (highest score = #1).
-    // Equal scores share a dense rank. Unrated models have no rank.
+    // Equal scores share a dense rank. Unrated models have no rank. Broken
+    // models are out of the rank entirely — a rank is a promise of order, and
+    // a hidden row must not hold a number.
     const ratedCatalog = [...state.models.values()]
-      .filter((e) => e.score != null)
+      .filter((e) => e.score != null && !isBroken(e))
       .sort((a, b) => b.score - a.score || (a.name || a.id).localeCompare(b.name || b.id));
 
     const rank = new Map();
@@ -1567,6 +1622,7 @@
             { value: 'reasoning', label: 'Reasoning' },
             { value: 'vision', label: 'Vision' },
             { value: 'tools', label: 'Tool Calling' },
+            { value: 'broken', label: 'Broken' },
           ],
         },
       ],
@@ -1727,6 +1783,7 @@
 
   function renderTabs() {
     const connectedModels = [...state.models.values()].filter((e) => {
+      if (isBroken(e)) return false;
       const p = PROVIDERS[e.providerId];
       return p && isConnected(p);
     });
@@ -1734,8 +1791,9 @@
     // reference's size: that is what the sources hold, most of which no provider
     // here serves, and a tab promising twelve thousand models over a list that
     // answers with six is the kind of number that makes a page look broken.
+    // Broken models are out of both counts — a tab is a promise of rows.
     const connectedCount = connectedModels.length;
-    const allCount = [...state.models.values()].filter((e) => !!PROVIDERS[e.providerId]).length;
+    const allCount = [...state.models.values()].filter((e) => !!PROVIDERS[e.providerId] && !isBroken(e)).length;
 
     const countConnected = $('#mc-count-connected');
     if (countConnected) countConnected.textContent = connectedCount.toLocaleString();
@@ -1758,7 +1816,7 @@
     ui.filter = 'all';
     ui.provider = 'all';
     ui.search = '';
-    state.legendOpen = true;
+    state.legendOpen = false;
     state.shell = false;
     render();
   }

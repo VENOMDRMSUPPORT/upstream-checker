@@ -63,7 +63,7 @@ function catalogError(code, message) {
 // something when only the reference moved.
 const COMPARE_FIELDS = ['name', 'description', 'family', 'context_tokens', 'output_tokens',
   'input_modalities', 'output_modalities', 'tools', 'reasoning', 'structured', 'attachment',
-  'cost_in_per_m', 'cost_out_per_m', 'cost_kind', 'release_date', 'status'];
+  'cost_in_per_m', 'cost_out_per_m', 'cost_kind', 'release_date', 'status', 'kind'];
 
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
@@ -188,6 +188,9 @@ function createCatalogIpc({ ipcMain, repos, engine, log = console, onRosterWritt
     // The roster is read once and handed to every row: a variant's base is
     // resolved against the models this provider actually serves, so the whole
     // list has to be known before any one row's proxies can be derived.
+    // A renderer-side adapter verdict (nexum classify()) is itself a declared
+    // kind: it is stored on the row so the renderer never re-derives it and
+    // fetch-info diffs it like any other provider fact.
     const roster = models.map((m) => String((m && m.id) || '')).filter(Boolean);
     return models.map((m) => withAliases(providerRow(m, providerId), m, roster));
   }

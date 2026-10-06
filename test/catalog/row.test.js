@@ -1,14 +1,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  providerRow, costKind, readPricing, matchIds, qualityProxyIds, rosterProxyIds, ROW_FIELDS,
+  providerRow, costKind, readPricing, readsKind, matchIds, qualityProxyIds, rosterProxyIds, ROW_FIELDS,
 } = require('../../src/catalog/row');
 
 const base = (over = {}) => ({ id: 'lab/model', name: 'Model', ...over });
 const day = new Date(1727000000000).toISOString().slice(0, 10);
 
 test('the row is exactly the reference shape, with nothing invented', () => {
-  assert.equal(ROW_FIELDS.length, 17, 'ref §8.1 counts seventeen fields');
+  assert.equal(ROW_FIELDS.length, 18, 'ref §8.1 counts seventeen fields, plus the provider-declared kind');
   assert.deepEqual(Object.keys(providerRow(base(), 'nara')).sort(), [...ROW_FIELDS].sort());
 });
 
@@ -232,6 +232,34 @@ test('status is kept when published and active otherwise', () => {
 test('a model with no id is refused at the door, not filed under the empty string', () => {
   assert.throws(() => providerRow({ name: 'No Id' }, 'nara'), /nara listed a model with no id/);
   assert.throws(() => providerRow(null, 'nara'), /no id/);
+});
+
+// NaraRouter states its capabilities outright (/api/pricing supports_* flags,
+// kept verbatim by providers/nara.js); Experiential flags decision-only
+// deployments the same way. Only explicit true answers — a name like
+// "jev-2" unflagged stays chat, and a renderer classify() guess is never
+// smuggled in through the row.
+test('kind keeps the provider-declared verdict, never a heuristic', () => {
+  assert.equal(providerRow(base(), 'nara').kind, null);
+  assert.equal(providerRow(base({ kind: 'image' }), 'nara').kind, 'image');
+  assert.equal(providerRow(base({ kind: 'guess' }), 'nara').kind, null);
+  assert.equal(providerRow(base({ id: 'jev', supports_decisions: true }), 'nara').kind, 'decision');
+  assert.equal(providerRow(base({ supports_video_generation: true }), 'nara').kind, 'video');
+  assert.equal(providerRow(base({ supports_image_generation: true }), 'nara').kind, 'image');
+  assert.equal(providerRow(base({ id: 'jev-2' }), 'nara').kind, null);
+  assert.equal(readsKind(null), null);
+  assert.equal(readsKind({ kind: 'decision' }), 'decision');
+});
+
+// supports_vision arrives as a per-model flag, not a modality list; the row
+// must still publish it as an image input, while a stated false stays
+// silence rather than a refusal.
+test('a declared vision flag reaches the input modalities', () => {
+  assert.equal(providerRow(base({ supports_vision: true }), 'nara').input_modalities, 'image');
+  assert.equal(providerRow(base({
+    modalities: { input: ['text'] }, supports_vision: true,
+  }), 'nara').input_modalities, 'text, image');
+  assert.equal(providerRow(base({ supports_vision: false }), 'nara').input_modalities, '');
 });
 
 test('a nexum-style thin row publishes nothing and therefore claims nothing', () => {

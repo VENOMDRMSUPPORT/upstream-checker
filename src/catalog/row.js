@@ -19,7 +19,7 @@ const { LAB_PROVIDERS, VARIANT_MODIFIERS } = require('./keys');
 
 const ROW_FIELDS = ['id', 'name', 'description', 'family', 'context_tokens', 'output_tokens',
   'input_modalities', 'output_modalities', 'tools', 'reasoning', 'structured', 'attachment',
-  'cost_in_per_m', 'cost_out_per_m', 'cost_kind', 'release_date', 'status'];
+  'cost_in_per_m', 'cost_out_per_m', 'cost_kind', 'release_date', 'status', 'kind'];
 
 const firstNumber = (...values) => {
   for (const value of values) {
@@ -173,6 +173,21 @@ function readsAttachment(m) {
   return null;
 }
 
+// The model's kind as its provider declared it. Only explicit flags answer —
+// NaraRouter's /api/pricing states supports_decisions / supports_vision /
+// supports_image_generation / supports_video_generation per model, Experiential
+// flags decision-only deployments the same way. Name matching stays the
+// renderer's job (app.js classifyModel), so a heuristic can never be stored
+// here as a published fact.
+function readsKind(m) {
+  if (!m || typeof m !== 'object') return null;
+  if (m.kind === 'chat' || m.kind === 'image' || m.kind === 'video' || m.kind === 'decision') return m.kind;
+  if (m.supports_decisions === true) return 'decision';
+  if (m.supports_video_generation === true) return 'video';
+  if (m.supports_image_generation === true) return 'image';
+  return null;
+}
+
 /**
  * The aliases a thin, route-prefixed id needs to reach the reference (ref §8.2).
  * The provider that needs it most publishes nothing else about itself. Unlike the
@@ -292,6 +307,12 @@ function providerRow(model, providerId) {
   const pricing = readPricing(m);
   const modalities = m.modalities || {};
   const architecture = m.architecture || {};
+  // NaraRouter publishes supports_vision per model, not a modality list; the
+  // list already present always wins, so a provider that says both can never
+  // contradict itself here. supports_decisions / image / video generation ride
+  // the kind verdict instead: capabilityState answers decision/image/video from
+  // the row's own kind (catalog-caps.js), so the flag and the icon cannot part.
+  const inputExtra = m.supports_vision === true ? ['image'] : [];
   const row = {
     id,
     name: String(m.name || id).replace(/^[^:]+:\s*/, '') || id,
@@ -300,7 +321,7 @@ function providerRow(model, providerId) {
     context_tokens: firstNumber(m.limit && m.limit.context, m.context_length, m.context_window),
     output_tokens: firstNumber(m.limit && m.limit.output, m.max_output_tokens, m.max_completion_tokens,
       m.top_provider && m.top_provider.max_completion_tokens),
-    input_modalities: uniqueJoin([modalities.input, architecture.input_modalities]),
+    input_modalities: uniqueJoin([modalities.input, architecture.input_modalities, inputExtra]),
     output_modalities: uniqueJoin([modalities.output, architecture.output_modalities]),
     tools: readsTools(m),
     reasoning: readsReasoning(m),
@@ -311,6 +332,7 @@ function providerRow(model, providerId) {
     cost_kind: m.cost_kind || costKind({ inCost: pricing.input, outCost: pricing.output }),
     release_date: m.release_date || unixToDate(m.created),
     status: m.status || 'active',
+    kind: readsKind(m),
   };
   // The reference drops every entry with no id; saying it here means a malformed
   // adapter row is refused at the door rather than becoming a catalog entry keyed
@@ -320,6 +342,6 @@ function providerRow(model, providerId) {
 }
 
 module.exports = {
-  ROW_FIELDS, providerRow, readPricing, costKind,
+  ROW_FIELDS, providerRow, readPricing, costKind, readsKind,
   readsTools, readsReasoning, readsStructured, readsAttachment, matchIds, qualityProxyIds, rosterProxyIds,
 };

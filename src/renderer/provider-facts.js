@@ -87,7 +87,10 @@ function resolveCost(catRow) {
  * The ingested row is already normalised — mapRows ran the provider's fields
  * through the same readers the Models page uses — so it is used as-is. The raw
  * provider model is the fallback for the window before an ingest has answered,
- * where the first paint would otherwise disagree with every later one.
+ * where the first paint would otherwise disagree with every later one. `kind`
+ * is a §8.1 field (row.js readsKind of the provider's explicit supports_*
+ * flags): a stored verdict outranks re-deriving it from the raw model, whose
+ * flags mean the same thing in a different place.
  */
 function resolveCapabilityRow(model, catRow) {
   const cat = catRow || {};

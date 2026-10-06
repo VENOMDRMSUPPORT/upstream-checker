@@ -17,7 +17,7 @@
 // Four booleans come straight off the row (tools, reasoning, structured,
 // attachment). The other four are read out of the two modality lists, which
 // are comma-separated strings and may be ''. Video and image generation also
-// answer from `kind`, the renderer's own classification (app.js:classifyModel),
+// answer from `kind`, the row's own declared classification (row.js readsKind),
 // because a generator that publishes no modality still declares what it is.
 
 const CAT_CAPABILITIES = [
@@ -112,9 +112,9 @@ function filesState(row) {
 }
 
 // A provider may declare a generator and publish no modality for it at all —
-// `kind` is the renderer's classification of the row and answers that case on
-// its own. Declared wins over the list, for the same reason `filesState` reads
-// the field first.
+// `kind` is the provider's declared classification (row.js readsKind of its
+// explicit supports_* flags) and answers that case on its own. Declared wins
+// over the list, for the same reason `filesState` reads the field first.
 function outputState(row, token, kind) {
   if (row.kind === kind) return true;
   return hasModality(row.output_modalities, token);
@@ -123,10 +123,11 @@ function outputState(row, token, kind) {
 /**
  * One capability of one row, or `null` when the provider said nothing about it.
  *
- * `decision` is not read off any row field: it is the renderer's own
- * classification (app.js:classifyModel — `supports_decisions`, the adapter's
- * classify, then name matching). A declared generator answers the same way
- * through `outputState`, and this is the row's equivalent for decision models.
+ * `decision` is answered by the row's own kind: row.js readsKind keeps the
+ * provider's explicit supports_decisions flag, and app.js classifyModel falls
+ * back to name matching only when no verdict was stored. A declared generator
+ * answers the same way through `outputState`, and this is the row's equivalent
+ * for decision models.
  *
  * @param {object} row  a catalogue row, as catalog:read serves it
  * @param {string} id   one of CAT_CAPABILITIES[].id
@@ -165,7 +166,7 @@ function capabilityOrigin(row, id) {
   const r = row || {};
   const value = capabilityState(r, id);
   if (value === null) return { value, from: 'silent' };
-  // `decision` is answered by the renderer's own kind classification, exactly
+  // `decision` is answered by the row's own kind, exactly
   // like the generators above it: a declared decision model says so by being
   // one, not by publishing a flag.
   if ((id === 'imageGen' && r.kind === 'image') || (id === 'video' && r.kind === 'video')

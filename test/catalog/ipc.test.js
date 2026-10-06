@@ -349,6 +349,7 @@ test('only the fields the provider publishes are compared — never a derived sc
     assert.ok(!COMPARE_FIELDS.includes(derived), `${derived} must not appear in a diff`);
   }
   assert.ok(COMPARE_FIELDS.includes('context_tokens'));
+  assert.ok(COMPARE_FIELDS.includes('kind'), 'the provider-declared kind is a published fact, diffed like any other');
 });
 
 test('diffRow reads changed fields with the exact old and new values', () => {

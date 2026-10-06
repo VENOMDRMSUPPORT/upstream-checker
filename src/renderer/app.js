@@ -33,7 +33,9 @@ const truthy = (v) => v === true || v === 'true' || v === 1;
 //
 // A provider module can override this with its own classify(model); the fallback
 // below is name matching, which is a guess — a provider that declares the fact
-// outright is believed over it.
+// outright is believed over it. Discovery stamps the classify() verdict onto
+// the roster as `kind` (catalog.js stampKinds), so the stored row and the test
+// table cannot disagree with what the fetch already decided.
 
 const KIND_LABELS = { chat: '', image: 'Image', video: 'Video', decision: 'Decision' };
 
@@ -54,6 +56,13 @@ function classifyModel(providerId, model) {
   // outright which models generate images or video, so there is nothing to infer.
   // A native decision model (Experiential's TypeSafe Jev) refuses chat entirely
   // and answers only on the provider's declared decisionEndpoint.
+  // `kind` is the same declaration in row shape (row.js readsKind of the
+  // provider's explicit supports_* flags, mirrored into COMPARE_FIELDS so
+  // fetch-info diffs it like any other published fact). A stored verdict is
+  // believed, never re-derived from the row that already survived it.
+  if (model && model.kind === 'decision') return 'decision';
+  if (model && model.kind === 'video') return 'video';
+  if (model && model.kind === 'image') return 'image';
   if (truthy(model.supports_decisions)) return 'decision';
   if (truthy(model.supports_video_generation)) return 'video';
   if (truthy(model.supports_image_generation)) return 'image';
@@ -1712,11 +1721,16 @@ $('#btn-select-none').addEventListener('click', () => setSelectionForVisible(fal
 function buildModelItem(m) {
   const id = escapeHtml(m.id);
   const selected = PROVIDERS[activeProvider]?.selected.has(m.id);
+  const gate = m.isFree || !m.isFreeForPaid ? ''
+    : m.freeMinBalance != null
+      ? ` · needs ${escapeHtml(String(m.freeMinBalance))} balance`
+      : ' · needs balance';
+  const tip = `${id}${gate}${m.contextLabel ? ` · ${escapeHtml(m.contextLabel)}` : ''}`;
   return `
     <div class="model-item ${selected ? 'selected' : ''}" data-model-id="${id}">
       <div class="model-checkbox"></div>
       <div class="model-info">
-        <span class="model-name" title="${id}">${id}</span>
+        <span class="model-name" title="${tip}">${id}</span>
         ${KIND_LABELS[m.kind] ? `<span class="model-kind">${KIND_LABELS[m.kind]}</span>` : ''}
         ${m.contextLabel ? `<span class="model-context">${m.contextLabel}</span>` : ''}
       </div>
