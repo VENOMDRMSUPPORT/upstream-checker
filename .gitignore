@@ -25,5 +25,5 @@ Thumbs.db
 .env
 .env.local
 
-# Claude Code (keep settings but ignore sensitive data)
-.claude/settings.local.json
+# Claude Code — local-only: settings.local.json and its copy hold API tokens
+.claude/
