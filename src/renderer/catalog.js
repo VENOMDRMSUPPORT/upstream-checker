@@ -190,6 +190,18 @@
     return entriesOf(pid).length;
   }
 
+  // Live working rows for one provider: stored, not removed, not broken.
+  // What the Providers badge counts — the models the owner can actually open.
+  // Null until loaded, so the badge keeps its old fallback on first paint.
+  function providerVisibleCount(pid) {
+    if (!state.loaded) return null;
+    let n = 0;
+    for (const e of state.models.values()) {
+      if (e.providerId === pid && !isBroken(e)) n += 1;
+    }
+    return n;
+  }
+
   function forgetKey(kid) {
     if (state.keyModels[kid]) delete state.keyModels[kid];
   }
@@ -227,8 +239,10 @@
   // Asks every usable key, unions the answers, and applies the same
   // normalisation the Route Test page applies (dedupe, alias groups,
   // adapter exclusions). Returns null when no key answered, so a transient
-  // outage never reads as "the provider removed everything".
-  async function discoverAll(p) {
+  // outage never reads as "the provider removed everything". onKey, when
+  // given, receives one outcome per key ({ ok, ms } or { ok: false, error })
+  // so the unified cycle can adopt health verdicts without extra requests.
+  async function discoverAll(p, onKey) {
     const keys = usableKeys(p);
     if (!keys.length) return null;
     const byId = new Map();
@@ -236,9 +250,11 @@
     const adapter = (window.INTEGRATED_PROVIDERS || {})[p.id];
     const excluded = (m) => !!(adapter && typeof adapter.excludeModel === 'function' && adapter.excludeModel(m));
     for (const k of keys) {
+      const startedAt = Date.now();
       try {
         const list = await discoverModels(p, k.key);
         answered += 1;
+        if (onKey) onKey(k.id, { ok: true, ms: Date.now() - startedAt });
         // Counted the way the catalogue counts, so a key's number and the
         // provider's total are comparable.
         state.keyModels[k.id] = { count: new Set(list.filter((m) => !excluded(m)).map((m) => m.id)).size, at: Date.now() };
@@ -250,7 +266,12 @@
             byId.set(m.id, { ...m, keyIds: [k.id] });
           }
         });
-      } catch (_) { /* one bad key must not blank the catalogue the others returned */ }
+      } catch (err) {
+        // One bad key must not blank the catalogue the others returned —
+        // and its outcome still feeds the health verdict, so the failure is
+        // recorded rather than swallowed.
+        if (onKey) onKey(k.id, { ok: false, ms: Date.now() - startedAt, error: err });
+      }
     }
     if (!answered) return null;
     let list = tagAliasGroups(dedupeById([...byId.values()]));
@@ -263,11 +284,17 @@
     return list;
   }
 
-  // One provider's pass: discover, hand main the roster, and take back what it
-  // stored. Ingest is the only writer of the roster and it answers `{ ok:false,
-  // code }` rather than rejecting, so the verdict is read off the reply.
+  // One provider's pass: discover, adopt the per-key outcomes as health
+  // verdicts (the unified cycle — no separate health requests), hand main the
+  // roster, and take back what it stored. Ingest is the only writer of the
+  // roster and it answers `{ ok:false, code }` rather than rejecting, so the
+  // verdict is read off the reply.
   async function syncProvider(p) {
-    const list = await discoverAll(p);
+    const outcomes = [];
+    const list = await discoverAll(p, (kid, o) => outcomes.push({ kid, ...o }));
+    // Health first: a refused or quarantined ingest must never hide what the
+    // probes just proved about the provider and its keys.
+    if (typeof adoptProbeResults === 'function') adoptProbeResults(p, outcomes);
     if (!list) return { ok: false, added: [], removed: [], warning: 'no key answered' };
     const reply = await window.electronAPI.catalogIngest(p.id, list);
     if (reply && reply.ok === false) {
@@ -326,13 +353,20 @@
     if (outcome.failed.length) bits.push(`${outcome.failed.length} unreachable`);
     state.syncNote = bits.length ? bits.join(' · ') : 'Up to date';
     renderIfShown();
+    // The bell and the activity page read what the passes just wrote.
+    if (window.ACTIVITY) {
+      if (window.ACTIVITY.refreshBell) window.ACTIVITY.refreshBell();
+      if (window.ACTIVITY.renderIfShown) window.ACTIVITY.renderIfShown();
+    }
     return outcome;
   }
 
+  // The single background cycle: health, keys and roster in one pass per
+  // provider. The live switch pauses everything; resuming restarts the clock.
   function scheduleTimer() {
     clearInterval(state.timer);
     const minutes = Math.max(1, Number(settings.catalogSyncMinutes) || 5);
-    state.timer = setInterval(() => syncAll({ reason: 'timer' }), minutes * 60 * 1000);
+    state.timer = settings.liveUpdates ? setInterval(() => syncAll({ reason: 'timer' }), minutes * 60 * 1000) : null;
   }
 
   // ---- per-model actions: health, fetch information, chat -------------------
@@ -583,11 +617,11 @@
     return { p50: sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2), n: samples.length };
   }
 
-  // Speed resolution: the pinned TIME value from Route Test runs, as a median.
-  // The table shows the median latency (same number as the TIME column); tok/s
-  // stays in the tooltip when token counts were recorded. Only passed runs and
-  // healthy checks count — a 502 that came back in 0.3s must never make a model
-  // read as fast.
+  // Speed resolution: the headline is the freshest healthy measurement, so a
+  // heart press always reads on the row; the median over every healthy sample
+  // stays in the tooltip (and still pins the TIME column's meaning there).
+  // Only passed runs and healthy checks count — a 502 that came back in 0.3s
+  // must never make a model read as fast.
   function modelSpeed(e) {
     if (!e) return null;
 
@@ -618,16 +652,29 @@
       const mid = Math.floor(sorted.length / 2);
       medTps = sorted.length % 2 ? sorted[mid] : Math.round(((sorted[mid - 1] + sorted[mid]) / 2) * 10) / 10;
     }
-    return { tps: medTps, ms: medMs, samples: allMs.length || allTps.length };
+    // Freshest healthy evidence first: a healthy check or a passed run is never
+    // older than the median it joins, so the headline moves on every verdict.
+    const stampedMs = [
+      ...runs.filter((r) => Number.isFinite(r.ms) && r.ms > 0).map((r) => ({ v: r.ms, at: r.at || 0 })),
+      ...healthChecks.filter((c) => Number.isFinite(c.ms) && c.ms > 0).map((c) => ({ v: c.ms, at: c.at || 0 })),
+    ].sort((a, b) => b.at - a.at);
+    const stampedTps = [
+      ...runs.filter((r) => Number.isFinite(r.tps) && r.tps > 0).map((r) => ({ v: r.tps, at: r.at || 0 })),
+      ...healthChecks.filter((c) => Number.isFinite(c.tps) && c.tps > 0).map((c) => ({ v: c.tps, at: c.at || 0 })),
+    ].sort((a, b) => b.at - a.at);
+    return { tps: stampedTps.length ? stampedTps[0].v : medTps,
+      ms: stampedMs.length ? stampedMs[0].v : medMs,
+      medMs, medTps, samples: allMs.length || allTps.length };
   }
 
   function speedCell(e, { compact = false } = {}) {
     const s = modelSpeed(e);
     if (!s) return '<span class="dt-muted">—</span>';
-    // The cell pins the TIME-column median: the number a test run would show for
-    // this model, in the same colours. tok/s is extra info for the tooltip.
+    // The headline is the freshest healthy measurement; the median rides in
+    // the tooltip, so one lucky probe never rewrites what "usual" means.
     if (s.ms != null) {
-      const tip = `Median test time: ${fmtMs(s.ms)} (${s.samples} sample${s.samples === 1 ? '' : 's'}${s.tps != null ? `, ${s.tps} tok/s` : ''})`;
+      const medianBit = s.medMs != null && s.medMs !== s.ms ? ` · Median: ${fmtMs(s.medMs)}` : '';
+      const tip = `Latest healthy measurement: ${fmtMs(s.ms)}${s.tps != null ? ` · ${s.tps} tok/s` : ''}${medianBit} (${s.samples} sample${s.samples === 1 ? '' : 's'})`;
       if (compact) {
         return `<span class="${timeClass(s.ms)}" title="${escapeHtml(tip)}">${fmtMs(s.ms)}</span>`;
       }
@@ -728,9 +775,9 @@
     </div>`;
   }
 
-  function healthCell(e) {
-    return healthBarHTML(e);
-  }
+  // (healthBarHTML above serves the card and drawer views; the table column
+  // that used the dot mark was removed — the status pill beside the name
+  // carries the verdict.)
 
   // ---- toast notifications ---------------------------------------------------
 
@@ -1114,7 +1161,7 @@
     const good = Number(typeof settings !== 'undefined' && settings.timeGoodMs) || 10000;
     const ok = Number(typeof settings !== 'undefined' && settings.timeOkMs) || 15000;
     if (ms < good) return 'time-fast';
-    if (ms <= ok) return 'time-mid';
+    if (ms <= ok) return 'time-medium';
     return 'time-slow';
   }
 
@@ -1295,12 +1342,6 @@
     </section>`;
   }
 
-  function healthCell(e) {
-    if (!e.health) return '<span class="dt-muted">—</span>';
-    const meta = HEALTH_META[e.health.status] || HEALTH_META.error;
-    return `<span class="mc-health-dot mc-health-dot-${meta.tone}" title="${escapeHtml(e.health.note || meta.label)}">${ICON[meta.icon] || ''}</span>`;
-  }
-
   function badges(e) {
     const out = [];
     if (e.isNew) out.push(`<span class="pv-tag mc-new" title="${escapeHtml(e.first_seen ? `First seen ${formatAgo(e.first_seen)}` : 'Newly listed')}">NEW</span>`);
@@ -1354,7 +1395,6 @@
       <td class="col-price">${priceCell(e)}</td>
       <td class="col-caps">${capsHTML(e)}</td>
       <td class="dt-num col-speed">${speedCell(e)}</td>
-      <td class="col-health">${healthCell(e)}</td>
       <td class="dt-actions-col"><div class="dt-row-actions">${actionButtons(e)}</div></td>
     </tr>`;
   }
@@ -1540,8 +1580,8 @@
       speed: (a, b) => {
         const sa = modelSpeed(a);
         const sb = modelSpeed(b);
-        // Fastest TIME median first: lower ms wins. tok/s only breaks ties in
-        // the (rare) ms-only-vs-tps-only case — this column is the pinned TIME.
+        // Freshest healthy measurement first: lower ms wins. tok/s only breaks ties in
+        // the (rare) ms-only-vs-tps-only case.
         const ma = sa ? sa.ms : null;
         const mb = sb ? sb.ms : null;
         if (ma != null && mb != null && ma !== mb) return ma - mb;
@@ -1712,7 +1752,7 @@
         <th class="col-price" title="Price per million tokens, in and out">PRICING</th>
         <th class="col-caps" title="What this model can do. Lit = the provider published it. Dimmed = nobody has, which is not a refusal; a published “no” is left out and is spelled out in the row’s details. The legend above names every icon.">Capabilities</th>
         <th class="col-speed" title="Generation speed in tokens per second (or median response time)">SPEED</th>
-        <th class="col-health" title="Health check status and availability history">Health</th><th class="dt-actions-col">Actions</th>
+        <th class="dt-actions-col">Actions</th>
       </tr></thead>
       <tbody>${out.map((e) => rowHTML(e, rank.get(e.key))).join('')}</tbody>
     </table></div>`;
@@ -2050,6 +2090,8 @@
     visibleEntries,
     keyModels,
     providerModelCount,
+    providerVisibleCount,
+    scheduleTimer,
     forgetKey,
     openDetails,
     closeDetails,

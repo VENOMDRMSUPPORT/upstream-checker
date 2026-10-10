@@ -212,7 +212,7 @@ function fmtMs(ms) {
 function timeClassOf(ms, goodMs = 10000, okMs = 15000) {
   if (ms == null) return 'dt-muted';
   if (ms < goodMs) return 'time-fast';
-  if (ms <= okMs) return 'time-mid';
+  if (ms <= okMs) return 'time-medium';
   return 'time-slow';
 }
 

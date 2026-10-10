@@ -5864,6 +5864,13 @@ input[type="number"] {
   background: color-mix(in srgb, var(--border-2) 75%, transparent);
   opacity: 0.4;
 }
+/* Uptime strip: fixed colours on purpose, identical in dark and daylight. */
+.pv-tick.up-ok {
+  background: #22c55e;
+}
+.pv-tick.up-bad {
+  background: #ef4444;
+}
 .kx-checked-frame {
   display: flex;
   align-items: center;
@@ -7283,7 +7290,6 @@ input[type="number"] {
 .mc-table .col-score { min-width: 90px; width: 1%; }
 .mc-table .col-ctx { min-width: 90px; width: 1%; }
 .mc-table .col-price { min-width: 140px; width: 1%; }
-.mc-table .col-health { min-width: 140px; width: 1%; text-align: center; }
 
 .mc-table :is(th, td).col-score,
 .mc-table :is(th, td).col-ctx,
@@ -7618,13 +7624,6 @@ input[type="number"] {
   align-items: center;
   gap: 5px;
 }
-/* The Health column: the stored verdict as a mark, so the row is scannable
-   without reading the badge beside the name. */
-.mc-health-dot { display: inline-grid; place-items: center; }
-.mc-health-dot-ok { color: var(--pass); }
-.mc-health-dot-warn { color: var(--warn); }
-.mc-health-dot-fail { color: var(--fail); }
-
 /* ---- Health Status Bar (Uptime / Checks ticks like status monitors) ---- */
 .mc-health-bar-wrap {
   display: inline-flex;
@@ -9222,6 +9221,11 @@ button.ku-cell:hover {
    ============================================ */
 .page-database { padding: 24px clamp(16px, 3vw, 32px) 32px; }
 .db-toolbar { margin-bottom: 18px; }
+
+/* ============================================
+   Model Activity — same page padding as every other page
+   ============================================ */
+.page-activity { padding: 24px clamp(16px, 3vw, 32px) 32px; }
 .pv-tab[data-db-source="app"] { padding-right: 24px; }
 .pv-tab[data-db-source="logs"] { padding-left: 24px; }
 .db-refresh-orb {
@@ -9811,7 +9815,7 @@ html[data-motion="reduced"] .lock-canvas { display: none; }
    notifications button are hidden, because each is a way to change something
    before proving you may. */
 body.locked { overflow: hidden; }
-body.locked :is(#btn-settings, #btn-accent, .hdr-accent, #btn-theme-toggle, #btn-notifications, .hdr-sep, .hdr-profile-wrap) {
+body.locked :is(#btn-settings, #btn-accent, .hdr-accent, #btn-theme-toggle, #btn-notifications, .hdr-notif-wrap, .hdr-sep, .hdr-profile-wrap) {
   display: none !important;
 }
 
@@ -9934,3 +9938,64 @@ body.locked :is(#btn-settings, #btn-accent, .hdr-accent, #btn-theme-toggle, #btn
 .lock-change-status[data-kind="ok"] { color: var(--pass); }
 .lock-change-status[data-kind="error"] { color: var(--fail); }
 .lock-change-status[data-kind="warn"] { color: var(--warn); }
+
+/* ============================================
+   Notifications bell + Model Activity
+   ============================================ */
+.hdr-notif-wrap { position: relative; }
+.hdr-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--fail);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  pointer-events: none;
+}
+.hdr-badge[hidden] { display: none; }
+.hdr-notif { width: 330px; }
+#notif-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 340px;
+  overflow-y: auto;
+  margin-bottom: 10px;
+}
+.ntf-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-md);
+  background: var(--bg-1);
+  cursor: pointer;
+}
+.ntf-item:hover { border-color: var(--border-2); }
+.ntf-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ntf-text { flex: 1; min-width: 0; }
+.ntf-line { font-size: 12.5px; color: var(--text-0); }
+.ntf-line b { font-weight: 650; }
+.ntf-time { margin-top: 2px; font-size: 11px; color: var(--text-3); }
+.ntf-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.ntf-empty { padding: 14px 6px; font-size: 12.5px; color: var(--text-3); text-align: center; }
+.ntf-foot { display: flex; gap: 8px; }
+.ntf-foot .btn-mini { flex: 1; }
+.ac-list { display: flex; flex-direction: column; gap: 8px; }
+.ac-list .ntf-item { cursor: pointer; padding: 12px 14px; }
+.ac-more { display: flex; justify-content: center; padding: 12px 0 4px; }

@@ -24,6 +24,19 @@
   function setOpen(open) {
     pop.hidden = !open;
     button.setAttribute('aria-expanded', String(open));
+    // One header popup at a time (see activity.js closeOtherHeaderPops): the
+    // other panels' outside-click closers never fire through this stopped
+    // toggle click, so they are closed here directly.
+    if (open) {
+      for (const [popId, btnId] of [['notif-pop', 'btn-notifications'], ['accent-pop', 'btn-accent']]) {
+        const other = document.getElementById(popId);
+        if (other && !other.hidden) {
+          other.hidden = true;
+          const btn = document.getElementById(btnId);
+          if (btn) btn.setAttribute('aria-expanded', 'false');
+        }
+      }
+    }
   }
 
   const isOpen = () => !pop.hidden;

@@ -224,12 +224,12 @@ test('the magnitude classes match the ones the table already paints time with', 
   assert.strictEqual(F.timeClassOf(null), 'dt-muted');
   assert.strictEqual(F.timeClassOf(100), 'time-fast');
   assert.strictEqual(F.timeClassOf(9999), 'time-fast');
-  assert.strictEqual(F.timeClassOf(10000), 'time-mid');
-  assert.strictEqual(F.timeClassOf(15000), 'time-mid');
+  assert.strictEqual(F.timeClassOf(10000), 'time-medium');
+  assert.strictEqual(F.timeClassOf(15000), 'time-medium');
   assert.strictEqual(F.timeClassOf(15001), 'time-slow');
   // Custom bands follow the same rule as the settings page.
   assert.strictEqual(F.timeClassOf(5000, 10000, 15000), 'time-fast');
-  assert.strictEqual(F.timeClassOf(12000, 10000, 15000), 'time-mid');
+  assert.strictEqual(F.timeClassOf(12000, 10000, 15000), 'time-medium');
   assert.strictEqual(F.timeClassOf(20000, 10000, 15000), 'time-slow');
 });
 

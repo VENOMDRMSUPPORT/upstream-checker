@@ -240,13 +240,13 @@ async function checkQueuedRowSurvivedQuit({ app }) {
 async function checkLoggingOn({ app, dir }) {
   const s = await app.evaluate(`(async () => ({
     info: await window.electronAPI.logsInfo(),
-    health: (await window.electronAPI.logsList({ source: ['health'], providerId: ['darkapi'] }, null, 5)).rows,
+    probes: (await window.electronAPI.logsList({ source: ['discovery'], providerId: ['darkapi'] }, null, 5)).rows,
     label: document.querySelector('label[for="set-log-level"]').textContent.trim(),
     level: settings.logLevel,
   }))()`);
   check('logging is on and venom-logs.db exists', s.info.enabled === true && s.info.rows > 0 && existsSync(join(dir, 'venom-logs.db')),
     JSON.stringify({ enabled: s.info.enabled, rows: s.info.rows, error: s.info.error }));
-  check('health probes are logged with source health and a key id', s.health.length > 0 && /^k_dark_/.test(s.health[0].key_id), String(s.health.length));
+  check('unified passes are logged with source discovery and a key id', s.probes.length > 0 && /^k_dark_/.test(s.probes[0].key_id), String(s.probes.length));
   check('the body setting reads "Request bodies" and a new install is on Failed only', s.label === 'Request bodies' && s.level === 'errors', `${s.label} / ${s.level}`);
 }
 

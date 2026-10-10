@@ -96,6 +96,7 @@
 
   function open(select) {
     close();
+    closeHeaderPops();
     if (select.disabled) return;
     owner = select;
     const trigger = select._uiTrigger;
@@ -173,6 +174,19 @@
     }
     owner = null;
     active = -1;
+  }
+
+  // One open layer at a time: a select menu opening over a header popup (or
+  // under one) reads as stuck. Direct DOM contract, no cross-file calls.
+  function closeHeaderPops() {
+    for (const [popId, btnId] of [['notif-pop', 'btn-notifications'], ['profile-pop', 'btn-profile'], ['accent-pop', 'btn-accent']]) {
+      const pop = document.getElementById(popId);
+      if (pop && !pop.hidden) {
+        pop.hidden = true;
+        const btn = document.getElementById(btnId);
+        if (btn) btn.setAttribute('aria-expanded', 'false');
+      }
+    }
   }
 
   document.addEventListener('keydown', (e) => {
