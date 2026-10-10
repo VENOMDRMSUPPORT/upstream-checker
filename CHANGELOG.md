@@ -5,6 +5,38 @@ All notable changes to VENOM Router (formerly Upstream Checker) will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.2] - 2026-10-10
+
+### Added
+
+- **Model Activity page and notification bell.** Every roster arrival and
+  departure across connected providers is recorded and listed newest-first,
+  with a header bell carrying the unread count, a 15-item panel, and a full
+  history page with provider, type and search filters. A returning model is
+  announced as new.
+- **Roster purge window** under Settings › Catalog (`Forget removed models
+  after`, 1–365 days, default 30). A model the provider dropped stays listed
+  as removed for that long, then is deleted for good.
+- **Provider uptime strip** from recent probe verdicts, with `Uptime strip
+  shows` (4–40 probes) under Settings › History.
+
+### Changed
+
+- **One background cycle for everything.** The separate per-key health probe
+  is gone: each catalog sync pass covers provider status, key verdicts,
+  roster and diff, on the `Re-sync every` cadence. Save, recheck, reconnect
+  and focus all trigger the same pass, so no extra `GET /models` requests
+  are spent on health alone.
+- The Models table believes the row's declared kind: an explicit provider
+  flag (decisions, video, image) wins over name guessing, and broken models
+  stay out of tabs, KPIs, legend, ranks and table until a healthy verdict
+  returns.
+- The results table always shows CONTEXT / SCORE / PRICE / CAPS, and catalog
+  Speed is the pinned TIME median. Speed colours follow the Latency colour
+  settings.
+- Decision probes moved behind provider adapter hooks (`decisionProbe` /
+  `readDecisionAnswer` on the registry entry); request flow is unchanged.
+
 ## [2.1.1] - 2026-10-05
 
 ### Fixed
