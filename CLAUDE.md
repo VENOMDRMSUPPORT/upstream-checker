@@ -36,9 +36,9 @@ Their real providers, keys and history live in
 - A scratch run starts with **no providers and an empty database**. That is
   correct and expected — it is not a broken build. **Say so in one line the
   first time you do it in a session**, or it reads as damage.
-- Never decrypt, print, copy or move their stored keys. To probe a provider
-  with a real key, ask the owner to run it themselves with the key in an
-  environment variable.
+- Stored keys may be used for live testing through the app's own request path
+  (owner-authorized 2026-10-09). Key values themselves are still never
+  printed, copied or moved anywhere.
 
 ## Never change how the app starts
 

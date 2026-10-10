@@ -147,6 +147,8 @@ const DEFAULT_SETTINGS = {
 
   historyMaxRuns: 300,
   sparkRuns: 12,
+  // How many recent probes the Providers uptime strip covers.
+  probeTicks: 20,
 
   notifyRegression: true,
   notifyRunComplete: false,
@@ -155,10 +157,10 @@ const DEFAULT_SETTINGS = {
   // every scheduled run — generating images on a timer, unattended.
   scheduleSkipMedia: true,
 
-  // Live provider health. Each probe is one GET /models per provider, so the
-  // cadence trades freshness against quota. liveUpdates pauses the monitor
-  // entirely (the breadcrumb toggle); a manual re-check still works.
-  healthIntervalMin: 2,
+  // Live background cycle. One pass per provider covers status, keys, roster
+  // and diff (see adoptProbeResults); the cadence is the catalog sync minutes.
+  // liveUpdates pauses the whole cycle (the breadcrumb toggle); a manual
+  // re-check still works.
   liveUpdates: true,
 
   // Appearance. Every colour in the stylesheet comes from a custom property, so
@@ -197,6 +199,9 @@ const DEFAULT_SETTINGS = {
   // models are measured and more are estimated, and nothing breaks.
   catalogSyncMinutes: 5,
   openRouterApiKey: '',
+  // Days a removed model is retained before the purge deletes it. Read by main
+  // from the saved row on every ingest; bounds enforced there too.
+  purgeWindowDays: 30,
 
   // Models tested at the same time. 1 is the original behaviour. Raising it is
   // the only thing that actually shortens a run — widening the hedge spends more
@@ -520,7 +525,8 @@ async function saveProviderConfig(providerId) {
   const saved = await persist(`save ${p.name}`, () => window.electronAPI.saveProvider(providerPayload(providerId)));
   if (saved) adoptSavedKeys(p, saved);
   // Every save is a user edit to keys or the base URL, so the verdict is stale.
-  checkProviderHealth(providerId);
+  // One unified pass re-proves this provider and refreshes its roster.
+  if (window.CATALOG) window.CATALOG.syncAll({ reason: 'manual', providerId });
   if (currentPage === 'providers') renderProvidersPage();
   // The Models Catalog shows a provider's models only while it has a key.
   window.dispatchEvent(new CustomEvent('providers-changed', { detail: { providerId } }));
@@ -890,21 +896,30 @@ $('.page-provider').addEventListener('click', (e) => {
 $('#pt-edit').addEventListener('click', () => openProviderModal(activeProvider));
 
 // ============================================
-// Provider health — a silent background probe of each provider's key
-// ============================================
+// Provider health — adopted from the unified discovery cycle, no requests of
+// its own. Every sync pass hands one outcome per key to adoptProbeResults
+// below, which writes the same verdicts the old per-key probe produced.
 // States: 'ok' (a key authenticated), 'fail' (every key was refused or the host
 // is unreachable), 'none' (no usable key to test with). Kept outside the DOM
 // because the tab list is rebuilt on every render.
-const healthIntervalMs = () => Math.max(1, settings.healthIntervalMin) * 60 * 1000;
 const HEALTH_TIMEOUT_MS = 15000;
 // A dropped connection or a waking laptop fails every probe at once. A transient
 // failure is re-checked after this delay and only a second one turns the row red.
 const HEALTH_CONFIRM_MS = 10000;
 const healthConfirming = new Set();
 const providerHealth = new Map();
-const healthInFlight = new Set();
-const healthRecheck = new Set();
-let healthTimer = null;
+// Uptime strip: the last probe verdicts per provider, newest last. Memory-only
+// (reset on launch) and capped, so the Providers strip reads as uptime rather
+// than test history. 'ok'/'fail' verdicts; null means no usable key to probe.
+// How many recent probes the Providers uptime strip covers: the probeTicks
+// setting, clamped. A missing or out-of-range value reads as the default and
+// is never written back.
+const probeTickCount = () => {
+  const n = Number(settings.probeTicks);
+  if (!Number.isFinite(n)) return 20;
+  return Math.min(40, Math.max(4, Math.round(n)));
+};
+const providerProbeHistory = new Map(); // id -> [{ s: 'ok'|'fail'|null, at }]
 
 function describeHealthFailure(res) {
   if (res.networkError) return res.timedOut ? 'No response' : 'Unreachable';
@@ -916,6 +931,51 @@ function keyProbeResult(res) {
   return isHealthyResponse(res)
     ? { state: 'ok', text: `OK · ${res.elapsed} ms`, at: Date.now() }
     : { state: 'fail', text: describeHealthFailure(res), at: Date.now() };
+}
+
+// One discovery outcome mapped onto the same verdicts the old probe produced:
+// a key that answered (2xx, or 429 — authenticated but busy) is healthy; a
+// refused key is a verdict; anything else is confirmed before the row turns
+// red, exactly like a transient probe failure was.
+function discoverVerdict(o) {
+  if (o.ok) return { ok: true, text: `OK · ${o.ms} ms` };
+  const m = String((o.error && o.error.message) || o.error || '').match(/HTTP (\d{3})/);
+  const status = m ? Number(m[1]) : 0;
+  if ((status >= 200 && status < 300) || status === 429) return { ok: true, text: `OK · ${o.ms} ms` };
+  if (status === 401 || status === 403) {
+    return { ok: false, text: `Key rejected (HTTP ${status})`, transient: false, detail: `Key rejected (HTTP ${status})` };
+  }
+  if (status >= 500) {
+    return { ok: false, text: `HTTP ${status}`, transient: true, detail: `HTTP ${status}` };
+  }
+  return { ok: false, text: 'Unreachable', transient: true, detail: 'Unreachable' };
+}
+
+// Health verdicts adopted from a unified discovery pass: one outcome per
+// usable key, no extra requests. Provider verdict, confirm flow and key rows
+// behave exactly as they did under the old probe.
+function adoptProbeResults(p, outcomes) {
+  if (!p) return;
+  const list = Array.isArray(outcomes) ? outcomes : [];
+  for (const o of list) {
+    const k = (p.keys || []).find((x) => x && x.id === o.kid);
+    if (!k) continue;
+    const v = discoverVerdict(o);
+    keyProbe.set(k.id, { state: v.ok ? 'ok' : 'fail', text: v.text, at: Date.now() });
+  }
+  const oks = list.filter((o) => discoverVerdict(o).ok);
+  if (oks.length) {
+    healthConfirming.delete(p.id);
+    setProviderHealth(p.id, { state: 'ok', detail: `Connected · ${Math.min(...oks.map((o) => o.ms))} ms` });
+    return;
+  }
+  if (!list.length) {
+    // No usable key to ask — not a failure, same 'none' the old probe gave.
+    setProviderHealth(p.id, { state: 'none', detail: 'No API key' });
+    return;
+  }
+  const last = discoverVerdict(list[list.length - 1]);
+  reportHealthFailure(p.id, last.detail, last.transient);
 }
 
 // Status badge shared by provider rows and key rows. The colour dot carries
@@ -983,59 +1043,8 @@ function isHealthyResponse(res) {
   return (res.status >= 200 && res.status < 300) || res.status === 429;
 }
 
-async function checkProviderHealth(id) {
-  const p = PROVIDERS[id];
-  if (!p) return;
-  // A key edited mid-probe must not be answered by the probe of the old keys.
-  if (healthInFlight.has(id)) {
-    healthRecheck.add(id);
-    return;
-  }
-  const keys = usableKeys(p);
-  if (keys.length === 0) {
-    setProviderHealth(id, { state: 'none', detail: 'No API key' });
-    return;
-  }
-
-  healthInFlight.add(id);
-  try {
-    // Every active key is probed, in parallel, so each key row carries its own
-    // verdict instead of "Not tested". A manual test already running is left alone.
-    const results = await Promise.all(keys.map(async (k) => {
-      let res;
-      try {
-        res = await window.electronAPI.apiRequest({
-          url: `${p.baseUrl}${p.modelsEndpoint || '/models'}`,
-          method: 'GET',
-          headers: { Authorization: `Bearer ${k.key}`, 'Content-Type': 'application/json' },
-          timeoutMs: HEALTH_TIMEOUT_MS,
-          source: 'health',
-        });
-      } catch (err) {
-        res = { status: 0, networkError: true, error: err.message };
-      }
-      if (keyProbe.get(k.id)?.state !== 'testing') keyProbe.set(k.id, keyProbeResult(res));
-      return res;
-    }));
-    const healthy = results.find(isHealthyResponse);
-    if (healthy) {
-      healthConfirming.delete(id);
-      setProviderHealth(id, { state: 'ok', detail: `Connected · ${healthy.elapsed} ms` });
-      return;
-    }
-    const last = results[results.length - 1];
-    const transient = results.some((res) => res.networkError || res.status >= 500);
-    reportHealthFailure(id, describeHealthFailure(last), transient);
-  } catch (err) {
-    reportHealthFailure(id, err.message || 'Check failed', true);
-  } finally {
-    healthInFlight.delete(id);
-    if (healthRecheck.delete(id)) checkProviderHealth(id);
-  }
-}
-
 // A refused key is a verdict; a timeout or 5xx may be the network blinking, so
-// it is confirmed by a second probe before the row turns red.
+// it is confirmed by a second pass before the row turns red.
 function reportHealthFailure(id, detail, transient) {
   const current = providerHealth.get(id);
   if (!transient || healthConfirming.has(id) || (current && current.state === 'fail')) {
@@ -1044,12 +1053,17 @@ function reportHealthFailure(id, detail, transient) {
     return;
   }
   healthConfirming.add(id);
-  setTimeout(() => checkProviderHealth(id), HEALTH_CONFIRM_MS);
+  setTimeout(() => { if (window.CATALOG) window.CATALOG.syncAll({ reason: 'confirm', providerId: id }); }, HEALTH_CONFIRM_MS);
 }
 
 function setProviderHealth(id, { state, detail }) {
   const prev = providerHealth.get(id);
   providerHealth.set(id, { state, detail, checkedAt: Date.now() });
+  // Every confirmed verdict extends the uptime strip; 'none' (no usable key)
+  // is recorded as a gap rather than a failure.
+  const hist = providerProbeHistory.get(id) || [];
+  hist.push({ s: state === 'ok' ? 'ok' : state === 'fail' ? 'fail' : null, at: Date.now() });
+  providerProbeHistory.set(id, hist.slice(-probeTickCount()));
   // A Recheck the user pressed resolves into its verdict (see recheckProvider).
   if (recheckAct.get(id)?.state === 'running') setAct(recheckAct, id, state);
   if (currentPage === 'provider' && id === activeProvider) renderProviderHead();
@@ -1062,35 +1076,27 @@ function setProviderHealth(id, { state, detail }) {
   }
 }
 
-function checkAllProvidersHealth() {
-  // Sequential per provider would let one slow host delay the rest; each
-  // provider already walks its own keys one at a time.
-  Object.keys(PROVIDERS).forEach((id) => { checkProviderHealth(id); });
-}
-
-// The first pass always runs so every page has a verdict to show; after that
-// the timer, focus and reconnect probes all stop while live updates are paused.
+// One background cycle for everything: provider status, key verdicts, roster
+// and diff, every catalogSyncMinutes while live updates are on. The catalog
+// owns the timer (scheduleTimer); this only arms the triggers. The first pass
+// runs with the catalog's startup sync, so every page has a verdict to show.
+const unifiedCycleMs = () => Math.max(1, Number(settings.catalogSyncMinutes) || 5) * 60 * 1000;
 function startHealthMonitor() {
-  checkAllProvidersHealth();
-  scheduleHealthMonitor();
   // Coming back to the app after a while shouldn't show a stale verdict.
   // The connection coming back is exactly when red rows are most likely stale.
-  window.addEventListener('online', () => { if (settings.liveUpdates) checkAllProvidersHealth(); });
+  window.addEventListener('online', () => { if (settings.liveUpdates && window.CATALOG) window.CATALOG.syncAll({ reason: 'reconnect' }); });
   window.addEventListener('online', renderSystemLamp);
   window.addEventListener('offline', renderSystemLamp);
   window.addEventListener('focus', () => {
-    if (!settings.liveUpdates) return;
-    const stale = Date.now() - healthIntervalMs() / 2;
-    Object.keys(PROVIDERS).forEach((id) => {
+    if (!settings.liveUpdates || !window.CATALOG) return;
+    const stale = Date.now() - unifiedCycleMs() / 2;
+    const staleIds = Object.keys(PROVIDERS).filter((id) => {
       const h = providerHealth.get(id);
-      if (!h || h.checkedAt < stale) checkProviderHealth(id);
+      return !h || h.checkedAt < stale;
     });
+    // One subset pass, not one per provider: syncAll already fans out.
+    if (staleIds.length) window.CATALOG.syncAll({ reason: 'focus' });
   });
-}
-
-function scheduleHealthMonitor() {
-  clearInterval(healthTimer);
-  healthTimer = settings.liveUpdates ? setInterval(checkAllProvidersHealth, healthIntervalMs()) : null;
   renderLiveToggles();
 }
 
@@ -1098,15 +1104,17 @@ function scheduleHealthMonitor() {
 function setLiveUpdates(on) {
   settings.liveUpdates = on;
   queueSettingsSave();
-  scheduleHealthMonitor();
-  if (on) checkAllProvidersHealth();
+  if (window.CATALOG && window.CATALOG.scheduleTimer) window.CATALOG.scheduleTimer();
+  renderLiveToggles();
+  if (on && window.CATALOG) window.CATALOG.syncAll({ reason: 'manual' });
 }
 
 // The live switch is the orb between the Providers page's tabs; this keeps
 // it (and anything else marked data-live-toggle) in step with the setting.
 function liveToggleAttrs() {
   const on = settings.liveUpdates;
-  const every = settings.healthIntervalMin === 1 ? 'every minute' : `every ${settings.healthIntervalMin} minutes`;
+  const mins = Math.max(1, Number(settings.catalogSyncMinutes) || 5);
+  const every = mins === 1 ? 'every minute' : `every ${mins} minutes`;
   return {
     on,
     title: on
@@ -1524,6 +1532,12 @@ async function ingestProviderRoster() {
     const detail = bits.length ? ` — ${bits.join(' · ')}` : '';
     setStatus('done', `Catalog updated: ${reply.rows.length} models, ${scored} scored${detail}`);
     if (reply.warning) setStatus('warn', reply.warning);
+  }
+  // A manual ingest can move the roster too: the bell and the activity page
+  // read what the ingest just wrote.
+  if (window.ACTIVITY) {
+    if (window.ACTIVITY.refreshBell) window.ACTIVITY.refreshBell();
+    if (window.ACTIVITY.renderIfShown) window.ACTIVITY.renderIfShown();
   }
   return reply;
 }
@@ -4227,7 +4241,8 @@ async function connectWithKey({ unverified = false } = {}) {
   pvShell = null;
   pvExpanded.add(pid);
   refreshAfterKeyChange(pid);
-  checkProviderHealth(pid);
+  // New key: prove this provider at once with one unified pass.
+  if (window.CATALOG) window.CATALOG.syncAll({ reason: 'manual', providerId: pid });
   if (window.KEY_USAGE) KEY_USAGE.refresh(pid, k.id, { force: true });
 }
 
@@ -4393,6 +4408,7 @@ const SETTING_INPUTS = [
   ['#set-rl-waits', 'maxRateLimitWaits', 'int'],
   ['#set-history-max', 'historyMaxRuns', 'int'],
   ['#set-spark-runs', 'sparkRuns', 'int'],
+  ['#set-probe-ticks', 'probeTicks', 'int'],
   ['#set-skip-media', 'scheduleSkipMedia', 'bool'],
   ['#set-notify-regression', 'notifyRegression', 'bool'],
   ['#set-notify-complete', 'notifyRunComplete', 'bool'],
@@ -4400,8 +4416,8 @@ const SETTING_INPUTS = [
   ['#set-log-retention', 'logRetentionDays', 'int'],
   ['#set-body-retention', 'bodyRetentionDays', 'int'],
   ['#set-stats-retention', 'statsRetentionMonths', 'int'],
+  ['#set-purge-window', 'purgeWindowDays', 'int'],
   ['#set-concurrency', 'concurrency', 'int'],
-  ['#set-health-interval', 'healthIntervalMin', 'int'],
   // Appearance switches that were in the markup and bound to nothing until now:
   // the setting was saved once and never read again, so flipping it changed
   // nothing at all. The lock screen's canvas is what reads it now.
@@ -4461,7 +4477,8 @@ function bindSettingsForm() {
         else settings[key] = kind === 'sec' ? Math.round(n * 1000) : kind === 'ratio' ? n : Math.round(n);
       }
       if (key === 'decisionThreshold') renderDecisionThreshold();
-      if (key === 'healthIntervalMin') scheduleHealthMonitor();
+      // A shorter strip shows at once: repaint the page that draws it.
+      if (key === 'probeTicks' && currentPage === 'providers') renderProvidersPage();
       // Appearance keys repaint immediately; the rest of the row is a stored
       // value main reads on its next save-settings.
       if (key === 'reduceMotion') applyAppearance();
@@ -4590,6 +4607,18 @@ function renderAccentPop() {
 function setAccentPopOpen(open) {
   $('#accent-pop').hidden = !open;
   $('#btn-accent').setAttribute('aria-expanded', String(open));
+  // One header popup at a time: the notifications and profile panels' own
+  // outside-click closers never fire through this stopped toggle click.
+  if (open) {
+    for (const [popId, btnId] of [['notif-pop', 'btn-notifications'], ['profile-pop', 'btn-profile']]) {
+      const other = document.getElementById(popId);
+      if (other && !other.hidden) {
+        other.hidden = true;
+        const btn = document.getElementById(btnId);
+        if (btn) btn.setAttribute('aria-expanded', 'false');
+      }
+    }
+  }
   if (open) renderAccentPop();
 }
 
@@ -4976,7 +5005,9 @@ $('#btn-reset-settings').addEventListener('click', () => {
   queueSettingsSave();
   fillSettingsForm();
   renderAppearancePickers();
-  scheduleHealthMonitor();
+  // Reset restores the defaults (live updates on): restart the unified cycle.
+  if (window.CATALOG && window.CATALOG.scheduleTimer) window.CATALOG.scheduleTimer();
+  renderLiveToggles();
   if (tableRows.length > 0) renderResultsTable();
   setStatus('done', 'Settings reset to defaults');
 });
@@ -4984,7 +5015,7 @@ $('#btn-reset-settings').addEventListener('click', () => {
 
 // App shell. Bound before init() so the nav responds while providers and
 // history are still loading.
-const PAGES = ['overview', 'providers', 'provider', 'catalog', 'database', 'history', 'monitor', 'settings'];
+const PAGES = ['overview', 'providers', 'provider', 'catalog', 'activity', 'database', 'history', 'monitor', 'settings'];
 let currentPage = 'overview';
 
 // Routes live in the URL hash (the page is loaded from file://, so real paths
@@ -5026,6 +5057,7 @@ const PAGE_META = {
   overview: { title: 'Overview', desc: 'Routing health — providers, models and test activity at a glance.' },
   providers: { title: 'Providers', desc: 'Connect providers and manage their keys and accounts.' },
   catalog: { title: 'Models Catalog', desc: 'Every model your connected providers offer — the pool the router draws from, scored and ranked.' },
+  activity: { title: 'Model Activity', desc: 'Every model arrival and departure across connected providers, newest first.' },
   database: { title: 'Database', desc: 'Read-only explorer for the local app and request databases.' },
   history: { title: 'Test History', desc: 'Every request this app has sent, and the runs they belong to.' },
   monitor: { title: 'Monitoring', desc: 'Requests, errors, latency and cost over time.' },
@@ -5062,12 +5094,16 @@ function showPage(page) {
   });
   renderPageHeader(page);
   if (page === 'provider') {
+    // The capabilities legend starts closed, like the catalog page. A visit
+    // resets it; the toggle still opens it for this visit only.
+    ptLegendOpen = false;
     renderProviderHead();
     updateStats();
     renderPtLegend();
   }
   if (page === 'settings') prepareSettingsPage();
   if (page === 'catalog' && window.CATALOG) (window.CATALOG.open ? window.CATALOG.open() : window.CATALOG.render());
+  if (page === 'activity' && window.ACTIVITY) window.ACTIVITY.render();
   if (page === 'database' && window.DATABASE) window.DATABASE.render();
   if (page === 'history' && window.LOGS) window.LOGS.render();
   if (page === 'monitor' && window.LOGS) window.LOGS.renderMonitor();
@@ -5079,6 +5115,10 @@ function showPage(page) {
     providersTab = 'connected';
     pvShell = null;
     pvState.view = COMPACT_LAYOUT.matches ? 'cards' : 'table';
+    // The provider-types legend starts closed, like the catalog legend.
+    // A visit resets it; the toggle still opens it for this visit.
+    pvLegendCollapsed = true;
+    try { localStorage.setItem('pvLegendCollapsed', '1'); } catch (_) {}
     renderProvidersPage();
   }
   syncRoute();
@@ -5870,7 +5910,9 @@ function recheckProvider(id) {
   if (recheckAct.get(id)?.state === 'running') return;
   setAct(recheckAct, id, 'running');
   if (currentPage === 'providers') renderProvidersPage();
-  checkProviderHealth(id);
+  // One unified pass for this provider: fresh verdicts and a fresh roster.
+  if (window.CATALOG && window.CATALOG.syncAll) window.CATALOG.syncAll({ reason: 'manual', providerId: id });
+  else setAct(recheckAct, id, 'fail');
   if (window.KEY_USAGE) KEY_USAGE.refreshProvider(id, { force: true });
 }
 
@@ -6136,11 +6178,18 @@ function providerBadgesHTML(p, s) {
   const keyIcon = isOAuth ? PV_BADGE_ICON.account : PV_BADGE_ICON.key;
   const keyClass = `pv-badge pv-badge-keys ${isOAuth ? 'is-oauth' : ''} ${totalKeys === 0 ? 'is-empty' : ''}`;
 
-  const modelsCount = Math.max(
-    (window.CATALOG && typeof window.CATALOG.providerModelCount === 'function' ? window.CATALOG.providerModelCount(p.id) : 0) || 0,
-    (Array.isArray(p.models) ? p.models.length : 0),
-    s?.models || 0
-  );
+  // The badge counts what the owner can actually open: live working rows from
+  // the catalog. Until the catalog loads it falls back to the widest known
+  // number, so first paint never reads as empty.
+  const liveVisible = (window.CATALOG && typeof window.CATALOG.providerVisibleCount === 'function'
+    ? window.CATALOG.providerVisibleCount(p.id) : null);
+  const modelsCount = liveVisible == null
+    ? Math.max(
+      (window.CATALOG && typeof window.CATALOG.providerModelCount === 'function' ? window.CATALOG.providerModelCount(p.id) : 0) || 0,
+      (Array.isArray(p.models) ? p.models.length : 0),
+      s?.models || 0
+    )
+    : liveVisible;
 
   const modelLabel = modelsCount === 1 ? '1 model' : `${modelsCount} models`;
   const modelTitle = `${modelsCount} model${modelsCount === 1 ? '' : 's'} available`;
@@ -6153,28 +6202,32 @@ function providerBadgesHTML(p, s) {
   </div>`;
 }
 
+// Provider uptime strip: the last probeTickCount() health-probe verdicts for
+// one provider, oldest first. Green = the probe authenticated, red = it failed,
+// grey = no probe recorded (or no usable key). Test-run history lives on the
+// provider page and Test History; this strip answers only "is it up?".
 function pvSparklineHTML(p) {
-  const TOTAL_TICKS = 20;
-  const runs = runLog.filter((r) => r.provider === p.id);
-  const recent = runs.slice(-TOTAL_TICKS);
-  const emptyCount = TOTAL_TICKS - recent.length;
+  const tickCount = probeTickCount();
+  const hist = providerProbeHistory.get(p.id) || [];
+  const recent = hist.slice(-tickCount);
+  const emptyCount = tickCount - recent.length;
 
   const ticks = [];
   for (let i = 0; i < emptyCount; i++) {
-    ticks.push('<span class="pv-tick empty" title="No test recorded"></span>');
+    ticks.push('<span class="pv-tick empty" title="No probe recorded"></span>');
   }
-  for (const r of recent) {
-    let state = 'pass';
-    if (r.total > 0 && r.passed === 0) state = 'fail';
-    else if (r.passed < r.total) state = 'warn';
-    const ago = r.at ? formatAgo(r.at) : '';
-    const title = `${ago ? `${ago}: ` : ''}${r.passed}/${r.total} passed`;
-    ticks.push(`<span class="pv-tick ${state}" title="${escapeHtml(title)}"></span>`);
+  for (const h of recent) {
+    const cls = h.s === 'ok' ? 'up-ok' : h.s === 'fail' ? 'up-bad' : 'empty';
+    const when = h.at ? formatAgo(h.at) : '';
+    const what = h.s === 'ok' ? 'probe ok' : h.s === 'fail' ? 'probe failed' : 'no usable key';
+    const title = `${when ? `${when}: ` : ''}${what}`;
+    ticks.push(`<span class="pv-tick ${cls}" title="${escapeHtml(title)}"></span>`);
   }
 
-  const tip = runs.length
-    ? `${runs.length} test run${runs.length === 1 ? '' : 's'} recorded`
-    : 'No test runs yet';
+  const oks = recent.filter((h) => h.s === 'ok').length;
+  const tip = recent.length
+    ? `${oks}/${recent.length} probes ok`
+    : 'No probes yet';
 
   return `<div class="pv-sparkline" role="img" aria-label="${escapeHtml(tip)}" title="${escapeHtml(tip)}">${ticks.join('')}</div>`;
 }
@@ -6782,6 +6835,8 @@ async function init() {
   primeLockStatus();
   // The catalogue needs the providers and their keys, so it starts last.
   if (window.CATALOG) window.CATALOG.init();
+  // The bell paints its unread count once the data is readable.
+  if (window.ACTIVITY) window.ACTIVITY.init();
   // Last, so the restored page renders with settings and providers in place.
   applyRoute();
 }

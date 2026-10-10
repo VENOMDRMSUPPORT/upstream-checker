@@ -2,13 +2,13 @@
 
 > GENERATED FILE — do not edit by hand. Regenerate with: npm run repo:map
 
-134 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
+137 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
 
 The architecture behind these files — boot order, IPC channels, the two databases, the request lifecycle — is in [ARCHITECTURE.md](ARCHITECTURE.md). Task recipes are in [COOKBOOK.md](COOKBOOK.md).
 
 ## IPC channels
 
-42 channels, in registration order. invoke/handle answers a promise; send/on is fire-and-forget. The renderer reaches them through window.electronAPI (src/preload.js).
+44 channels, in registration order. invoke/handle answers a promise; send/on is fire-and-forget. The renderer reaches them through window.electronAPI (src/preload.js).
 
 | Channel | Registered in |
 | --- | --- |
@@ -17,6 +17,8 @@ The architecture behind these files — boot order, IPC channels, the two databa
 | `catalog:health` | src/catalog/ipc.js |
 | `catalog:sources` | src/catalog/ipc.js |
 | `catalog:fetch-info` | src/catalog/ipc.js |
+| `catalog:events` | src/catalog/ipc.js |
+| `catalog:events-read` | src/catalog/ipc.js |
 | `read-config` | src/db/ipc.js |
 | `database-explorer` | src/db/ipc.js |
 | `save-settings` | src/db/ipc.js |
@@ -69,51 +71,50 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 688 | API requests (src/api-request.js) |
 | 726 | Old request log file (requests.log) |
 
-### src/renderer/app.js — 6819 lines
+### src/renderer/app.js — 6874 lines
 
 | Line | Section |
 | --- | --- |
 | 2 | VENOM ROUTER — Application Logic v2 |
 | 26 | Model kinds |
 | 97 | Settings |
-| 405 | Saving — every write goes through persist() |
-| 478 | Providers — each saved on its own (save-provider) |
-| 531 | Run history — uptime, regressions, scheduling |
-| 682 | Test definition — prompt + expected answer |
-| 862 | Title bar |
-| 869 | Provider page — header |
-| 893 | Provider health — a silent background probe of each provider's key |
-| 1165 | API Keys management |
-| 1337 | Fetch models from provider — only models for the key's plan |
-| 1622 | Render the models list |
-| 1788 | Test reliability settings |
-| 1954 | Keys and pacing |
-| 2168 | Testers — one request, judged by the model's kind |
-| 2661 | Test a single model — adaptive hedge, handles reasoning, empty, rate limits |
-| 2832 | Test all selected models |
-| 3088 | Results table |
-| 3305 | Reference facts for the test table |
-| 3694 | Full response modal |
-| 3742 | Stats & status |
-| 3819 | Export |
-| 3887 | Update handling |
-| 4151 | Add Key modal |
-| 4259 | Edit Provider modal |
-| 4334 | Init |
-| 4337 | Scheduled re-testing |
-| 4370 | Settings panel |
-| 4839 | Security — the app lock from inside the app |
-| 5088 | Sidebar ambience — moving stars and the signature heart |
-| 5342 | Breadcrumb — shared helper |
-| 5372 | Providers page |
-| 5710 | Provider types — legend and markers |
-| 5785 | Providers page — key management panel (table rows and cards) |
-| 5805 | Action feedback — Recheck and key Test |
-| 6311 | Stat cards — shared |
-| 6328 | Data toolbar — shared |
-| 6456 | Providers page — Connected view |
+| 410 | Saving — every write goes through persist() |
+| 483 | Providers — each saved on its own (save-provider) |
+| 537 | Run history — uptime, regressions, scheduling |
+| 688 | Test definition — prompt + expected answer |
+| 868 | Title bar |
+| 875 | Provider page — header |
+| 1173 | API Keys management |
+| 1345 | Fetch models from provider — only models for the key's plan |
+| 1636 | Render the models list |
+| 1802 | Test reliability settings |
+| 1968 | Keys and pacing |
+| 2182 | Testers — one request, judged by the model's kind |
+| 2675 | Test a single model — adaptive hedge, handles reasoning, empty, rate limits |
+| 2846 | Test all selected models |
+| 3102 | Results table |
+| 3319 | Reference facts for the test table |
+| 3708 | Full response modal |
+| 3756 | Stats & status |
+| 3833 | Export |
+| 3901 | Update handling |
+| 4165 | Add Key modal |
+| 4274 | Edit Provider modal |
+| 4349 | Init |
+| 4352 | Scheduled re-testing |
+| 4385 | Settings panel |
+| 4868 | Security — the app lock from inside the app |
+| 5128 | Sidebar ambience — moving stars and the signature heart |
+| 5382 | Breadcrumb — shared helper |
+| 5412 | Providers page |
+| 5750 | Provider types — legend and markers |
+| 5825 | Providers page — key management panel (table rows and cards) |
+| 5845 | Action feedback — Recheck and key Test |
+| 6364 | Stat cards — shared |
+| 6381 | Data toolbar — shared |
+| 6509 | Providers page — Connected view |
 
-### src/renderer/catalog.js — 2059 lines
+### src/renderer/catalog.js — 2101 lines
 
 | Line | Section |
 | --- | --- |
@@ -125,46 +126,47 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | --- | --- |
 | 2 | Log pages — Runs, Requests and Monitoring |
 
-### test/catalog/ipc.test.js — 883 lines
+### test/catalog/ipc.test.js — 946 lines
 
 *(no section banners)*
 
-### src/renderer/index.html — 1662 lines
+### src/renderer/index.html — 1690 lines
 
 | Line | Section |
 | --- | --- |
-| 250 | page: overview |
-| 292 | page: providers |
-| 313 | page: database |
-| 369 | page: catalog |
-| 389 | page: provider |
-| 515 | page: history |
-| 539 | page: monitor |
-| 547 | page: settings |
-| 565 | settings: sec-appearance |
-| 569 | settings: sec-test |
-| 573 | settings: sec-schedule |
-| 577 | settings: sec-speed |
-| 581 | settings: sec-reliability |
-| 585 | settings: sec-catalog |
-| 589 | settings: sec-history |
-| 593 | settings: sec-logs |
-| 597 | settings: sec-security |
-| 601 | settings: sec-data |
-| 605 | settings: sec-about |
-| 1361 | overlay: response-modal |
-| 1381 | overlay: add-key-modal |
-| 1412 | overlay: add-provider-modal |
-| 1447 | overlay: update-modal |
-| 1464 | overlay: update-modal-notes |
-| 1506 | overlay: log-drawer |
-| 1507 | overlay: log-drawer-scrim |
-| 1513 | overlay: log-drawer-body |
-| 1517 | overlay: ku-drawer |
-| 1535 | overlay: mc-chat-drawer |
-| 1565 | overlay: mc-details-drawer |
+| 266 | page: overview |
+| 308 | page: providers |
+| 329 | page: database |
+| 385 | page: catalog |
+| 405 | page: activity |
+| 414 | page: provider |
+| 540 | page: history |
+| 564 | page: monitor |
+| 572 | page: settings |
+| 590 | settings: sec-appearance |
+| 594 | settings: sec-test |
+| 598 | settings: sec-schedule |
+| 602 | settings: sec-speed |
+| 606 | settings: sec-reliability |
+| 610 | settings: sec-catalog |
+| 614 | settings: sec-history |
+| 618 | settings: sec-logs |
+| 622 | settings: sec-security |
+| 626 | settings: sec-data |
+| 630 | settings: sec-about |
+| 1388 | overlay: response-modal |
+| 1408 | overlay: add-key-modal |
+| 1439 | overlay: add-provider-modal |
+| 1474 | overlay: update-modal |
+| 1491 | overlay: update-modal-notes |
+| 1533 | overlay: log-drawer |
+| 1534 | overlay: log-drawer-scrim |
+| 1540 | overlay: log-drawer-body |
+| 1544 | overlay: ku-drawer |
+| 1562 | overlay: mc-chat-drawer |
+| 1592 | overlay: mc-details-drawer |
 
-### src/renderer/styles.css — 9937 lines
+### src/renderer/styles.css — 10002 lines
 
 | Line | Section |
 | --- | --- |
@@ -198,19 +200,21 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 5609 | Settings page — layout |
 | 5618 | Providers — expandable rows and the key panel |
 | 5642 | Providers — list of row cards |
-| 6410 | Settings — Unified 2-Column Design System |
-| 6853 | Settings content — one design language for every tab |
-| 7251 | Models Catalog |
-| 7745 | Key usage (key-usage.js) — quota and expiry in the key row, the rest in a |
-| 7904 | Catalog: live health badge + toast notifications |
-| 7959 | Model details drawer — a full-height sidebar sliding in from the right, |
-| 8115 | Model chat drawer — a full-height panel sliding in from the right, |
-| 8493 | Log pages — Runs, Requests, Monitoring |
-| 9076 | Monitoring Page |
-| 9221 | Database explorer — compact SQLite workbench |
-| 9441 | App lock screen — the front door |
-| 9819 | Header profile menu |
-| 9878 | Security settings |
+| 6417 | Settings — Unified 2-Column Design System |
+| 6860 | Settings content — one design language for every tab |
+| 7258 | Models Catalog |
+| 7744 | Key usage (key-usage.js) — quota and expiry in the key row, the rest in a |
+| 7903 | Catalog: live health badge + toast notifications |
+| 7958 | Model details drawer — a full-height sidebar sliding in from the right, |
+| 8114 | Model chat drawer — a full-height panel sliding in from the right, |
+| 8492 | Log pages — Runs, Requests, Monitoring |
+| 9075 | Monitoring Page |
+| 9220 | Database explorer — compact SQLite workbench |
+| 9226 | Model Activity — same page padding as every other page |
+| 9445 | App lock screen — the front door |
+| 9823 | Header profile menu |
+| 9882 | Security settings |
+| 9943 | Notifications bell + Model Activity |
 
 ### scripts/
 
@@ -247,7 +251,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `flush.js` | 38 | Close handshake with the renderer | DEFAULT_FLUSH_TIMEOUT_MS, requestFlush |
 | `keystore.js` | 74 | API keys at rest | decryptKeyEntry, encryptKeyEntry, eachStoredKey, countPlaintextKeys |
 | `main.js` | 808 | Main process: data folder, boot order, IPC wiring, auto-updater | isPrimary, store, importReport, keyResolver, auth, logs, logsError, recorder, priceBook, purgeScheduler, logSettings, DEFAULT_LOCK_IDLE_MIN, +23 more |
-| `preload.js` | 122 | contextBridge surface — the renderer's only door to main | minimize, maximize, close, setWindowIcon, authStatus, authUnlock, authChange, authLock, authActivity, onAuthLocked, apiRequest, cancelApiRequest, +46 more |
+| `preload.js` | 124 | contextBridge surface — the renderer's only door to main | minimize, maximize, close, setWindowIcon, authStatus, authUnlock, authChange, authLock, authActivity, onAuthLocked, apiRequest, cancelApiRequest, +48 more |
 | `user-data.js` | 29 | Where the app keeps its data. Electron names the userData folder after the | LEGACY_DIR, CURRENT_DIR, resolveUserDataDir |
 
 ### src/auth/
@@ -266,11 +270,11 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `build.js` | 624 | The scoring catalog: merges the four upstream sources into one row per model | IMAGE_SLUG_RE, deriveCostKind, deriveCreateImages, usableNumber, pickNumber, indexModelsDev, indexOpenRouterModels, emptyBench, BENCH_VALUES, isBetter, rememberBench, indexBenchmarks, +10 more |
 | `engine.js` | 277 | Owns the in-memory copy of the four sources and the reference built from them, | SOURCE_SYNC_MIN_AGE_MS, emptySource, createEngine |
 | `fetch.js` | 78 | The one JSON fetch helper for every upstream call the catalog makes. Sends | DEFAULT_TIMEOUT_MS, RETRY_DELAY_MS, DEFAULT_CACHE_TTL_MS, friendlyMessage, createFetcher |
-| `ipc.js` | 456 | src/catalog/ipc.js | LATENCY_SAMPLES_KEPT, DATA_CODES, catalogError, COMPARE_FIELDS, same, diffRow, publishedOnly, readHealth, appendLatency, CHECKS_SAMPLES_KEPT, appendCheck, withAliases, +1 more |
+| `ipc.js` | 527 | src/catalog/ipc.js | LATENCY_SAMPLES_KEPT, DATA_CODES, readPurgeWindowDays, purgeWindowDays, catalogError, COMPARE_FIELDS, same, diffRow, publishedOnly, readHealth, appendLatency, CHECKS_SAMPLES_KEPT, +3 more |
 | `keys.js` | 311 | Model-name normalization. The same model shows up under different names in | MATCH_AMBIGUOUS, LAB_PROVIDERS, PRICING_MODIFIERS, QUALITY_MODIFIERS, BUILD_SUFFIX_RE, VARIANT_MODIFIERS, PARAM_SIZE_RE, QUANT_TOKENS, cleanModelId, modelSlug, identityKey, normalizeName, +15 more |
 | `row.js` | 348 | One adapter's model object → the shared provider row the reference merge | ROW_FIELDS, firstNumber, positive, pick, dedupe, LAB_TOKENS, labTokenOf, familyOf, costKind, readPricing, readsTools, readsReasoning, +7 more |
 | `scoring.js` | 593 | Score estimation, dense ranking, and the lookup that gives provider rows their | MIN_FIT_SAMPLES, MIN_FIT_R2, SPEC_AGE_CAP_MONTHS, SCORE_QUALITY, scoreQuality, fitLinear, solveLinear, specFeatures, fitSpec, hasSpecSignal, specModelCache, specModelFor, +15 more |
-| `snapshot.js` | 247 | src/catalog/snapshot.js | NEW_WINDOW_DAYS, REMOVED_WINDOW_DAYS, DROP_CONFIRMATION_MS, DROP_MIN_PREVIOUS, DROP_MIN_LOSS, invalidPayload, suspiciousDrop, daysBetween, validateProviderRows, cloneRows, DERIVED_FIELDS, BLANK_STRING_FIELDS, +7 more |
+| `snapshot.js` | 269 | src/catalog/snapshot.js | NEW_WINDOW_DAYS, REMOVED_WINDOW_DAYS, DROP_CONFIRMATION_MS, DROP_MIN_PREVIOUS, DROP_MIN_LOSS, invalidPayload, suspiciousDrop, daysBetween, validateProviderRows, cloneRows, DERIVED_FIELDS, BLANK_STRING_FIELDS, +7 more |
 | `sources.js` | 184 | The four upstream documents that feed the reference catalog, how each is | SOURCES, ARENA_ROWS, ARENA_PAGE, ARENA_MAX_OFFSET, arenaUrl, dataPath, metaPath, createSources |
 | `util.js` | 101 | Small pure helpers shared by the engine and the provider modules. | asNumber, perMillion, uniqueJoin, unixToDate, boolOrNull, hasParam, listHas, providerOf, median, clamp, monthsSince |
 
@@ -281,10 +285,10 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `cipher.js` | 49 | Secrets at rest — the enc:v1: envelope | ENC_PREFIX, isEnvelope, createCipher, revealCached |
 | `explorer.js` | 53 | Read-only, bounded database inspection. Identifiers are taken only from | MAX_LIMIT, REDACTED_COLUMN, quoteIdentifier, inspectDatabase |
 | `import-json.js` | 405 | One-shot import of the legacy JSON files | FILES, READ_ATTEMPTS, READ_GAP_MS, ImportAbort, isObject, renamedAs, plural, listImportedFiles, readWithRetry, parse, normaliseConfig, normaliseHistory, +4 more |
-| `index.js` | 158 | Local database — venom.db | DB_FILE, BACKUPS_KEPT, DbTooNewError, applyPragmas, latestVersion, backupBeforeMigrate, migrate, getMeta, setMeta, createRepos, close, open |
+| `index.js` | 160 | Local database — venom.db | DB_FILE, BACKUPS_KEPT, DbTooNewError, applyPragmas, latestVersion, backupBeforeMigrate, migrate, getMeta, setMeta, createRepos, close, open |
 | `ipc.js` | 103 | Data IPC — the renderer's only way to the database | readConfig, registerDataIpc |
 | `keys.js` | 161 | Placeholders → secrets, for outgoing requests | TOKEN, HAS_TOKEN, originOf, collector, createKeyResolver |
-| `migrations.js` | 225 | Schema migrations |  |
+| `migrations.js` | 249 | Schema migrations |  |
 | `ulid.js` | 23 | ULID: 48-bit millisecond time + 80 random bits in Crockford base32. Sorts by | ALPHABET, ulid |
 
 ### src/db/repos/
@@ -294,6 +298,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `auth.js` | 77 | The app lock row — app_lock | createAuthRepo |
 | `history.js` | 106 | Run history — test_runs + test_results | ULID, DEFAULT_MAX_RUNS, MAX_RUNS_CEILING, historyCap, num, createHistoryRepo |
 | `providers.js` | 251 | Providers and their API keys | KEY_PLACEHOLDER, ANY_PLACEHOLDER, KEY_ID, maskKey, createProvidersRepo |
+| `roster-events.js` | 123 | Roster change events — roster_events | EVENTS_KEPT, KINDS, createRosterEventsRepo |
 | `secrets.js` | 70 | Named secrets — the OpenRouter key | SECRET_ORIGINS, createSecretsRepo |
 | `settings.js` | 45 | Settings rows — settings, test, window | createSettingsRepo |
 | `snapshots.js` | 187 | One provider's roster, split across the two tables the reference kept in one | WARNING_MAX, clip, createSnapshotRepo |
@@ -318,21 +323,22 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
-| `app.js` | 6819 | VENOM ROUTER — Application Logic v2 | DEFAULT_TEST_PROMPT, DEFAULT_EXPECTED, testPrompt, expectedAnswer, NA, RESPONSE_PREVIEW, truthy, KIND_LABELS, kindLimits, classifyModel, isMedia, isDecision, +430 more |
+| `activity.js` | 326 | Model activity — the notification center | PAGE_LIMIT, PAGE_STEP, PANEL_LIMIT, acState, acShell, AC_TOOLBAR, providerName, whenText, rel, itemHTML, added, dot, +38 more |
+| `app.js` | 6874 | VENOM ROUTER — Application Logic v2 | DEFAULT_TEST_PROMPT, DEFAULT_EXPECTED, testPrompt, expectedAnswer, NA, RESPONSE_PREVIEW, truthy, KIND_LABELS, kindLimits, classifyModel, isMedia, isDecision, +428 more |
 | `catalog-caps.js` | 217 | Model capabilities — what a catalogue row can do, read as three states | CAT_CAPABILITIES, hasModality, publishedBool, filesState, outputState, capabilityState, BOOLEAN_CAPS, capabilityOrigin, capabilitySet, capabilityCounts |
-| `catalog.js` | 2059 | Models Catalog — the merged reference, scored | state, chat, details, ui, keyOf, connectedIds, historyRuns, loadHistoryRuns, loadPromise, load, reload, applyRead, +235 more |
+| `catalog.js` | 2101 | Models Catalog — the merged reference, scored | state, chat, details, ui, keyOf, connectedIds, historyRuns, loadHistoryRuns, loadPromise, load, reload, applyRead, +238 more |
 | `database.js` | 319 | Read-only SQLite explorer. All SQL, identifier checks, and redaction happen | PAGE_SIZE, state, byId, escape, number, DB_ICON, sourceCounts, setNotice, box, updateSourceTabs, isApp, isLogs, +33 more |
 | `key-usage.js` | 539 | Key usage — quota, expiry and request history per API key | KEY_USAGE |
 | `lock.js` | 400 | The app lock screen — src/renderer/lock.js | MIN_IDLE_MIN, el, resolved, onUnlocked, particle, frame, running, activityBound, lastActivitySent, throttleTimer, reduceMotion, ACTIVITY_SEND_MS, +35 more |
 | `logs-format.js` | 132 | Log pages — pure formatting and mapping | LOGS_RANGES, logEscape, normalizeProvider, providerLabel, formatDuration, formatCost, formatTokens, logPad, formatWhen, statusTone, passRateText, rangePreset, +1 more |
 | `logs.js` | 1308 | Log pages — Runs, Requests and Monitoring | state, el, REDUCED_MOTION, drawerOpener, closeTimer, tabFromRoute, parts, loadInfo, LOG_ICONS, emptyState, loggingOffMarkup, why, +130 more |
-| `profile.js` | 70 | Header profile menu — Administrator, and the way out | wrap, button, pop, setOpen, isOpen, lockNow, lockItem, signOutItem |
+| `profile.js` | 83 | Header profile menu — Administrator, and the way out | wrap, button, pop, setOpen, isOpen, lockNow, lockItem, signOutItem |
 | `provider-facts.js` | 288 | Reference facts for the Providers test table. | TEST_INPUTS, FILE_TOKENS, MIN_SAMPLES_FOR_LATENCY, resolveContext, resolveScore, resolveCost, resolveCapabilityRow, resolveInputs, readsToken, filesState, modalityParts, fmtPrice, +8 more |
-| `ui-select.js` | 231 | Design system — select menu | CHEVRON, CHECK, valueDesc, indexDesc, menu, owner, active, LEAD_ICONS, labelOf, opt, sync, trigger, +20 more |
+| `ui-select.js` | 245 | Design system — select menu | CHEVRON, CHECK, valueDesc, indexDesc, menu, owner, active, LEAD_ICONS, labelOf, opt, sync, trigger, +21 more |
 | `ui-stepper.js` | 114 | Design system — number input stepper | CHEVRON_UP, CHEVRON_DOWN, enhance, input, stepper, label, stepUnit, unit, repeatTimer, repeatInterval, stopRepeat, enhanceAll, +1 more |
 | `ulid.js` | 22 | Run ids — ULID, the same format as src/db/ulid.js | newUlid |
-| `index.html` | 1662 | App shell markup: nav, every page, the drawers and modals |  |
-| `styles.css` | 9937 | The whole stylesheet: tokens, themes, accents, components |  |
+| `index.html` | 1690 | App shell markup: nav, every page, the drawers and modals |  |
+| `styles.css` | 10002 | The whole stylesheet: tokens, themes, accents, components |  |
 
 ### src/renderer/providers/
 
@@ -375,12 +381,12 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `build.test.js` | 366 |  | a negative published price reads as null, never as -1000000 (§16.4), a sentinel price loses to the other source, not to nothing (§16.4), output_modalities is unioned across listings of one identity (§16.6) |
 | `engine.test.js` | 432 | A sources stand-in backed by two Maps. It keeps the disk out of the test while | loadCache rebuilds from what is already cached, with no fetch at all, syncAll stores every payload that arrived and rebuilds, a source that fails after succeeding keeps its payload and reads stale, a second syncAll while one is in flight is refused with SYNC_IN_PROGRESS, syncAll resolves to one shape on either path, with the sync already over, syncIfUnscored syncs once for an unknown row, then gives up on it |
 | `fetch.test.js` | 165 |  | an answer comes back parsed with accept: application/json added, a caller header survives, and a caller-set accept wins, exactly one retry on any failure, and the answer still arrives, the retry waits one full RETRY_DELAY_MS before the second attempt, a non-2xx is a failure even though the transport worked, unparsable JSON fails and retries: a truncated payload is not a source |
-| `ipc.test.js` | 883 | The five catalog channels, the single-flight door and the read/write split. | registers exactly the five channels spec §6 names, two overlapping ingests for one provider cost one snapshot write, catalog:health keeps only the last 20 samples, catalog:sources syncs when forced and reports without the TTL otherwise, catalog:sources answers with the engine summary, not with a bare ok, catalog:fetch-info lists each field that moved, old to new |
+| `ipc.test.js` | 946 | The seven catalog channels, the single-flight door and the read/write split. | registers exactly the seven channels spec §6 names, purge window reads the saved setting, clamped, defaulting to thirty days, two overlapping ingests for one provider cost one snapshot write, catalog:health keeps only the last 20 samples, catalog:sources syncs when forced and reports without the TTL otherwise, catalog:sources answers with the engine summary, not with a bare ok |
 | `keys.test.js` | 144 | lib/keys.js is where every cross-source model match happens. These cases are |  |
 | `non-text.test.js` | 288 |  | a published non-text output is proof; silence is not, output_modalities reaches the row at all, a video model never enters the catalog, a row that publishes no modality is kept, the dropped rows are gone BEFORE the fits are computed, any one of the three proofs drops the row, and none of them keeps it |
 | `row.test.js` | 374 |  | the row is exactly the reference shape, with nothing invented, an absent capability is null, never false — the rule the port rests on, today\, eight price spellings all land on cost per million, the preferred spelling wins when a provider co-publishes both spellings, a negative published price reads as null, and the kind says unknown |
 | `scoring.test.js` | 558 | lib/scoring.js turns catalog rows into score + rank. Fits run on synthetic | a provider row reaches a measured catalog row through its alias alone |
-| `snapshot.test.js` | 539 | src/catalog/snapshot.js diffs each sync against a store seam and reports which | one provider\, baseline sync: nothing is flagged new or removed, a model appearing after the baseline is flagged added and is_new, removed models become retained tombstones after REMOVED_WINDOW_DAYS, moved reports the edge, not the window a change is still inside, a model coming back from a tombstone is a move |
+| `snapshot.test.js` | 575 | src/catalog/snapshot.js diffs each sync against a store seam and reports which | one provider\, baseline sync: nothing is flagged new or removed, a model appearing after the baseline is flagged added and is_new, removed models are purged past REMOVED_WINDOW_DAYS, a custom purge window is honored instead of the default, moved reports the edge, not the window a change is still inside |
 | `sources.test.js` | 231 | The one difference the original could not carry over: it sent its own | exactly four sources, in the reference order, with the reference urls, a row whose category is not overall ends that board and is not kept, a failure after a success keeps the payload and marks the source stale, readCache is null until both files exist, rowCount counts usable rows after indexing, not document size, newestFetchedAt is the newest meta timestamp across the four, or null |
 | `util.test.js` | 70 |  | asNumber: absent, empty and unparsable all stay null, never 0, perMillion: null in, null out — a missing price is not free, boolOrNull: only a real true or false is an answer, providerOf: the routing prefix, or empty string, clamp: min then max |
 
@@ -397,6 +403,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `keys.test.js` | 229 | Needs escaping in JSON and in a URL. | a header placeholder becomes the key for its own provider, a placeholder in the URL is replaced URL-encoded, inside a JSON body the key is inserted JSON-escaped, a non-JSON string body gets the raw key, an object body is sent as JSON with the key inside, the longest matching key id wins |
 | `open.test.js` | 267 | Migration v2 is additive, so v1's own shape is worth pinning on its own — and it | schema v1: every table it shipped with, and install_id, v3 is the irreversible one: backed up first, the legacy pool empty after, a v1 file upgrades to v2 with every row it held, pragmas on a file: WAL, NORMAL, foreign keys, busy timeout, temp store, :memory: reports journal_mode memory, reopening an up-to-date file runs nothing and makes no backup |
 | `providers.test.js` | 253 |  | the placeholder of the same key keeps the stored cipher, a new value replaces the secret and the next read sees it, sending the same plaintext back keeps the stored cipher, keys missing from the payload are deleted, a key id that another provider owns is refused, created_at survives updates and position follows payload order |
+| `roster-events.test.js` | 92 | Roster change events: one row per model arrival and departure, read by the | an empty store lists nothing and owes no unread, recorded arrivals and departures list newest-first with their facts, list filters by provider, kind and read state, with a clamped limit, markRead takes ids or everything, and concurrent arrivals stay unread, counts totals each kind under the current filter, record refuses an unknown kind and an empty batch writes nothing |
 | `settings-secrets.test.js` | 106 |  | settings rows round-trip JS types exactly, saveSettings rejects anything but an object, saveTest stores the test row as given, secrets: unknown names are refused, openRouterApiKey is a known secret bound to openrouter.ai, secrets: with OS encryption unavailable nothing is stored |
 | `snapshots.test.js` | 249 | The two-table roster repository: what survives a write, what a tombstone is, | a provider with no snapshot reads null, not an empty object, every file-level field the reference kept survives the round trip, pendingDrop is present only while a mass drop is quarantined, listProviderIds is the set that has ever produced a snapshot, forgetting a model deletes its row, so it is not read as a removal, setHealth records a probe without rewriting the summary or the history |
 

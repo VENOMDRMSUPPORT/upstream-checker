@@ -12,7 +12,7 @@ the per-file symbol index. Recipes for the common changes are in
 
 ```
 renderer  (src/renderer/*)      pages, DOM, test runs, the Models table
-   |  window.electronAPI  -- 42 IPC channels, preload only
+   |  window.electronAPI  -- 44 IPC channels, preload only
 preload   (src/preload.js)      contextBridge: the only door
    |  ipcRenderer.invoke / send
 main      (src/main.js + src/db + src/logs + src/catalog)   all I/O, all secrets, all network
@@ -179,14 +179,14 @@ The single path every outbound call takes.
 
 ## 6. IPC surface
 
-47 channels. The full generated list is in [CODE_MAP.md](CODE_MAP.md#ipc-channels).
+44 channels. The full generated list is in [CODE_MAP.md](CODE_MAP.md#ipc-channels).
 
 | Group | Channels | Notes |
 | --- | --- | --- |
 | Window | `window-minimize`, `window-maximize`, `window-close`, `set-window-icon` | fire-and-forget |
 | Requests | `api-request`, `cancel-api-request` | the only network path. `api-request` **resolves** `{ outcome: 'locked' }` while the app is locked, and is not recorded in the request log — nothing was sent for a row to describe |
 | Data | `read-config`, `database-explorer`, `save-settings`, `save-secret`, `save-test-definition`, `save-provider`, `merge-provider`, `delete-provider`, `copy-key`, `read-history`, `append-run`, `clear-history` | one thing per channel, so two writers cannot overwrite each other. `copy-key` is gated on the lock and answers `{ ok: false, code: 'LOCKED' }` |
-| Catalog | `catalog:ingest`, `catalog:read`, `catalog:health`, `catalog:sources`, `catalog:fetch-info` | the model pool and its four sources. **Every one resolves**: an outcome the page must act on is `{ ok: false, code, message }`, because `err.code` cannot cross `ipcMain.handle` — a rejection becomes a new Error carrying only its message |
+| Catalog | `catalog:ingest`, `catalog:read`, `catalog:health`, `catalog:sources`, `catalog:fetch-info`, `catalog:events`, `catalog:events-read` | the model pool, its four sources and its change feed. **Every one resolves**: an outcome the page must act on is `{ ok: false, code, message }`, because `err.code` cannot cross `ipcMain.handle` — a rejection becomes a new Error carrying only its message |
 | App lock | `auth:status`, `auth:unlock`, `auth:change`, `auth:lock`, `auth:activity` | same resolving contract. `auth:locked` travels the other way (main→renderer) when the idle limit ends a session. No reply ever carries the stored hash |
 | Request log | `logs-list`, `logs-get`, `logs-stats`, `logs-facets`, `logs-runs`, `logs-run-summary`, `logs-export`, `logs-info`, `logs-clear` | read-only except export and clear |
 | Legacy log file | `read-log-info`, `open-request-log`, `clear-request-log` | the old `requests.log` |
@@ -201,7 +201,7 @@ Load order matters: classic scripts, no modules, globals shared.
 `providers/*.js` (register into `window.INTEGRATED_PROVIDERS`) →
 `ui-select.js` → `ui-stepper.js` → `ulid.js` → **`lock.js`** → **`profile.js`** →
 **`app.js`** → `key-usage.js` → `catalog-caps.js` → `catalog.js` →
-`logs-format.js` → `logs.js` → `database.js`.
+`logs-format.js` → `logs.js` → `database.js` → `activity.js`.
 
 - **`lock.js`** — the app lock screen, `window.LOCK`. Loaded before `app.js`
   because `app.js`'s `start()` is gated: it asks `auth:status` first and does no
@@ -222,6 +222,9 @@ Load order matters: classic scripts, no modules, globals shared.
   the order health · fetch information · chat.
 - **`logs.js`** — Test History (Runs/Requests) and Monitoring; exposes
   `window.LOGS` with `render()`, `renderMonitor()`, `sync()`, `tab()`.
+- **`activity.js`** — the header bell and the Model Activity page. Reads the
+  roster-event feed (`catalog:events`), never the roster itself; exposes
+  `window.ACTIVITY` with `init()`, `render()`, `renderIfShown()`, `refreshBell()`.
 - **`key-usage.js`** — per-key quota drawer, provider-agnostic; the log drawer
   reuses its panel CSS.
 - Providers add behaviour through `meta` plus optional hooks:

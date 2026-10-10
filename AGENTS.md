@@ -46,17 +46,18 @@ it may change, the acceptance command. That, plus this file, is what turns a
 | Question | File |
 | --- | --- |
 | Boot order, IPC wiring, updater | `src/main.js` |
-| The renderer's whole API | `src/preload.js` (31 entries) |
+| The renderer's whole API | `src/preload.js` (52 entries) |
 | Key placeholders → real secrets | `src/db/keys.js` |
 | Encryption at rest (`enc:v1:`) | `src/db/cipher.js` |
 | Schema of `venom.db` | `src/db/migrations.js`, repos in `src/db/repos/` |
-| The catalog engine: four sources, the merge, the score, the five channels | `src/catalog/` |
+| The catalog engine: four sources, the merge, the score, the seven channels | `src/catalog/` |
 | Schema of `venom-logs.db` | `src/logs/migrations.js` |
 | One finished request → one log row | `src/logs/recorder.js` |
 | Log query API (list/get/stats/runs/export) | `src/logs/query.js` |
 | The pages: shell, settings, testing engine | `src/renderer/app.js` |
 | Test History + Monitoring | `src/renderer/logs.js` + `logs-format.js` |
 | Model pool: discovery, the Models table, the three per-row actions | `src/renderer/catalog.js` |
+| Bell + Model Activity page (roster change feed) | `src/renderer/activity.js`, events in `src/db/repos/roster-events.js` |
 | Providers (7 built-in) | `src/renderer/providers/*.js` |
 | Live verification | `scripts/live/verify-db.mjs` |
 
@@ -67,7 +68,8 @@ it may change, the acceptance command. That, plus this file, is what turns a
   scratch `--user-data-dir`; `scripts/live/cdp.mjs` enforces it.
 - **Never change how the app starts** (`npm start`, the resolved data folder,
   launch behaviour) without asking in the same turn.
-- **Never decrypt, print, copy or move stored keys.**
+- **Stored keys may be used for live testing through the app's own request path
+  (owner-authorized 2026-10-09); key values are never printed, copied or moved.**
 - Every outbound request goes through main; the renderer holds placeholders only.
 - Verification that counts is `npm run verify:live` — and it uses a **mock**
   provider. Say so whenever you cite it as proof. A scratch run starts empty:
