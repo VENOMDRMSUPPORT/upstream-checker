@@ -221,4 +221,28 @@ module.exports = [
       `);
     },
   },
+  {
+    version: 5,
+    up(db) {
+      // Roster change events: one row per model arrival and departure, written
+      // by the catalog ingest flow from syncSnapshot's edge (appearedIds /
+      // disappearedIds — one event per move, never one per tick). The bell and
+      // the history view read here; nothing else writes. Bounded: the repo
+      // keeps the newest EVENTS_KEPT rows and trims older ones on write, so a
+      // chattering provider cannot grow the table without bound.
+      db.exec(`
+        CREATE TABLE roster_events (
+          id INTEGER PRIMARY KEY,
+          provider_id TEXT NOT NULL,
+          model_id TEXT NOT NULL,
+          name TEXT,
+          kind TEXT NOT NULL CHECK (kind IN ('added','removed')),
+          at INTEGER NOT NULL,
+          is_read INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX roster_events_by_provider ON roster_events(provider_id, id);
+        CREATE INDEX roster_events_unread ON roster_events(is_read, id);
+      `);
+    },
+  },
 ];

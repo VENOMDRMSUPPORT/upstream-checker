@@ -1,7 +1,7 @@
 // src/catalog/ipc.js
 'use strict';
 
-// The renderer's only way to the catalog. Five channels, one thing each, the
+// The renderer's only way to the catalog. Seven channels, one thing each, the
 // same rule src/db/ipc.js follows so two writers cannot overwrite each other.
 //
 // The provider adapters stay in the renderer — they own discovery and auth, and
@@ -22,6 +22,8 @@
 //     catalog:health      { p50, samples }
 //     catalog:sources     the engine summary (forced or read-only)
 //     catalog:fetch-info  { ok, outcome, before, after, changes, borrowed }
+//     catalog:events      { ok, rows, unread, counts, totals }
+//     catalog:events-read { ok, marked, unread }
 //   Only a genuine programmer error rejects — a bad argument type, an assertion.
 //
 //   Why: `ipcMain.handle` resolves by STRUCTURE and turns a rejection into a NEW
@@ -42,7 +44,7 @@
 
 const { providerRow, matchIds, qualityProxyIds, rosterProxyIds } = require('./row');
 const { syncSnapshot, dropNonText, validateProviderRows, providerRowSnapshot,
-  restoreLastGoodRows } = require('./snapshot');
+  restoreLastGoodRows, REMOVED_WINDOW_DAYS } = require('./snapshot');
 
 const LATENCY_SAMPLES_KEPT = 20;
 
@@ -50,6 +52,31 @@ const LATENCY_SAMPLES_KEPT = 20;
 // becomes a resolved reply; anything else is a defect and stays a rejection.
 const DATA_CODES = new Set(['INVALID_PROVIDER_PAYLOAD', 'NOT_FOUND',
   'SUSPICIOUS_PROVIDER_DROP', 'SYNC_IN_PROGRESS']);
+
+// Days a removed model is retained before the purge, read from the saved
+// settings row on every ingest (mirrors src/main.js idleLimitMs): a missing
+// or out-of-range value reads as REMOVED_WINDOW_DAYS and is never written
+// back. Pure, so the boundary is unit-testable without a database.
+function readPurgeWindowDays(saved) {
+  // Number(null) is 0, not NaN — so absence is checked before conversion, or
+  // a fresh install would purge everything at once.
+  const raw = saved && saved.purgeWindowDays;
+  if (raw == null) return REMOVED_WINDOW_DAYS;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return REMOVED_WINDOW_DAYS;
+  return Math.min(365, Math.max(1, Math.round(n)));
+}
+
+function purgeWindowDays(repos) {
+  try {
+    if (repos && repos.settings && typeof repos.settings.get === 'function') {
+      return readPurgeWindowDays(repos.settings.get('settings'));
+    }
+  } catch (_) {
+    // A settings row that cannot be read must not break a roster sync.
+  }
+  return REMOVED_WINDOW_DAYS;
+}
 
 /** An expected outcome, carried by code so the boundary can turn it into data. */
 function catalogError(code, message) {
@@ -251,7 +278,8 @@ function createCatalogIpc({ ipcMain, repos, engine, log = console, onRosterWritt
       }
       let changes;
       try {
-        changes = syncSnapshot(repos.snapshots, provider, stored.rows, now, stored.dropped);
+        changes = syncSnapshot(repos.snapshots, provider, stored.rows, now, stored.dropped,
+          purgeWindowDays(repos));
       } catch (err) {
         if (err.code !== 'SUSPICIOUS_PROVIDER_DROP') throw err;
         // syncSnapshot wrote the pending drop before throwing; setLastSync keeps
@@ -259,6 +287,20 @@ function createCatalogIpc({ ipcMain, repos, engine, log = console, onRosterWritt
         const previous = repos.snapshots.read(provider);
         recordFailure(provider, now, err.message);
         return staleFrom(previous, now, err);
+      }
+      // The roster edge is the notification feed: one event per arrival and
+      // departure, written here — the one place rosters change — so the bell
+      // and the history view read rows, never diffs. Recording never breaks a
+      // sync: a full events table is a trimming detail, not a roster defect.
+      try {
+        if (changes.appearedIds && changes.appearedIds.length) {
+          repos.rosterEvents.record(provider, changes.appearedIds, 'added', now);
+        }
+        if (changes.disappearedIds && changes.disappearedIds.length) {
+          repos.rosterEvents.record(provider, changes.disappearedIds, 'removed', now);
+        }
+      } catch (err) {
+        log.warn('catalog: roster changed but the event was not recorded:', err.message);
       }
       // The one place the roster changes, so it is the one place the price book
       // has to hear about it: every cached cost for this provider may be stale
@@ -431,6 +473,33 @@ function createCatalogIpc({ ipcMain, repos, engine, log = console, onRosterWritt
       changes: changes.length ? changes : null, borrowed };
   }
 
+  // Roster change events: what the bell and the history view read. List
+  // answers newest-first with the unread count beside it; read marks rows.
+  // Both resolve; a malformed query is data, never a rejection.
+  function events(query = {}) {
+    const { providerId = null, kind = null, limit = 50, unreadOnly = false, search = null } = query || {};
+    try {
+      const rows = repos.rosterEvents.list({ providerId, kind, limit, unreadOnly, search });
+      const filtered = repos.rosterEvents.counts({ providerId, search });
+      const totals = (providerId == null && (search == null || String(search).trim() === ''))
+        ? filtered : repos.rosterEvents.counts({});
+      return { ok: true, rows, unread: repos.rosterEvents.unreadCount(), counts: filtered, totals };
+    } catch (err) {
+      return { ok: false, code: 'BAD_QUERY', message: err.message };
+    }
+  }
+
+  function eventsRead(query = {}) {
+    const { ids = null, all = false, before = null } = query || {};
+    if (!all && !Array.isArray(ids)) return { ok: false, code: 'BAD_QUERY', message: 'pass { ids } or { all: true }' };
+    try {
+      const marked = repos.rosterEvents.markRead({ ids, all: all === true, before });
+      return { ok: true, marked, unread: repos.rosterEvents.unreadCount() };
+    } catch (err) {
+      return { ok: false, code: 'BAD_QUERY', message: err.message };
+    }
+  }
+
   handle('catalog:ingest', (providerId, models) => ingest(providerId, models));
   handle('catalog:read', (query) => read(query));
   handle('catalog:health', (providerId, modelId, result) => health(providerId, modelId, result));
@@ -449,7 +518,9 @@ function createCatalogIpc({ ipcMain, repos, engine, log = console, onRosterWritt
     ? engine.syncAll({ force: true })
     : engine.summary()));
   handle('catalog:fetch-info', (providerId, modelId, models) => fetchInfo(providerId, modelId, models));
+  handle('catalog:events', (query) => events(query));
+  handle('catalog:events-read', (query) => eventsRead(query));
 }
 
 module.exports = { createCatalogIpc, COMPARE_FIELDS, diffRow, readHealth, appendLatency,
-  appendCheck, CHECKS_SAMPLES_KEPT, withAliases, LATENCY_SAMPLES_KEPT };
+  appendCheck, CHECKS_SAMPLES_KEPT, withAliases, LATENCY_SAMPLES_KEPT, readPurgeWindowDays };

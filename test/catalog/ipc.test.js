@@ -1,4 +1,4 @@
-// The five catalog channels, the single-flight door and the read/write split.
+// The seven catalog channels, the single-flight door and the read/write split.
 //
 // No electron and no network here: the channel contract is what is under test, so
 // the handlers run against a recorded ipcMain. Four cases are deliberately built
@@ -19,25 +19,27 @@
 // `crossIpc` sends one across the boundary that actually exists.
 const test = require('node:test');
 const assert = require('node:assert');
-const { createCatalogIpc, COMPARE_FIELDS, diffRow } = require('../../src/catalog/ipc');
+const { createCatalogIpc, COMPARE_FIELDS, diffRow, readPurgeWindowDays } = require('../../src/catalog/ipc');
 const { providerRow } = require('../../src/catalog/row');
 const { createEngine } = require('../../src/catalog/engine');
 const { memoryStore } = require('../helpers');
 
 // A fake ipcMain that records handlers, plus a fake repos with the seam the real
 // one has. No electron, no database: the channel contract is what is under test.
-function harness({ snapshots, engine, providers } = {}) {
+function harness({ snapshots, engine, providers, rosterEvents } = {}) {
   const handlers = new Map();
   const ipcMain = { handle: (name, fn) => handlers.set(name, fn) };
   const calls = [];
   const log = { info: (...a) => calls.push(a), warn: () => {}, error: () => {} };
+  const events = rosterEvents || fakeRosterEvents();
   createCatalogIpc({
     ipcMain, log,
     engine: engine || fakeEngine(),
-    repos: { snapshots: snapshots || fakeSnapshots(), providers: providers || fakeProviders() },
+    repos: { snapshots: snapshots || fakeSnapshots(), providers: providers || fakeProviders(),
+      rosterEvents: events },
   });
   const send = (name, ...args) => handlers.get(name)({}, ...args);
-  return { handlers, send, calls };
+  return { handlers, send, calls, rosterEvents: events };
 }
 
 // The providers the fake store knows, in the shape the real repo answers: `get`
@@ -79,6 +81,22 @@ function fakeSnapshots(over = {}) {
     getHealth: () => null, setHealth: () => {}, ...over };
 }
 
+// The roster-events repo seam: record takes (providerId, items, kind, at).
+function fakeRosterEvents() {
+  const calls = [];
+  const rows = [];
+  return { calls,
+    record: (providerId, items, kind, at) => {
+      calls.push({ providerId, items, kind, at });
+      for (const item of items || []) rows.push({ providerId, model_id: item.id, kind });
+      return (items || []).length;
+    },
+    list: () => rows,
+    unreadCount: () => rows.length,
+    markRead: () => 0,
+  };
+}
+
 const fakeEngine = (overrides = {}) => ({
   loadCache() {}, syncAll: async (o = {}) => ({ catalogCount: 1, skipped: !o.force }),
   scoreRows: (rows) => rows.map((r) => ({ ...r, score: 50, score_source: 'aa', rank: 1,
@@ -90,10 +108,20 @@ const fakeEngine = (overrides = {}) => ({
   ...overrides,
 });
 
-test('registers exactly the five channels spec §6 names', () => {
+test('registers exactly the seven channels spec §6 names', () => {
   const { handlers } = harness();
   assert.deepEqual([...handlers.keys()].sort(),
-    ['catalog:fetch-info', 'catalog:health', 'catalog:ingest', 'catalog:read', 'catalog:sources']);
+    ['catalog:events', 'catalog:events-read', 'catalog:fetch-info', 'catalog:health', 'catalog:ingest', 'catalog:read', 'catalog:sources']);
+});
+
+test('purge window reads the saved setting, clamped, defaulting to thirty days', () => {
+  assert.equal(readPurgeWindowDays(null), 30);
+  assert.equal(readPurgeWindowDays({}), 30);
+  assert.equal(readPurgeWindowDays({ purgeWindowDays: 7 }), 7);
+  assert.equal(readPurgeWindowDays({ purgeWindowDays: 7.6 }), 8, 'rounded, like every other int setting');
+  assert.equal(readPurgeWindowDays({ purgeWindowDays: 0 }), 1, 'a saved 0 cannot mean purge at once');
+  assert.equal(readPurgeWindowDays({ purgeWindowDays: 5000 }), 365);
+  assert.equal(readPurgeWindowDays({ purgeWindowDays: 'soon' }), 30);
 });
 
 test('catalog:read re-scores stored rows and fetches nothing, writes nothing, publishes nothing', async () => {
@@ -880,3 +908,38 @@ async function refBacked(t, { freshCache = false } = {}) {
       .get('nara', modelId).summary_json,
   };
 }
+
+// The bell's whole path over REAL repos: an ingest edge writes event rows,
+// and the two event channels serve and clear them. The baseline arrives
+// silently — arrival is not movement.
+test('ingest records arrival and departure events for the bell', async (t) => {
+  const store = await memoryStore(t);
+  store.repos.providers.save({ id: 'nara', name: 'NARA', baseUrl: 'http://127.0.0.1:1', keys: [] });
+  const handlers = new Map();
+  createCatalogIpc({ ipcMain: { handle: (n, fn) => handlers.set(n, fn) },
+    repos: store.repos, engine: fakeEngine(), log: { info() {}, warn() {}, error() {} } });
+  const send = (name, ...args) => handlers.get(name)({}, ...args);
+  const row = (id) => ({ id, name: id.toUpperCase(), context_window: 1000 });
+
+  const r1 = await send('catalog:ingest', 'nara', [row('a'), row('b')]);
+  assert.equal(r1.ok, true);
+  assert.deepEqual(store.repos.rosterEvents.list(), [], 'the baseline arrives, it does not notify');
+
+  const r2 = await send('catalog:ingest', 'nara', [row('a'), row('c')]);
+  assert.equal(r2.ok, true);
+  const kinds = new Map(store.repos.rosterEvents.list().map((e) => [e.model_id, e.kind]));
+  assert.deepEqual([...kinds.entries()].sort(), [['b', 'removed'], ['c', 'added']]);
+
+  const ev = await send('catalog:events', {});
+  assert.equal(ev.ok, true);
+  assert.equal(ev.rows.length, 2);
+  assert.equal(ev.unread, 2);
+  assert.deepEqual(ev.counts, { added: 1, removed: 1, total: 2 }, 'chip counts ride the same reply');
+  assert.deepEqual(ev.totals, { added: 1, removed: 1, total: 2 });
+  const filtered = await send('catalog:events', { kind: 'added' });
+  assert.equal(filtered.rows.length, 1);
+
+  const rd = await send('catalog:events-read', { all: true });
+  assert.deepEqual([rd.ok, rd.marked, rd.unread], [true, 2, 0]);
+  assert.equal((await send('catalog:events-read', {})).code, 'BAD_QUERY');
+});

@@ -151,10 +151,17 @@ const activeCount = (snapshot) => Object.values(snapshot.models).filter((e) => !
  * @param {{ read: Function, write: Function }} store
  * @param {number} now  epoch ms — integers everywhere, as venom.db stores them
  * @param {string[]} forget  ids this app filtered out, not ids the provider removed
+ * @param {number} purgeWindowDays  days a removed model is retained before the
+ *   purge; a Settings value on the caller side, REMOVED_WINDOW_DAYS by default
  * @returns {{ baseline: boolean, since: number|null, added: object[], removed: object[],
- *   moved: {appeared: number, disappeared: number} }}
+ *   moved: {appeared: number, disappeared: number},
+ *   appearedIds: object[], disappearedIds: object[] }}
+ *
+ * `added`/`removed` are sticky windows (what the table badges); `appearedIds`/
+ * `disappearedIds` are this sync's edge (what the notification center records),
+ * so one event is written per arrival and departure, never one per tick.
  */
-function syncSnapshot(store, providerId, rows, now, forget = []) {
+function syncSnapshot(store, providerId, rows, now, forget = [], purgeWindowDays = REMOVED_WINDOW_DAYS) {
   validateProviderRows(providerId, rows);
   const previous = store.read(providerId);
   const snapshot = previous || { createdAt: now, fetchedAt: null, models: {} };
@@ -187,20 +194,28 @@ function syncSnapshot(store, providerId, rows, now, forget = []) {
 
   const currentIds = new Set(rows.map((row) => String(row.id)));
   const moved = { appeared: 0, disappeared: 0 };
+  const appearedIds = [];
+  const disappearedIds = [];
 
   for (const row of rows) {
     const id = String(row.id);
     const entry = snapshot.models[id];
     if (entry) {
       // Back after being marked gone is a move exactly as a first sighting is.
-      if (entry.removed_at) moved.appeared += 1;
+      if (entry.removed_at) {
+        moved.appeared += 1;
+        appearedIds.push({ id, name: row.name });
+      }
       entry.name = row.name;
       entry.last_seen = now;
       delete entry.removed_at;
     } else {
       // Not on the baseline: the first snapshot is the roster arriving, not
       // moving, and nothing is flagged new there either.
-      if (previous) moved.appeared += 1;
+      if (previous) {
+        moved.appeared += 1;
+        appearedIds.push({ id, name: row.name });
+      }
       snapshot.models[id] = { name: row.name, first_seen: now, last_seen: now };
     }
   }
@@ -217,9 +232,16 @@ function syncSnapshot(store, providerId, rows, now, forget = []) {
     if (!entry.removed_at) {
       entry.removed_at = now;
       moved.disappeared += 1;
+      disappearedIds.push({ id, name: entry.name });
     }
-    if (daysBetween(entry.last_seen, now) <= REMOVED_WINDOW_DAYS) {
+    if (daysBetween(entry.last_seen, now) <= purgeWindowDays) {
       removed.push({ id, name: entry.name, last_seen: entry.last_seen });
+    } else {
+      // Fully purged: the provider dropped it over a month ago. Nothing reads
+      // it any more — the table, the counts and the badge all build from live
+      // rows — so keeping it only grows the database. If it ever comes back
+      // it arrives as a new appearance, which is the truth.
+      delete snapshot.models[id];
     }
   }
 
@@ -235,7 +257,7 @@ function syncSnapshot(store, providerId, rows, now, forget = []) {
   snapshot.lastGoodRows = rows.map(providerRowSnapshot);
   snapshot.lastSync = { at: now, ok: true, warning: null };
   store.write(providerId, snapshot);
-  return { baseline: !previous, since, added, removed, moved };
+  return { baseline: !previous, since, added, removed, moved, appearedIds, disappearedIds };
 }
 
 module.exports = {

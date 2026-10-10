@@ -63,7 +63,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Catalog engine (main owns the sources, the merge and the score). Rows travel
   // as the adapter's own objects and come back scored; no key goes either way.
   //
-  // The contract, which the Models-page batch is written against: these five always
+  // The contract, which the Models-page batch is written against: these seven always
   // RESOLVE. An outcome the UI must act on arrives as `{ ok: false, code, message }`
   // — INVALID_PROVIDER_PAYLOAD, NOT_FOUND, SUSPICIOUS_PROVIDER_DROP,
   // SYNC_IN_PROGRESS — because `err.code` cannot cross a rejection. Test
@@ -75,6 +75,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   catalogHealth: (providerId, modelId, result) => ipcRenderer.invoke('catalog:health', providerId, modelId, result),
   catalogSources: (query) => ipcRenderer.invoke('catalog:sources', query),
   catalogFetchInfo: (providerId, modelId, rows) => ipcRenderer.invoke('catalog:fetch-info', providerId, modelId, rows),
+  catalogEvents: (query) => ipcRenderer.invoke('catalog:events', query || {}),
+  catalogEventsRead: (query) => ipcRenderer.invoke('catalog:events-read', query || {}),
   getDataPath: () => ipcRenderer.invoke('get-data-path'),
   openDataFolder: () => ipcRenderer.send('open-data-folder'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),

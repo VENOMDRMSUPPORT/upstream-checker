@@ -154,7 +154,7 @@ test('the new window is real arithmetic: the same row is new on day 6 and not ne
   assert.ok(Number.isFinite(daysBetween(T0, T0 + DAY)), 'no Date.parse of an integer, so no NaN');
 });
 
-test('removed models become retained tombstones after REMOVED_WINDOW_DAYS', () => {
+test('removed models are purged past REMOVED_WINDOW_DAYS', () => {
   const store = memStore();
   // b's last_seen is set here (t0) and never again, since every later call
   // omits it — the window is measured from this timestamp throughout.
@@ -165,29 +165,44 @@ test('removed models become retained tombstones after REMOVED_WINDOW_DAYS', () =
   const justInside = syncSnapshot(store, 'provider', [rowOf('a')], t0 + (REMOVED_WINDOW_DAYS - 1) * DAY);
   assert.deepEqual(idsOf(justInside.removed), ['b']);
 
-  // One day past the cutoff: stop notifying, but retain identity history.
+  // One day past the cutoff: stop notifying, and purge the tombstone — a
+  // model the provider dropped over a month ago is gone, not retained.
   const pastCutoff = syncSnapshot(store, 'provider', [rowOf('a')], t0 + (REMOVED_WINDOW_DAYS + 1) * DAY);
   assert.deepEqual(pastCutoff.removed, []);
 
   const stored = store.dump('provider');
-  assert.equal('b' in stored.models, true, 'kept forever — this port has no 14-day purge');
-  assert.equal(stored.models.b.first_seen, t0);
-  assert.equal(stored.models.b.removed_at, t0 + (REMOVED_WINDOW_DAYS - 1) * DAY);
+  assert.equal('b' in stored.models, false, 'purged — nothing reads it any more');
 });
 
-test('a returning tombstoned model keeps first_seen and is not reported as newly discovered', () => {
+test('a custom purge window is honored instead of the default', () => {
+  const t0 = T0 - 10 * DAY;
+  const gone = memStore();
+  syncSnapshot(gone, 'provider', [rowOf('a'), rowOf('b')], t0);
+  syncSnapshot(gone, 'provider', [rowOf('a')], t0 + 10 * DAY, [], 7);
+  assert.equal('b' in gone.dump('provider').models, false, 'ten days gone with a seven-day window: purged');
+
+  const kept = memStore();
+  syncSnapshot(kept, 'provider', [rowOf('a'), rowOf('b')], t0);
+  syncSnapshot(kept, 'provider', [rowOf('a')], t0 + 10 * DAY, [], 30);
+  assert.equal('b' in kept.dump('provider').models, true, 'same age with a thirty-day window: retained');
+});
+
+test('a model returning after its tombstone was purged arrives as newly discovered', () => {
   const store = memStore();
   const t0 = T0 - 90 * DAY;
   syncSnapshot(store, 'provider', [rowOf('a'), rowOf('b')], t0);
   syncSnapshot(store, 'provider', [rowOf('a')], t0 + 2 * DAY);
-  syncSnapshot(store, 'provider', [rowOf('a')], t0 + 40 * DAY);
+  // Past the window the tombstone is gone...
+  const gone = syncSnapshot(store, 'provider', [rowOf('a')], t0 + 40 * DAY);
+  assert.equal('b' in store.dump('provider').models, false, 'purged after the window');
 
-  const rows = [rowOf('a'), { id: 'b', name: 'B returned' }];
-  const changes = syncSnapshot(store, 'provider', rows, t0 + 50 * DAY);
+  // ...so the return is a first sighting.
+  const retRows = [rowOf('a'), rowOf('b')];
+  const ret = syncSnapshot(store, 'provider', retRows, t0 + 50 * DAY);
 
-  assert.deepEqual(changes.added, []);
-  assert.equal(rows[1].first_seen, t0, 'the tombstone is where first_seen came from');
-  assert.equal(store.dump('provider').models.b.removed_at, undefined);
+  assert.deepEqual(idsOf(ret.added), ['b']);
+  assert.equal(retRows[1].first_seen, t0 + 50 * DAY, 'no tombstone left to inherit from');
+  assert.equal(retRows[1].is_new, true, 'and it is announced as new');
 });
 
 /**
@@ -202,6 +217,7 @@ test('a returning tombstoned model keeps first_seen and is not reported as newly
  * read path that gated on a window would refetch itself without bound.
  */
 test('moved reports the edge, not the window a change is still inside', () => {
+
   const store = memStore();
   const t0 = T0 - 5 * DAY;
   syncSnapshot(store, 'provider', [rowOf('a'), rowOf('b')], t0);
@@ -229,6 +245,25 @@ test('a model coming back from a tombstone is a move', () => {
 
   const back = syncSnapshot(store, 'provider', [rowOf('a'), rowOf('z')], t0 + 2 * DAY);
   assert.deepEqual(back.moved, { appeared: 1, disappeared: 0 }, 'it was gone and is not any more');
+});
+
+test('edge ids fire once per move, with id and name', () => {
+  const store = memStore();
+  const base = syncSnapshot(store, 'provider', [rowOf('a'), rowOf('b')], T0);
+  assert.deepEqual(base.appearedIds, [], 'the baseline arrives, it does not move');
+  assert.deepEqual(base.disappearedIds, []);
+
+  const churn = syncSnapshot(store, 'provider', [rowOf('a'), rowOf('c')], T0 + DAY);
+  assert.deepEqual(churn.appearedIds, [{ id: 'c', name: 'C' }]);
+  assert.deepEqual(churn.disappearedIds, [{ id: 'b', name: 'B' }]);
+
+  const quiet = syncSnapshot(store, 'provider', [rowOf('a'), rowOf('c')], T0 + 2 * DAY);
+  assert.deepEqual(quiet.appearedIds, [], 'the same roster moves nothing');
+  assert.deepEqual(quiet.disappearedIds, []);
+
+  const back = syncSnapshot(store, 'provider', [rowOf('a'), rowOf('b'), rowOf('c')], T0 + 3 * DAY);
+  assert.deepEqual(back.appearedIds, [{ id: 'b', name: 'B' }], 'a return is an edge too');
+  assert.deepEqual(back.disappearedIds, []);
 });
 
 test('the baseline is the roster arriving, not moving', () => {
@@ -480,19 +515,20 @@ test('a different candidate set restarts the attempt count rather than adding to
   assert.equal(store.read('p').pendingDrop.attempts, 1, 'a new fingerprint is a new candidate');
 });
 
-test('a tombstone is kept forever, so a returning model keeps its first_seen and is not re-announced', () => {
+test('a model gone longer than the window is purged outright, so its return is a new discovery', () => {
   const store = memStore();
   syncSnapshot(store, 'p', [{ id: 'a', name: 'A' }], 1000);
   syncSnapshot(store, 'p', [{ id: 'b', name: 'B' }], 400 * DAY);
   const held = store.read('p');
-  assert.equal(held.models.a.removed_at, 400 * DAY);
-  assert.equal(held.models.a.first_seen, 1000);
+  assert.equal('a' in held.models, false, 'absent 400 days: purged, never tombstoned');
 
-  syncSnapshot(store, 'p', [{ id: 'a', name: 'A' }], 401 * DAY);
-  const back = store.read('p');
-  assert.equal(back.models.a.first_seen, 1000, 'the original first_seen survives the return');
-  assert.equal(back.models.a.removed_at, undefined);
-  assert.equal(back.lastGoodRows[0].is_new, undefined, 'and it is not flagged new again');
+  const retRows = [{ id: 'a', name: 'A' }];
+  const ret = syncSnapshot(store, 'p', retRows, 401 * DAY);
+
+  assert.deepEqual(idsOf(ret.added), ['a']);
+  assert.equal(retRows[0].first_seen, 401 * DAY, 'no tombstone left to inherit from');
+  assert.equal(retRows[0].is_new, true, 'and it is announced as new');
+  assert.equal(store.dump('p').models.a.removed_at, undefined);
 });
 
 // --- the same behaviour over the production store ---------------------------
