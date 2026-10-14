@@ -229,10 +229,75 @@ window.KEY_USAGE = (() => {
     return `type="button" data-ku-open="${escapeHtml(p.id)}|${escapeHtml(k.id)}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"`;
   }
 
+  // Unsupported/inactive/locked keys never blank a cell: a muted dash with a
+  // reason in the title, distinct from loading (ku-skel) and fail
+  // (ku-cell-fail with the error in the title).
+  function noQuotaReason(p, k) {
+    if (k && k.locked) return 'Key unreadable on this machine — re-add the key';
+    if (k && !k.active) return 'Key disabled';
+    return 'No quota published for this provider';
+  }
+  function noQuotaHTML(reason) {
+    return `<span class="dt-muted" title="${escapeHtml(reason)}">No quota published</span>`;
+  }
+
+  // Docs-sourced fallback allowance when no per-key fetch exists. Reads the
+  // single source of truth from provider meta (planNote ?? billing.plan) —
+  // never a fetched value, never a hardcoded duplicate.
+  function documentedAllowance(p) {
+    if (!p) return null;
+    if (p.planNote) return `${p.planNote} (docs-sourced)`;
+    if (p.billing && p.billing.plan) {
+      const base = p.billing.usageLabel ? `${p.billing.usageLabel} · ${p.billing.plan}` : p.billing.plan;
+      const suffix = p.id === 'darkapi' ? '(docs-sourced, not via API)' : '(docs-sourced)';
+      return `${base} ${suffix}`;
+    }
+    return null;
+  }
+
+  // Provider-level quota summary for the Providers page (data only, no UI).
+  // Worst remaining across keys when fetchable (live wins), else unlimited
+  // (with the billing plan appended when meta publishes one), else the
+  // docs-sourced allowance, else none. Exposed for Pixel; no caller yet.
+  function providerQuotaSummary(p) {
+    if (!p) return { kind: 'none', label: 'No quota published', source: null };
+    const source = p.docsSource ?? null;
+    const adapter = adapterOf(p);
+    if (adapter && adapter.fetchKeyUsage) {
+      let worst = null;
+      for (const k of (p.keys || [])) {
+        if (!k || k.locked || !k.active) continue;
+        const entry = cache.get(k.id);
+        const u = entry && entry.usage;
+        if (!u) continue;
+        if (u.quota && u.quota.total) {
+          const left = u.quota.remaining / u.quota.total;
+          if (!worst || left < worst.left) worst = { left, label: `${compact(u.quota.remaining)} / ${compact(u.quota.total)} left` };
+        } else if (u.allowance && u.allowance.usedPct != null) {
+          const left = (100 - u.allowance.usedPct) / 100;
+          if (!worst || left < worst.left) worst = { left, label: `${u.allowance.usedPct}% of ${u.allowance.label} used` };
+        }
+      }
+      if (worst) return { kind: 'quota', label: worst.label, source };
+      return { kind: 'quota', label: 'No reading yet', source };
+    }
+    if (p.unlimitedUsage) {
+      let label = '∞ Unlimited';
+      if (p.billing && p.billing.plan) {
+        const suffix = p.id === 'darkapi' ? '(docs-sourced, not via API)' : '(docs-sourced)';
+        label = `∞ Unlimited · ${p.billing.plan} ${suffix}`;
+      }
+      return { kind: 'unlimited', label, source };
+    }
+    const docs = documentedAllowance(p);
+    if (docs) return { kind: 'docs', label: docs, source };
+    return { kind: 'none', label: 'No quota published', source };
+  }
+
   // Quota under the provider's pass-rate column: a bar of what is left, and
   // the amount. The cell opens the usage drawer.
   function quotaCellHTML(p, k) {
-    if (!supports(p) || k.locked || !k.active) return '';
+    if (!supports(p) || k.locked || !k.active) return noQuotaHTML(noQuotaReason(p, k));
     ensureRead(p, k);
     const c = cache.get(k.id);
     const u = c && c.usage;
@@ -243,7 +308,7 @@ window.KEY_USAGE = (() => {
     if (u.unlimited) {
       const tip = `${u.detail} — no quota or rate limit is reported by this provider`;
       return `<button class="ku-cell ku-cell-unlimited" ${openAttrs(p, k, tip)}>
-        <span class="ku-unlimited-line"><span class="ku-unlimited-track"><span class="ku-unlimited-start">0</span><span class="ku-unlimited-fill"></span><span class="ku-unlimited-end">∞</span></span></span>
+        <span class="ku-unlimited-line"><span class="ku-unlimited-badge">∞ Unlimited</span></span>
         <span class="ku-sub">${escapeHtml(u.range)}</span>
       </button>`;
     }
@@ -256,7 +321,7 @@ window.KEY_USAGE = (() => {
         <span class="ku-sub">${escapeHtml(a.label)} <span class="dt-muted">used</span></span>
       </button>`;
     }
-    if (!u.quota) return `<button class="ku-cell" ${openAttrs(p, k, 'Open usage details')}><span class="dt-muted">No quota</span></button>`;
+    if (!u.quota) return `<button class="ku-cell" ${openAttrs(p, k, 'Open usage details')}><span class="dt-muted" title="No quota">—</span></button>`;
     const { total, remaining, unit } = u.quota;
     const left = remaining / total;
     const width = Math.max(0, Math.min(100, left * 100));
@@ -269,37 +334,40 @@ window.KEY_USAGE = (() => {
 
   // Expiry under the provider's last-run column.
   function expiryCellHTML(p, k) {
-    if (!supports(p) || k.locked || !k.active) return '';
+    if (!supports(p) || k.locked || !k.active) return noQuotaHTML(noQuotaReason(p, k));
     const c = cache.get(k.id);
     const u = c && c.usage;
-    if (!u) return !c || c.state === 'loading' ? '<div class="ku-cell ku-skel"><span></span></div>' : '';
+    if (!u) {
+      if (!c || c.state === 'loading') return '<div class="ku-cell ku-skel" aria-label="Loading usage"><span></span><span></span></div>';
+      return `<button class="ku-cell ku-cell-fail" ${openAttrs(p, k, `Usage unavailable: ${c.error} — open details`)}>${ICON.alert}<span>Usage unavailable</span></button>`;
+    }
     // A renewing allowance shows when it renews instead of an expiry.
     if (!u.expiresAt && u.allowance && u.allowance.resetsAt) {
       const at = u.allowance.resetsAt;
       return `<span class="ku-expiry" title="${escapeHtml(`${u.allowance.label} renews ${fullDate(at)}`)}">
-        <b>Resets in ${escapeHtml(untilText(at - Date.now()))}</b><span class="ku-sub">${escapeHtml(dateText(at))}</span>
+        <b>RESET: Resets in ${escapeHtml(untilText(at - Date.now()))}</b><span class="ku-sub">${escapeHtml(dateText(at))}</span>
       </span>`;
     }
-    if (!u.expiresAt) return '<span class="dt-muted" title="This key does not expire">No expiry</span>';
+    if (!u.expiresAt) return '<span class="dt-muted" title="This key does not expire">—</span>';
     const e = expiryState(u.expiresAt);
     return `<span class="ku-expiry" data-tone="${e.tone}" title="${escapeHtml(`${e.ms <= 0 ? 'Expired' : 'Expires'} ${fullDate(u.expiresAt)}`)}">
-      <b>${escapeHtml(e.label)}</b><span class="ku-sub">${escapeHtml(dateText(u.expiresAt))}</span>
+      <b>${e.ms <= 0 ? 'EXPIRES: Expired' : `EXPIRES: Expires ${escapeHtml(e.label)}`}</b><span class="ku-sub">${escapeHtml(dateText(u.expiresAt))}</span>
     </span>`;
   }
 
   // The card view's key rows have no columns: both readings on one line.
   function inlineHTML(p, k) {
-    if (!supports(p) || k.locked || !k.active) return '';
+    if (!supports(p) || k.locked || !k.active) return noQuotaHTML(noQuotaReason(p, k));
     ensureRead(p, k);
     const c = cache.get(k.id);
     const u = c && c.usage;
     if (!u) {
-      if (!c || c.state === 'loading') return '<div class="ku-inline ku-skel"><span></span></div>';
+      if (!c || c.state === 'loading') return '<div class="ku-inline ku-skel" aria-label="Loading usage"><span></span><span></span></div>';
       return `<button class="ku-inline ku-cell-fail" ${openAttrs(p, k, `Usage unavailable: ${c.error}`)}>${ICON.alert}Usage unavailable</button>`;
     }
     const parts = [];
     if (u.unlimited) {
-      parts.push(`<span class="ku-inline-unlimited"><span class="ku-unlimited-track"><span class="ku-unlimited-start">0</span><span class="ku-unlimited-fill"></span><span class="ku-unlimited-end">∞</span></span><span class="ku-inline-num">${escapeHtml(u.range)}</span></span>`);
+      parts.push(`<span class="ku-inline-unlimited"><span class="ku-unlimited-badge">∞ Unlimited</span><span class="ku-inline-num">${escapeHtml(u.range)}</span></span>`);
       return `<button class="ku-inline" ${openAttrs(p, k, `${u.detail} — open usage details`)}>${parts.join('')}${ICON.panel}</button>`;
     }
     const a = u.allowance;
@@ -380,7 +448,7 @@ window.KEY_USAGE = (() => {
         <span class="ku-unlimited-hero-value">0 → ∞</span>
         <span class="ku-quota-of">tokens · unlimited model usage</span>
       </div>
-      <div class="ku-unlimited-track ku-unlimited-track-lg"><span class="ku-unlimited-start">0</span><span class="ku-unlimited-fill"></span><span class="ku-unlimited-end">∞ tokens</span></div>
+      <div class="ku-unlimited-line"><span class="ku-unlimited-badge">∞ Unlimited</span></div>
       <p class="ku-unlimited-note">${escapeHtml(u.detail)}. This provider does not expose a consumable quota or request-rate cap.</p>
     </section>`;
   }
@@ -534,5 +602,5 @@ window.KEY_USAGE = (() => {
 
   bind();
 
-  return { supports, refresh, refreshProvider, forget, observe, quotaCellHTML, expiryCellHTML, inlineHTML, openDrawer, closeDrawer };
+  return { supports, refresh, refreshProvider, forget, observe, quotaCellHTML, expiryCellHTML, inlineHTML, openDrawer, closeDrawer, documentedAllowance, providerQuotaSummary };
 })();

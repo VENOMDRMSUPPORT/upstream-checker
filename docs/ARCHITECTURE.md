@@ -1,8 +1,8 @@
 # Architecture
 
 How VENOM Router is put together, written so that a change can be made without
-reading the whole source first. It is a map, not a specification: every claim
-here was true of the code at the commit that added this file.
+reading the whole source first. It is a map, not a specification: keep claims
+here synchronized with the current code and the generated code map.
 
 Read this after [AGENTS.md](../AGENTS.md), and [CODE_MAP.md](CODE_MAP.md) for
 the per-file symbol index. Recipes for the common changes are in
@@ -12,7 +12,7 @@ the per-file symbol index. Recipes for the common changes are in
 
 ```
 renderer  (src/renderer/*)      pages, DOM, test runs, the Models table
-   |  window.electronAPI  -- 44 IPC channels, preload only
+   |  window.electronAPI  -- the contextBridge surface, preload only
 preload   (src/preload.js)      contextBridge: the only door
    |  ipcRenderer.invoke / send
 main      (src/main.js + src/db + src/logs + src/catalog)   all I/O, all secrets, all network
@@ -59,8 +59,8 @@ The order is deliberate; each step exists because doing it later caused a bug.
    `lockIdleMin` here and re-read on every `save-settings`; it is arithmetic in
    `isLocked()`, so there is no timer to reschedule.
 7. **IPC registration** — `registerDataIpc` (12 channels; `copy-key` is gated on
-   the lock), `registerLogsIpc` (10 channels), `registerAuthIpc` (5 `auth:*`
-   channels), `startCatalog` (the five `catalog:*` channels, which write through
+   the lock), `registerLogsIpc` (9 channels), `registerAuthIpc` (5 `auth:*`
+   channels), `startCatalog` (the seven `catalog:*` channels, which write through
    `repos.snapshots` and so cannot be registered before the store),
    `createApiRequester` (gated on the lock), then the window.
 8. **Window** — saved bounds, frameless, `icon.ico` on Windows; then
@@ -79,7 +79,7 @@ Everything lives in the user-data folder. `Settings › Data` opens it.
 
 | File | Owner | Contents |
 | --- | --- | --- |
-| `venom.db` | `src/db` | providers, keys, settings, secrets, model pool, run history, the app lock |
+| `venom.db` | `src/db` | providers, keys, settings, secrets, catalog snapshots, roster events, run history, the app lock |
 | `venom-logs.db` | `src/logs` | every request, failed-request bodies, hourly roll-ups |
 | `venom.db.bak-v<N>` | `src/db` | copy taken before a migration (newest 3 kept) |
 | `config.imported.json`, … | import | the pre-2.0 files, renamed and never deleted |
@@ -92,8 +92,9 @@ purge can hand pages back later. `PRAGMA user_version` is the schema version;
 each pending migration runs in its own transaction with its version bump.
 
 **venom.db tables** — `meta`, `settings`, `secrets`, `providers`,
-`provider_keys`, `snapshot_meta`, `roster_snapshot`, `models`, `model_keys`,
-`provider_sync`, `key_model_counts`, `catalog_meta`, `test_runs`, `test_results`.
+`provider_keys`, `snapshot_meta`, `roster_snapshot`, `roster_events`, `models`,
+`model_keys`, `provider_sync`, `key_model_counts`, `catalog_meta`, `test_runs`,
+`test_results`.
 A key row holds ciphertext only (`CHECK (cipher GLOB 'enc:v1:?*')`); the plaintext
 is decrypted once per session into a cache in main.
 
@@ -179,14 +180,17 @@ The single path every outbound call takes.
 
 ## 6. IPC surface
 
-44 channels. The full generated list is in [CODE_MAP.md](CODE_MAP.md#ipc-channels).
+The generated [CODE_MAP.md](CODE_MAP.md#ipc-channels) lists 44 app/data/log/catalog
+channels. The auth module adds five `auth:*` channels, and the close handshake
+uses the two one-way messages `flush-pending` and `flush-done`; read the grouped
+table below rather than treating the generated list as the entire runtime wire.
 
 | Group | Channels | Notes |
 | --- | --- | --- |
 | Window | `window-minimize`, `window-maximize`, `window-close`, `set-window-icon` | fire-and-forget |
 | Requests | `api-request`, `cancel-api-request` | the only network path. `api-request` **resolves** `{ outcome: 'locked' }` while the app is locked, and is not recorded in the request log — nothing was sent for a row to describe |
 | Data | `read-config`, `database-explorer`, `save-settings`, `save-secret`, `save-test-definition`, `save-provider`, `merge-provider`, `delete-provider`, `copy-key`, `read-history`, `append-run`, `clear-history` | one thing per channel, so two writers cannot overwrite each other. `copy-key` is gated on the lock and answers `{ ok: false, code: 'LOCKED' }` |
-| Catalog | `catalog:ingest`, `catalog:read`, `catalog:health`, `catalog:sources`, `catalog:fetch-info`, `catalog:events`, `catalog:events-read` | the model pool, its four sources and its change feed. **Every one resolves**: an outcome the page must act on is `{ ok: false, code, message }`, because `err.code` cannot cross `ipcMain.handle` — a rejection becomes a new Error carrying only its message |
+| Catalog | `catalog:ingest`, `catalog:read`, `catalog:health`, `catalog:sources`, `catalog:fetch-info`, `catalog:events`, `catalog:events-read` | the catalog roster, its four sources and its change feed. **Every one resolves**: an outcome the page must act on is `{ ok: false, code, message }`, because `err.code` cannot cross `ipcMain.handle` — a rejection becomes a new Error carrying only its message |
 | App lock | `auth:status`, `auth:unlock`, `auth:change`, `auth:lock`, `auth:activity` | same resolving contract. `auth:locked` travels the other way (main→renderer) when the idle limit ends a session. No reply ever carries the stored hash |
 | Request log | `logs-list`, `logs-get`, `logs-stats`, `logs-facets`, `logs-runs`, `logs-run-summary`, `logs-export`, `logs-info`, `logs-clear` | read-only except export and clear |
 | Legacy log file | `read-log-info`, `open-request-log`, `clear-request-log` | the old `requests.log` |
@@ -239,7 +243,7 @@ instead of `escapeHtml`).
 
 | Command | Proves | Does **not** prove |
 | --- | --- | --- |
-| `npm test` | 620 tests over the data, log, request, auth and catalog layers, under Electron's Node (~2 s) | anything in the renderer except the pure helpers it loads by text |
+| `npm test` | 702 tests over the data, log, request, auth and catalog layers, under Electron's Node | anything in the renderer except the pure helpers it loads by text |
 | `npm run verify:live` | the real app, launched on a scratch folder over CDP against a **mock** provider: import, log, pages, drawdown geometry, restart, single instance | a real provider, a real key, a real 429, a real stream |
 | `npm run verify:catalog` | nothing downloads at boot; the four sources fill on a click; the Models page opens on its own path | anything about a real provider or a keyed fetch |
 | `npm run verify:lock` | the lock screen covers the viewport, the emblem paints (its pixels are counted, not its URL read), the shell is `inert`, the colours ignore a forced theme and accent, and the shipped default opens it | that the lock resists anyone with code execution as this Windows user — it does not |

@@ -8,6 +8,16 @@ because they were broken once and it cost the owner a day of confusion.
 > [docs/CODE_MAP.md](docs/CODE_MAP.md). Those say what the project is and where
 > things are; the rules below are the ones you must not break.
 
+## Current project facts
+
+- Current version: **2.1.2**, defined only in `package.json`.
+- The suite currently contains **702 tests** and runs through Electron's Node.
+- Nine provider modules are loaded from `src/renderer/providers/`.
+- Runtime data is SQLite: `venom.db` plus `venom-logs.db`; legacy JSON is import
+  input only.
+- Unpackaged `npm start` uses `%APPDATA%\venom-router-dev`; packaged builds use
+  `%APPDATA%\venom-router`. An explicit `--user-data-dir` always wins.
+
 ## One checkout. Always this one.
 
 The owner works in **`C:\Users\venom\Desktop\UPSTREAM CHECKER`** and runs the
@@ -54,7 +64,7 @@ summary.
 
 - Do not go more than two or three tasks without something they can open and
   click. Say what to look at, in one line.
-- "295 tests pass" is not the same as "you can see it working". Lead with the
+- "702 tests pass" is not the same as "you can see it working". Lead with the
   second when both are true.
 
 ## Verification that counts
@@ -64,9 +74,25 @@ summary.
 - `npm run verify:live` drives the packaged app through CDP against a
   **mock provider** on `127.0.0.1`. It has never seen a real provider, a real
   key, a real 429 or a real stream. Say that whenever you report it as proof.
-- A check that reads `textContent` proves the text exists, not that a person
-  can see it. Measure geometry when the question is visibility — that is how
-  a drawer that never appeared once passed a full live run.
+- A check that reads `textContent` proves the text exists, not that a person can
+  see it. Measure geometry when the question is visibility — that is how a
+  drawer that never appeared once passed a full live run.
+
+### Verification commands
+
+```text
+npm run check                 CODE_MAP freshness + the full 702-test suite
+npm run check:keystore        Windows DPAPI/safeStorage encryption round-trip
+npm run verify:live           end-to-end app path with mock provider and scratch data
+npm run verify:catalog        catalog boot and sync path under a network guard
+npm run verify:legend         capability legend geometry and icon states
+npm run verify:sidebar        catalog details drawer geometry
+npm run verify:lock           lock screen, inert shell and reset-lock behavior
+```
+
+Run live checks serially when diagnosing a failure: each one owns a scratch
+folder and DevTools port. Report the exact failing gate; do not turn a partial
+live run into a claim that the whole application passed.
 
 ## Releasing
 

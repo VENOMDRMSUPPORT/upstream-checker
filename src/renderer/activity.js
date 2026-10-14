@@ -87,6 +87,11 @@
     badge.hidden = !(unread > 0);
     badge.textContent = unread > 99 ? '99+' : String(unread);
     button.setAttribute('aria-label', unread > 0 ? `${unread} unread notifications` : 'Notifications');
+    const unreadPill = document.getElementById('notif-unread-count');
+    if (unreadPill) {
+      unreadPill.hidden = !(unread > 0);
+      unreadPill.textContent = unread > 99 ? '99+' : String(unread);
+    }
   }
 
   function setPanel(open) {
@@ -124,10 +129,15 @@
   async function renderPanel() {
     const list = document.getElementById('notif-list');
     if (!list) return;
-    const { rows } = await query({ limit: PANEL_LIMIT });
+    const { rows, unread } = await query({ limit: PANEL_LIMIT });
+    const unreadPill = document.getElementById('notif-unread-count');
+    if (unreadPill) {
+      unreadPill.hidden = !(unread > 0);
+      unreadPill.textContent = unread > 99 ? '99+' : String(unread);
+    }
     list.innerHTML = rows.length
       ? rows.map((e) => itemHTML(e, true)).join('')
-      : '<div class="ntf-empty">No model changes recorded yet.</div>';
+      : '<div class="ntf-empty"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="ntf-empty-icon" aria-hidden="true"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg><span>No model changes recorded yet</span></div>';
   }
 
   async function markAllRead() {

@@ -23,6 +23,10 @@ window.INTEGRATED_PROVIDERS.experiential = {
 
     // Offers free models or a free quota (drives the Free Tier legend colour).
     freeTier: true,
+    // docs-sourced EXPERIENTIAL.md §5: Promotional free set 5 ids (screenshot 2026-10-12).
+    planNote: 'Promotional free set · 5 models',
+    // docs-sourced EXPERIENTIAL.md §5
+    docsSource: 'EXPERIENTIAL.md §5',
   },
 
   // TypeSafe /systemone decision protocol — lives here because the wire shape

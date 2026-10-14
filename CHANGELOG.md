@@ -5,6 +5,16 @@ All notable changes to VENOM Router (formerly Upstream Checker) will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.3] - 2026-10-15
+
+### Changed
+
+- **Dev runs use their own data folder.** An unpackaged `npm start` now
+  resolves `%APPDATA%\venom-router-dev`, so it never opens the installed app's
+  `venom.db`. Packaged builds still use `%APPDATA%\venom-router`, and an
+  explicit `--user-data-dir` still wins.
+- Renderer, provider modules, live verification scripts and docs refreshed.
+
 ## [2.1.2] - 2026-10-10
 
 ### Added

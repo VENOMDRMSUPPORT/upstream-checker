@@ -29,6 +29,10 @@ window.INTEGRATED_PROVIDERS.inception = {
 
     // A Free plan exists (drives the Free Tier legend colour).
     freeTier: true,
+    // docs-sourced INCEPTION.md §0: Free plan, custom 200M free-token grant (screenshot-sourced).
+    planNote: 'Free plan · 200M free-token grant',
+    // docs-sourced INCEPTION.md §0
+    docsSource: 'INCEPTION.md §0',
 
     // Inception's own examples use max_completion_tokens. Declaring it here
     // skips the one rejected request the app would otherwise spend learning it.

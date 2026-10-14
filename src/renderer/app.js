@@ -128,6 +128,7 @@ const DEFAULT_SETTINGS = {
   // at all, which the app then reports as an empty response. Raising this fixes
   // that case.
   maxOutputTokens: 512,
+  matchMode: 'boundary',
 
   // Generators. Each is sent to its dedicated endpoint first (/images/generations,
   // /videos) and falls back to chat on a provider that has no such route. A
@@ -147,8 +148,6 @@ const DEFAULT_SETTINGS = {
 
   historyMaxRuns: 300,
   sparkRuns: 12,
-  // How many recent probes the Providers uptime strip covers.
-  probeTicks: 20,
 
   notifyRegression: true,
   notifyRunComplete: false,
@@ -181,6 +180,9 @@ const DEFAULT_SETTINGS = {
   // the lock screen through html[data-motion="reduced"]; the OS's own
   // prefers-reduced-motion is honoured as well and is not overridable from here.
   reduceMotion: false,
+
+  // Diagnostics button in the top bar (header).
+  debugHeader: true,
 
   // Request bodies in the request log: off | errors (Failed only) | all. The
   // metadata of every request is recorded whatever this says. Main reads it
@@ -218,11 +220,11 @@ const THEMES = [
 // scripts/generate-icons.js). hex is the swatch; the stylesheet's [data-accent]
 // rules carry the same colour and the shades derived from it.
 const ACCENTS = [
-  { id: 'emerald', name: 'Emerald', hex: '#10b981' },
-  { id: 'cyan', name: 'Cyan', hex: '#06b6d4' },
-  { id: 'violet', name: 'Violet', hex: '#8b5cf6' },
-  { id: 'crimson', name: 'Crimson', hex: '#f43f5e' },
-  { id: 'amber', name: 'Amber', hex: '#f59e0b' },
+  { id: 'emerald', name: 'Emerald', hex: '#10b981', desc: 'Crisp vibrant green · Calm & balanced' },
+  { id: 'cyan', name: 'Cyan', hex: '#06b6d4', desc: 'Electric neon cyan · Sharp tech contrast' },
+  { id: 'violet', name: 'Violet', hex: '#8b5cf6', desc: 'Deep royal purple · Creative & refined' },
+  { id: 'crimson', name: 'Crimson', hex: '#f43f5e', desc: 'Bold vivid rose · Dynamic highlights' },
+  { id: 'amber', name: 'Amber', hex: '#f59e0b', desc: 'Warm golden honey · Cozy sunset glow' },
 ];
 
 // Accents saved before the brand pack, and the one they became. 'blue' had no
@@ -251,6 +253,9 @@ function applyAppearance() {
   // OS's own prefers-reduced-motion is honoured on top of it, in both places.
   el.setAttribute('data-motion', settings.reduceMotion ? 'reduced' : 'normal');
   queueBrandIcon(settings.accent);
+
+  const debugBtn = document.getElementById('btn-header-debug');
+  if (debugBtn) debugBtn.hidden = !settings.debugHeader;
 
   const toggle = document.getElementById('btn-theme-toggle');
   if (toggle) {
@@ -702,6 +707,198 @@ async function loadTestDefinition() {
     $('#expected-input').value = expectedAnswer;
     $('#auto-test-select').value = String(autoTestMinutes);
     applyAutoTestSchedule();
+    updatePromptStats();
+    updateExpectedChips();
+    syncPromptPresetPills();
+    syncTokenPresets();
+    syncMatchMode();
+  }
+}
+
+const PROMPT_PRESETS = {
+  arithmetic: {
+    prompt: 'What is 2+2? Answer in one word.',
+    expected: '4, four',
+  },
+  capital: {
+    prompt: 'What is the capital of France? Answer in one word.',
+    expected: 'Paris',
+  },
+  logic: {
+    prompt: 'Which is heavier: 1 kg of steel or 1 kg of feathers? Answer in one word or "same".',
+    expected: 'same, equal, neither',
+  },
+  hello: {
+    prompt: 'Say "hello" and nothing else.',
+    expected: 'hello',
+  },
+};
+
+function updatePromptStats() {
+  const el = $('#prompt-stats');
+  if (!el) return;
+  const val = $('#prompt-input')?.value || '';
+  const len = val.length;
+  const estTokens = len === 0 ? 0 : Math.max(1, Math.round(len / 4));
+  el.textContent = `${len} char${len === 1 ? '' : 's'} • ~${estTokens} token${estTokens === 1 ? '' : 's'}`;
+}
+
+function syncMatchMode() {
+  const mode = (typeof settings !== 'undefined' && settings.matchMode) || 'boundary';
+  $$('#match-mode-seg button').forEach((b) => {
+    const on = b.dataset.mode === mode;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-checked', String(on));
+  });
+}
+
+function renderProbePreview() {
+  const badgeEl = $('#live-probe-badge');
+  const sampleBubble = $('#probe-sample-bubble');
+  const matchRuleVal = $('#probe-match-rule-val');
+  if (!badgeEl || !sampleBubble) return;
+
+  const mode = (typeof settings !== 'undefined' && settings.matchMode) || 'boundary';
+  const val = $('#expected-input')?.value || '';
+  const alts = val.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+
+  if (matchRuleVal) {
+    matchRuleVal.textContent = mode === 'exact' ? 'Exact Normalized' : mode === 'contains' ? 'Contains Substring' : mode === 'regex' ? 'Regex Pattern' : 'Word Boundary';
+  }
+
+  const sampleResponse = 'The answer is 4.';
+  const sampleLow = sampleResponse.toLowerCase();
+
+  let matched = false;
+  let matchedWord = '';
+
+  if (mode === 'exact') {
+    const norm = sampleLow.replace(/[.!?,;:]+$/, '').trim();
+    matched = alts.some((a) => norm === a);
+    matchedWord = alts.find((a) => norm === a) || '';
+  } else if (mode === 'contains') {
+    matched = alts.some((a) => sampleLow.includes(a));
+    matchedWord = alts.find((a) => sampleLow.includes(a)) || '';
+  } else if (mode === 'regex') {
+    try {
+      matched = new RegExp(val.trim(), 'i').test(sampleResponse);
+    } catch { matched = false; }
+  } else {
+    matched = alts.some((alt) => {
+      if (/^[a-z0-9]+$/i.test(alt)) {
+        return new RegExp(`(^|[^a-z0-9])${escapeRegex(alt)}([^a-z0-9]|$)`, 'i').test(sampleLow);
+      }
+      return sampleLow.includes(alt);
+    });
+    matchedWord = alts.find((alt) => sampleLow.includes(alt)) || '';
+  }
+
+  if (matched || alts.length === 0) {
+    badgeEl.className = 'live-probe-badge pass';
+    badgeEl.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg><span>Evaluation Passed</span>';
+    if (matchedWord) {
+      sampleBubble.innerHTML = `<span class="probe-text">The answer is </span><mark class="probe-matched-token">${escapeHtml(matchedWord)}</mark><span class="probe-text">.</span>`;
+    } else {
+      sampleBubble.innerHTML = `<span class="probe-text">${escapeHtml(sampleResponse)}</span>`;
+    }
+  } else {
+    badgeEl.className = 'live-probe-badge fail';
+    badgeEl.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span>Sample Mismatch</span>';
+    sampleBubble.innerHTML = `<span class="probe-text mismatch">${escapeHtml(sampleResponse)}</span>`;
+  }
+}
+
+function updateExpectedChips() {
+  const list = $('#expected-chips-list');
+  if (!list) return;
+  const val = $('#expected-input')?.value || '';
+  const alts = val
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const hintEl = $('#expected-chips-hint');
+  const mode = (typeof settings !== 'undefined' && settings.matchMode) || 'boundary';
+
+  if (alts.length === 0) {
+    list.innerHTML = '<span class="chip-empty" style="color:var(--text-3);font-size:11px;font-style:italic;">Off (all answers pass)</span>';
+    if (hintEl) hintEl.innerHTML = '<span style="color:var(--text-3)">No validation rules applied</span>';
+    renderProbePreview();
+    return;
+  }
+  list.innerHTML = alts
+    .map((alt) => `<span class="chip-item">${escapeHtml(alt)}</span>`)
+    .join('');
+
+  if (hintEl) {
+    if (mode === 'exact') {
+      hintEl.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Strict normalized match (trimmed)';
+    } else if (mode === 'contains') {
+      hintEl.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Substring search (must contain any alternative)';
+    } else if (mode === 'regex') {
+      hintEl.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Regular expression pattern';
+    } else {
+      hintEl.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Word boundary &amp; case-insensitive (punctuations allowed)';
+    }
+  }
+  renderProbePreview();
+}
+
+function syncPromptPresetPills() {
+  const currentPrompt = ($('#prompt-input')?.value || '').trim();
+  const currentExpected = ($('#expected-input')?.value || '').trim();
+  $$('#prompt-presets .preset-pill').forEach((pill) => {
+    const key = pill.dataset.preset;
+    const p = PROMPT_PRESETS[key];
+    const match = p && p.prompt.trim() === currentPrompt && p.expected.trim() === currentExpected;
+    pill.classList.toggle('active', !!match);
+  });
+}
+
+function syncTokenPresets(val) {
+  const v = val !== undefined ? Number(val) : Number($('#set-max-tokens')?.value || (typeof settings !== 'undefined' && settings.maxOutputTokens) || 512);
+  $$('#token-presets .token-preset-pill').forEach((pill) => {
+    pill.classList.toggle('active', Number(pill.dataset.tokens) === v);
+  });
+}
+
+const TEST_ROUTE_INFO = {
+  chat: {
+    method: 'POST',
+    path: '/chat/completions',
+    desc: 'Passes on expected answer',
+    scope: 'Target: Configured providers with keys • Chat models only',
+  },
+  image: {
+    method: 'POST',
+    path: '/images/generations',
+    desc: 'Falls back to chat if route is missing; passes on valid image',
+    scope: 'Target: Configured providers • Image-capable models only',
+  },
+  video: {
+    method: 'POST',
+    path: '/videos',
+    desc: 'Polls job until completion; falls back to chat if missing',
+    scope: 'Target: Configured providers • Video-capable models only',
+  },
+  decision: {
+    method: 'POST',
+    path: '/decision',
+    desc: 'Passes when model probability score ≥ threshold',
+    scope: 'Target: Configured providers • Logprob / Decision models only',
+  },
+};
+
+function syncTestRouteCard(kind) {
+  const info = TEST_ROUTE_INFO[kind] || TEST_ROUTE_INFO.chat;
+  const methodEl = $('#test-route-method');
+  const pathEl = $('#test-route-path');
+  const descEl = $('#test-route-desc');
+  if (methodEl) methodEl.textContent = info.method;
+  if (pathEl) pathEl.textContent = info.path;
+  if (descEl) descEl.textContent = info.desc;
+  const scopeEl = $('#test-route-scope');
+  if (scopeEl && info.scope) {
+    scopeEl.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><span>${escapeHtml(info.scope)}</span>`;
   }
 }
 
@@ -723,15 +920,67 @@ function queueTestDefinitionSave() {
 $('#prompt-input').addEventListener('input', (e) => {
   testPrompt = e.target.value;
   queueTestDefinitionSave();
+  updatePromptStats();
+  syncPromptPresetPills();
 });
 
 $('#expected-input').addEventListener('input', (e) => {
   expectedAnswer = e.target.value;
   queueTestDefinitionSave();
+  updateExpectedChips();
+  syncPromptPresetPills();
   // Existing rows are re-judged against the new answer without re-running them.
   if (tableRows.length > 0) renderResultsTable();
   updateStats();
   renderRunSummary();
+});
+
+$('#btn-copy-prompt')?.addEventListener('click', async () => {
+  const text = $('#prompt-input')?.value || '';
+  try {
+    await navigator.clipboard.writeText(text);
+    const btn = $('#btn-copy-prompt');
+    const span = btn?.querySelector('span');
+    if (span) {
+      const orig = span.textContent;
+      span.textContent = 'Copied!';
+      btn.style.color = 'var(--pass)';
+      setTimeout(() => {
+        span.textContent = orig;
+        btn.style.color = '';
+      }, 1500);
+    }
+  } catch (_) {}
+});
+
+$('#prompt-presets')?.addEventListener('click', (e) => {
+  const pill = e.target.closest('.preset-pill');
+  if (!pill) return;
+  const p = PROMPT_PRESETS[pill.dataset.preset];
+  if (!p) return;
+  testPrompt = p.prompt;
+  expectedAnswer = p.expected;
+  $('#prompt-input').value = testPrompt;
+  $('#expected-input').value = expectedAnswer;
+  clearTimeout(saveTestTimer);
+  saveTestDefinition();
+  updatePromptStats();
+  updateExpectedChips();
+  syncPromptPresetPills();
+  if (tableRows.length > 0) renderResultsTable();
+  updateStats();
+  renderRunSummary();
+});
+
+$('#token-presets')?.addEventListener('click', (e) => {
+  const pill = e.target.closest('.token-preset-pill');
+  if (!pill) return;
+  const tokens = Number(pill.dataset.tokens);
+  if (!Number.isFinite(tokens) || tokens <= 0) return;
+  $('#set-max-tokens').value = String(tokens);
+  settings.maxOutputTokens = tokens;
+  queueSettingsSave();
+  syncTokenPresets(tokens);
 });
 
 $('#btn-reset-prompt').addEventListener('click', () => {
@@ -741,6 +990,9 @@ $('#btn-reset-prompt').addEventListener('click', () => {
   $('#expected-input').value = expectedAnswer;
   clearTimeout(saveTestTimer);
   saveTestDefinition();
+  updatePromptStats();
+  updateExpectedChips();
+  syncPromptPresetPills();
   if (tableRows.length > 0) renderResultsTable();
   updateStats();
   renderRunSummary();
@@ -777,13 +1029,30 @@ function isCorrect(result, model) {
   if (alts.length === 0) return null;
   if (!result || result.status !== 'pass' || result.isEmpty) return null;
 
-  const text = (result.response || '').toLowerCase();
+  const rawText = (result.response || '').trim();
+  const text = rawText.toLowerCase();
+  const mode = (typeof settings !== 'undefined' && settings.matchMode) || 'boundary';
+
+  if (mode === 'exact') {
+    const normalized = text.replace(/[.!?,;:]+$/, '').trim();
+    return alts.some((alt) => normalized === alt || text === alt);
+  }
+
+  if (mode === 'contains') {
+    return alts.some((alt) => text.includes(alt));
+  }
+
+  if (mode === 'regex') {
+    try {
+      return new RegExp(expectedAnswer.trim(), 'i').test(rawText);
+    } catch {
+      return false;
+    }
+  }
+
   return alts.some((alt) => {
-    // A plain alphanumeric answer is matched on token boundaries, so "4" doesn't
-    // match "14" and "four" doesn't match "fourteen". Anything containing spaces
-    // or punctuation is matched as a substring, where boundaries don't apply.
-    if (/^[a-z0-9]+$/.test(alt)) {
-      return new RegExp(`(^|[^a-z0-9])${escapeRegex(alt)}([^a-z0-9]|$)`).test(text);
+    if (/^[a-z0-9]+$/i.test(alt)) {
+      return new RegExp(`(^|[^a-z0-9])${escapeRegex(alt)}([^a-z0-9]|$)`, 'i').test(text);
     }
     return text.includes(alt);
   });
@@ -908,18 +1177,13 @@ const HEALTH_TIMEOUT_MS = 15000;
 const HEALTH_CONFIRM_MS = 10000;
 const healthConfirming = new Set();
 const providerHealth = new Map();
-// Uptime strip: the last probe verdicts per provider, newest last. Memory-only
-// (reset on launch) and capped, so the Providers strip reads as uptime rather
-// than test history. 'ok'/'fail' verdicts; null means no usable key to probe.
-// How many recent probes the Providers uptime strip covers: the probeTicks
-// setting, clamped. A missing or out-of-range value reads as the default and
-// is never written back.
-const probeTickCount = () => {
-  const n = Number(settings.probeTicks);
-  if (!Number.isFinite(n)) return 20;
-  return Math.min(40, Math.max(4, Math.round(n)));
-};
-const providerProbeHistory = new Map(); // id -> [{ s: 'ok'|'fail'|null, at }]
+// The row's status strip keeps the verdicts the badge keeps only the last of:
+// one entry per check, oldest first, capped at PROVIDER_TICKS. In memory like
+// providerHealth itself — it is the same reading, kept over time, and it is
+// written in exactly one place (setProviderHealth) so the strip and the badge
+// can never disagree about what the last check said.
+const PROVIDER_TICKS = 24;
+const providerVerdicts = new Map();
 
 function describeHealthFailure(res) {
   if (res.networkError) return res.timedOut ? 'No response' : 'Unreachable';
@@ -966,7 +1230,8 @@ function adoptProbeResults(p, outcomes) {
   const oks = list.filter((o) => discoverVerdict(o).ok);
   if (oks.length) {
     healthConfirming.delete(p.id);
-    setProviderHealth(p.id, { state: 'ok', detail: `Connected · ${Math.min(...oks.map((o) => o.ms))} ms` });
+    // G: single ok wording (Reachable) — matches the health line and KPI pill.
+    setProviderHealth(p.id, { state: 'ok', detail: `Reachable · ${Math.min(...oks.map((o) => o.ms))} ms` });
     return;
   }
   if (!list.length) {
@@ -1057,13 +1322,15 @@ function reportHealthFailure(id, detail, transient) {
 }
 
 function setProviderHealth(id, { state, detail }) {
+  const now = Date.now();
   const prev = providerHealth.get(id);
-  providerHealth.set(id, { state, detail, checkedAt: Date.now() });
-  // Every confirmed verdict extends the uptime strip; 'none' (no usable key)
-  // is recorded as a gap rather than a failure.
-  const hist = providerProbeHistory.get(id) || [];
-  hist.push({ s: state === 'ok' ? 'ok' : state === 'fail' ? 'fail' : null, at: Date.now() });
-  providerProbeHistory.set(id, hist.slice(-probeTickCount()));
+  providerHealth.set(id, { state, detail, checkedAt: now });
+  // One tick for the strip, on the same call the badge updates on. The ring is
+  // capped, so a provider checked every five minutes keeps two hours of
+  // verdicts and no more.
+  const ring = providerVerdicts.get(id) || [];
+  ring.push({ state, detail, at: now });
+  providerVerdicts.set(id, ring.slice(-PROVIDER_TICKS));
   // A Recheck the user pressed resolves into its verdict (see recheckProvider).
   if (recheckAct.get(id)?.state === 'running') setAct(recheckAct, id, state);
   if (currentPage === 'provider' && id === activeProvider) renderProviderHead();
@@ -1224,7 +1491,7 @@ function renderKeysList() {
         <span class="key-masked ${k.locked ? 'unreadable' : ''}">${
           // No hint and not locked means the save that should have produced
           // one never landed: the key still sits here as plaintext, unsaved.
-          k.locked ? 'Encrypted for another machine — re-add it' : (k.hint ? escapeHtml(k.hint) : 'not saved')
+          k.locked ? 'Encrypted for another machine — re-add it' : (k.hint ? escapeHtml(k.hint) : '<span class="kx-notsaved" title="WARNING: Key value was never saved — re-add it">NOT SAVED: not saved</span>')
         }</span>
         <button class="key-icon-btn key-copy-btn" data-key-id="${k.id}" title="Copy key" ${k.locked ? 'disabled' : ''}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -3778,23 +4045,23 @@ function updateStats() {
   const fetched = models.length;
   const finished = passed + failed;
   $('#pt-kpis').innerHTML = statCardsHTML([
-    { label: 'Models', value: total, sub: fetched ? `/ ${fetched}` : '', icon: KPI_ICON.layers,
+    { label: 'Models', value: total, sub: fetched ? `/ ${fetched}` : '', icon: KPI_ICON.layers, tone: 'blue', subhead: 'SELECTED FOR RUN',
       meter: fetched ? total / fetched : 0,
       foot: fetched === 0 ? 'fetch models to begin' : runTotal != null ? 'in this run' : 'selected for the next run' },
-    { label: 'Passed', value: passed, sub: finished ? `/ ${finished}` : '', icon: KPI_ICON.check, tone: 'pass',
+    { label: 'Passed', value: passed, sub: finished ? `/ ${finished}` : '', icon: KPI_ICON.check, tone: 'pass', subhead: 'SUCCESSFUL CALLS',
+      pill: finished ? `${Math.round((passed / finished) * 100)}% of finished` : undefined,
       meter: total ? passed / total : 0,
       foot: finished ? `${Math.round((passed / finished) * 100)}% of finished models` : 'no results yet' },
-    { label: 'Failed', value: failed, sub: finished ? `/ ${finished}` : '', icon: KPI_ICON.cross, tone: 'fail',
+    { label: 'Failed', value: failed, sub: finished ? `/ ${finished}` : '', icon: KPI_ICON.cross, tone: 'fail', subhead: 'UNSUCCESSFUL CALLS',
+      pill: failed ? `${failed} Failed` : '0 Failed',
       meter: total ? failed / total : 0,
-      // The card doubles as the filter: it narrows the table to failures and back.
-      attrs: failed || showFailedOnly
-        ? `data-filter-failed role="button" tabindex="0" aria-pressed="${showFailedOnly}" title="Show only failed / empty responses"`
-        : '',
+      attrs: failed || showFailedOnly ? `data-filter-failed role="button" tabindex="0" aria-pressed="${showFailedOnly}" title="Show only failed / empty responses"` : '',
       active: showFailedOnly,
       foot: showFailedOnly ? 'showing only failures — click to show all' : failed ? 'click to show only failures' : 'none failed' },
     { label: 'Average time', value: avg == null ? NA : avg < 1000 ? `${Math.round(avg)} ms` : `${(avg / 1000).toFixed(1)}s`, icon: KPI_ICON.clock,
-      foot: 'passed calls only' },
+      tone: 'cyan', subhead: 'RESPONSE LATENCY', foot: 'passed calls only' },
   ]);
+
 
   renderPtLegend();
 
@@ -4083,9 +4350,15 @@ function setupUpdateListeners() {
   if (!window.electronAPI || !window.electronAPI.updateAPI) return;
   const updateAPI = window.electronAPI.updateAPI;
 
-  updateAPI.onUpdateChecking(() => console.log('Checking for updates...'));
+  updateAPI.onUpdateChecking(() => {
+    console.log('Checking for updates...');
+    const note = $('#about-update-note');
+    if (note) note.textContent = 'Checking for updates…';
+  });
 
   updateAPI.onUpdateAvailable((info) => {
+    const note = $('#about-update-note');
+    if (note) note.textContent = `New version v${info.version} available!`;
     if (!isUpdateDownloading && !isUpdateReady) {
       const badge = $('#update-badge');
       badge.hidden = false;
@@ -4095,10 +4368,22 @@ function setupUpdateListeners() {
     }
   });
 
-  updateAPI.onUpdateNotAvailable(() => console.log('No updates available'));
+  updateAPI.onUpdateNotAvailable(() => {
+    console.log('No updates available');
+    const note = $('#about-update-note');
+    if (note) {
+      note.textContent = 'Up to date — latest version installed.';
+      setTimeout(() => { if (note.textContent.includes('Up to date')) note.textContent = ''; }, 6000);
+    }
+  });
 
   updateAPI.onUpdateError((data) => {
     console.error('Update error:', data.message);
+    const note = $('#about-update-note');
+    if (note) {
+      note.textContent = 'Could not reach update server.';
+      setTimeout(() => { if (note.textContent.includes('Could not reach')) note.textContent = ''; }, 6000);
+    }
     if (isUpdateDownloading) {
       setStatus('error', 'Update download failed');
       isUpdateDownloading = false;
@@ -4408,7 +4693,6 @@ const SETTING_INPUTS = [
   ['#set-rl-waits', 'maxRateLimitWaits', 'int'],
   ['#set-history-max', 'historyMaxRuns', 'int'],
   ['#set-spark-runs', 'sparkRuns', 'int'],
-  ['#set-probe-ticks', 'probeTicks', 'int'],
   ['#set-skip-media', 'scheduleSkipMedia', 'bool'],
   ['#set-notify-regression', 'notifyRegression', 'bool'],
   ['#set-notify-complete', 'notifyRunComplete', 'bool'],
@@ -4422,6 +4706,7 @@ const SETTING_INPUTS = [
   // the setting was saved once and never read again, so flipping it changed
   // nothing at all. The lock screen's canvas is what reads it now.
   ['#set-reduce-motion', 'reduceMotion', 'bool'],
+  ['#set-debug-header', 'debugHeader', 'bool'],
   // The app lock's idle limit. main keeps its own copy and re-reads this row on
   // every save (src/main.js idleLimitMs), so a change applies without a restart.
   ['#set-lock-idle', 'lockIdleMin', 'int'],
@@ -4440,6 +4725,10 @@ function fillSettingsForm() {
   $('#auto-test-select').value = String(autoTestMinutes);
   renderDecisionThreshold();
   renderCostEstimate();
+  updatePromptStats();
+  updateExpectedChips();
+  syncPromptPresetPills();
+  syncTokenPresets();
 }
 
 function renderDecisionThreshold() {
@@ -4448,6 +4737,15 @@ function renderDecisionThreshold() {
 
 // The Test section holds one probe per model kind; only the chosen kind's
 // fields are shown, so the page stays as short as the chat-only one was.
+$('#match-mode-seg')?.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-mode]');
+  if (!b) return;
+  settings.matchMode = b.dataset.mode;
+  syncMatchMode();
+  queueSettingsSave();
+  updateExpectedChips();
+});
+
 $('#test-kind-seg').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-kind]');
   if (!btn) return;
@@ -4457,6 +4755,7 @@ $('#test-kind-seg').addEventListener('click', (e) => {
     b.setAttribute('aria-selected', String(on));
   });
   $$('#sec-test .test-pane').forEach((pane) => { pane.hidden = pane.dataset.kind !== btn.dataset.kind; });
+  syncTestRouteCard(btn.dataset.kind);
 });
 
 function bindSettingsForm() {
@@ -4477,11 +4776,10 @@ function bindSettingsForm() {
         else settings[key] = kind === 'sec' ? Math.round(n * 1000) : kind === 'ratio' ? n : Math.round(n);
       }
       if (key === 'decisionThreshold') renderDecisionThreshold();
-      // A shorter strip shows at once: repaint the page that draws it.
-      if (key === 'probeTicks' && currentPage === 'providers') renderProvidersPage();
+      if (key === 'maxOutputTokens') syncTokenPresets(settings.maxOutputTokens);
       // Appearance keys repaint immediately; the rest of the row is a stored
       // value main reads on its next save-settings.
-      if (key === 'reduceMotion') applyAppearance();
+      if (key === 'reduceMotion' || key === 'debugHeader') applyAppearance();
       queueSettingsSave();
       renderCostEstimate();
       // Colour bands and sparkline length change what is already on screen.
@@ -4528,6 +4826,48 @@ function accentSwatchesHTML(cls, role) {
   }).join('');
 }
 
+// Inactive accent IDs currently displayed in the 2x2 grid.
+let inactiveAccentIds = ['cyan', 'violet', 'crimson', 'amber'];
+
+function ensureInactiveAccents() {
+  const current = settings.accent;
+  const remaining = ACCENTS.filter((a) => a.id !== current).map((a) => a.id);
+  if (!Array.isArray(inactiveAccentIds) || inactiveAccentIds.length !== 4) {
+    inactiveAccentIds = remaining;
+    return;
+  }
+  if (inactiveAccentIds.includes(current)) {
+    const idx = inactiveAccentIds.indexOf(current);
+    const missing = remaining.find((id) => !inactiveAccentIds.includes(id));
+    if (missing && idx !== -1) {
+      inactiveAccentIds[idx] = missing;
+    } else {
+      inactiveAccentIds = remaining;
+    }
+  }
+}
+
+function renderAccentClusterHTML() {
+  ensureInactiveAccents();
+  const currentAccent = ACCENTS.find((a) => a.id === settings.accent) || ACCENTS[0];
+  const subSwatches = inactiveAccentIds.map((id) => {
+    const a = ACCENTS.find((item) => item.id === id) || ACCENTS[0];
+    return `<button class="accent-swatch accent-mini-swatch" type="button" role="radio" aria-checked="false"
+             data-accent-id="${a.id}" title="${a.name}" aria-label="${a.name}"
+             style="--swatch-color:${a.hex};background:${a.hex};color:${a.hex};"></button>`;
+  }).join('');
+
+  return `<div class="accent-cluster-grid" role="group" aria-label="Alternative accent colors">
+    ${subSwatches}
+  </div>
+  <div class="accent-cluster-divider" aria-hidden="true"></div>
+  <div class="accent-cluster-active-wrap">
+    <button class="accent-swatch active accent-active-swatch" type="button" role="radio" aria-checked="true"
+            data-accent-id="${currentAccent.id}" title="${currentAccent.name} (Active)" aria-label="${currentAccent.name} (Active)"
+            style="--swatch-color:${currentAccent.hex};background:${currentAccent.hex};color:${currentAccent.hex};"></button>
+  </div>`;
+}
+
 function renderAppearancePickers() {
   const theme = effectiveTheme();
   $$('#mode-grid .mode-card').forEach((card) => {
@@ -4536,9 +4876,18 @@ function renderAppearancePickers() {
     card.setAttribute('aria-checked', String(on));
   });
   $('#mode-grid').classList.toggle('following', settings.followSystem);
+  const themeBadge = document.getElementById('theme-active-mode-badge');
+  if (themeBadge) {
+    themeBadge.textContent = settings.followSystem ? 'Auto (System)' : (effectiveTheme() === 'vercel' ? 'Dark' : 'Light');
+  }
   $('#set-follow-system').checked = settings.followSystem;
 
-  $('#accent-row').innerHTML = accentSwatchesHTML('accent-swatch', 'radio');
+  const debugHeaderInput = document.getElementById('set-debug-header');
+  if (debugHeaderInput) debugHeaderInput.checked = !!settings.debugHeader;
+  const reduceMotionInput = document.getElementById('set-reduce-motion');
+  if (reduceMotionInput) reduceMotionInput.checked = !!settings.reduceMotion;
+
+  $('#accent-row').innerHTML = renderAccentClusterHTML();
   $('#accent-name').textContent = accentLabel();
 
   $$('#density-seg button').forEach((b) => {
@@ -4546,6 +4895,11 @@ function renderAppearancePickers() {
     b.classList.toggle('active', on);
     b.setAttribute('aria-checked', String(on));
   });
+
+  const densityPill = document.getElementById('density-current-pill');
+  if (densityPill) {
+    densityPill.textContent = `${settings.density.charAt(0).toUpperCase() + settings.density.slice(1)} density`;
+  }
 }
 
 function saveAppearance() {
@@ -4578,30 +4932,155 @@ $('#density-seg').addEventListener('click', (e) => {
   if (tableRows.length > 0) renderResultsTable();
 });
 
+const SECTION_RESETTERS = {
+  'sec-appearance': () => {
+    ['theme', 'followSystem', 'accent', 'density', 'reduceMotion', 'debugHeader'].forEach((k) => {
+      settings[k] = DEFAULT_SETTINGS[k];
+    });
+    inactiveAccentIds = ACCENTS.filter((a) => a.id !== DEFAULT_SETTINGS.accent).map((a) => a.id);
+    saveAppearance();
+    renderAppearancePickers();
+  },
+  'sec-test': () => {
+    ['verifyAssets', 'decisionState', 'decisionQuestion', 'decisionThreshold', 'deadlineDecisionMs', 'maxOutputTokens', 'matchMode'].forEach((k) => {
+      settings[k] = DEFAULT_SETTINGS[k];
+    });
+    testPrompt = DEFAULT_TEST_PROMPT;
+    expectedAnswer = DEFAULT_EXPECTED;
+    $('#prompt-input').value = testPrompt;
+    $('#expected-input').value = expectedAnswer;
+    clearTimeout(saveTestTimer);
+    saveTestDefinition();
+    renderDecisionThreshold();
+    updatePromptStats();
+    updateExpectedChips();
+    syncPromptPresetPills();
+    syncTokenPresets();
+  },
+  'sec-schedule': () => {
+    ['scheduleSkipMedia', 'liveUpdates', 'notifyRegression', 'notifyRunComplete'].forEach((k) => {
+      settings[k] = DEFAULT_SETTINGS[k];
+    });
+    autoTestMinutes = 0;
+    $('#auto-test-select').value = '0';
+    applyAutoTestSchedule();
+    saveTestDefinition();
+    renderLiveToggles();
+  },
+  'sec-speed': () => {
+    ['timeGoodMs', 'timeOkMs', 'deadlineChatMs', 'deadlineImageMs', 'deadlineVideoMs', 'concurrency'].forEach((k) => {
+      settings[k] = DEFAULT_SETTINGS[k];
+    });
+  },
+  'sec-reliability': () => {
+    ['hedgeEnabled', 'hedgeMax', 'hedgeStepMs', 'maxTestRetries', 'maxRateLimitWaits'].forEach((k) => {
+      settings[k] = DEFAULT_SETTINGS[k];
+    });
+  },
+  'sec-catalog': () => {
+    ['catalogSyncMinutes', 'purgeWindowDays'].forEach((k) => {
+      settings[k] = DEFAULT_SETTINGS[k];
+    });
+    if (window.CATALOG && window.CATALOG.fillSettings) window.CATALOG.fillSettings();
+  },
+  'sec-history': () => {
+    ['historyMaxRuns', 'sparkRuns'].forEach((k) => {
+      settings[k] = DEFAULT_SETTINGS[k];
+    });
+  },
+  'sec-logs': () => {
+    ['logLevel', 'logRetentionDays', 'bodyRetentionDays', 'statsRetentionMonths'].forEach((k) => {
+      settings[k] = DEFAULT_SETTINGS[k];
+    });
+  },
+  'sec-security': () => {
+    settings.lockIdleMin = DEFAULT_SETTINGS.lockIdleMin;
+    renderSecuritySection();
+  },
+  'sec-data': () => {
+    settings = { ...DEFAULT_SETTINGS, openRouterApiKey: settings.openRouterApiKey };
+    applyAppearance();
+    renderAppearancePickers();
+    if (window.CATALOG && window.CATALOG.scheduleTimer) window.CATALOG.scheduleTimer();
+    renderLiveToggles();
+  },
+};
+
 $('#btn-reset-appearance').addEventListener('click', () => {
-  ['theme', 'followSystem', 'accent', 'density'].forEach((k) => { settings[k] = DEFAULT_SETTINGS[k]; });
-  saveAppearance();
+  const activeBtn = $('#settings-nav .settings-nav-item.active');
+  const targetId = activeBtn?.dataset?.section || 'sec-appearance';
+  const resetter = SECTION_RESETTERS[targetId] || SECTION_RESETTERS['sec-appearance'];
+  resetter();
+  queueSettingsSave();
+  fillSettingsForm();
+  renderCostEstimate();
   if (tableRows.length > 0) renderResultsTable();
+  const meta = SETTINGS_SECTIONS_META[targetId];
+  setStatus('done', targetId === 'sec-test' ? 'Test prompt and expected answer restored to defaults' : targetId === 'sec-appearance' ? 'Appearance preferences restored to defaults' : `${meta ? meta.label : 'Settings'} reset to defaults`);
 });
 
 function setAccent(id) {
   if (!ACCENTS.some((a) => a.id === id)) return;
-  settings.accent = id;
-  saveAppearance();
+  const oldId = settings.accent;
+  if (oldId !== id) {
+    ensureInactiveAccents();
+    const idx = inactiveAccentIds.indexOf(id);
+    if (idx !== -1) {
+      inactiveAccentIds[idx] = oldId;
+    }
+    settings.accent = id;
+    saveAppearance();
+  } else {
+    const activeEl = document.querySelector('#accent-row .accent-active-swatch');
+    if (activeEl) {
+      activeEl.classList.remove('accent-pulse');
+      void activeEl.offsetWidth;
+      activeEl.classList.add('accent-pulse');
+    }
+  }
 }
 
 function bindAccentSwatches(container) {
+  if (!container) return;
   container.addEventListener('click', (e) => {
     const sw = e.target.closest('[data-accent-id]');
     if (sw) setAccent(sw.dataset.accentId);
   });
+  container.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      const sw = e.target.closest('[data-accent-id]');
+      if (sw) {
+        e.preventDefault();
+        setAccent(sw.dataset.accentId);
+      }
+    }
+  });
 }
 bindAccentSwatches($('#accent-row'));
+
+function accentRowsHTML() {
+  return ACCENTS.map((a) => {
+    const on = a.id === settings.accent;
+    return `<div class="accent-row-item ${on ? 'active' : ''}" role="menuitemradio" aria-checked="${on}"
+                 data-accent-id="${a.id}" tabindex="0" title="${escapeHtml(a.name)}">
+      <span class="accent-row-swatch" style="--swatch-c:${a.hex};background:${a.hex}"></span>
+      <div class="accent-row-text">
+        <div class="accent-row-name">${escapeHtml(a.name)}</div>
+        <div class="accent-row-desc">${escapeHtml(a.desc || '')}</div>
+      </div>
+      <div class="accent-row-status">
+        ${on ? `<span class="accent-row-check" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
 
 // Header accent picker. Built from ACCENTS, like the Settings row, so the two
 // always offer the same colours.
 function renderAccentPop() {
-  $('#accent-pop-swatches').innerHTML = accentSwatchesHTML('hdr-swatch', 'menuitemradio');
+  $('#accent-pop-swatches').innerHTML = accentRowsHTML();
+  const pill = document.getElementById('accent-current-name');
+  if (pill) pill.textContent = accentLabel();
 }
 
 function setAccentPopOpen(open) {
@@ -4631,6 +5110,41 @@ $('#btn-accent').addEventListener('click', (e) => {
 // the popover mid-comparison.
 $('#accent-pop').addEventListener('click', (e) => e.stopPropagation());
 bindAccentSwatches($('#accent-pop-swatches'));
+const accentAppBtn = document.getElementById('accent-view-appearance');
+if (accentAppBtn) {
+  accentAppBtn.addEventListener('click', () => {
+    setAccentPopOpen(false);
+    showPage('settings');
+    if (typeof switchSettingsSection === 'function') switchSettingsSection('sec-appearance');
+  });
+}
+const openProfilePage = () => {
+  const pop = document.getElementById('profile-pop');
+  if (pop) pop.hidden = true;
+  const btn = document.getElementById('btn-profile');
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+  showPage('profile');
+};
+['#profile-open-page-btn', '#profile-pop-card-btn', '#profile-view-security'].forEach((sel) => {
+  const el = document.querySelector(sel);
+  if (el) el.addEventListener('click', openProfilePage);
+});
+$('#btn-profile-page-lock')?.addEventListener('click', async () => {
+  try {
+    await window.electronAPI.authLock();
+  } catch (err) {
+    console.error('Could not lock the app:', err);
+  }
+  if (window.LOCK) window.LOCK.show('locked');
+});
+$('#btn-profile-page-signout')?.addEventListener('click', async () => {
+  try {
+    await window.electronAPI.authLock();
+  } catch (err) {
+    console.error('Could not lock the app:', err);
+  }
+  if (window.LOCK) window.LOCK.show('locked');
+});
 document.addEventListener('click', (e) => {
   if (!$('#accent-pop').hidden && !e.target.closest('.hdr-accent')) setAccentPopOpen(false);
 });
@@ -4650,23 +5164,58 @@ async function refreshLogInfo() {
 }
 
 function renderAbout() {
-  $('#about-version').textContent = appVersion || '—';
+  $('#about-version').textContent = appVersion || '2.1.2';
 
-  $('#about-providers').innerHTML = Object.values(PROVIDERS)
-    .map((p) => {
-      const n = (p.models || []).length;
-      return `<div class="about-provider">
-        <span class="about-provider-name">${escapeHtml(p.name)}</span>
-        <span class="about-provider-meta">${n ? `${n} models` : 'not fetched'}</span>
-      </div>`;
-    })
-    .join('');
+  // 1. Providers KPI
+  const provList = Object.values(PROVIDERS);
+  const connectedCount = provList.filter((p) => p.keys && p.keys.length > 0).length;
+  const provEl = $('#about-kpi-providers');
+  if (provEl) provEl.textContent = `${connectedCount} / ${provList.length}`;
 
+  // 2. Models tracked in Catalog KPI
+  const modelsCount = window.CATALOG && window.CATALOG.visibleEntries
+    ? window.CATALOG.visibleEntries().length
+    : (provList.reduce((sum, p) => sum + (p.models || []).length, 0) || history.size || 0);
+  const modelsEl = $('#about-kpi-models');
+  if (modelsEl) modelsEl.textContent = String(modelsCount);
+
+  // 3. Runs / Benchmarks recorded KPI
   const runs = [...history.values()].reduce((a, h) => a + h.length, 0);
-  const tracked = history.size;
-  $('#about-stats').innerHTML =
-    `<div class="about-provider"><span class="about-provider-name">Models tracked</span><span class="about-provider-meta">${tracked}</span></div>` +
-    `<div class="about-provider"><span class="about-provider-name">Results recorded</span><span class="about-provider-meta">${runs}</span></div>`;
+  const runsEl = $('#about-kpi-runs');
+  if (runsEl) runsEl.textContent = String(runs);
+
+  // 4. Last catalog sync KPI
+  const lastSyncEl = $('#about-kpi-synced');
+  if (lastSyncEl) {
+    let lastSync = 0;
+    if (window.CATALOG && window.CATALOG.lastSyncAt) {
+      lastSync = window.CATALOG.lastSyncAt();
+    }
+    if (!lastSync) {
+      history.forEach((h) => {
+        const at = h.length ? h[h.length - 1].at : 0;
+        if (at > lastSync) lastSync = at;
+      });
+    }
+    lastSyncEl.textContent = lastSync ? formatAgo(lastSync) : 'Never';
+  }
+
+  // Backward compatibility with legacy DOM placeholders if present
+  const oldProv = $('#about-providers');
+  if (oldProv) {
+    oldProv.innerHTML = provList
+      .map((p) => {
+        const n = (p.models || []).length;
+        return `<div class="about-provider"><span class="about-provider-name">${escapeHtml(p.name)}</span><span class="about-provider-meta">${n ? `${n} models` : 'not fetched'}</span></div>`;
+      })
+      .join('');
+  }
+  const oldStats = $('#about-stats');
+  if (oldStats) {
+    oldStats.innerHTML =
+      `<div class="about-provider"><span class="about-provider-name">Models tracked</span><span class="about-provider-meta">${history.size}</span></div>` +
+      `<div class="about-provider"><span class="about-provider-name">Results recorded</span><span class="about-provider-meta">${runs}</span></div>`;
+  }
 }
 
 $('#btn-open-log').addEventListener('click', () => window.electronAPI.openRequestLog());
@@ -4675,9 +5224,31 @@ $('#btn-clear-log').addEventListener('click', async () => {
   refreshLogInfo();
 });
 $('#btn-check-updates').addEventListener('click', () => {
-  window.electronAPI.updateAPI.checkForUpdates();
-  $('#about-update-note').textContent = 'Checking…';
-  setTimeout(() => { $('#about-update-note').textContent = ''; }, 6000);
+  if (window.electronAPI?.updateAPI?.checkForUpdates) {
+    window.electronAPI.updateAPI.checkForUpdates();
+    $('#about-update-note').textContent = 'Contacting release channel…';
+  } else {
+    $('#about-update-note').textContent = 'Updater not available in development mode.';
+    setTimeout(() => { $('#about-update-note').textContent = ''; }, 4000);
+  }
+});
+
+// External link buttons on the About page
+$$('#sec-about .about-link-pill').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const url = btn.dataset.site;
+    if (url && window.electronAPI?.openExternal) {
+      window.electronAPI.openExternal(url);
+    }
+  });
+});
+
+// Jump buttons on About KPI cards
+$$('#sec-about .about-kpi-card[data-go]').forEach((card) => {
+  card.addEventListener('click', () => {
+    const page = card.dataset.go;
+    if (page) showPage(page);
+  });
 });
 
 // Settings is a page in the shell. Its form is refilled on every visit so it
@@ -4800,6 +5371,10 @@ if (syncSources) syncSources.addEventListener('click', async () => {
 
 function switchSettingsSection(sectionId) {
   const targetId = sectionId || 'sec-appearance';
+  if (targetId === 'sec-security') {
+    showPage('profile');
+    return;
+  }
   const btn = $(`#settings-nav .settings-nav-item[data-section="${targetId}"]`);
   if (!btn) return;
   $$('#settings-nav .settings-nav-item').forEach((b) => {
@@ -4826,6 +5401,21 @@ function switchSettingsSection(sectionId) {
     const stick = parseFloat(getComputedStyle(page).paddingTop) || 0;
     const offset = grid.getBoundingClientRect().top - page.getBoundingClientRect().top;
     if (offset < stick) page.scrollTop += offset - stick;
+  }
+
+  const resetBtn = $('#btn-reset-appearance');
+  if (resetBtn) {
+    const isAppearance = targetId === 'sec-appearance';
+    const isTest = targetId === 'sec-test';
+    resetBtn.hidden = !(isAppearance || isTest);
+    const meta = SETTINGS_SECTIONS_META[targetId];
+    const labelSpan = resetBtn.querySelector('.reset-btn-label');
+    if (labelSpan) {
+      labelSpan.textContent = 'Reset to defaults';
+    }
+    resetBtn.title = isTest
+      ? 'Restore default prompt and expected answer'
+      : `Reset ${meta ? meta.label : 'appearance'} to defaults`;
   }
 
   const meta = SETTINGS_SECTIONS_META[targetId] || { label: 'Settings', desc: 'Configure application options' };
@@ -4898,6 +5488,44 @@ function renderSecuritySection() {
   }
   const warn = $('#lock-default-warning');
   if (warn) warn.hidden = !lockStatus.isDefault;
+  const metaLock = $('#profile-meta-lock-status');
+  if (metaLock) {
+    metaLock.textContent = lockStatus.isDefault ? 'Shipped PIN' : 'Master PIN Active';
+  }
+  const kpiStatus = $('#profile-kpi-status');
+  if (kpiStatus) {
+    kpiStatus.textContent = lockStatus.locked ? 'Locked' : 'Active';
+  }
+  const idleInput = $('#set-lock-idle');
+  if (idleInput && settings.lockIdleMin !== undefined) {
+    idleInput.value = settings.lockIdleMin;
+  }
+  const idleKpi = $('#profile-kpi-idle');
+  if (idleKpi && idleInput) {
+    idleKpi.textContent = `${idleInput.value || settings.lockIdleMin || 60} min`;
+  }
+}
+
+function renderProfileCrumbs() {
+  const el = $('#profile-crumbs');
+  if (!el) return;
+  el.innerHTML = breadcrumbHTML([
+    { label: 'Overview', page: 'overview' },
+    { label: 'Profile & Security' }
+  ]);
+}
+
+function renderProfilePage() {
+  const idleInput = $('#set-lock-idle');
+  if (idleInput && settings.lockIdleMin !== undefined) {
+    idleInput.value = settings.lockIdleMin;
+  }
+  renderProfileCrumbs();
+  primeLockStatus();
+  const idleKpi = $('#profile-kpi-idle');
+  if (idleKpi && idleInput) {
+    idleKpi.textContent = `${idleInput.value || settings.lockIdleMin || 60} min`;
+  }
 }
 
 // Read once at startup so the warning is right the first time Settings opens,
@@ -4964,6 +5592,14 @@ $('.page-settings').addEventListener('click', (e) => {
   }
 });
 
+$('.page-profile')?.addEventListener('click', (e) => {
+  const go = e.target.closest('[data-go]');
+  if (go && go.dataset.go) {
+    showPage(go.dataset.go);
+    return;
+  }
+});
+
 $('#settings-nav').addEventListener('click', (e) => {
   const btn = e.target.closest('.settings-nav-item');
   if (!btn) return;
@@ -5015,7 +5651,7 @@ $('#btn-reset-settings').addEventListener('click', () => {
 
 // App shell. Bound before init() so the nav responds while providers and
 // history are still loading.
-const PAGES = ['overview', 'providers', 'provider', 'catalog', 'activity', 'database', 'history', 'monitor', 'settings'];
+const PAGES = ['overview', 'providers', 'provider', 'catalog', 'activity', 'database', 'history', 'monitor', 'profile', 'settings'];
 let currentPage = 'overview';
 
 // Routes live in the URL hash (the page is loaded from file://, so real paths
@@ -5061,6 +5697,7 @@ const PAGE_META = {
   database: { title: 'Database', desc: 'Read-only explorer for the local app and request databases.' },
   history: { title: 'Test History', desc: 'Every request this app has sent, and the runs they belong to.' },
   monitor: { title: 'Monitoring', desc: 'Requests, errors, latency and cost over time.' },
+  profile: { title: 'Profile & Security', desc: 'Workspace administrator identity, session security and access controls.' },
   settings: { title: 'Settings', desc: 'Test prompt, scheduling, appearance and data.' },
 };
 
@@ -5101,6 +5738,7 @@ function showPage(page) {
     updateStats();
     renderPtLegend();
   }
+  if (page === 'profile') renderProfilePage();
   if (page === 'settings') prepareSettingsPage();
   if (page === 'catalog' && window.CATALOG) (window.CATALOG.open ? window.CATALOG.open() : window.CATALOG.render());
   if (page === 'activity' && window.ACTIVITY) window.ACTIVITY.render();
@@ -5212,6 +5850,10 @@ function bindShell() {
   const shell = $('#shell');
   renderPageHeader(currentPage);
   $('#btn-theme-toggle').addEventListener('click', toggleTheme);
+  $('#btn-header-debug')?.addEventListener('click', () => {
+    showPage('settings');
+    switchSettingsSection('sec-logs');
+  });
   // Empty-state buttons on the Overview lead to where runs happen.
   $('.page-overview').addEventListener('click', (e) => {
     const go = e.target.closest('[data-go]');
@@ -5442,6 +6084,8 @@ const PV_ICON = {
 // would clear the tick the second click had just turned on. The original title
 // is remembered the first time, so a restart never saves "Copied" as it.
 function markCopied(el) {
+  const copyId = el.dataset.kxCopy || el.dataset.copy || null;
+  if (copyId != null) pvCopied.set(copyId, Date.now() + 1200);
   const title = el.dataset.copyTitle || el.title;
   el.dataset.copyTitle = title;
   el.classList.add('copied');
@@ -5450,6 +6094,7 @@ function markCopied(el) {
   el.dataset.copyTimer = String(setTimeout(() => {
     el.classList.remove('copied');
     el.title = title;
+    if (copyId != null && (pvCopied.get(copyId) || 0) <= Date.now()) pvCopied.delete(copyId);
   }, 1200));
 }
 
@@ -5457,9 +6102,14 @@ function isConnected(p) {
   return p.keys.length > 0;
 }
 
-// The provider's own site: meta.website if the module gives one, otherwise the
-// registrable part of the API host. Local and bare-IP endpoints have none.
+// The provider's site link: console/keys/website meta when the module gives
+// one (verified 2026-10-12: no module under src/renderer/providers/ defines
+// any of them — read-only grep), otherwise the registrable part of the API
+// host. Local and bare-IP endpoints have none. Do not invent console URLs;
+// the fallback is the provider's website domain, not its console.
 function providerWebsite(p) {
+  if (p.consoleUrl) return p.consoleUrl;
+  if (p.keysUrl) return p.keysUrl;
   if (p.website) return p.website;
   try {
     const host = new URL(p.baseUrl).hostname;
@@ -5473,7 +6123,7 @@ function providerWebsite(p) {
 function websiteLinkHTML(p) {
   const url = providerWebsite(p);
   if (!url) return '';
-  return `<button class="pv-site" type="button" data-site="${escapeHtml(url)}" title="Open ${escapeHtml(url.replace(/^https?:\/\//, ''))}" aria-label="Open the ${escapeHtml(p.name)} website">` +
+  return `<button class="pv-site" type="button" data-site="${escapeHtml(url)}" title="Open website ${escapeHtml(url.replace(/^https?:\/\//, ''))}" aria-label="Open the ${escapeHtml(p.name)} website">` +
     '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg></button>';
 }
 
@@ -5665,7 +6315,7 @@ function providerHealthLine(p) {
   if (!isConnected(p)) return { state: 'none', text: 'Not connected — needs an API key' };
   const h = providerHealth.get(p.id);
   if (!h) return { state: 'pending', text: 'Checking connection…' };
-  if (h.state === 'ok') return { state: 'ok', text: h.detail.replace('Connected', 'Reachable') };
+  if (h.state === 'ok') return { state: 'ok', text: h.detail };
   if (h.state === 'none') return { state: 'none', text: 'No active key' };
   return { state: h.state, text: h.detail };
 }
@@ -5698,7 +6348,7 @@ function providerCardHTML(p, mode) {
   const primary = mode === 'connected'
     ? `<button class="btn ${open ? 'btn-ghost' : 'btn-primary'} pv-primary" type="button" data-kx-toggle="${id}" aria-expanded="${open}">${PV_ICON.keys}${open ? 'Hide keys' : 'Manage keys'}</button>`
     : connected
-      ? `<button class="btn pv-primary pv-primary-done" type="button" disabled aria-disabled="true" title="${escapeHtml(p.name)} is already connected">${PV_ICON.check}Already connected</button>`
+      ? `<button class="btn btn-primary pv-primary" type="button" data-show-connected="${id}">${PV_ICON.keys}Manage keys</button>`
       : `<button class="btn btn-primary pv-primary" type="button" data-connect="${id}">${PV_ICON.plug}Connect</button>`;
   const actions = mode === 'connected'
     ? `<button class="pv-link" type="button" data-connect="${id}">${PV_ICON.plus}Add key</button>
@@ -5721,13 +6371,14 @@ function providerCardHTML(p, mode) {
     <h3 class="pv-name"><span>${escapeHtml(p.name)}</span>${websiteLinkHTML(p)}</h3>
     <div class="pv-url">
       <code title="${escapeHtml(p.baseUrl)}">${escapeHtml(p.baseUrl)}</code>
-      <button class="pv-icon-btn" type="button" data-copy="${escapeHtml(p.baseUrl)}" title="Copy base URL" aria-label="Copy base URL">${PV_ICON.copy}</button>
+      <button class="pv-icon-btn${(pvCopied.get(p.baseUrl) || 0) > Date.now() ? ' copied' : ''}" type="button" data-copy="${escapeHtml(p.baseUrl)}" title="${(pvCopied.get(p.baseUrl) || 0) > Date.now() ? 'Copied' : 'Copy base URL'}" aria-label="Copy base URL">${PV_ICON.copy}</button>
     </div>
     <div class="pv-tags pv-caps">${providerTags(p)}</div>
     ${stats}
     ${open ? keysPanelHTML(p) : ''}
     ${primary}
     <div class="pv-card-actions${mode === 'connected' ? '' : ' is-centered'}">${actions}</div>
+    ${mode === 'connected' ? `<div class="pv-stats-strip">${keyStripHTML(p)}</div>` : ''}
   </article>`;
 }
 
@@ -5741,7 +6392,6 @@ function providerStatsHTML(p) {
       <div class="pv-stat"><span class="pv-stat-label">Pass rate</span>
         <span class="pv-stat-value ${s.rate == null ? 'dim' : ''}">${s.rate == null ? '—' : `${s.rate}%`}</span></div>
       <div class="pv-stats-foot">${providerStatusHTML(p)}</div>
-      ${isConnected(p) ? `<div class="pv-stats-strip">${keyStripHTML(p)}</div>` : ''}
     </div>`;
 }
 
@@ -5817,6 +6467,7 @@ function providerLegendHTML(list) {
           </div>
         </div>`).join('')}
     </div>
+    <div class="pv-legend-foot">${list.length} providers total — categories overlap (auth + free tier)</div>
   </div>`;
 }
 
@@ -5827,6 +6478,7 @@ function providerLegendHTML(list) {
 // Expanded providers are shared by both views, so opening one in the table and
 // switching to cards keeps it open.
 const pvExpanded = new Set();
+const pvCopied = new Map(); // copyId -> expiresAt (ms); re-applied on render so the tick survives a rebuild
 const keyProbe = new Map();   // keyId -> { state: 'testing'|'ok'|'fail', text, at }
 let keyDeleteArmed = null;    // keyId awaiting a second click to delete
 let keyDeleteTimer = null;
@@ -5987,9 +6639,9 @@ function keyResetHTML(k, { inline = false } = {}) {
   if (inline) {
     return `<span class="kx-meta kx-reset" title="${title}"><span class="kx-meta-item">${KX_META_ICON.clock}<span>${until ? `Resets in <span data-in="${until}">${escapeHtml(formatIn(until))}</span>` : 'No reset time'}</span></span></span>`;
   }
-  if (!until) return `<span class="ku-expiry" data-tone="low" title="${title}"><b>No reset time</b></span>`;
+  if (!until) return `<span class="ku-expiry" data-tone="low" title="${title}"><b>RESET: No reset time</b></span>`;
   const when = new Date(until).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  return `<span class="ku-expiry" data-tone="low" title="${title}"><b>Resets in <span data-in="${until}">${escapeHtml(formatIn(until))}</span></b><span class="ku-sub">${escapeHtml(when)}</span></span>`;
+  return `<span class="ku-expiry" data-tone="low" title="${title}"><b>RESET: Resets in <span data-in="${until}">${escapeHtml(formatIn(until))}</span></b><span class="ku-sub">${escapeHtml(when)}</span></span>`;
 }
 
 function refreshAgoLabels() {
@@ -6035,7 +6687,7 @@ function keyParts(p, k, i) {
   // is only waiting for it — unless live updates are paused.
   let probeHTML;
   if (isTesting) {
-    probeHTML = statusPillHTML('pending', 'Testing…');
+    probeHTML = statusPillHTML('testing', 'Testing…');
   } else if (!k.active) {
     probeHTML = statusPillHTML('none', 'Disabled', 'Switched-off keys are excluded from routing and background checks');
   } else if (isKeyFullySpent(k)) {
@@ -6078,14 +6730,14 @@ function keyParts(p, k, i) {
     // No hint and not locked means the save that should have produced one
     // never landed: the key still sits here as plaintext, unsaved.
     secret: `<div class="kx-secret">
-        <code>${k.locked ? 'encrypted' : (k.hint ? escapeHtml(k.hint) : 'not saved')}</code>
-        ${k.locked ? '' : `<button class="pv-icon-btn" type="button" data-kx-copy="${pid}|${kid}" title="Copy key" aria-label="Copy key">${PV_ICON.copy}</button>`}
+        ${k.locked ? '<code>encrypted</code>' : (k.hint ? `<code>${escapeHtml(k.hint)}</code>` : '<span class="kx-notsaved" title="WARNING: Key value was never saved — re-add it">NOT SAVED: not saved</span>')}
+        ${k.locked ? '' : `<button class="pv-icon-btn${(pvCopied.get(`${p.id}|${k.id}`) || 0) > Date.now() ? ' copied' : ''}" type="button" data-kx-copy="${pid}|${kid}" title="${(pvCopied.get(`${p.id}|${k.id}`) || 0) > Date.now() ? 'Copied' : 'Copy key'}" aria-label="Copy key">${PV_ICON.copy}</button>`}
       </div>`,
     probeHTML,
-    actions: `<button class="kx-btn icon-only kx-test-btn" type="button" data-kx-test="${pid}|${kid}"${testAct ? ` data-act="${testAct}"` : ''} ${k.locked || isTesting ? 'disabled' : ''}${isTesting ? ' aria-busy="true"' : ''} title="${testTitle}" aria-label="${testTitle}">${actIconHTML(testAct, KX_ICON.test)}</button>
+    actions: `<button class="kx-btn icon-only kx-test-btn" type="button" data-kx-test="${pid}|${kid}"${testAct ? ` data-act="${testAct}"` : ''} ${k.locked || isTesting || testAct === 'running' ? 'disabled' : ''}${isTesting || testAct === 'running' ? ' aria-busy="true"' : ''} title="${testTitle}" aria-label="${testTitle}">${(isTesting || testAct === "running") ? KX_ICON.test : actIconHTML(testAct, KX_ICON.test)}</button>
         <button class="kx-btn icon-only kx-lock-btn ${isUnlocked ? 'is-unlocked active' : 'is-locked'}" type="button" data-kx-active="${pid}|${kid}" ${k.locked ? 'disabled' : ''}
                 title="${lockTitle}" aria-label="${lockAria}">${isUnlocked ? KX_ICON.unlock : KX_ICON.lock}</button>
-        <button class="kx-btn icon-only danger ${armed ? 'armed' : ''}" type="button" data-kx-del="${pid}|${kid}" title="${armed ? 'Click again to delete' : 'Delete key'}" aria-label="Delete key">${KX_ICON.trash}${armed ? 'Confirm' : ''}</button>`,
+        <button class="kx-btn icon-only danger ${armed ? 'armed' : ''}" type="button" data-kx-del="${pid}|${kid}" title="${armed ? `Click again to delete ${escapeHtml(k.name)} — or use Undo in toast` : `Delete ${escapeHtml(k.name)}`}" aria-label="${armed ? `Click again to delete ${escapeHtml(k.name)}` : `Delete ${escapeHtml(k.name)}`}">${KX_ICON.trash}${armed ? `<span class="kx-del-label">Delete ${escapeHtml(k.name)}?</span>` : ''}</button>`,
   };
 }
 
@@ -6123,7 +6775,7 @@ function keyRowsHTML(p) {
     // width, so the check and the controls that act on it read as one block.
     const checked = kp.probe && kp.probe.at && kp.probe.state !== 'testing'
       ? `<span class="kx-checked-frame" title="Last checked ${escapeHtml(new Date(kp.probe.at).toLocaleString())}">${KX_META_ICON.clock}<span data-ago="${kp.probe.at}">${escapeHtml(formatAgo(kp.probe.at))}</span></span>`
-      : '<span class="kx-checked-frame is-empty" title="Not checked yet">not checked</span>';
+      : '<span class="kx-checked-frame is-empty dt-muted" title="Not checked yet">—</span>';
     const last = i === p.keys.length - 1;
     return `<div class="pv-krow${last ? ' last' : ''}" data-state="${kp.st.id}">
       <div class="pv-cell col-provider"><div class="dt-key">
@@ -6158,17 +6810,28 @@ const PV_BADGE_ICON = {
   model: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
 };
 
+function providerDisplayModelsCount(p) {
+  return window.CATALOG && typeof window.CATALOG.providerVisibleCount === 'function'
+    ? window.CATALOG.providerVisibleCount(p.id)
+    : null;
+}
+
 function providerBadgesHTML(p, s) {
   const isOAuth = providerAuthKinds(p).includes('oauth');
   const totalKeys = s?.keys ?? p.keys?.length ?? 0;
   const activeKeys = s?.activeKeys ?? usableKeys(p).length;
 
+  // F: surface active/total (e.g. 2/3 Active) when some keys are switched off;
+  // all-active keeps the short noun so first paint is unchanged.
   let keyLabel;
   if (isOAuth) {
-    keyLabel = totalKeys === 1 ? '1 account' : `${totalKeys} accounts`;
+    if (totalKeys === 0) keyLabel = '0 accounts';
+    else if (activeKeys === totalKeys) keyLabel = totalKeys === 1 ? '1 account' : `${totalKeys} accounts`;
+    else keyLabel = `${activeKeys}/${totalKeys} Active`;
   } else {
     if (totalKeys === 0) keyLabel = '0 keys';
-    else keyLabel = totalKeys === 1 ? '1 key' : `${totalKeys} keys`;
+    else if (activeKeys === totalKeys) keyLabel = totalKeys === 1 ? '1 key' : `${totalKeys} keys`;
+    else keyLabel = `${activeKeys}/${totalKeys} Active`;
   }
 
   const keyTitle = isOAuth
@@ -6176,60 +6839,65 @@ function providerBadgesHTML(p, s) {
     : `${activeKeys} of ${totalKeys} key${totalKeys === 1 ? '' : 's'} active`;
 
   const keyIcon = isOAuth ? PV_BADGE_ICON.account : PV_BADGE_ICON.key;
-  const keyClass = `pv-badge pv-badge-keys ${isOAuth ? 'is-oauth' : ''} ${totalKeys === 0 ? 'is-empty' : ''}`;
+  // Dim when nothing is usable (no keys, or every key switched off) — reuses is-empty, no new CSS.
+  const keyClass = `pv-badge pv-badge-keys ${isOAuth ? 'is-oauth' : ''} ${totalKeys === 0 || activeKeys === 0 ? 'is-empty' : ''}`;
 
-  // The badge counts what the owner can actually open: live working rows from
-  // the catalog. Until the catalog loads it falls back to the widest known
-  // number, so first paint never reads as empty.
-  const liveVisible = (window.CATALOG && typeof window.CATALOG.providerVisibleCount === 'function'
-    ? window.CATALOG.providerVisibleCount(p.id) : null);
-  const modelsCount = liveVisible == null
-    ? Math.max(
-      (window.CATALOG && typeof window.CATALOG.providerModelCount === 'function' ? window.CATALOG.providerModelCount(p.id) : 0) || 0,
-      (Array.isArray(p.models) ? p.models.length : 0),
-      s?.models || 0
-    )
-    : liveVisible;
-
-  const modelLabel = modelsCount === 1 ? '1 model' : `${modelsCount} models`;
-  const modelTitle = `${modelsCount} model${modelsCount === 1 ? '' : 's'} available`;
-  const modelClass = `pv-badge pv-badge-models ${modelsCount === 0 ? 'is-empty' : ''}`;
+  const modelsCount = providerDisplayModelsCount(p);
+  const modelLabel = modelsCount == null
+    ? '<span class="dt-muted">—</span> models'
+    : escapeHtml(modelsCount === 1 ? '1 model' : `${modelsCount} models`);
+  const modelTitle = modelsCount == null
+    ? '— models available'
+    : `${modelsCount} model${modelsCount === 1 ? '' : 's'} available`;
+  const modelClass = `pv-badge pv-badge-models ${modelsCount === 0 || modelsCount == null ? 'is-empty' : ''}`;
   const modelIcon = PV_BADGE_ICON.model;
 
   return `<div class="dt-provider-badges" role="group" aria-label="Provider configuration status">
     <span class="${keyClass}" title="${escapeHtml(keyTitle)}">${keyIcon}<span class="pv-badge-text">${escapeHtml(keyLabel)}</span></span>
-    <span class="${modelClass}" title="${escapeHtml(modelTitle)}">${modelIcon}<span class="pv-badge-text">${escapeHtml(modelLabel)}</span></span>
+    <span class="${modelClass}" title="${escapeHtml(modelTitle)}">${modelIcon}<span class="pv-badge-text">${modelLabel}</span></span>
   </div>`;
 }
 
-// Provider uptime strip: the last probeTickCount() health-probe verdicts for
-// one provider, oldest first. Green = the probe authenticated, red = it failed,
-// grey = no probe recorded (or no usable key). Test-run history lives on the
-// provider page and Test History; this strip answers only "is it up?".
-function pvSparklineHTML(p) {
-  const tickCount = probeTickCount();
-  const hist = providerProbeHistory.get(p.id) || [];
-  const recent = hist.slice(-tickCount);
-  const emptyCount = tickCount - recent.length;
-
+// Provider status strip: one tick per verdict of the last PROVIDER_TICKS
+// checks, oldest on the left, drawn under the row's action buttons and exactly
+// as wide as them (the stack stretches it to the buttons' width). Green = that
+// check authenticated, red = it was refused, grey = no verdict — nothing has
+// been checked yet, or the provider has no usable key. The empty slots are
+// deliberate: a strip that drew only what it had would come out a different
+// width on every provider, and could never show "not checked yet" at all.
+//
+// Unlike the solid bar this replaces, the strip carries something the badge
+// beside it does not — how the provider has been behaving — so it is labelled
+// (role="img") rather than hidden from assistive technology.
+function pvStateBarHTML(p) {
+  const ring = providerVerdicts.get(p.id) || [];
+  const empty = PROVIDER_TICKS - ring.length;
   const ticks = [];
-  for (let i = 0; i < emptyCount; i++) {
-    ticks.push('<span class="pv-tick empty" title="No probe recorded"></span>');
+  for (let i = 0; i < empty; i++) {
+    ticks.push('<span class="pv-state-tick is-empty" title="No check recorded"></span>');
   }
-  for (const h of recent) {
-    const cls = h.s === 'ok' ? 'up-ok' : h.s === 'fail' ? 'up-bad' : 'empty';
-    const when = h.at ? formatAgo(h.at) : '';
-    const what = h.s === 'ok' ? 'probe ok' : h.s === 'fail' ? 'probe failed' : 'no usable key';
-    const title = `${when ? `${when}: ` : ''}${what}`;
-    ticks.push(`<span class="pv-tick ${cls}" title="${escapeHtml(title)}"></span>`);
+  for (const v of ring) {
+    const tone = v.state === 'ok' ? 'ok' : v.state === 'fail' ? 'fail' : 'none';
+    const what = v.detail || (tone === 'ok' ? 'Reachable' : tone === 'fail' ? 'Check failed' : 'No active key');
+    const at = new Date(v.at).toLocaleTimeString();
+    ticks.push(`<span class="pv-state-tick" data-state="${tone}" title="${escapeHtml(`${at} — ${what}`)}"></span>`);
   }
+  const healthy = ring.filter((v) => v.state === 'ok').length;
+  const summary = ring.length
+    ? `Last ${ring.length} check${ring.length === 1 ? '' : 's'}: ${healthy} healthy — oldest on the left, latest on the right`
+    : 'No checks recorded yet';
+  return `<span class="pv-state-bar" role="img" title="${escapeHtml(summary)}" aria-label="${escapeHtml(summary)}">${ticks.join('')}</span>`;
+}
 
-  const oks = recent.filter((h) => h.s === 'ok').length;
-  const tip = recent.length
-    ? `${oks}/${recent.length} probes ok`
-    : 'No probes yet';
-
-  return `<div class="pv-sparkline" role="img" aria-label="${escapeHtml(tip)}" title="${escapeHtml(tip)}">${ticks.join('')}</div>`;
+function providerRateHTML(s) {
+  if (s?.rate == null) {
+    return '<div class="dt-rate is-empty" title="No test runs recorded yet"><div class="dt-rate-bar" aria-hidden="true"><span style="width:0%"></span></div><b class="dt-muted">—</b></div>';
+  }
+  const runs = s.runs || 0;
+  const tip = `${runs} run${runs === 1 ? '' : 's'}`;
+  const tone = typeof scoreClass === 'function' ? scoreClass(s.rate / 100) : '';
+  const width = Math.max(0, Math.min(100, s.rate));
+  return `<div class="dt-rate" title="${escapeHtml(tip)}"><div class="dt-rate-bar"><span class="${tone}" style="width:${width}%"></span></div><b>${s.rate}%</b></div>`;
 }
 
 // Connected providers as a list of row cards, one per provider with a gap
@@ -6243,22 +6911,24 @@ function pvRowsHTML(groups, stats) {
     const id = escapeHtml(p.id);
     const open = pvExpanded.has(p.id);
     return `<div class="pv-rowcard ${open ? 'open' : ''}" role="listitem">
-      <div class="pv-row ${open ? 'open' : ''}" data-kx-toggle="${id}" aria-expanded="${open}" tabindex="0">
+      <div class="pv-row ${open ? 'open' : ''}" data-kx-toggle="${id}" role="button" aria-expanded="${open}" tabindex="0">
         <div class="pv-cell col-provider"><div class="dt-provider">${KX_ICON.chevron}
           ${providerLogoHTML(p)}
           <div><div class="dt-provider-name">${escapeHtml(p.name)}${websiteLinkHTML(p)}</div>${providerBadgesHTML(p, s)}</div>
         </div></div>
-        <div class="pv-cell col-status">${providerStatusHTML(p)}</div>
-        <div class="pv-cell col-rate"></div>
-        <div class="pv-cell col-last">${last ? escapeHtml(formatAgo(last)) : '<span class="dt-muted">never</span>'}</div>
-        <div class="pv-cell col-actions"><div class="pv-actions-stack">
-          <div class="dt-row-actions">
-            <button class="dt-icon-btn" type="button" data-connect="${id}" title="Add key" aria-label="Add key">${PV_ICON.plus}</button>
-            ${recheckButtonHTML(p)}
-            <button class="dt-icon-btn dt-icon-go" type="button" data-manage="${id}" title="Test models" aria-label="Test ${escapeHtml(p.name)} models">${PV_ICON.flask}</button>
+        <div class="pv-cell col-status"><div class="pv-status-stack">${providerStatusHTML(p)}</div></div>
+        <div class="pv-cell col-rate">${providerRateHTML(s)}</div>
+        <div class="pv-cell col-last">${last ? `<span title="${escapeHtml(new Date(last).toLocaleString())}">LAST: ${escapeHtml(formatAgo(last))}</span>` : '<span class="dt-muted">LAST: never</span>'}</div>
+        <div class="pv-cell col-actions">
+          <div class="pv-actions-stack">
+            <div class="dt-row-actions">
+              <button class="dt-icon-btn" type="button" data-connect="${id}" title="Add key" aria-label="Add key">${PV_ICON.plus}</button>
+              ${recheckButtonHTML(p)}
+              <button class="dt-icon-btn dt-icon-go" type="button" data-manage="${id}" title="Test models" aria-label="Test ${escapeHtml(p.name)} models">${PV_ICON.flask}</button>
+            </div>
+            ${pvStateBarHTML(p)}
           </div>
-          ${pvSparklineHTML(p)}
-        </div></div>
+        </div>
       </div>${open ? `<div class="pv-rowcard-keys">${keyRowsHTML(p)}</div>` : ''}
     </div>`;
   }).join('')).join('');
@@ -6272,7 +6942,28 @@ function refreshAfterKeyChange(pid) {
     renderKeysList();
     updateTestAllButton();
   }
-  if (currentPage === 'providers') renderProvidersPage();
+  if (currentPage === 'providers') {
+    const page = document.querySelector('.page-providers');
+    const scrollPos = page ? page.scrollTop : window.scrollY;
+    const activeEl = document.activeElement;
+    const activeSelector = activeEl && activeEl.dataset ? (
+      activeEl.dataset.kxDel ? `[data-kx-del="${activeEl.dataset.kxDel}"]` :
+      activeEl.dataset.kxTest ? `[data-kx-test="${activeEl.dataset.kxTest}"]` :
+      activeEl.dataset.kxActive ? `[data-kx-active="${activeEl.dataset.kxActive}"]` :
+      activeEl.dataset.kxCopy ? `[data-kx-copy="${activeEl.dataset.kxCopy}"]` :
+      null
+    ) : null;
+
+    renderProvidersPage();
+
+    if (page) page.scrollTop = scrollPos;
+    else window.scrollTo(window.scrollX, scrollPos);
+
+    if (activeSelector) {
+      const elToFocus = document.querySelector(activeSelector);
+      if (elToFocus) elToFocus.focus({ preventScroll: true });
+    }
+  }
 }
 
 // Checks one key with the provider: a GET on its models endpoint, unless the
@@ -6341,6 +7032,8 @@ async function deleteKey(pid, kid) {
   clearTimeout(keyDeleteTimer);
   keyDeleteArmed = null;
   const p = PROVIDERS[pid];
+  const deletedIndex = p.keys.findIndex((x) => x.id === kid);
+  const deletedKey = deletedIndex >= 0 ? { ...p.keys[deletedIndex] } : null;
   p.keys = p.keys.filter((x) => x.id !== kid);
   keyProbe.delete(kid);
   if (window.KEY_USAGE) KEY_USAGE.forget(kid);
@@ -6348,6 +7041,47 @@ async function deleteKey(pid, kid) {
   if (!p.keys.length) pvExpanded.delete(pid);
   await saveProviderConfig(pid);
   refreshAfterKeyChange(pid);
+  if (deletedKey) {
+    showKeyDeletedToast(pid, deletedKey, deletedIndex);
+  }
+}
+
+function showKeyDeletedToast(pid, deletedKey, deletedIndex) {
+  const root = document.getElementById('mc-toasts');
+  if (!root) return;
+  const el = document.createElement('div');
+  el.className = 'mc-toast mc-toast-warn';
+  el.setAttribute('role', 'status');
+  const keyLabel = deletedKey.name || deletedKey.hint || 'key';
+  el.innerHTML = `<span class="mc-toast-ico">${KX_ICON.trash}</span><span class="mc-toast-msg">Deleted key <strong>${escapeHtml(keyLabel)}</strong></span><button class="mc-toast-undo" type="button">Undo</button>`;
+  let undone = false;
+  const undoBtn = el.querySelector('.mc-toast-undo');
+  if (undoBtn) {
+    undoBtn.onclick = async () => {
+      if (undone) return;
+      undone = true;
+      const p = PROVIDERS[pid];
+      if (p) {
+        if (deletedIndex >= 0 && deletedIndex <= p.keys.length) {
+          p.keys.splice(deletedIndex, 0, deletedKey);
+        } else {
+          p.keys.push(deletedKey);
+        }
+        await saveProviderConfig(pid);
+        refreshAfterKeyChange(pid);
+      }
+      el.classList.remove('show');
+      setTimeout(() => el.remove(), 240);
+    };
+  }
+  root.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  setTimeout(() => {
+    if (!undone) {
+      el.classList.remove('show');
+      setTimeout(() => el.remove(), 240);
+    }
+  }, 5000);
 }
 
 // Accordion: opening one provider closes whichever was open.
@@ -6363,18 +7097,18 @@ function togglePvExpanded(pid) {
 // ============================================
 // Stat cards — shared
 // ============================================
-// items: [{ label, value, sub?, foot, icon, meter? (0..1), tone? ('pass' | 'fail'),
-//          profile? ('lite' | 'pro' | 'max'), attrs? (raw attributes for a card
-//          that acts as a button), active? }]
+// items: [{ label, value, sub?, foot, icon, meter? (0..1), tone? ('pass' | 'fail'), profile?, attrs?, active? }]
+function solidBar(kind, pct) { return `<div class="stat-bar-solid bar-${kind}" style="width: ${Math.max(0, Math.min(100, pct))}%;"></div>`; }
+function noBar() { return '<div class="stat-card-bar-wrap is-empty" aria-hidden="true"></div>'; }
+function statCard({ tone, title, value, icon, subhead, subval, subvalHtml, bar, foot, pill, pillHtml, clickable, attrs, active }) {
+  const isWrapped = bar && (bar.includes("stat-card-wave") || bar.includes("stat-bar-segmented") || bar.includes("stat-bar-spectrum") || bar.includes("stat-card-bar-wrap")); const barHtml = isWrapped ? bar : (bar ? `<div class="stat-card-bar-wrap">${bar}</div>` : "");
+  const midHtml = (subhead || subval || subvalHtml || barHtml) ? `<div class="stat-card-mid"><div class="stat-card-mid-labels"><span class="stat-card-subhead">${escapeHtml(subhead || "")}</span><span class="stat-card-subval">${subvalHtml || escapeHtml(subval || "")}</span></div>${barHtml}</div>` : "";
+  const pillMarkup = pillHtml || (pill ? `<span class="pill"><span class="dot" aria-hidden="true"></span>${escapeHtml(pill)}</span>` : "");
+  return `<div class="stat-card ov-kpi stat-card-${tone || 'slate'}${clickable ? " clickable" : ""}${active ? " active" : ""}" ${attrs || ""}><div class="ambientAura" aria-hidden="true"></div><div class="stat-card-head"><span class="stat-card-title">${escapeHtml(title || "")}</span><div class="stat-card-head-right">${clickable ? `<span class="stat-card-arrow" aria-hidden="true">↗</span>` : ""}<span class="stat-card-badge">${icon || ""}</span></div></div><div class="stat-card-value">${escapeHtml(String(value != null ? value : ""))}</div>${midHtml}<div class="stat-card-foot"><span class="stat-card-foot-text">${escapeHtml(foot || "")}</span>${pillMarkup}</div></div>`;
+}
 function statCardsHTML(items) {
-  return '<div class="ov-kpis">' + items.map((it) => `
-    <div class="ov-kpi${it.tone ? ` tone-${it.tone}` : ''}${it.profile ? ` kpi-profile kpi-profile-${it.profile}` : ''}${it.attrs ? ' is-action' : ''}${it.active ? ' active' : ''}" ${it.attrs || ''}>
-      <span class="kpi-icon" aria-hidden="true">${it.icon || ''}</span>
-      <span class="ov-kpi-label">${escapeHtml(it.label)}</span>
-      <span class="ov-kpi-value">${it.value}${it.sub ? `<span class="kpi-value-sub">${it.sub}</span>` : ''}</span>
-      ${it.meter == null ? '' : `<span class="kpi-meter"><span style="width:${Math.round(Math.max(0, Math.min(1, it.meter)) * 100)}%"></span></span>`}
-      <span class="ov-kpi-foot">${escapeHtml(it.foot || '')}</span>
-    </div>`).join('') + '</div>';
+  const DEF_TONES = ['blue', 'green', 'amber', 'cyan'];
+  return '<div class="page-stats-grid ov-kpis">' + items.map((it, idx) => { const tone = it.tone === 'pass' ? 'green' : it.tone === 'fail' ? 'amber' : (it.tone && ['slate', 'green', 'amber', 'blue', 'cyan'].includes(it.tone) ? it.tone : DEF_TONES[idx % DEF_TONES.length]); const title = it.title || it.label || '', value = it.value, subhead = it.subhead !== undefined ? it.subhead : '', subval = it.subval !== undefined ? it.subval : (it.sub || ''); const bar = it.bar || (it.meter != null ? solidBar(tone === 'green' ? 'green' : tone === 'amber' ? 'amber' : tone === 'cyan' ? 'cyan' : 'blue', Math.round(Math.max(0, Math.min(1, it.meter)) * 100)) : noBar()); return statCard({ tone, title, value, icon: it.icon || '', subhead, subval, subvalHtml: it.subvalHtml, bar, foot: it.foot || '', pill: it.pill !== undefined ? it.pill : '', pillHtml: it.pillHtml, clickable: Boolean(it.attrs || it.clickable), attrs: it.attrs, active: it.active }); }).join('') + '</div>';
 }
 
 // ============================================
@@ -6518,7 +7252,7 @@ const pvState = {
 let pvShell = null; // which tab the body skeleton was built for
 
 const PV_TOOLBAR = {
-  placeholder: 'Search providers, hosts or URLs…',
+  placeholder: 'Search providers, models, hosts or URLs…',
   statusFilter: {
     icon: 'server',
     label: 'Provider Status',
@@ -6574,27 +7308,49 @@ function renderConnectedKpis(connected, all) {
   });
   const rate = total ? passed / total : null;
   $('#pv-kpis').innerHTML = statCardsHTML([
-    { label: 'Connected', value: connected.length, sub: `/ ${all.length}`, icon: KPI_ICON.plug,
-      meter: all.length ? connected.length / all.length : 0, foot: 'of the integrated providers' },
-    { label: 'Active keys', value: active, sub: `/ ${keys}`, icon: KPI_ICON.key,
-      meter: keys ? active / keys : 0, foot: keys - active ? `${keys - active} switched off` : 'all keys in use' },
-    { label: 'Reachable', value: reachable, sub: `/ ${connected.length}`, icon: KPI_ICON.pulse,
-      meter: connected.length ? reachable / connected.length : 0, foot: 'answered the health check' },
-    { label: 'Pass rate', value: rate == null ? '—' : `${Math.round(rate * 100)}%`, icon: KPI_ICON.target,
-      meter: rate, foot: total ? `${total.toLocaleString()} results recorded` : 'no runs recorded yet' },
+    { label: 'Connected', value: connected.length, sub: `/ ${all.length}`, icon: KPI_ICON.plug, tone: 'green', subhead: 'OF INTEGRATED PROVIDERS',
+      pill: connected.length > 0 ? `${connected.length} Active` : undefined, meter: all.length ? connected.length / all.length : 0, foot: 'of the integrated providers' },
+    { label: 'Active keys', value: active, sub: `/ ${keys}`, icon: KPI_ICON.key, tone: 'amber', subhead: 'KEY ALLOCATION',
+      pill: active > 0 ? `${active} Active` : undefined, meter: keys ? active / keys : 0, foot: keys - active ? `${keys - active} switched off` : 'all keys in use' },
+    { label: 'Reachable', value: reachable, sub: `/ ${connected.length}`, icon: KPI_ICON.pulse, tone: connected.length > 0 && reachable < connected.length ? 'amber' : 'cyan', subhead: 'ENDPOINT HEALTH',
+      pill: connected.length > 0 && reachable === connected.length ? 'All Reachable' : (connected.length > 0 && reachable > 0 && reachable < connected.length ? `${reachable}/${connected.length} Reachable` : undefined), meter: connected.length ? reachable / connected.length : 0, foot: 'answered the health check' },
+    { label: 'Pass rate', value: rate == null ? '—' : `${Math.round(rate * 100)}%`, icon: KPI_ICON.target, tone: 'blue', subhead: 'BENCHMARK RUNS',
+      pill: rate != null ? `${Math.round(rate * 100)}% Benchmarked` : undefined, meter: rate, foot: total ? `${total.toLocaleString()} results recorded` : 'no runs recorded yet' },
   ]);
 }
 
 function pvFilterState(p) {
-  const h = providerHealth.get(p.id);
-  if (!h) return 'pending';
-  return h.state;
+  return providerHealthLine(p).state;
+}
+
+// Models a provider offers, as search text (read-only over CATALOG rows, which
+// carry id + name + family — the same fields the Models Catalog searches).
+// visibleEntries() is preferred so the text matches what the Catalog shows;
+// state.models is the fallback before first load or when the tab filter hides
+// rows. Never writes to CATALOG.
+function pvModelSearchText(p) {
+  try {
+    if (window.CATALOG && typeof window.CATALOG.visibleEntries === 'function') {
+      const rows = window.CATALOG.visibleEntries().filter((e) => e && e.providerId === p.id);
+      if (rows.length) return rows.map((e) => `${e.name || ''} ${e.id || ''} ${e.family || ''}`).join(' ');
+    }
+    const m = window.CATALOG && window.CATALOG.state && window.CATALOG.state.models;
+    if (m && typeof m.values === 'function') {
+      return [...m.values()].filter((e) => e && e.providerId === p.id).map((e) => `${e.name || ''} ${e.id || ''} ${e.family || ''}`).join(' ');
+    }
+  } catch (_) {}
+  return '';
+}
+
+function pvSearchText(p) {
+  const keys = (p.keys || []).map((k) => `${k.name || ''} ${k.hint || ''}`).join(' ');
+  return `${p.name} ${providerHost(p)} ${p.baseUrl} ${keys} ${pvModelSearchText(p)}`;
 }
 
 function pvFiltered(connected) {
   const q = pvState.search.trim().toLowerCase();
   let list = connected.filter((p) => {
-    if (q && !`${p.name} ${providerHost(p)} ${p.baseUrl}`.toLowerCase().includes(q)) return false;
+    if (q && !pvSearchText(p).toLowerCase().includes(q)) return false;
     if (pvState.filter !== 'all' && !providerAuthKinds(p).includes(pvState.filter)) return false;
     if (pvState.status !== 'all' && pvFilterState(p) !== pvState.status) return false;
     return true;
@@ -6602,8 +7358,24 @@ function pvFiltered(connected) {
   const stats = new Map(list.map((p) => [p.id, providerStats(p)]));
   const by = {
     name: (a, b) => a.name.localeCompare(b.name),
-    rate: (a, b) => (stats.get(b.id).rate ?? -1) - (stats.get(a.id).rate ?? -1),
-    models: (a, b) => stats.get(b.id).models - stats.get(a.id).models,
+    rate: (a, b) => {
+      const ra = stats.get(a.id)?.rate ?? null;
+      const rb = stats.get(b.id)?.rate ?? null;
+      if (ra == null && rb == null) return a.name.localeCompare(b.name);
+      if (ra == null) return 1;
+      if (rb == null) return -1;
+      if (rb !== ra) return rb - ra;
+      return a.name.localeCompare(b.name);
+    },
+    models: (a, b) => {
+      const ma = providerDisplayModelsCount(a);
+      const mb = providerDisplayModelsCount(b);
+      if (ma == null && mb == null) return a.name.localeCompare(b.name);
+      if (ma == null) return 1;
+      if (mb == null) return -1;
+      if (mb !== ma) return mb - ma;
+      return a.name.localeCompare(b.name);
+    },
     recent: (a, b) => pvLastRun(b) - pvLastRun(a),
   };
   list = list.sort(by[pvState.sort] || by.name);
@@ -6612,11 +7384,13 @@ function pvFiltered(connected) {
 
 
 function renderConnectedResults(connected) {
+  // A rebuild replaces the opener button, so a lingering popover would float detached — keep auto-close.
+  closeRateLimitPop();
   const results = $('#pv-results');
   // Filter counts reflect the search and status filter, so a chip never promises rows it hides.
   const q = pvState.search.trim().toLowerCase();
   const searched = connected.filter((p) => {
-    if (q && !`${p.name} ${providerHost(p)} ${p.baseUrl}`.toLowerCase().includes(q)) return false;
+    if (q && !pvSearchText(p).toLowerCase().includes(q)) return false;
     if (pvState.status !== 'all' && pvFilterState(p) !== pvState.status) return false;
     return true;
   });
@@ -6642,6 +7416,8 @@ function renderConnectedResults(connected) {
 }
 
 function renderProvidersPage() {
+  // Same orphan guard: the popover lives on body while its opener is rebuilt.
+  closeRateLimitPop();
   const body = document.getElementById('pv-body');
   if (!body) return;
   const all = Object.values(PROVIDERS);
@@ -6692,17 +7468,15 @@ function renderProvidersPage() {
   renderConnectedResults(connected);
 }
 
-// Crossing the breakpoint changes the whole page's shape, so the Providers
-// page starts over in it: Connected tab, every provider (All), no search, the
-// legend folded and every provider closed. The sort order is kept.
+// Crossing the breakpoint changes the whole page's shape: Connected tab,
+// the legend folded and every provider closed. Search, filters and sort order are kept.
 COMPACT_LAYOUT.addEventListener('change', (e) => {
   pvState.view = e.matches ? 'cards' : 'table';
-  Object.assign(pvState, { search: '', filter: 'all' });
   providersTab = 'connected';
   pvExpanded.clear();
   pvLegendCollapsed = true;
   try { localStorage.setItem('pvLegendCollapsed', '1'); } catch (_) {}
-  pvShell = null; // rebuild the toolbar too, so the search box is emptied
+  pvShell = null; // rebuild the toolbar layout to match the view
   if (currentPage === 'providers') renderProvidersPage();
 });
 
@@ -6769,15 +7543,22 @@ $('.page-providers').addEventListener('click', async (e) => {
     return;
   }
   if (e.target.closest('[data-dt-clear]')) {
-    Object.assign(pvState, { search: '', filter: 'all' });
+    Object.assign(pvState, { search: '', filter: 'all', status: 'all', sort: 'name' });
     pvShell = null;
     renderProvidersPage();
     return;
   }
-  const el = e.target.closest('[data-tab], [data-go], [data-connect], [data-manage], [data-recheck], [data-copy]');
+  const el = e.target.closest('[data-tab], [data-go], [data-connect], [data-manage], [data-recheck], [data-copy], [data-show-connected]');
   if (!el || el.disabled) return;
   const d = el.dataset;
   if (d.tab) { providersTab = d.tab; pvShell = null; renderProvidersPage(); return; }
+  if (d.showConnected) {
+    providersTab = 'connected';
+    pvExpanded.add(d.showConnected);
+    pvShell = null;
+    renderProvidersPage();
+    return;
+  }
   if (d.go) { showPage(d.go); return; }
   if (d.connect) {
     switchProvider(d.connect);

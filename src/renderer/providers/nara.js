@@ -37,6 +37,10 @@ window.INTEGRATED_PROVIDERS.nara = {
 
     // Offers free models or a free quota (drives the Free Tier legend colour).
     freeTier: true,
+    // docs-sourced NARA.md §0/§3: Free plan only observed (screenshot-sourced); router uses live GET /v1/me values.
+    planNote: 'Free plan · 7M tokens/day',
+    // docs-sourced NARA.md §0/§3
+    docsSource: 'NARA.md §0/§3',
   },
 
   // TypeSafe /systemone decision protocol — lives here because the wire shape

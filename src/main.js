@@ -31,9 +31,11 @@ if (app.commandLine.hasSwitch('smoke-test') && !app.commandLine.hasSwitch('user-
 
 // Settled before anything reads a path or writes a log. An explicit
 // --user-data-dir (dev and test instances) is used as given; otherwise a
-// packaged run and an unpackaged run resolve the same real data folder.
+// packaged run resolves %APPDATA%\venom-router and an unpackaged run
+// (`npm start`) resolves %APPDATA%\venom-router-dev, so dev never opens the
+// installed app's venom.db.
 if (!app.commandLine.hasSwitch('user-data-dir')) {
-  const userData = resolveUserDataDir(app.getPath('appData'), fs);
+  const userData = resolveUserDataDir(app.getPath('appData'), fs, app.isPackaged);
   app.setPath('userData', userData.dir);
   if (userData.migrated) log.info('Moved app data to', userData.dir);
   if (userData.error) log.warn('Could not move the old app data folder, still using it:', userData.error.message);

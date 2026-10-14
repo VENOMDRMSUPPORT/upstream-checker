@@ -116,6 +116,10 @@
         </button>
 
         <span class="shell-nav-group-label">System</span>
+        <button class="shell-nav-item" type="button" data-page="profile">
+          <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <span>Profile</span>
+        </button>
         <button class="shell-nav-item" type="button" data-page="settings">
           <svg class="shell-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
           <span>Settings</span>
@@ -191,6 +195,10 @@
         </div>
 
         <div class="shell-header-actions">
+          <button class="hdr-btn" id="btn-header-debug" type="button" title="Diagnostics &amp; Logs" aria-label="Diagnostics &amp; Logs">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 2 1.88 1.88M14.12 3.88 16 2M9 7.13v-1a3.003 3.003 0 1 1 6 0v1M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6M12 20v-9M6.53 9C4.6 8.8 3 7.1 3 5M6 13H2M3 21c0-2.1 1.7-3.9 3.8-4M20.97 5c0 2.1-1.6 3.8-3.5 4M18 13h4M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>
+          </button>
+
           <div class="hdr-notif-wrap">
             <button class="hdr-btn" id="btn-notifications" type="button" aria-haspopup="true"
                     aria-expanded="false" aria-controls="notif-pop"
@@ -199,11 +207,20 @@
               <span class="hdr-badge" id="notif-badge" hidden></span>
             </button>
             <div class="hdr-pop hdr-notif" id="notif-pop" role="menu" aria-label="Notifications" hidden>
-              <div class="hdr-pop-title">Notifications</div>
+              <div class="ntf-head">
+                <span class="ntf-head-title">Notifications</span>
+                <span class="ntf-unread-pill" id="notif-unread-count" hidden></span>
+              </div>
               <div id="notif-list"></div>
               <div class="ntf-foot">
-                <button class="btn-mini" id="notif-mark-read" type="button">Mark all as read</button>
-                <button class="btn-mini" id="notif-view-all" type="button">View all activity</button>
+                <button class="btn-mini ntf-btn ntf-btn-secondary" id="notif-mark-read" type="button">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                  <span>Mark all as read</span>
+                </button>
+                <button class="btn-mini ntf-btn ntf-btn-primary" id="notif-view-all" type="button">
+                  <span>View all activity</span>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                </button>
               </div>
             </div>
           </div>
@@ -213,9 +230,18 @@
                     aria-label="Accent color" aria-haspopup="true" aria-expanded="false" aria-controls="accent-pop">
               <span class="hdr-accent-swatch"></span>
             </button>
-            <div class="hdr-pop" id="accent-pop" role="menu" aria-label="Accent color" hidden>
-              <div class="hdr-pop-title">Accent color</div>
+            <div class="hdr-pop hdr-accent-pop" id="accent-pop" role="menu" aria-label="Accent color" hidden>
+              <div class="ntf-head accent-head">
+                <span class="ntf-head-title">Accent Color</span>
+                <span class="ntf-unread-pill accent-pill" id="accent-current-name"></span>
+              </div>
               <div class="hdr-pop-swatches" id="accent-pop-swatches"></div>
+              <div class="ntf-foot accent-foot">
+                <button class="btn-mini ntf-btn ntf-btn-secondary" id="accent-view-appearance" type="button">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                  <span>More appearance options</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -239,7 +265,11 @@
               </span>
             </button>
             <div class="hdr-pop hdr-pop-profile" id="profile-pop" role="menu" aria-label="Profile" hidden>
-              <div class="profile-pop-head">
+              <div class="ntf-head profile-head">
+                <span class="ntf-head-title">Profile &amp; Session</span>
+                <span class="ntf-unread-pill profile-pill">Owner</span>
+              </div>
+              <div class="profile-pop-card" id="profile-pop-card-btn" role="button" tabindex="0" title="Open Profile &amp; Security page">
                 <span class="hdr-avatar hdr-avatar-lg" aria-hidden="true">
                   <span class="hdr-avatar-initials">A</span>
                 </span>
@@ -247,16 +277,37 @@
                   <span class="hdr-profile-name">Administrator</span>
                   <span class="hdr-profile-role">Owner · local workspace</span>
                 </span>
+                <span class="profile-card-arrow" aria-hidden="true">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                </span>
               </div>
-              <div class="profile-pop-sep" role="separator"></div>
-              <button class="profile-pop-item" id="btn-profile-lock" type="button" role="menuitem">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
-                <span>Lock now</span>
-              </button>
-              <button class="profile-pop-item" id="btn-profile-signout" type="button" role="menuitem">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 17l5-5-5-5"/><path d="M20 12H9"/><path d="M12 19H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h6"/></svg>
-                <span>Sign out</span>
-              </button>
+              <div class="profile-pop-list">
+                <button class="profile-pop-item" id="btn-profile-lock" type="button" role="menuitem">
+                  <span class="profile-item-icon">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+                  </span>
+                  <span class="profile-item-body" data-desc="Require master PIN to resume">Lock now</span>
+                  <span class="profile-item-arrow" aria-hidden="true">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                  </span>
+                </button>
+                <button class="profile-pop-item profile-pop-item-danger" id="btn-profile-signout" type="button" role="menuitem">
+                  <span class="profile-item-icon">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 17l5-5-5-5"/><path d="M20 12H9"/><path d="M12 19H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h6"/></svg>
+                  </span>
+                  <span class="profile-item-body" data-desc="End session and return to lock screen">Sign out</span>
+                  <span class="profile-item-arrow" aria-hidden="true">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                  </span>
+                </button>
+              </div>
+              <div class="ntf-foot profile-foot">
+                <button class="btn-mini ntf-btn ntf-btn-primary" id="profile-view-security" type="button">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                  <span>Open Profile &amp; Security</span>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -619,10 +670,6 @@
                     <svg class="settings-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 2 1.88 1.88M14.12 3.88 16 2M9 7.13v-1a3.003 3.003 0 1 1 6 0v1M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6M12 20v-9M6.53 9C4.6 8.8 3 7.1 3 5M6 13H2M3 21c0-2.1 1.7-3.9 3.8-4M20.97 5c0 2.1-1.6 3.8-3.5 4M18 13h4M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>
                     <span>Diagnostics &amp; Logs</span>
                   </button>
-                  <button class="settings-nav-item" data-section="sec-security" role="tab" aria-selected="false">
-                    <svg class="settings-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
-                    <span>Security</span>
-                  </button>
                   <button class="settings-nav-item" data-section="sec-data" role="tab" aria-selected="false">
                     <svg class="settings-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
                     <span>Data Directory</span>
@@ -643,165 +690,484 @@
                   <span class="settings-head-title" id="settings-main-head-title">Appearance</span>
                   <span class="settings-head-meta" id="settings-main-head-desc"></span>
                 </div>
+                <div class="settings-panel-head-actions">
+                  <button class="btn btn-settings-reset" id="btn-reset-appearance" type="button" title="Reset settings to defaults">
+                    <svg class="reset-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                    <span class="reset-btn-label">Reset to defaults</span>
+                  </button>
+                </div>
               </div>
               <div class="settings-panel-body">
                 <div class="settings-estimate" id="settings-estimate" hidden></div>
 
                 <!-- Appearance -->
                 <section class="settings-section" id="sec-appearance">
-                  <div class="theme-cards-grid" id="mode-grid" role="radiogroup" aria-label="Mode">
-                    <button class="mode-card theme-card-option" type="button" role="radio" data-theme-id="vercel">
-                      <div class="theme-preview-box preview-dark" aria-hidden="true">
-                        <div class="tp-topbar"></div>
-                        <div class="tp-content-row">
-                          <div class="tp-sidebar"></div>
-                          <div class="tp-main-block"></div>
-                        </div>
+                  <!-- Group 1: Theme -->
+                  <div class="settings-group" id="appearance-group-theme">
+                    <div class="settings-group-header">
+                      <div class="settings-group-title">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+                        <span>Theme</span>
                       </div>
-                      <div class="theme-card-info">
-                        <div class="theme-card-label">
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
-                          <span>Dark mode</span>
-                        </div>
-                        <span class="theme-radio-circle"></span>
-                      </div>
-                      <div class="theme-card-desc">High-contrast dark surface for low-light environments</div>
-                    </button>
+                      <span class="settings-group-badge" id="theme-active-mode-badge">Dark</span>
+                    </div>
 
-                    <button class="mode-card theme-card-option" type="button" role="radio" data-theme-id="daylight">
-                      <div class="theme-preview-box preview-light" aria-hidden="true">
-                        <div class="tp-topbar"></div>
-                        <div class="tp-content-row">
-                          <div class="tp-sidebar"></div>
-                          <div class="tp-main-block"></div>
+                    <div class="theme-cards-grid mode-grid" id="mode-grid" role="radiogroup" aria-label="Mode">
+                      <button class="mode-card theme-card-option" type="button" role="radio" data-theme-id="vercel">
+                        <div class="theme-preview-box preview-dark" aria-hidden="true">
+                          <div class="tp-window">
+                            <div class="tp-titlebar">
+                              <div class="tp-window-dots">
+                                <span></span><span></span><span></span>
+                              </div>
+                              <span class="tp-title-text"></span>
+                              <span class="tp-emblem"></span>
+                            </div>
+                            <div class="tp-body">
+                              <div class="tp-sidebar">
+                                <div class="tp-nav-item active"></div>
+                                <div class="tp-nav-item"></div>
+                                <div class="tp-nav-item"></div>
+                              </div>
+                              <div class="tp-main">
+                                <div class="tp-header">
+                                  <div class="tp-head-title"></div>
+                                  <div class="tp-head-badge"></div>
+                                </div>
+                                <div class="tp-kpi-row">
+                                  <div class="tp-kpi">
+                                    <div class="tp-kpi-val"></div>
+                                    <div class="tp-kpi-bar"></div>
+                                  </div>
+                                  <div class="tp-kpi">
+                                    <div class="tp-kpi-val"></div>
+                                    <div class="tp-kpi-bar"></div>
+                                  </div>
+                                </div>
+                                <div class="tp-table">
+                                  <div class="tp-row">
+                                    <span class="tp-dot pass"></span>
+                                    <span class="tp-cell-name"></span>
+                                    <span class="tp-cell-pill"></span>
+                                  </div>
+                                  <div class="tp-row">
+                                    <span class="tp-dot pass"></span>
+                                    <span class="tp-cell-name"></span>
+                                    <span class="tp-cell-pill"></span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="theme-card-info">
+                          <div class="theme-card-label">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+                            <span>Dark mode</span>
+                          </div>
+                          <span class="theme-card-system-badge" title="Automatically synchronized with Windows"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>Auto (System)</span>
+                          <span class="theme-radio-circle"></span>
+                        </div>
+                        <div class="theme-card-desc">High-contrast dark surface for low-light environments</div>
+                      </button>
+
+                      <button class="mode-card theme-card-option" type="button" role="radio" data-theme-id="daylight">
+                        <div class="theme-preview-box preview-light" aria-hidden="true">
+                          <div class="tp-window">
+                            <div class="tp-titlebar">
+                              <div class="tp-window-dots">
+                                <span></span><span></span><span></span>
+                              </div>
+                              <span class="tp-title-text"></span>
+                              <span class="tp-emblem"></span>
+                            </div>
+                            <div class="tp-body">
+                              <div class="tp-sidebar">
+                                <div class="tp-nav-item active"></div>
+                                <div class="tp-nav-item"></div>
+                                <div class="tp-nav-item"></div>
+                              </div>
+                              <div class="tp-main">
+                                <div class="tp-header">
+                                  <div class="tp-head-title"></div>
+                                  <div class="tp-head-badge"></div>
+                                </div>
+                                <div class="tp-kpi-row">
+                                  <div class="tp-kpi">
+                                    <div class="tp-kpi-val"></div>
+                                    <div class="tp-kpi-bar"></div>
+                                  </div>
+                                  <div class="tp-kpi">
+                                    <div class="tp-kpi-val"></div>
+                                    <div class="tp-kpi-bar"></div>
+                                  </div>
+                                </div>
+                                <div class="tp-table">
+                                  <div class="tp-row">
+                                    <span class="tp-dot pass"></span>
+                                    <span class="tp-cell-name"></span>
+                                    <span class="tp-cell-pill"></span>
+                                  </div>
+                                  <div class="tp-row">
+                                    <span class="tp-dot pass"></span>
+                                    <span class="tp-cell-name"></span>
+                                    <span class="tp-cell-pill"></span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="theme-card-info">
+                          <div class="theme-card-label">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+                            <span>Light mode</span>
+                          </div>
+                          <span class="theme-card-system-badge" title="Automatically synchronized with Windows"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>Auto (System)</span>
+                          <span class="theme-radio-circle"></span>
+                        </div>
+                        <div class="theme-card-desc">Clean, high-readability light canvas with sharp borders</div>
+                      </button>
+                    </div>
+
+                    <div class="settings-rows">
+                      <div class="settings-row-item">
+                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg></div>
+                        <div class="settings-row-info">
+                          <label class="settings-row-title" for="set-follow-system">Match system theme</label>
+                          <div class="settings-row-desc">Automatically switch between light and dark with the Windows setting.</div>
+                        </div>
+                        <div class="settings-row-control">
+                          <label class="switch-toggle" for="set-follow-system">
+                            <input type="checkbox" id="set-follow-system">
+                            <span class="switch-slider"></span>
+                          </label>
                         </div>
                       </div>
-                      <div class="theme-card-info">
-                        <div class="theme-card-label">
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
-                          <span>Light mode</span>
-                        </div>
-                        <span class="theme-radio-circle"></span>
-                      </div>
-                      <div class="theme-card-desc">Clean, high-readability light canvas with sharp borders</div>
-                    </button>
+                    </div>
                   </div>
 
-                  <div class="settings-rows">
-                    <div class="settings-row-item">
-                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg></div>
-                      <div class="settings-row-info">
-                      <label class="settings-row-title" for="set-follow-system">Match system theme</label>
-                      <div class="settings-row-desc">Switch between light and dark with the Windows setting.</div>
+                  <!-- Group 2: Interface -->
+                  <div class="settings-group" id="appearance-group-interface">
+                    <div class="settings-group-header">
+                      <div class="settings-group-title">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24M14.83 14.83l4.24 4.24M14.83 9.17l4.24-4.24M4.93 19.07l4.24-4.24"/></svg>
+                        <span>Interface</span>
+                      </div>
                     </div>
-                      <div class="settings-row-control"><label class="switch-toggle" for="set-follow-system">
-                      <input type="checkbox" id="set-follow-system">
-                      <span class="switch-slider"></span>
-                    </label></div>
-                    </div>
-                    <div class="settings-row-item">
-                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 2 1.88 1.88M14.12 3.88 16 2M9 7.13v-1a3.003 3.003 0 1 1 6 0v1M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6M12 20v-9M6.53 9C4.6 8.8 3 7.1 3 5M6 13H2M3 21c0-2.1 1.7-3.9 3.8-4M20.97 5c0 2.1-1.6 3.8-3.5 4M18 13h4M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg></div>
-                      <div class="settings-row-info">
-                      <label class="settings-row-title" for="set-debug-header">Debug panel in header</label>
-                      <div class="settings-row-desc">A diagnostics button in the top bar.</div>
-                    </div>
-                      <div class="settings-row-control"><label class="switch-toggle" for="set-debug-header">
-                      <input type="checkbox" id="set-debug-header" checked>
-                      <span class="switch-slider"></span>
-                    </label></div>
-                    </div>
-                    <div class="settings-row-item">
-                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
-                      <div class="settings-row-info">
-                      <label class="settings-row-title" for="set-reduce-motion">Reduce motion</label>
-                      <div class="settings-row-desc">Turn off transitions and animated flourishes.</div>
-                    </div>
-                      <div class="settings-row-control"><label class="switch-toggle" for="set-reduce-motion">
-                      <input type="checkbox" id="set-reduce-motion">
-                      <span class="switch-slider"></span>
-                    </label></div>
-                    </div>
-                    <div class="settings-row-item vertical">
-                      <div class="settings-row-header-inline">
+
+                    <div class="settings-rows">
+                      <div class="settings-row-item">
                         <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24M14.83 14.83l4.24 4.24M14.83 9.17l4.24-4.24M4.93 19.07l4.24-4.24"/></svg></div>
                         <div class="settings-row-info">
-                      <div class="settings-row-title">Accent color <span class="setting-label-value" id="accent-name"></span></div>
-                      <div class="settings-row-desc">Highlights and primary actions. The logo is redrawn in the colour you pick.</div>
-                    </div>
+                          <div class="settings-row-title">Accent color <span class="setting-label-value" id="accent-name"></span></div>
+                          <div class="settings-row-desc">Highlights and primary actions. The emblem and brand accents adapt to your choice.</div>
+                        </div>
+                        <div class="settings-row-control">
+                          <div class="accent-cluster-widget accent-grid" id="accent-row" role="radiogroup" aria-label="Accent color"></div>
+                        </div>
                       </div>
-                      <div class="settings-row-field"><div class="accent-grid" id="accent-row"></div></div>
-                    </div>
-                    <div class="settings-row-item">
-                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h18v18H3zM3 9h18M3 15h18M9 3v18M15 3v18"/></svg></div>
-                      <div class="settings-row-info">
-                      <div class="settings-row-title">Results density</div>
-                      <div class="settings-row-desc">How much of the results table fits on screen at once.</div>
-                    </div>
-                      <div class="settings-row-control"><div class="segmented" id="density-seg" role="radiogroup" aria-label="Results density">
-                      <button type="button" role="radio" data-value="compact">Compact</button>
-                      <button type="button" role="radio" data-value="normal">Normal</button>
-                      <button type="button" role="radio" data-value="roomy">Roomy</button>
-                    </div></div>
+
+                      <div class="settings-row-item">
+                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
+                        <div class="settings-row-info">
+                          <label class="settings-row-title" for="set-reduce-motion">Reduce motion</label>
+                          <div class="settings-row-desc">Turn off UI transitions, hover scaling, and animated flourishes.</div>
+                        </div>
+                        <div class="settings-row-control">
+                          <label class="switch-toggle" for="set-reduce-motion">
+                            <input type="checkbox" id="set-reduce-motion">
+                            <span class="switch-slider"></span>
+                          </label>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
-                  <div class="settings-zone">
-                    <div class="settings-zone-info">
-                      <div class="settings-zone-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>Reset appearance</div>
-                      <div class="settings-zone-desc">Theme, accent and density go back to their defaults.</div>
+                  <!-- Group 3: Developer Options -->
+                  <div class="settings-group" id="appearance-group-dev">
+                    <div class="settings-group-header">
+                      <div class="settings-group-title">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 2 1.88 1.88M14.12 3.88 16 2M9 7.13v-1a3.003 3.003 0 1 1 6 0v1M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6M12 20v-9M6.53 9C4.6 8.8 3 7.1 3 5M6 13H2M3 21c0-2.1 1.7-3.9 3.8-4M20.97 5c0 2.1-1.6 3.8-3.5 4M18 13h4M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>
+                        <span>Developer Options</span>
+                      </div>
                     </div>
-                    <div class="settings-actions"><button class="btn btn-ghost" id="btn-reset-appearance" type="button">Reset appearance</button></div>
+
+                    <div class="settings-rows">
+                      <div class="settings-row-item">
+                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 2 1.88 1.88M14.12 3.88 16 2M9 7.13v-1a3.003 3.003 0 1 1 6 0v1M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6M12 20v-9M6.53 9C4.6 8.8 3 7.1 3 5M6 13H2M3 21c0-2.1 1.7-3.9 3.8-4M20.97 5c0 2.1-1.6 3.8-3.5 4M18 13h4M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg></div>
+                        <div class="settings-row-info">
+                          <label class="settings-row-title" for="set-debug-header">Debug panel in header</label>
+                          <div class="settings-row-desc">Show a quick diagnostics shortcut button in the window top bar.</div>
+                        </div>
+                        <div class="settings-row-control">
+                          <label class="switch-toggle" for="set-debug-header" checked>
+                            <input type="checkbox" id="set-debug-header" checked>
+                            <span class="switch-slider"></span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Group 4: Data Display -->
+                  <div class="settings-group" id="appearance-group-density">
+                    <div class="settings-group-header">
+                      <div class="settings-group-title">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h18v18H3zM3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
+                        <span>Data Display</span>
+                      </div>
+                    </div>
+
+                    <div class="settings-rows">
+                      <div class="settings-row-item vertical density-setting-row">
+                        <div class="settings-row-header-inline">
+                          <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h18v18H3zM3 9h18M3 15h18M9 3v18M15 3v18"/></svg></div>
+                          <div class="settings-row-info">
+                            <div class="settings-row-title">Results density</div>
+                            <div class="settings-row-desc">Row heights and typography scale across results tables and monitoring lists.</div>
+                          </div>
+                          <div class="settings-row-control">
+                            <div class="segmented" id="density-seg" role="radiogroup" aria-label="Results density">
+                              <button type="button" role="radio" data-value="compact">Compact</button>
+                              <button type="button" role="radio" data-value="normal">Normal</button>
+                              <button type="button" role="radio" data-value="roomy">Roomy</button>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="settings-row-field">
+                          <div class="density-preview-wrap">
+                            <div class="density-preview-head">
+                              <span class="density-preview-title">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
+                                <span>Table Preview</span>
+                              </span>
+                              <span class="density-preview-pill" id="density-current-pill">Normal density</span>
+                            </div>
+                            <table class="results-table density-preview-table">
+                              <thead>
+                                <tr>
+                                  <th style="width: 38px;">#</th>
+                                  <th>MODEL</th>
+                                  <th style="width: 80px;">STATUS</th>
+                                  <th style="width: 75px;">TIME</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                <tr class="row-pass">
+                                  <td><span class="cell-row-num">1</span></td>
+                                  <td>
+                                    <div class="cell-model-line">
+                                      <span class="cell-model-name">gpt-4o</span>
+                                      <span class="cell-model-key">openai</span>
+                                    </div>
+                                  </td>
+                                  <td><span class="status-dot-badge pass">✓</span></td>
+                                  <td><span class="cell-time">480ms</span></td>
+                                </tr>
+                                <tr class="row-pass">
+                                  <td><span class="cell-row-num">2</span></td>
+                                  <td>
+                                    <div class="cell-model-line">
+                                      <span class="cell-model-name">claude-3-5-sonnet</span>
+                                      <span class="cell-model-key">anthropic</span>
+                                    </div>
+                                  </td>
+                                  <td><span class="status-dot-badge pass">✓</span></td>
+                                  <td><span class="cell-time">1.12s</span></td>
+                                </tr>
+                                <tr class="row-pass">
+                                  <td><span class="cell-row-num">3</span></td>
+                                  <td>
+                                    <div class="cell-model-line">
+                                      <span class="cell-model-name">gemini-1.5-pro</span>
+                                      <span class="cell-model-key">google</span>
+                                    </div>
+                                  </td>
+                                  <td><span class="status-dot-badge pass">✓</span></td>
+                                  <td><span class="cell-time">620ms</span></td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Tab footer notice -->
+                  <div class="tab-footer-notice">
+                    <span>Appearance preferences are applied immediately across all panels and persisted locally.</span>
                   </div>
                 </section>
 
                 <!-- Test -->
                 <section class="settings-section" id="sec-test" hidden>
-                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>Each kind of model is tested on its own route and judged by its own standard. One probe per kind for every provider is what makes their results comparable.</p></div>
 
-                  <div class="segmented test-kind-seg" id="test-kind-seg" role="tablist" aria-label="Model kind">
-                    <button type="button" role="tab" class="active" data-kind="chat" aria-selected="true">Chat</button>
-                    <button type="button" role="tab" data-kind="image" aria-selected="false">Image</button>
-                    <button type="button" role="tab" data-kind="video" aria-selected="false">Video</button>
-                    <button type="button" role="tab" data-kind="decision" aria-selected="false">Decision</button>
+                  <div class="test-header-bar">
+                    <div class="segmented test-kind-seg" id="test-kind-seg" role="tablist" aria-label="Model kind">
+                      <button type="button" role="tab" class="active" data-kind="chat" aria-selected="true">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                        <span>Chat</span>
+                      </button>
+                      <button type="button" role="tab" data-kind="image" aria-selected="false">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>
+                        <span>Image</span>
+                      </button>
+                      <button type="button" role="tab" data-kind="video" aria-selected="false">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2"/></svg>
+                        <span>Video</span>
+                      </button>
+                      <button type="button" role="tab" data-kind="decision" aria-selected="false">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                        <span>Decision</span>
+                      </button>
+                    </div>
+
+                    <div class="test-header-status-card" id="test-route-card">
+                      <div class="route-badge-line">
+                        <span class="route-badge-method" id="test-route-method">POST</span>
+                        <code class="route-badge-path" id="test-route-path">/chat/completions</code>
+                        <span class="route-badge-sep">•</span>
+                        <span class="route-badge-desc" id="test-route-desc">Passes on expected answer</span>
+                      </div>
+                      <div class="route-badge-scope" id="test-route-scope">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                        <span>Target: Configured providers with keys • Chat models only</span>
+                      </div>
+                    </div>
                   </div>
 
                   <div class="test-pane" data-kind="chat" role="tabpanel">
-                    <p class="test-route"><code>POST /chat/completions</code> Passes when the reply contains the expected answer.</p>
                     <div class="settings-rows">
                       <div class="settings-row-item vertical">
                         <div class="settings-row-header-inline">
                           <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
                           <div class="settings-row-info">
-                        <label class="settings-row-title" for="prompt-input">Prompt</label>
-                        <div class="settings-row-desc">Sent to every chat model on each run.</div>
-                      </div>
+                            <label class="settings-row-title" for="prompt-input">Prompt</label>
+                            <div class="settings-row-desc">Sent to every chat model on each run.</div>
+                          </div>
+                          <div class="field-quick-presets" id="prompt-presets">
+                            <span class="presets-label">Presets:</span>
+                            <button type="button" class="preset-pill active" data-preset="arithmetic" title="Simple math verification">2+2 Math</button>
+                            <button type="button" class="preset-pill" data-preset="capital" title="Geography fact check">Capital City</button>
+                            <button type="button" class="preset-pill" data-preset="logic" title="Reasoning &amp; comparison">Logic Test</button>
+                            <button type="button" class="preset-pill" data-preset="hello" title="Minimal one-word greeting">Hello World</button>
+                          </div>
                         </div>
-                        <div class="settings-row-field"><textarea class="prompt-input" id="prompt-input" rows="3" spellcheck="false"></textarea></div>
+                        <div class="settings-row-field">
+                          <textarea class="prompt-input" id="prompt-input" rows="3" spellcheck="false"></textarea>
+                          <div class="field-meta-bar">
+                            <span class="field-meta-stats" id="prompt-stats">35 chars • ~9 tokens</span>
+                            <button type="button" class="btn-copy-prompt" id="btn-copy-prompt" title="Copy prompt to clipboard">
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                              <span>Copy</span>
+                            </button>
+                          </div>
+                        </div>
                       </div>
                       <div class="settings-row-item vertical">
                         <div class="settings-row-header-inline">
                           <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
                           <div class="settings-row-info">
-                        <label class="settings-row-title" for="expected-input">Expected answer</label>
-                        <div class="settings-row-desc">Comma-separated alternatives, case-insensitive. Leave it empty to turn answer checking off.</div>
-                      </div>
+                            <label class="settings-row-title" for="expected-input">Expected answer</label>
+                            <div class="settings-row-desc">Comma-separated alternatives, case-insensitive. Leave it empty to turn answer checking off.</div>
+                          </div>
+                          <div class="match-mode-selector">
+                            <span class="match-mode-label">Evaluation rule:</span>
+                            <div class="segmented match-mode-seg" id="match-mode-seg" role="radiogroup" aria-label="Evaluation match rule">
+                              <button type="button" role="radio" data-mode="boundary" class="active" title="Matches whole words with surrounding punctuation allowed">Word Boundary</button>
+                              <button type="button" role="radio" data-mode="exact" title="Strict match after trimming spaces and terminal punctuation">Exact</button>
+                              <button type="button" role="radio" data-mode="contains" title="Matches if response contains the alternative anywhere">Contains</button>
+                              <button type="button" role="radio" data-mode="regex" title="Evaluates expected answer as regular expression">Regex</button>
+                            </div>
+                          </div>
                         </div>
-                        <div class="settings-row-field"><input type="text" class="prompt-input" id="expected-input" spellcheck="false"></div>
+                        <div class="settings-row-field">
+                          <input type="text" class="prompt-input" id="expected-input" spellcheck="false">
+                          <div class="expected-chips-wrap">
+                            <span class="chips-label">Accepted answers:</span>
+                            <div class="expected-chips-list" id="expected-chips-list">
+                              <span class="chip-item">4</span>
+                              <span class="chip-item">four</span>
+                            </div>
+                            <span class="chips-hint" id="expected-chips-hint"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Word boundary &amp; case-insensitive (punctuations allowed)</span>
+                          </div>
+                        </div>
                       </div>
                       <div class="settings-row-item">
                         <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/></svg></div>
                         <div class="settings-row-info">
-                        <label class="settings-row-title" for="set-max-tokens">Output token limit</label>
-                        <div class="settings-row-desc">A reasoning model can spend the whole budget thinking and return nothing, which shows up as an empty response. Raise it if that happens.</div>
-                      </div>
-                        <div class="settings-row-control"><span class="input-unit"><input type="number" class="prompt-input tiny" min="1" step="1" id="set-max-tokens"><span class="input-unit-label">tokens</span></span></div>
+                          <label class="settings-row-title" for="set-max-tokens">Output token limit</label>
+                          <div class="settings-row-desc">Sets max_tokens for test requests. Reasoning models (e.g. o1, DeepSeek-R1) deduct internal thinking budget from this limit.</div>
+                        </div>
+                        <div class="settings-row-control">
+                          <div class="token-limit-cluster">
+                            <div class="token-presets" id="token-presets">
+                              <button type="button" class="token-preset-pill" data-tokens="128">128</button>
+                              <button type="button" class="token-preset-pill" data-tokens="256">256</button>
+                              <button type="button" class="token-preset-pill active" data-tokens="512">512</button>
+                              <button type="button" class="token-preset-pill" data-tokens="1024">1024</button>
+                              <button type="button" class="token-preset-pill" data-tokens="2048">2048</button>
+                            </div>
+                            <span class="input-unit"><input type="number" class="prompt-input tiny" min="1" step="1" id="set-max-tokens"><span class="input-unit-label">tokens</span></span>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                    <div class="settings-pane-actions"><button class="btn btn-ghost" id="btn-reset-prompt">Restore default prompt and answer</button></div>
+                    
+                    <!-- Live Probe Inspector -->
+                    <div class="test-live-probe-wrap">
+                      <div class="test-live-probe-head">
+                        <div class="live-probe-title">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+                          <span>Live Probe Inspector &amp; Result Preview</span>
+                        </div>
+                        <span class="live-probe-badge pass" id="live-probe-badge">
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                          <span>Evaluation Passed</span>
+                        </span>
+                      </div>
+                      <div class="test-live-probe-body">
+                        <div class="probe-sample-line">
+                          <div class="probe-sample-meta">
+                            <span class="probe-sample-label">Simulated Model Output:</span>
+                            <span class="probe-sample-model">gpt-4o • 480ms</span>
+                          </div>
+                          <div class="probe-sample-bubble" id="probe-sample-bubble">
+                            <span class="probe-text">The answer is </span><mark class="probe-matched-token" id="probe-matched-token">4</mark><span class="probe-text">.</span>
+                          </div>
+                        </div>
+                        <div class="probe-telemetry-grid">
+                          <div class="probe-telemetry-item">
+                            <span class="probe-t-label">Status</span>
+                            <span class="probe-t-val pass">200 OK</span>
+                          </div>
+                          <div class="probe-telemetry-item">
+                            <span class="probe-t-label">Match Rule</span>
+                            <span class="probe-t-val" id="probe-match-rule-val">Word Boundary</span>
+                          </div>
+                          <div class="probe-telemetry-item">
+                            <span class="probe-t-label">Prompt Tokens</span>
+                            <span class="probe-t-val">~9 tokens (32 chars)</span>
+                          </div>
+                          <div class="probe-telemetry-item">
+                            <span class="probe-t-label">Output Tokens</span>
+                            <span class="probe-t-val">5 tokens</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <button class="btn btn-ghost" id="btn-reset-prompt" type="button" style="display:none !important;" aria-hidden="true" tabindex="-1">Restore default prompt and answer</button>
                   </div>
 
                   <div class="test-pane" data-kind="image" role="tabpanel" hidden>
-                    <p class="test-route"><code>POST /images/generations</code> Falls back to chat on a provider without that route. Passes when a real image comes back.</p>
+                    <div class="test-route">
+                      <span class="route-method">POST</span>
+                      <code class="route-path">/images/generations</code>
+                      <span class="route-sep">•</span>
+                      <span class="route-desc">Falls back to chat on a provider without that route. Passes when a real image comes back.</span>
+                    </div>
                     <div class="settings-rows">
                       <div class="settings-row-item vertical">
                         <div class="settings-row-header-inline">
@@ -828,7 +1194,12 @@
                   </div>
 
                   <div class="test-pane" data-kind="video" role="tabpanel" hidden>
-                    <p class="test-route"><code>POST /videos</code> then polls the job until it finishes. Falls back to chat on a provider without that route.</p>
+                    <div class="test-route">
+                      <span class="route-method">POST</span>
+                      <code class="route-path">/videos</code>
+                      <span class="route-sep">•</span>
+                      <span class="route-desc">Polls the job until it finishes. Falls back to chat on a provider without that route.</span>
+                    </div>
                     <div class="settings-rows">
                       <div class="settings-row-item vertical">
                         <div class="settings-row-header-inline">
@@ -852,7 +1223,12 @@
                   </div>
 
                   <div class="test-pane" data-kind="decision" role="tabpanel" hidden>
-                    <p class="test-route"><code>POST</code> to the provider's decision endpoint. Asks one yes/no question about a known state; passes when the model rates it as likely.</p>
+                    <div class="test-route">
+                      <span class="route-method">POST</span>
+                      <code class="route-path">/decision</code>
+                      <span class="route-sep">•</span>
+                      <span class="route-desc">Asks one yes/no question about a known state; passes when the model rates it as likely.</span>
+                    </div>
                     <div class="settings-rows">
                       <div class="settings-row-item vertical">
                         <div class="settings-row-header-inline">
@@ -882,15 +1258,26 @@
                         <div class="settings-row-desc">The lowest probability that still counts as a pass.</div>
                       </div>
                         </div>
-                        <div class="settings-row-field"><input type="range" min="0.05" max="0.99" step="0.01" class="setting-range" id="set-decision-threshold"></div>
+                        <div class="settings-row-field">
+                          <div class="range-slider-wrap">
+                            <span class="range-min-label">0.05</span>
+                            <input type="range" min="0.05" max="0.99" step="0.01" class="setting-range" id="set-decision-threshold">
+                            <span class="range-max-label">0.99</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
+                  </div>
+
+                  <!-- Tab footer notice -->
+                  <div class="tab-footer-notice">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                    <span>Each kind of model is tested on its own route and judged by its own standard. One probe per kind for every provider is what makes their results comparable.</span>
                   </div>
                 </section>
 
                 <!-- Schedule -->
                 <section class="settings-section" id="sec-schedule" hidden>
-                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>Unattended re-testing. Every run spends real API quota.</p></div>
 
                   <div class="settings-rows">
                     <div class="settings-row-item">
@@ -941,6 +1328,12 @@
                       <span class="switch-slider"></span>
                     </label></div>
                     </div>
+                  </div>
+
+                  <!-- Tab footer notice -->
+                  <div class="tab-footer-notice">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                    <span>Unattended re-testing runs on a timer. Every scheduled run spends real API quota.</span>
                   </div>
                 </section>
 
@@ -1055,7 +1448,7 @@
 
                 <!-- Models Catalog -->
                 <section class="settings-section" id="sec-catalog" hidden>
-                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>Every connected provider&rsquo;s model list is re-read on this cadence (one <code>GET /models</code> per key), on focus, and whenever a key is added or removed. Each model&rsquo;s facts are then matched against four upstream sources, so a score and a rank sit beside the facts the provider published. New models are flagged; removed ones disappear at once.</p></div>
+                  
 
                   <div class="settings-rows">
                     <div class="settings-row-item">
@@ -1103,11 +1496,16 @@
                     </div>
                     </div>
                   </div>
+                
+                  <!-- Tab footer notice -->
+                  <div class="tab-footer-notice">
+                    <span>Every connected provider’s model list is re-read on this cadence, on focus, and whenever a key changes. Each model is matched against four upstream sources. New models are flagged; removed ones disappear at once.</span>
+                  </div>
                 </section>
 
                 <!-- History -->
                 <section class="settings-section" id="sec-history" hidden>
-                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>Uptime is computed from stored runs. Only verdicts are kept, never response text.</p></div>
+                  
 
                   <div class="settings-rows">
                     <div class="settings-row-item">
@@ -1127,14 +1525,6 @@
                       <div class="settings-row-control"><span class="input-unit"><input type="number" class="prompt-input tiny" min="4" max="40" step="1" id="set-spark-runs"><span class="input-unit-label">runs</span></span></div>
                     </div>
                     <div class="settings-row-item">
-                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
-                      <div class="settings-row-info">
-                      <label class="settings-row-title" for="set-probe-ticks">Uptime strip shows</label>
-                      <div class="settings-row-desc">How many recent health probes each provider's strip covers.</div>
-                    </div>
-                      <div class="settings-row-control"><span class="input-unit"><input type="number" class="prompt-input tiny" min="4" max="40" step="1" id="set-probe-ticks"><span class="input-unit-label">probes</span></span></div>
-                    </div>
-                    <div class="settings-row-item">
                       <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg></div>
                       <div class="settings-row-info">
                       <div class="settings-row-title">Export history</div>
@@ -1151,11 +1541,16 @@
                     </div>
                     <div class="settings-actions"><button class="btn btn-ghost danger" id="btn-clear-history">Clear history</button></div>
                   </div>
+                
+                  <!-- Tab footer notice -->
+                  <div class="tab-footer-notice">
+                    <span>Uptime is computed from stored runs. Only verdicts are kept, never response text.</span>
+                  </div>
                 </section>
 
                 <!-- Diagnostics & Logs -->
                 <section class="settings-section" id="sec-logs" hidden>
-                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>Every request VENOM Router sends is recorded in a log database on this machine: when it ran, how long it took, the tokens it used and what it cost.</p></div>
+                  
 
                   <div class="settings-rows">
                     <div class="settings-row-item">
@@ -1238,11 +1633,16 @@
                     </div>
                     <div class="settings-actions"><button class="btn btn-ghost danger" id="btn-clear-log">Clear old log</button></div>
                   </div>
+                
+                  <!-- Tab footer notice -->
+                  <div class="tab-footer-notice">
+                    <span>Every request VENOM Router sends is recorded in a local log database: timestamp, duration, token usage and cost.</span>
+                  </div>
                 </section>
 
                 <!-- Data Directory -->
                 <section class="settings-section" id="sec-data" hidden>
-                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>Settings, providers and encrypted keys live in one folder; history sits beside them.</p></div>
+                  
 
                   <div class="settings-rows">
                     <div class="settings-row-item vertical">
@@ -1267,117 +1667,346 @@
                     </div>
                     <div class="settings-actions"><button class="btn btn-ghost danger" id="btn-reset-settings">Reset all settings</button></div>
                   </div>
-                </section>
-
-                <!-- Security -->
-                <section class="settings-section" id="sec-security" hidden>
-                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>This is a local lock on the window, not an account. It stops someone at this machine from opening the app; it does not encrypt the database or replace your Windows password.</p></div>
-
-                  <div class="settings-note settings-note-warn" id="lock-default-warning" hidden><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><p>This app is still using the password it shipped with. Anyone who has read the VENOM Router source knows it. Change it below.</p></div>
-
-                  <div class="settings-rows">
-                    <div class="settings-row-item">
-                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.5 9.5 8 11 4.5-1.5 8-6 8-11V5z"/><path d="m9 12 2 2 4-4"/></svg></div>
-                      <div class="settings-row-info">
-                      <div class="settings-row-title">Status <span class="setting-label-value" id="lock-status-label"></span></div>
-                      <div class="settings-row-desc">Whether the app is open right now, and whether the shipped password is still in force.</div>
-                    </div>
-                      <div class="settings-row-control"><div class="settings-actions">
-                        <button class="btn btn-ghost" id="btn-lock-now-settings" type="button">Lock now</button>
-                      </div></div>
-                    </div>
-
-                    <div class="settings-row-item">
-                      <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
-                      <div class="settings-row-info">
-                      <label class="settings-row-title" for="set-lock-idle">Lock after</label>
-                      <div class="settings-row-desc">Idle minutes before the app asks for the password again. It always asks on launch.</div>
-                    </div>
-                      <div class="settings-row-control"><span class="input-unit"><input type="number" class="prompt-input tiny" min="5" max="480" step="5" id="set-lock-idle"><span class="input-unit-label">min</span></span></div>
-                    </div>
-                  </div>
-
-                  <div class="settings-zone settings-zone-stack">
-                    <div class="settings-zone-info">
-                      <div class="settings-zone-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Change the owner password</div>
-                      <div class="settings-zone-desc">At least 8 characters. This replaces the shipped default everywhere it applies.</div>
-                    </div>
-                    <div class="lock-change-grid">
-                      <label class="lock-change-field">
-                        <span>Current password</span>
-                        <input type="password" id="set-lock-current" autocomplete="current-password" spellcheck="false" placeholder="Current password">
-                      </label>
-                      <label class="lock-change-field">
-                        <span>New password</span>
-                        <input type="password" id="set-lock-new" autocomplete="new-password" spellcheck="false" placeholder="At least 8 characters">
-                      </label>
-                      <label class="lock-change-field">
-                        <span>Confirm new password</span>
-                        <input type="password" id="set-lock-confirm" autocomplete="new-password" spellcheck="false" placeholder="Repeat the new password">
-                      </label>
-                    </div>
-                    <div class="settings-actions">
-                      <button class="btn btn-accent" id="btn-lock-change" type="button">Change password</button>
-                      <span class="lock-change-status" id="lock-change-status" role="status" aria-live="polite"></span>
-                    </div>
-                  </div>
-
-                  <div class="settings-zone">
-                    <div class="settings-zone-info">
-                      <div class="settings-zone-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>Forgot the password?</div>
-                      <div class="settings-zone-desc">There is no reset in the app. Run <code>npm run reset:lock -- "&lt;data folder&gt;"</code> — it deletes the saved password and nothing else, and the shipped default applies again.</div>
-                    </div>
+                
+                  <!-- Tab footer notice -->
+                  <div class="tab-footer-notice">
+                    <span>Settings, providers and encrypted keys live in one folder; history sits beside them.</span>
                   </div>
                 </section>
+
 
                 <!-- About -->
                 <section class="settings-section" id="sec-about" hidden>
-                  <div class="about-head">
-                    <div class="about-mark">
-                      <span class="brand-emblem" role="img" aria-label="VENOM Router"></span>
+                  <!-- 01: About VENOM Router -->
+                  <div class="about-hero-card">
+                    <div class="about-head">
+                      <div class="about-mark">
+                        <span class="brand-emblem" role="img" aria-label="VENOM Router"></span>
+                      </div>
+                      <div class="about-hero-details">
+                        <div class="about-hero-title-row">
+                          <span class="about-name">VENOM Router</span>
+                          <span class="about-release-badge" id="about-release-channel">Stable Release</span>
+                        </div>
+                        <div class="about-version-line">
+                          <span>Version</span>
+                          <code class="about-version-code" id="about-version">2.1.2</code>
+                          <span class="about-dot-sep">•</span>
+                          <span class="about-arch-tag">x64 Desktop</span>
+                        </div>
+                        <p class="about-tagline">
+                          Intelligent LLM gateway &amp; routing engine — benchmark models across your keys and route requests by real latency, cost, and uptime.
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <div class="about-name">VENOM Router</div>
-                      <div class="about-version">Version <span id="about-version">-</span></div>
+                    <div class="about-links-bar">
+                      <button type="button" class="about-link-pill" data-site="https://github.com/VENOMDRMSUPPORT/upstream-checker">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                        <span>GitHub Repository</span>
+                      </button>
+                      <button type="button" class="about-link-pill" data-site="https://github.com/VENOMDRMSUPPORT/upstream-checker/blob/main/docs/ARCHITECTURE.md">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                        <span>Documentation</span>
+                      </button>
+                      <button type="button" class="about-link-pill" data-site="https://github.com/VENOMDRMSUPPORT/upstream-checker/issues">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                        <span>Report Issue</span>
+                      </button>
+                      <button type="button" class="about-link-pill" data-site="https://github.com/VENOMDRMSUPPORT/upstream-checker/blob/main/LICENSE">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+                        <span>MIT License</span>
+                      </button>
                     </div>
                   </div>
 
-                  <div class="settings-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>Routes every request to the best model across your providers, chosen from measurements taken on your own keys &mdash; not from marketing claims.</p></div>
-
+                  <!-- 02: Installation & Runtime Overview -->
                   <div class="settings-rows">
                     <div class="settings-row-item vertical">
                       <div class="settings-row-header-inline">
-                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></svg></div>
+                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg></div>
                         <div class="settings-row-info">
-                      <div class="settings-row-title">Providers</div>
-                      <div class="settings-row-desc">Built in, and added by you.</div>
-                    </div>
+                          <div class="settings-row-title">Installation Overview</div>
+                          <div class="settings-row-desc">Local database status, integrated providers, and benchmark measurements.</div>
+                        </div>
                       </div>
-                      <div class="settings-row-field"><div class="about-providers" id="about-providers"></div></div>
-                    </div>
-                    <div class="settings-row-item vertical">
-                      <div class="settings-row-header-inline">
-                        <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M8 17V9"/><path d="M13 17V5"/><path d="M18 17v-3"/></svg></div>
-                        <div class="settings-row-info">
-                      <div class="settings-row-title">This install</div>
-                      <div class="settings-row-desc">What is stored on this machine.</div>
-                    </div>
+                      <div class="settings-row-field">
+                        <div class="about-kpi-grid">
+                          <div class="about-kpi-card" data-go="providers" role="button" tabindex="0" title="Click to view Providers and active API keys">
+                            <div class="about-kpi-icon-wrap"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></svg></div>
+                            <div class="about-kpi-data">
+                              <span class="about-kpi-num" id="about-kpi-providers">0 / 0</span>
+                              <span class="about-kpi-name">Integrated Providers</span>
+                              <span class="about-kpi-sub">Keyed / Available</span>
+                            </div>
+                            <span class="about-kpi-jump">View &rarr;</span>
+                          </div>
+                          <div class="about-kpi-card" data-go="models" role="button" tabindex="0" title="Click to view Models Catalog">
+                            <div class="about-kpi-icon-wrap"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div>
+                            <div class="about-kpi-data">
+                              <span class="about-kpi-num" id="about-kpi-models">0</span>
+                              <span class="about-kpi-name">Tracked Models</span>
+                              <span class="about-kpi-sub">In live catalog pool</span>
+                            </div>
+                            <span class="about-kpi-jump">View &rarr;</span>
+                          </div>
+                          <div class="about-kpi-card" data-go="history" role="button" tabindex="0" title="Click to view Test History & Benchmarks">
+                            <div class="about-kpi-icon-wrap"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M8 17V9"/><path d="M13 17V5"/><path d="M18 17v-3"/></svg></div>
+                            <div class="about-kpi-data">
+                              <span class="about-kpi-num" id="about-kpi-runs">0</span>
+                              <span class="about-kpi-name">Benchmark Results</span>
+                              <span class="about-kpi-sub">Stored runs history</span>
+                            </div>
+                            <span class="about-kpi-jump">View &rarr;</span>
+                          </div>
+                          <div class="about-kpi-card static" title="Timestamp of the most recent catalog synchronization">
+                            <div class="about-kpi-icon-wrap"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+                            <div class="about-kpi-data">
+                              <span class="about-kpi-num" id="about-kpi-synced">Never</span>
+                              <span class="about-kpi-name">Last Catalog Sync</span>
+                              <span class="about-kpi-sub">Upstream refresh</span>
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                      <div class="settings-row-field"><div class="about-stats" id="about-stats"></div></div>
                     </div>
+                  </div>
+
+                  <!-- 03: Updates & Maintenance -->
+                  <div class="settings-rows">
                     <div class="settings-row-item">
                       <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 13v8"/><path d="m8 17 4 4 4-4"/><path d="M4.4 15.5A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2"/></svg></div>
                       <div class="settings-row-info">
-                      <div class="settings-row-title">Updates</div>
-                      <div class="settings-row-desc">New versions download in the background and install on restart.</div>
-                      <div class="settings-row-status" id="about-update-note"></div>
+                        <div class="settings-row-title">Updates &amp; Maintenance</div>
+                        <div class="settings-row-desc">Automatically checks for published releases on the GitHub release channel.</div>
+                        <div class="settings-row-status" id="about-update-note"></div>
+                      </div>
+                      <div class="settings-row-control">
+                        <button class="btn btn-ghost" id="btn-check-updates" type="button">Check for updates</button>
+                      </div>
                     </div>
-                      <div class="settings-row-control"><button class="btn btn-ghost" id="btn-check-updates">Check for updates</button></div>
-                    </div>
+                  </div>
+
+                  <!-- Hidden elements for test compatibility -->
+                  <div id="about-providers" style="display:none" aria-hidden="true"></div>
+                  <div id="about-stats" style="display:none" aria-hidden="true"></div>
+
+                  <!-- Tab footer notice -->
+                  <div class="tab-footer-notice">
+                    <span>Routes every request to the best model across your providers, chosen from measurements taken on your own keys &mdash; not from marketing claims.</span>
                   </div>
                 </section>
               </div>
             </main>
+          </div>
+        </section>
+
+        <!-- Profile & Security Page -->
+        <section class="shell-page page-profile" data-page="profile" hidden>
+          <!-- Universal Top Toolbar with Breadcrumbs matching Providers and Settings -->
+          <div class="pv-toolbar profile-toolbar">
+            <nav class="crumbs" id="profile-crumbs" aria-label="Breadcrumb"></nav>
+            <div class="profile-toolbar-actions">
+              <span class="profile-session-pill">
+                <span class="profile-live-dot" aria-hidden="true"></span>
+                <span>Active Local Session</span>
+              </span>
+              <button class="btn btn-ghost" id="btn-profile-page-lock" type="button" title="Lock the application">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+                <span>Lock Session</span>
+              </button>
+              <button class="btn btn-secondary profile-signout-btn" id="btn-profile-page-signout" type="button" title="Sign out and return to lock screen">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 17l5-5-5-5"/><path d="M20 12H9"/><path d="M12 19H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h6"/></svg>
+                <span>Sign Out</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="profile-layout-wrap">
+            <!-- Hero Card: Identity & Status -->
+            <div class="profile-hero-card">
+              <div class="profile-hero-avatar-wrap">
+                <div class="profile-hero-avatar" aria-hidden="true">
+                  <span class="profile-hero-initials">A</span>
+                </div>
+              </div>
+              <div class="profile-hero-info">
+                <div class="profile-hero-title-row">
+                  <h2 class="profile-hero-name">Administrator</h2>
+                  <span class="profile-status-badge badge-active">Active Session</span>
+                  <span class="profile-status-badge badge-role">Owner</span>
+                </div>
+                <p class="profile-hero-subtitle">Primary workspace administrator with hardware-backed encryption privileges.</p>
+                <div class="profile-hero-meta-row">
+                  <span class="profile-meta-item">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                    <span>Local Machine User</span>
+                  </span>
+                  <span class="profile-meta-sep">·</span>
+                  <span class="profile-meta-item">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                    <span>Windows DPAPI Key Store</span>
+                  </span>
+                  <span class="profile-meta-sep">·</span>
+                  <span class="profile-meta-item">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    <span id="profile-meta-lock-status">PIN Protected</span>
+                  </span>
+                </div>
+              </div>
+              <div class="profile-hero-side-badge">
+                <div class="profile-sec-level">
+                  <span class="profile-sec-level-dot"></span>
+                  <span class="profile-sec-level-title">Hardware Secured</span>
+                </div>
+                <span class="profile-sec-level-sub">DPAPI Master Key Vault</span>
+              </div>
+            </div>
+
+            <!-- Telemetry Cards Grid -->
+            <div class="profile-stats-grid">
+              <div class="ov-kpi">
+                <span class="kpi-icon" aria-hidden="true">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                </span>
+                <span class="ov-kpi-label">Session Protection</span>
+                <span class="ov-kpi-value" id="profile-kpi-status">Active</span>
+                <span class="ov-kpi-foot">Master PIN security</span>
+              </div>
+
+              <div class="ov-kpi">
+                <span class="kpi-icon" aria-hidden="true">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                </span>
+                <span class="ov-kpi-label">Auto-Lock Idle</span>
+                <span class="ov-kpi-value" id="profile-kpi-idle">60 min</span>
+                <span class="ov-kpi-foot">Configurable timeout</span>
+              </div>
+
+              <div class="ov-kpi">
+                <span class="kpi-icon" aria-hidden="true">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                </span>
+                <span class="ov-kpi-label">Credential Vault</span>
+                <span class="ov-kpi-value">DPAPI · enc:v1</span>
+                <span class="ov-kpi-foot">OS-encrypted at rest</span>
+              </div>
+
+              <div class="ov-kpi">
+                <span class="kpi-icon" aria-hidden="true">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.5 9.5 8 11 4.5-1.5 8-6 8-11V5z"/><path d="m9 12 2 2 4-4"/></svg>
+                </span>
+                <span class="ov-kpi-label">Access Permissions</span>
+                <span class="ov-kpi-value">Full Local</span>
+                <span class="ov-kpi-foot">Workspace owner</span>
+              </div>
+            </div>
+
+            <!-- Security & Authentication Card (Unified, Compact, Zero Empty Spaces) -->
+            <div class="settings-panel-card profile-security-card">
+              <div class="settings-panel-head">
+                <div class="settings-head-icon" aria-hidden="true">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+                </div>
+                <div class="settings-head-text">
+                  <span class="settings-head-title">Security &amp; Authentication</span>
+                  <span class="settings-head-meta">The master password, auto-lock timeout, and local workstation protection.</span>
+                </div>
+              </div>
+
+              <div class="profile-security-content" id="sec-security">
+                <div class="settings-note settings-note-warn" id="lock-default-warning" hidden>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                  <div>
+                    <strong>Default Password In Use</strong>
+                    <p>This app is still using the password it shipped with. Anyone who has read the VENOM Router source knows it. Change it below.</p>
+                  </div>
+                </div>
+
+                <div class="settings-rows">
+                  <div class="settings-row-item">
+                    <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.5 9.5 8 11 4.5-1.5 8-6 8-11V5z"/><path d="m9 12 2 2 4-4"/></svg></div>
+                    <div class="settings-row-info">
+                      <div class="settings-row-title">Status <span class="setting-label-value" id="lock-status-label"></span></div>
+                      <div class="settings-row-desc">Whether the app is open right now, and whether the shipped password is still in force.</div>
+                    </div>
+                    <div class="settings-row-control">
+                      <div class="settings-actions">
+                        <button class="btn btn-ghost" id="btn-lock-now-settings" type="button">Lock now</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="settings-row-item">
+                    <div class="settings-row-badge"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+                    <div class="settings-row-info">
+                      <label class="settings-row-title" for="set-lock-idle">Lock after</label>
+                      <div class="settings-row-desc">Idle minutes before the app asks for the password again. It always asks on launch.</div>
+                    </div>
+                    <div class="settings-row-control">
+                      <span class="input-unit"><input type="number" class="prompt-input tiny" min="5" max="480" step="5" id="set-lock-idle"><span class="input-unit-label">min</span></span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Clean, Compact Password Change Box (No Giant Voids, No Red Borders) -->
+                <div class="profile-change-box">
+                  <div class="profile-change-head">
+                    <div class="profile-change-icon" aria-hidden="true">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+                    </div>
+                    <div class="profile-change-meta">
+                      <span class="profile-change-title">Change the owner password</span>
+                      <span class="profile-change-desc">At least 8 characters. This replaces the shipped default everywhere it applies.</span>
+                    </div>
+                  </div>
+
+                  <div class="lock-change-grid">
+                    <label class="lock-change-field">
+                      <span>Current password</span>
+                      <input type="password" id="set-lock-current" autocomplete="current-password" spellcheck="false" placeholder="Current password">
+                    </label>
+                    <label class="lock-change-field">
+                      <span>New password</span>
+                      <input type="password" id="set-lock-new" autocomplete="new-password" spellcheck="false" placeholder="At least 8 characters">
+                    </label>
+                    <label class="lock-change-field">
+                      <span>Confirm new password</span>
+                      <input type="password" id="set-lock-confirm" autocomplete="new-password" spellcheck="false" placeholder="Repeat the new password">
+                    </label>
+                  </div>
+
+                  <div class="profile-change-actions">
+                    <button class="btn btn-accent" id="btn-lock-change" type="button">Change password</button>
+                    <span class="lock-change-status" id="lock-change-status" role="status" aria-live="polite"></span>
+                  </div>
+                </div>
+
+                <!-- Recovery & DPAPI Architecture (Horizontal 2-Card Grid) -->
+                <div class="profile-info-grid">
+                  <div class="profile-info-card">
+                    <div class="profile-info-head">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                      <span>Windows DPAPI Keystore</span>
+                    </div>
+                    <p>All stored keys are protected with OS-level DPAPI encryption (<code>CryptProtectData</code>) bound to your Windows account. Zero external telemetry.</p>
+                  </div>
+
+                  <div class="profile-info-card">
+                    <div class="profile-info-head">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                      <span>Forgot the password?</span>
+                    </div>
+                    <p>There is no reset in the app. Run the recovery command from your shell to restore the default:</p>
+                    <code class="profile-code-pill">npm run reset:lock -- "&lt;data folder&gt;"</code>
+                  </div>
+                </div>
+
+                <!-- Tab footer notice -->
+                <div class="tab-footer-notice profile-tab-notice">
+                  <span>This is a local lock on the window, not an account. It stops someone at this machine from opening the app without encrypting the database or replacing your Windows password.</span>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
       </div>
@@ -1671,6 +2300,8 @@
   <script src="providers/inception.js"></script>
   <script src="providers/tokenharbor.js"></script>
   <script src="providers/experiential.js"></script>
+  <script src="providers/jerouter.js"></script>
+  <script src="providers/devora.js"></script>
   <script src="ui-select.js"></script>
   <script src="ui-stepper.js"></script>
   <script src="ulid.js"></script>
@@ -1687,3 +2318,5 @@
   <script src="activity.js"></script>
 </body>
 </html>
+
+

@@ -11,7 +11,7 @@ done. If a step is missing, the tests will usually tell you which one.
 
 ## 1. Add an integrated provider
 
-**Touch:** `src/renderer/providers/<id>.js` (new), `src/assets/providers/<id>.svg`
+**Touch:** `src/renderer/providers/<id>.js` (new), `src/assets/providers/<id>.svg (or .png for raster logos)`
 (new), `src/renderer/index.html` (one script tag), `README.md` (the table),
 `scripts/live/fixture.mjs` + `scripts/live/verify-db.mjs` (the provider count).
 
@@ -29,7 +29,7 @@ done. If a step is missing, the tests will usually tell you which one.
      // fetchKeyHistory, readQuotaError, readUsageHeaders
    };
    ```
-2. Add the logo SVG next to the other seven.
+2. Add the logo file (SVG, or PNG if raster) next to the other nine.
 3. `index.html`: add `<script src="providers/myprovider.js"></script>` **before**
    `app.js`, in the block that already lists `providers/*.js`.
 4. If the provider's usage API needs a request, tag it: every `apiRequest` call
@@ -40,8 +40,9 @@ done. If a step is missing, the tests will usually tell you which one.
    mock server. A new provider that is not in the fixture simply never connects.
 6. `npm run repo:map` (the new file must appear in CODE_MAP.md).
 
-**Accept:** `npm test` then `npm run verify:live` — the live check prints
-`seven built-in providers loaded` (now eight) and everything else passes.
+**Accept:** `npm test`, then the relevant live gate. The provider-count assertion
+must report the new total and the live run must use the mock provider on scratch
+data; it does not prove a real provider or key.
 
 **Traps:** discovery asks *every active key* for its models and records which
 keys served which model; a provider whose catalogue differs per key needs no
@@ -97,7 +98,7 @@ input in `src/renderer/index.html`, and — only if main needs the value —
    `src/logs/settings.js`: a pure `readX(row)` function called at startup and
    again from the `onSettingsSaved` hook in `src/main.js`. `save-settings`
    merges, so a field main does not know about survives a save.
-6. A setting that spends quota (`concurrency`, scheduled runs, auto-benchmark)
+6. A setting that spends quota (`concurrency`, scheduled runs)
    must default to the cheap side and say so in the UI copy.
 
 **Accept:** `npm test`; then in the app: open Settings, change it, close and
@@ -159,9 +160,9 @@ version — that is why each migration runs in its own transaction.
 5. Anything a provider can influence (model id, provider name, error message)
    is escaped before it reaches `innerHTML`.
 
-**Accept:** the live check prints `ALL LIVE CHECKS PASSED`, or the specific new
-check passes. Say out loud that it ran against a **mock** provider — it has
-never seen a real provider, a real key, a real 429 or a real stream.
+**Accept:** the specific live check passes, or the complete live check prints
+`ALL LIVE CHECKS PASSED`. Say out loud that it ran against a **mock** provider —
+it has never seen a real provider, a real key, a real 429 or a real stream.
 
 ---
 
@@ -178,5 +179,20 @@ npm run repo:map -- --check   # exits 1 when it is stale (use in CI or pre-commi
   means editing them in the same change. They are hand-written; CODE_MAP.md is
   the only generated one.
 - `docs/superpowers/**` and `docs/INDEX.md` are the historical record. Do not
-  update them to describe new work; write the new state into ARCHITECTURE.md or
-  the CHANGELOG instead.
+ update them to describe new work; write the new state into ARCHITECTURE.md or
+the CHANGELOG instead.
+
+---
+
+## 7. Verification matrix
+
+| Change | First proof | Stronger proof | What it does not prove |
+| --- | --- | --- | --- |
+| Data, logs, request, auth or catalog logic | `npm test` | `npm run check` | Visual renderer behavior |
+| Renderer page or drawer | focused live gate (`verify:legend`, `verify:sidebar`, or `verify:lock`) | `npm run verify:live` | A real provider, key, stream or 429 |
+| Provider integration | `npm test` | `npm run verify:live` with the fixture updated | That the provider's real endpoint accepts a real key |
+| New or moved source/test file | `npm run repo:map -- --check` | `npm run check` | Runtime behavior |
+
+Run live gates serially while diagnosing failures. They launch separate Electron
+instances over scratch folders and use a local mock provider; do not use
+`npm start` as a substitute for an automated live proof.

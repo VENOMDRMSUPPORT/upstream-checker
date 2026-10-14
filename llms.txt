@@ -1,22 +1,49 @@
 # VENOM Router
 
-> Windows desktop LLM router (Electron 33 + better-sqlite3, v2.0.0): connects
-> providers and keys, keeps a live model pool, measures models, and routes
-> through venom-lite / venom-pro / venom-max. Source is plain JavaScript, no
-> framework, no bundler. Everything on disk is written in English.
+> Windows desktop LLM router (Electron 33 + better-sqlite3, v2.1.2). It connects
+> nine provider adapters and encrypted keys, discovers a live model catalog,
+> tests models through main-process networking, and records request telemetry.
+> Source is plain JavaScript with no framework or bundler. Everything on disk is
+> written in English.
 
 ## Start here
 
-- [AGENTS.md](AGENTS.md): entry point — read order, commands, where things are, non-negotiables
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): boot order, the two SQLite databases, the request lifecycle, all 38 IPC channels
-- [docs/CODE_MAP.md](docs/CODE_MAP.md): generated index of every file, plus line landmarks inside the long ones
-- [docs/COOKBOOK.md](docs/COOKBOOK.md): recipes for the common changes
-- [docs/AGENT_TASK_TEMPLATE.md](docs/AGENT_TASK_TEMPLATE.md): the card to fill in when delegating
+- [AGENTS.md](AGENTS.md): required read order, commands, boundaries and gotchas
 - [CLAUDE.md](CLAUDE.md): binding workflow rules for this checkout
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): boot order, two SQLite databases,
+  request lifecycle, IPC groups, renderer globals and proof boundaries
+- [docs/CODE_MAP.md](docs/CODE_MAP.md): generated file/symbol/IPC index and
+  landmarks for long files
+- [docs/COOKBOOK.md](docs/COOKBOOK.md): provider, IPC, setting, log and UI recipes
+- [docs/AGENT_TASK_TEMPLATE.md](docs/AGENT_TASK_TEMPLATE.md): delegation card
+- [README.md](README.md): current user-facing feature and development guide
 
-## Optional
+## Current facts
 
-- [CHANGELOG.md](CHANGELOG.md): what shipped, per version
-- [README.md](README.md): user-facing feature list
-- [docs/superpowers/specs/](docs/superpowers/specs/): historical design specs
-- [docs/archive/INDEX-2026-09-27-phase2.md](docs/archive/INDEX-2026-09-27-phase2.md): the old phase tracker
+- Version: `2.1.2` from `package.json`; never hardcode another version.
+- Tests: `npm test` currently reports `702` passing tests under Electron's Node.
+- Built-in provider modules: `src/renderer/providers/` currently contains nine.
+- Data: `venom.db` and `venom-logs.db`; legacy JSON is import-only.
+- Security: renderer has no Node/network access; secrets are placeholders in the
+  renderer and encrypted/resolved in main.
+- Development data: unpackaged `npm start` uses `%APPDATA%\venom-router-dev`;
+  packaged builds use `%APPDATA%\venom-router`; live checks use scratch folders.
+- Live proof: `verify:live` and focused gates use a mock provider and do not prove
+  real-provider, real-key, real-429 or real-stream behavior.
+
+## Guardrails
+
+- Work in this checkout; never create a Git worktree without owner approval.
+- Never use `npm start` or a live check against the owner's real data folder.
+- Never print, copy or move stored key values.
+- Update hand-written architecture/cookbook docs when runtime boundaries change.
+- Regenerate `docs/CODE_MAP.md` after adding or moving files under `src/`,
+  `scripts/` or `test/`; use `npm run repo:map -- --check` to verify freshness.
+- `npm run release` is owner-authorized only because it tags and publishes.
+
+## Historical material
+
+- `CHANGELOG.md` records shipped versions.
+- `docs/superpowers/specs/`, `docs/superpowers/plans/` and
+  `docs/archive/` are historical design records, not current implementation
+  instructions. Read only a named document when a task needs historical intent.

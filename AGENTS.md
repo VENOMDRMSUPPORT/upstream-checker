@@ -1,9 +1,10 @@
 # AGENTS.md — start here
 
 **VENOM Router** is a Windows desktop LLM router (Electron 33 + better-sqlite3):
-it connects providers and keys, keeps a live model pool, measures models, and
-routes through `venom-lite` / `venom-pro` / `venom-max`. Version 2.0.0.
-Tests: `npm test` (552, ~2 s). Everything on disk is written in English.
+it connects providers and keys, keeps a live model catalog, tests models, records
+requests, and monitors provider/model activity. Version 2.1.2.
+Tests: `npm test` (702, about 6 s on this machine). Everything on disk is written
+in English.
 
 This file is the entry point for any coding agent. Read it, then the two
 documents it points at — **do not** start by reading source files, and never
@@ -15,7 +16,7 @@ wholesale (~200 k tokens together).
 | # | File | What it gives you | Cost |
 | --- | --- | --- | --- |
 | 1 | [CLAUDE.md](CLAUDE.md) | **Binding workflow rules.** One checkout, the owner's data folder is off-limits, never change how the app starts, when a release may run. | ~900 tokens |
-| 2 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Boot order, the two databases, the request lifecycle, the 38 IPC channels, the renderer's globals, what proves what. | ~3 k |
+| 2 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Boot order, the two databases, the request lifecycle, the 44 generated app channels plus auth/handshake notes, the renderer's globals, what proves what. | ~3 k |
 | 3 | [docs/CODE_MAP.md](docs/CODE_MAP.md) | Generated index: every file under `src/`, `scripts/`, `test/` with its purpose and top-level names, **and line landmarks inside every file over 700 lines** — jump to `app.js`'s Results table (line 2887), a page in `index.html`, a block in `styles.css`. | ~6 k |
 | 4 | [docs/COOKBOOK.md](docs/COOKBOOK.md) | Recipes: add a provider, an IPC channel, a setting, a log column; change the UI and prove it. | ~2 k |
 
@@ -35,6 +36,8 @@ it may change, the acceptance command. That, plus this file, is what turns a
 | `npm test` | the whole suite under Electron's Node (~2 s). One file: `npm test -- test/logs/query.test.js` |
 | `npm run check` | the gate: `repo:map --check` then the whole suite. Run this before saying you are done |
 | `npm run verify:live` | drives a separate app over CDP on a scratch data folder against a mock provider; prints `ALL LIVE CHECKS PASSED` |
+| `npm run verify:catalog` / `verify:legend` / `verify:sidebar` | focused Models Catalog live checks on scratch data |
+| `npm run verify:lock` | focused app-lock and security-page live check on scratch data |
 | `npm run repo:map` | regenerate `docs/CODE_MAP.md` after adding/moving a file |
 | `npm run repo:map -- --check` | fail if the map is stale |
 | `npm run check:keystore` | DPAPI key encryption works on this machine |
@@ -46,7 +49,7 @@ it may change, the acceptance command. That, plus this file, is what turns a
 | Question | File |
 | --- | --- |
 | Boot order, IPC wiring, updater | `src/main.js` |
-| The renderer's whole API | `src/preload.js` (52 entries) |
+| The renderer's whole API | `src/preload.js` (the contextBridge surface) |
 | Key placeholders → real secrets | `src/db/keys.js` |
 | Encryption at rest (`enc:v1:`) | `src/db/cipher.js` |
 | Schema of `venom.db` | `src/db/migrations.js`, repos in `src/db/repos/` |
@@ -56,9 +59,9 @@ it may change, the acceptance command. That, plus this file, is what turns a
 | Log query API (list/get/stats/runs/export) | `src/logs/query.js` |
 | The pages: shell, settings, testing engine | `src/renderer/app.js` |
 | Test History + Monitoring | `src/renderer/logs.js` + `logs-format.js` |
-| Model pool: discovery, the Models table, the three per-row actions | `src/renderer/catalog.js` |
+| Catalog roster: discovery, the Models table, the three per-row actions | `src/renderer/catalog.js` |
 | Bell + Model Activity page (roster change feed) | `src/renderer/activity.js`, events in `src/db/repos/roster-events.js` |
-| Providers (7 built-in) | `src/renderer/providers/*.js` |
+| Providers (9 built-in) | `src/renderer/providers/*.js` |
 | Live verification | `scripts/live/verify-db.mjs` |
 
 ## Non-negotiables (short version — CLAUDE.md is the authority)

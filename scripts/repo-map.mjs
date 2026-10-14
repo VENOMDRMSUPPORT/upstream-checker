@@ -149,6 +149,29 @@ function nestedNames(lines) {
   return names;
 }
 
+// Static relative imports per file (require / import-from / import()).
+// Builtins and external packages are ignored; unresolved relatives are
+// reported as written, never guessed.
+const STATIC_IMPORT_RE = /\b(?:require\(\s*|import\(\s*|import\s+(?:[^'";]*?\sfrom\s+)?)['"]([^'"]+)['"]/g;
+function posixNorm(p) { const o = []; for (const s of p.split('/')) { if (!s || s === '.') continue; if (s === '..') o.pop(); else o.push(s); } return o.join('/'); }
+function resolveRel(from, spec, known) {
+  const dir = from.includes('/') ? from.slice(0, from.lastIndexOf('/')) : '';
+  const base = posixNorm(dir + '/' + spec);
+  return [base, base + '.js', base + '.mjs', base + '.cjs', base + '/index.js'].find((c) => known.has(c)) || null;
+}
+function importsOf(rel, text, known) {
+  const found = [], missing = [];
+  const clean = text.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  STATIC_IMPORT_RE.lastIndex = 0;
+  let m;
+  while ((m = STATIC_IMPORT_RE.exec(clean))) {
+    if (!m[1].startsWith('.')) continue;
+    const hit = resolveRel(rel, m[1], known);
+    if (hit) { if (!found.includes(hit)) found.push(hit); }
+    else if (!missing.includes(m[1])) missing.push(m[1]);
+  }
+  return { found, missing };
+}
 function render(entries) {
   const stamp = 'GENERATED FILE — do not edit by hand. Regenerate with: npm run repo:map';
   const out = [];
@@ -227,7 +250,18 @@ function render(entries) {
     }
     out.push('');
   }
-  return out.join('\n');
+    // --- incoming references: who imports whom (impact analysis) ---
+  // Static relatives only; targets and importer lists are sorted, so
+  // --check stays deterministic and the directory tables are untouched.
+  const importedBy = new Map();
+  for (const e of entries) for (const t of e.imports) { if (!importedBy.has(t)) importedBy.set(t, []); importedBy.get(t).push(e.rel); }
+  for (const list of importedBy.values()) list.sort();
+  out.push('## Incoming references (imported by)', '', 'Static relative imports only (`require`, `import … from`, `import()`). Builtins and external packages are ignored. A file with no row below has no static relative importer in this tree.', '', '| File | Imported by |', '| --- | --- |');
+  for (const k of [...importedBy.keys()].sort()) out.push(`| \`${k}\` | ${importedBy.get(k).map((r) => `\`${r}\``).join(', ')} |`);
+  out.push('');
+  const dangling = entries.filter((e) => e.unresolved.length);
+  out.push(dangling.length ? `Unresolved relative imports (as written, never guessed): ${dangling.map((e) => `\`${e.rel}\` → ${e.unresolved.join(', ')}`).join('; ')}` : 'Every relative import in this tree resolved to a file in this map.', '');
+return out.join('\n');
 }
 
 function collect() {
@@ -248,8 +282,11 @@ function collect() {
     const lines = readFileSync(full, 'utf8').split(/\r?\n/);
     entries.push({ rel: rel.split(sep).join('/'), lineCount: lines.length, lines, symbols: [], purpose: PURPOSE_OVERRIDES[rel] || purposeOf(lines) });
   }
+  const known = new Set(entries.map((e) => e.rel));
+  for (const e of entries) { const r = importsOf(e.rel, e.lines.join('\n'), known); e.imports = r.found; e.unresolved = r.missing; }
   return entries;
 }
+
 
 // One definition of "the file on disk is what this run would write". A
 // Windows checkout may hand the file back with CRLF (core.autocrlf) while this

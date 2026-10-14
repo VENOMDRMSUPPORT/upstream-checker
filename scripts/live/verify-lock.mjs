@@ -248,14 +248,12 @@ async function measure(app) {
       return { back, inert, sub, reopened };
     })();
 
-    // ---- Settings › Security --------------------------------------------
-    // Opened the way a person opens it: the header's gear, then the tab.
+    // ---- Profile › Security --------------------------------------------
     document.querySelector('.hdr-profile-wrap') && document.getElementById('profile-pop') && (document.getElementById('profile-pop').hidden = true);
-    document.getElementById('btn-settings').click();
     const secBtn = await (async () => {
       const end = Date.now() + 8000;
       while (Date.now() < end) {
-        const b = document.querySelector('#settings-nav .settings-nav-item[data-section="sec-security"]');
+        const b = document.querySelector('.shell-nav-item[data-page="profile"]');
         if (b) return b;
         await new Promise((r) => setTimeout(r, 120));
       }
@@ -266,7 +264,7 @@ async function measure(app) {
     const security = secBtn ? {
       tabExists: true,
       sectionShown: !document.getElementById('sec-security').hidden,
-      heading: document.getElementById('settings-main-head-title').textContent.trim(),
+      heading: document.getElementById('shell-page-title').textContent.trim(),
       idleValue: document.getElementById('set-lock-idle').value,
       warningShown: !document.getElementById('lock-default-warning').hidden,
       statusLabel: document.getElementById('lock-status-label').textContent.trim(),
@@ -387,10 +385,10 @@ try {
     check('and says why it is asking', /Signed out/.test(r.signOut.sub), r.signOut.sub);
     check('and the password opens it a second time', r.signOut.reopened === true);
 
-    // 10. Settings › Security exists and its controls are laid out.
-    check('Settings has a Security tab', r.security.tabExists === true);
+    // 10. Profile › Security exists and its controls are laid out.
+    check('Profile has a Security section', r.security.tabExists === true);
     check('and opening it shows the Security section',
-      r.security.sectionShown === true && r.security.heading === 'Security', r.security.heading);
+      r.security.sectionShown === true && /Profile & Security/.test(r.security.heading), r.security.heading);
     check('the idle limit is filled from the saved setting', r.security.idleValue === '60', r.security.idleValue);
     check('the shipped-password warning is shown while it is still in force',
       r.security.warningShown === true && /shipped/.test(r.security.statusLabel), r.security.statusLabel);
@@ -424,18 +422,16 @@ try {
     // And one of the Security section, which is the part of the feature that
     // lives inside the app rather than in front of it.
     await app.evaluate(`(async () => {
-      document.getElementById('btn-settings').click();
-      await new Promise((r) => setTimeout(r, 900));
-      const b = document.querySelector('#settings-nav .settings-nav-item[data-section="sec-security"]');
+      const b = document.querySelector('.shell-nav-item[data-page="profile"]');
       if (b) b.click();
       await new Promise((r) => setTimeout(r, 800));
       return true;
     })()`, 20000);
     const secShot = await app.send('Page.captureScreenshot', { format: 'png' }, 20000);
     if (secShot.result && secShot.result.data) {
-      const file = shotPath('lock-security-settings');
+      const file = shotPath('lock-security-profile');
       writeFileSync(file, Buffer.from(secShot.result.data, 'base64'));
-      console.log(`Screenshot of Settings › Security: ${file}`);
+      console.log(`Screenshot of Profile › Security: ${file}`);
     }
 
     // ---- 11. The recovery path ------------------------------------------

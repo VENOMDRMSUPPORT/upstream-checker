@@ -1,144 +1,181 @@
 # VENOM Router
 
-Desktop LLM model router for Windows. Connect your providers and API keys, keep
-a live pool of every model they offer, measure each one for real, and route
-requests through `venom-lite`, `venom-pro` and `venom-max` to the best model
-for the job.
+Windows desktop LLM router for connecting providers and API keys, discovering the
+models each key can serve, testing them through one protected request path, and
+reviewing health, history and request telemetry.
 
-Built with Electron for Windows. Current version: **1.4.1** (see
-[CHANGELOG.md](CHANGELOG.md)). Formerly Upstream Checker — existing installs
-update in place and keep their data.
+Built with Electron 33 and `better-sqlite3`. Current version: **2.1.2** (see
+[CHANGELOG.md](CHANGELOG.md)). Formerly Upstream Checker — existing packaged
+installs migrate their data folder in place.
 
 ## Features
 
-- **Route testing** — sends a real prompt to each selected model and checks the
-  answer. Chat, image and video models are each judged by the right standard.
-  Hedged requests (the fastest correct answer wins), retries for transient
-  failures, and per-kind time limits.
-- **Multi-key discovery** — every active key is asked for its models, and each
-  test goes out on a key that actually serves that model.
-- **Rate limits and quotas** — per-key RPM pacing with round-robin, honours
-  `Retry-After`, learns limits from 429s, and remembers per-model spent quotas
-  until they reset.
-- **Key usage** — quota left, expiry, last-24h stats and request history per key
-  (Mirai API, Token Harbor).
-- **Provider health** — optional background probe of every provider's keys.
-- **Run history** — uptime per model, sparklines, regression detection with
-  desktop notifications, and scheduled runs.
-- **Benchmark** — 21 machine-checked tasks (reasoning & math, coding,
-  instruction following, in three difficulty tiers) plus latency and
-  throughput probes. Under a minute per model.
-- **Models catalog** — live inventory across all connected providers, with
-  benchmark scores compared against the Artificial Analysis leaderboard.
-- **Routing profiles** — `venom-lite`, `venom-pro` and `venom-max`: virtual models
-  that rank and weight real models from measured data on your own providers.
-- **Export** — results as CSV or JSON, history as JSON.
-- **Appearance** — dark and light themes, following the OS or set by hand, with
-  five accent colours; the logo is redrawn in the one you pick.
-- **Auto-updates** — from GitHub Releases, installed silently.
+- **Provider and key management** — connect nine integrated provider adapters,
+  keep key values encrypted by Windows DPAPI, and never expose plaintext keys to
+  the renderer.
+- **Multi-key discovery** — ask every active key for its roster and retain which
+  keys serve each model.
+- **Route testing** — send prompts through the main-process request path with
+  per-kind limits, retries, hedged requests, rate-limit pacing and cancellation.
+- **Models Catalog** — merge cached reference sources with connected provider
+  rosters, show context/pricing/capabilities and score provenance, and keep model
+  health and roster activity history.
+- **Provider health and activity** — one background sync cycle covers provider
+  status, key verdicts, roster changes and the Model Activity notification feed.
+- **Key usage** — provider-specific quota, expiry and request history hooks where
+  the provider exposes them (including Mirai API and Token Harbor).
+- **Test History and Monitoring** — keep run history plus a separate SQLite
+  request log with filtering, statistics, exports, retention and secret scrubbing.
+- **App lock and security** — local password gate, idle locking, inert locked UI,
+  encrypted keys and a safe reset command that removes only the lock row.
+- **Appearance and updates** — dark/light themes, five accent colours, provider
+  logos and GitHub Release auto-updates.
+
+The former benchmark suite and Routing Profiles page are not part of the current
+2.1.x application. The catalog score is reference metadata and measured/provider
+health data, not the retired benchmark product.
 
 ## Integrated providers
 
-All are OpenAI-compatible (`GET /models`, `POST /chat/completions`).
+The built-in adapters are loaded from `src/renderer/providers/` and currently
+include:
 
-| Provider          | Base URL                               |
-| ----------------- | -------------------------------------- |
-| NARA Router       | `https://router.bynara.id/v1`          |
-| Dark API          | `https://darkapi.dev/v1`               |
-| Nexum Router      | `https://dialagram.me/router/v1`       |
-| Mirai API         | `https://api.miraiapi.com/v1`          |
-| Inception Labs    | `https://api.inceptionlabs.ai/v1`      |
-| Token Harbor      | `https://tokenharbor.ai/v1`            |
-| Experiential Labs | `https://api.experientiallabs.ai/v1`   |
+| Provider | Base URL |
+| --- | --- |
+| NARA Router | `https://router.bynara.id/v1` |
+| Dark API | `https://darkapi.dev/v1` |
+| Nexum Router | `https://dialagram.me/router/v1` |
+| Mirai API | `https://api.miraiapi.com/v1` |
+| Inception Labs | `https://api.inceptionlabs.ai/v1` |
+| Token Harbor | `https://tokenharbor.ai/v1` |
+| Experiential Labs | `https://api.experientiallabs.ai/v1` |
+| Jerouter | `https://je.jerouter.web.id/v1` |
+| Devora | see `src/renderer/providers/devora.js` |
+
+All adapters use the shared provider contract. Most expose OpenAI-compatible
+`GET /models` and `POST /chat/completions`; provider-specific hooks may change
+catalogue, classification, quota or endpoint behavior.
+
+Detailed provider research lives in [docs/integrations/](docs/integrations/).
+That directory distinguishes built-in adapters from reference material for
+providers that are not currently loaded by the app.
 
 ## Pages
 
-| Page      | What it does                                                        |
-| --------- | ------------------------------------------------------------------- |
-| Overview  | Summary of recent runs, uptime and regressions                      |
-| Providers | **Connected**: your keys and their health/usage. **Integrated**: available providers to connect. Each connected row opens that provider's page |
-| Models Catalog | Every model across providers, with benchmark results               |
-| Provider (from a Providers row) | One provider's keys and models; pick models, run tests, results table with export |
-| Routing Profiles | venom-lite, venom-pro and venom-max, and the model roster behind each |
-| Settings  | Appearance, Test, Schedule, Speed, Reliability, Models Catalog, History, Diagnostics, Data, About |
+| Page | What it does |
+| --- | --- |
+| Overview | Recent runs, uptime and regressions |
+| Providers | Connected keys, health/usage, integrated adapters and provider pages |
+| Models Catalog | Connected/all model views, scores, capabilities, health and actions |
+| Model Activity | Roster additions/removals and the notification bell |
+| Provider | One provider's keys, discovered models, tests and result export |
+| Test History | Runs and individual request history |
+| Monitoring | Request-log statistics, facets and trends |
+| Database | Bounded, read-only inspection of the local SQLite databases |
+| Settings and Profile | Appearance, testing, schedule, reliability, catalog, history, logs, data and security |
 
 ## Project structure
 
-```
+```text
 src/
-  main.js              Main process: window, HTTP requests, config/history/catalog files,
-                       request log, auto-updater
-  preload.js           window.electronAPI bridge
-  keystore.js          Encrypts API keys at rest (OS keystore / DPAPI)
+  main.js                 Main process, boot order, IPC, updates and request gate
+  preload.js              contextBridge surface; the renderer's only door to main
+  api-request.js          One outbound HTTP/S request lifecycle
+  auth/                   App lock, password hashing and auth IPC
+  db/                     venom.db, migrations, repositories, encryption and import
+  logs/                   venom-logs.db, recorder, writer, query and retention
+  catalog/                Source cache, merge, scoring, snapshots and activity
   renderer/
-    index.html         App shell and all pages
-    app.js             Core logic: providers, keys, discovery, testing, history, UI
-    benchmark.js       Benchmark suite
-    catalog.js         Model pool and leaderboard
-    profiles.js        Routing profiles engine
-    key-usage.js       Key usage row + drawer (provider-agnostic)
-    ui-select.js       Custom <select> menu
-    providers/*.js     One module per integrated provider
-    data/              Leaderboard snapshot
-    styles.css, fonts/
-  assets/              Icons and provider logos
+    index.html            App shell, pages, drawers and modals
+    app.js                Settings, providers, discovery, testing and routing shell
+    catalog.js            Models Catalog page
+    logs.js               Test History and Monitoring
+    activity.js            Model Activity page and notification bell
+    providers/*.js         One adapter per integrated provider
 scripts/
-  release.mjs          Tag, publish notes, build and upload a release
-  generate-icons.js    Builds the icon set from one source image
-  keystore-check.js    Verifies key encryption works on this machine
-docs/superpowers/      Design specs and implementation plans
+  live/                   Scratch-folder CDP checks and mock provider
+  repo-map.mjs            Generated CODE_MAP.md index
+  run-tests.js            Runs tests under Electron's Node
+  release.mjs             Release-only tag, publish and installer workflow
+docs/
+  ARCHITECTURE.md         Runtime and data-flow map
+  CODE_MAP.md             Generated file/symbol/IPC index
+  COOKBOOK.md             Change recipes and acceptance commands
+  integrations/           Provider reference material
 ```
 
 ## Adding a provider
 
-Create `src/renderer/providers/<id>.js` that registers into
-`window.INTEGRATED_PROVIDERS` with a `meta` object (`id`, `name`, `baseUrl`,
-`color`, `logo`, `modelsEndpoint`, `chatEndpoint`, optional `rateLimits`), and
-load it in `index.html` before `app.js`. Optional hooks:
+Create `src/renderer/providers/<id>.js`, register it in
+`window.INTEGRATED_PROVIDERS`, add its logo, and load its script in
+`src/renderer/index.html` before `app.js`. The shared `meta` contract includes
+`id`, `name`, `baseUrl`, `color`, `logo`, `modelsEndpoint` and `chatEndpoint`.
+Optional hooks include:
 
 - `fetchModels` — custom discovery
-- `classify(model)` — returns `chat`, `image` or `video`
-- `fetchKeyUsage`, `fetchKeyHistory` — key usage drawer
-- `readQuotaError`, `readUsageHeaders` — quota detection
+- `classify(model)` — returns `chat`, `image`, `video` or another supported kind
+- `fetchKeyUsage`, `fetchKeyHistory` — key usage drawer data
+- `readQuotaError`, `readUsageHeaders` — quota detection and readings
+- provider-specific decision probes when the adapter owns that behavior
+
+Then update the fixture/count live checks, README table, code map and tests as
+specified in [docs/COOKBOOK.md](docs/COOKBOOK.md).
 
 ## Data and security
 
-Stored in the app's user-data folder (Settings › Data opens it):
+The app owns two SQLite databases in its user-data folder, opened through main:
 
-- `config.json` — providers, keys and settings. API keys are encrypted with the
-  OS keystore (`enc:v1:` prefix) and only decrypt for the same Windows user on
-  the same machine.
-- `history.json` — run history.
-- `catalog.json` — model pool and benchmark results.
-- Request log — optional, with auth headers redacted.
+- `venom.db` — providers, encrypted keys, settings, catalog snapshots, roster
+  events, test runs and the app lock.
+- `venom-logs.db` — request rows, bounded request bodies and hourly roll-ups.
+
+Legacy `config.json`, `history.json` and `catalog.json` files are import input for
+pre-2.0 installations only; they are renamed after import. API keys use the
+`enc:v1:` OS-encrypted envelope and are resolved only in main. Logs scrub resolved
+secrets and redact authorization headers.
+
+Settings › Data opens the active folder. Unpackaged `npm start` uses
+`%APPDATA%\venom-router-dev`; packaged builds use `%APPDATA%\venom-router`. Tests
+and live checks must use an explicit scratch `--user-data-dir`, never the owner's
+real `%APPDATA%\venom-router` folder.
 
 ## Development
 
-Requires Node.js.
+Requires Node.js and Windows-compatible Electron native dependencies.
 
 ```bash
-npm install            # install dependencies
-npm start              # run in development
-npm run build          # NSIS installer + portable (dist/)
-npm run build:portable # portable only
-npm run check:keystore # check key encryption
+npm install
+npm start                         # owner workflow; not a test command
+npm test                          # 702 tests under Electron's Node
+npm run check                     # code-map freshness plus the full suite
+npm run check:keystore            # DPAPI/safeStorage verification
+npm run verify:live               # end-to-end mock-provider check on scratch data
+npm run verify:catalog            # catalog boot/sync check
+npm run verify:legend             # capability legend geometry check
+npm run verify:sidebar            # catalog drawer geometry check
+npm run verify:lock               # app-lock and reset-lock check
+npm run build                     # Windows NSIS + portable installers in dist/
+npm run build:portable            # Windows portable installer only
 ```
+
+Live checks use a local mock provider and scratch data. A passing live check does
+not prove behavior against a real provider, real key, real 429 or real stream.
 
 ## Releasing
 
-1. Bump `version` in `package.json` and add the entry to `CHANGELOG.md`.
-2. Commit.
-3. `npm run release`
+The version is changed only in `package.json`, with a matching entry in
+`CHANGELOG.md`. After the owner has exercised the build against real providers:
 
-The script creates the git tag, publishes the GitHub release with its notes,
-then builds and uploads the installers. The GitHub token comes from `GH_TOKEN` /
-`GITHUB_TOKEN` or `gh auth token`.
+1. Commit the intended release changes.
+2. Run `npm run release` only when explicitly requested by the owner.
+
+The release script tags the current version, publishes GitHub release notes and
+uploads installers. A release tag cannot be taken back.
 
 ## Auto-updates
 
-The app checks GitHub Releases (`VENOMDRMSUPPORT/upstream-checker`) on startup
-and every 2 hours. Updates download on request and install silently on restart
-or on the next close.
+The app checks GitHub Releases for `VENOMDRMSUPPORT/upstream-checker` after startup
+and every two hours. Updates download on request and install on restart or close.
 
 ## License
 

@@ -310,11 +310,31 @@
       stale: !!reply.stale, warning: reply.warning || null };
   }
 
+  function mergeEntryHealth(oldH, newH) {
+    if (!oldH) return newH || null;
+    if (!newH) return oldH;
+    const seenC = new Set();
+    const checks = [...(oldH.checks || []), ...(newH.checks || [])].filter((c) => {
+      const k = c && c.at != null ? 'at:' + c.at : JSON.stringify(c);
+      return seenC.has(k) ? false : (seenC.add(k), true);
+    }).sort((a, b) => (a.at || 0) - (b.at || 0)).slice(-30);
+    const seenL = new Set();
+    const latencies = [...(oldH.latencies || []), ...(newH.latencies || [])].filter((l) => {
+      const k = l && l.at != null ? 'at:' + l.at : JSON.stringify(l);
+      return seenL.has(k) ? false : (seenL.add(k), true);
+    }).sort((a, b) => (a.at || 0) - (b.at || 0)).slice(-20);
+    return { ...oldH, ...newH, checks, latencies };
+  }
+
   function applyRows(providerId, rows) {
     rows.forEach((row) => {
       row.providerId = providerId;
       if (row.kind == null) row.kind = classifyModel(providerId, row);
       row.key = keyOf(providerId, row.id);
+      const cur = state.models.get(row.key);
+      if (cur && cur.health) {
+        row.health = row.health ? mergeEntryHealth(cur.health, row.health) : cur.health;
+      }
       state.models.set(row.key, row);
     });
   }

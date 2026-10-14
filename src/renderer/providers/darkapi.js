@@ -15,6 +15,13 @@ window.INTEGRATED_PROVIDERS.darkapi = {
     logoTone: 'bright',
     modelsEndpoint: '/models',
     chatEndpoint: '/chat/completions',
+    // docs-sourced DARKAPI.md §0: Unlimited JAILBREAK — $8.00 / 15 days, paid-only (screenshot; NOT EXPOSED via API).
+    billing: {
+      plan: '$8.00 / 15 days',
+      usageLabel: 'Unlimited JAILBREAK',
+    },
+    // docs-sourced DARKAPI.md §0
+    docsSource: 'DARKAPI.md §0',
     // Unlimited usage: no request quota is published, so there is nothing to
     // fetch per key and nothing to pace runs against.
     unlimitedUsage: {

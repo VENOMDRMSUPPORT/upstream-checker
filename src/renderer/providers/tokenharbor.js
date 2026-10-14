@@ -33,15 +33,96 @@ function tokenharborResetAt(message) {
 // Every one of them is served on the free allowance (checked 2026-09-26 on a
 // spent key: all answered free_tier_limit_reached or 200, none billed). The
 // public Models page lists fewer under Free, so it is not used to narrow this.
+// Quota reads share one account-wide 60/min budget across keys, so the
+// first-add burst (probe + catalog sync + usage refresh) usually spends it:
+// one 429 or dropped request must not blank the usage cell. Retries wait out
+// Retry-After (capped) and otherwise back off; an auth refusal or a spent
+// allowance is an answer, never retried.
+const TOKENHARBOR_QUOTA_ATTEMPTS = 3;
+const TOKENHARBOR_QUOTA_MODELS = 3;
+const TOKENHARBOR_RETRY_BASE_MS = 800;
+const TOKENHARBOR_RETRY_AFTER_MAX_S = 10;
+
+// Header names arrive lowercased from Node, but a mocked or proxied reply
+// may not be, so every x-th-* and retry-after read goes through this first.
+function tokenharborLowerHeaders(headers) {
+  const lower = {};
+  for (const k of Object.keys(headers || {})) lower[k.toLowerCase()] = headers[k];
+  return lower;
+}
+
+// Retry-After in milliseconds (capped), or null when absent or unusable.
+function tokenharborRetryAfterMs(headers) {
+  const n = Number((headers || {})['retry-after']);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.min(n, TOKENHARBOR_RETRY_AFTER_MAX_S) * 1000;
+}
+
+// A failed reply's error object, or {} when the body is not JSON.
+// Never throws: an unreadable body is itself a failure to classify.
+function tokenharborBodyError(res) {
+  if (!res || typeof res.body !== 'string' || !res.body) return {};
+  try {
+    return (JSON.parse(res.body).error) || {};
+  } catch (_) {
+    return {};
+  }
+}
+
+// Retryable: a dropped request, a timeout, an over-budget 429, or a 5xx.
+// Never 401/403 (the key is refused) and never a spent allowance (that is a
+// valid 100%-used reading, handled by fetchKeyUsage, not here).
+function tokenharborRetryable(res) {
+  if (!res || res.networkError || res.timedOut) return true;
+  if (res.status === 401 || res.status === 403) return false;
+  if (res.status === 429) {
+    const err = tokenharborBodyError(res);
+    return (err.code || err.type) === 'rate_limit_exceeded';
+  }
+  return res.status >= 500 && res.status <= 599;
+}
+
+function tokenharborSleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// One request, retried up to TOKENHARBOR_QUOTA_ATTEMPTS times on retryable
+// failures. A throwing apiRequest counts as a dropped request. Resolves with
+// the last reply (retryable or not) so the caller can still read it.
+async function tokenharborRequest(apiRequest, opts) {
+  let res = null;
+  for (let attempt = 1; attempt <= TOKENHARBOR_QUOTA_ATTEMPTS; attempt += 1) {
+    try {
+      res = await apiRequest(opts);
+    } catch (err) {
+      res = { status: 0, body: '', headers: {}, networkError: true, error: (err && err.message) || 'Unreachable' };
+    }
+    if (!tokenharborRetryable(res) || attempt === TOKENHARBOR_QUOTA_ATTEMPTS) return res;
+    const wait = tokenharborRetryAfterMs(tokenharborLowerHeaders(res.headers));
+    await tokenharborSleep(wait === null ? TOKENHARBOR_RETRY_BASE_MS * attempt : wait);
+  }
+  return res;
+}
+
 async function tokenharborKeyFree({ apiKey, baseUrl, apiRequest }) {
-  const list = await apiRequest({
+  const list = await tokenharborRequest(apiRequest, {
     url: `${baseUrl}/models`,
     method: 'GET',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     timeoutMs: 20000,
   });
-  if (list.status !== 200) throw new Error(`HTTP ${list.status}`);
-  return (JSON.parse(list.body).data || []).filter(tokenharborIsFree);
+  if (list.status !== 200) {
+    const snip = String(list.body || '').slice(0, 120);
+    throw new Error(`TokenHarbor /models HTTP ${list.status}: ${snip}`);
+  }
+  let data;
+  try {
+    data = JSON.parse(list.body).data;
+  } catch (_) {
+    data = null;
+  }
+  if (!Array.isArray(data)) throw new Error('Token Harbor /models answered without a model list');
+  return data.filter(tokenharborIsFree);
 }
 
 window.INTEGRATED_PROVIDERS.tokenharbor = {
@@ -58,6 +139,10 @@ window.INTEGRATED_PROVIDERS.tokenharbor = {
 
     // Offers free models or a free quota (drives the Free Tier legend colour).
     freeTier: true,
+    // docs-sourced TOKENHARBOR.md §0: Free Access current tier, rolling 7-day free allowance (screenshot + docs).
+    planNote: 'Free Access · rolling 7-day allowance',
+    // docs-sourced TOKENHARBOR.md §0
+    docsSource: 'TOKENHARBOR.md §0',
 
     // docs/api/rate-limits: free accounts get 60 requests/minute and 1,800/hour
     // per account, shared across all its keys and models (plus 100/minute and
@@ -116,8 +201,10 @@ window.INTEGRATED_PROVIDERS.tokenharbor = {
   // Read here into key-usage.js's shape, or null when they are absent.
   readUsageHeaders(headers) {
     if (!headers) return null;
-    const used = Number(headers['x-th-free-used-pct']);
-    const resets = Date.parse(headers['x-th-free-resets'] || '');
+    // api-request lowercases names, but a proxied or mocked reply may not.
+    const h = tokenharborLowerHeaders(headers);
+    const used = Number(h['x-th-free-used-pct']);
+    const resets = Date.parse(h['x-th-free-resets'] || '');
     if (!Number.isFinite(used) && !Number.isFinite(resets)) return null;
     return {
       quota: null,
@@ -128,7 +215,7 @@ window.INTEGRATED_PROVIDERS.tokenharbor = {
         usedPct: Number.isFinite(used) ? Math.max(0, Math.min(100, used)) : null,
         resetsAt: Number.isFinite(resets) ? resets : null,
       },
-      plan: headers['x-th-plan'] || null,
+      plan: h['x-th-plan'] || null,
     };
   },
 
@@ -138,40 +225,46 @@ window.INTEGRATED_PROVIDERS.tokenharbor = {
   // allowance answers 429 free_tier_limit_reached with the same headers; that
   // is still a reading, with `probe` saying which model was refused.
   async fetchKeyUsage({ apiKey, baseUrl, apiRequest }) {
-    const pick = (await tokenharborKeyFree({ apiKey, baseUrl, apiRequest })).map((m) => m.id).sort()[0];
-    if (!pick) throw new Error('No free model on this key to read the allowance from');
-    const res = await apiRequest({
-      url: `${baseUrl}/chat/completions`,
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: pick, messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 }),
-      timeoutMs: 30000,
-    });
-    let err = {};
-    try { err = JSON.parse(res.body).error || {}; } catch (_) {}
-    const quota = res.status >= 400 ? this.readQuotaError({ code: err.code || err.type, message: err.message }) : null;
-    let usage = this.readUsageHeaders(res.headers);
-    // The spent answer (429) carries no x-th-* headers, only Retry-After: the
-    // reading is then built from the refusal itself — all used, renewing at
-    // the time the message names (or Retry-After from now).
-    if (!usage && quota) {
-      const retry = Number(res.headers && res.headers['retry-after']);
-      usage = {
-        quota: null,
-        expiresAt: null,
-        window24h: null,
-        allowance: {
-          label: 'Free allowance',
-          usedPct: 100,
-          resetsAt: quota.until || (Number.isFinite(retry) && retry > 0 ? Date.now() + retry * 1000 : null),
-        },
-        plan: null,
-      };
+    const ids = (await tokenharborKeyFree({ apiKey, baseUrl, apiRequest })).map((m) => m.id).sort();
+    if (!ids.length) throw new Error('No free model on this key to read the allowance from');
+    let lastError = null;
+    for (const pick of ids.slice(0, TOKENHARBOR_QUOTA_MODELS)) {
+      const res = await tokenharborRequest(apiRequest, {
+        url: `${baseUrl}/chat/completions`,
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: pick, messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 }),
+        timeoutMs: 30000,
+      });
+      const headers = tokenharborLowerHeaders(res.headers);
+      const err = tokenharborBodyError(res);
+      const quota = res.status >= 400 ? this.readQuotaError({ code: err.code || err.type, message: err.message }) : null;
+      let usage = this.readUsageHeaders(headers);
+      // The spent answer (429) carries no x-th-* headers, only Retry-After: the
+      // reading is then built from the refusal itself — all used, renewing at
+      // the time the message names (or Retry-After from now).
+      if (!usage && quota) {
+        const retry = Number(headers['retry-after']);
+        usage = {
+          quota: null,
+          expiresAt: null,
+          window24h: null,
+          allowance: {
+            label: 'Free allowance',
+            usedPct: 100,
+            resetsAt: quota.until || (Number.isFinite(retry) && retry > 0 ? Date.now() + retry * 1000 : null),
+          },
+          plan: null,
+        };
+      }
+      if (usage) {
+        if (quota) usage.probe = { model: pick, status: res.status, ...quota };
+        return usage;
+      }
+      // A 200 without x-th-* headers (or a per-model failure) is not yet a
+      // failed read: the next free model may answer with headers.
+      lastError = err.message || res.error || (res.networkError ? 'Unreachable' : `HTTP ${res.status}`);
     }
-    if (!usage) {
-      throw new Error(err.message || (res.networkError ? 'Unreachable' : `HTTP ${res.status}`));
-    }
-    if (quota) usage.probe = { model: pick, status: res.status, ...quota };
-    return usage;
+    throw new Error(lastError || 'Unreachable');
   },
 };
