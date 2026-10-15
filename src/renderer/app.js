@@ -114,6 +114,12 @@ const DEFAULT_SETTINGS = {
   deadlineVideoMs: 600000,
   deadlineDecisionMs: 60000,
 
+  // The wall clock a single model may consume across ALL of its attempts —
+  // retries, rate-limit windows and empty recovery multiply (3 windows × 60s +
+  // 2 retries × a 75s deadline can hold one model for ~7 minutes). A deadline
+  // bounds one attempt; this bounds the whole model. 0 turns it off.
+  perModelBudgetMs: 90000,
+
   // Retry policy for transient failures and for provider rate limits.
   maxTestRetries: 2,
   maxRateLimitWaits: 3,
@@ -2305,12 +2311,22 @@ function learnRateLimit(keyId) {
   }
 }
 
+// Whether any key that can serve this model has a free slot in its per-minute
+// budget right now. Shared by the hedge escalator and the empty-recovery race:
+// neither should fire a parallel attempt into a cap every key is already at,
+// spending a slot the models still waiting need.
+function hasFreeKeyBudget(provider, model) {
+  return keysFor(provider, model).some((k) => {
+    const budget = budgetFor(provider, k.id);
+    return !budget || slotsUsed(k.id, Date.now()) < budget;
+  });
+}
+
 // Round-robin over the eligible keys, but a key with a free slot in its own
 // minute beats one that is merely not cooling off. Without that preference the
 // rotation would stop on a key that has spent its budget and wait there while a
 // second key sat idle — which is the whole reason a second key is worth having.
-function pickKey(provider, model) {
-  const keys = keysFor(provider, model);
+function pickKey(provider, model) {  const keys = keysFor(provider, model);
   if (keys.length === 0) return null;
   const now = Date.now();
 
@@ -2459,6 +2475,18 @@ function usageTokens(u = {}) {
   return (u.prompt_tokens || u.input_tokens || 0) + (u.completion_tokens || u.output_tokens || 0);
 }
 
+// Retry-After arrives as delay-seconds ("30") or an HTTP-date ("Wed, 21 Oct
+// 2026 07:28:00 GMT"). A date under parseInt read as its day-of-month and sent
+// the run to wait a full window for what was seconds away.
+function parseRetryAfter(headers) {
+  const raw = headers?.['retry-after'];
+  if (!raw) return 0;
+  const secs = parseInt(raw, 10);
+  if (Number.isFinite(secs)) return Math.max(0, secs);
+  const at = Date.parse(raw);
+  return Number.isNaN(at) ? 0 : Math.max(0, Math.round((at - Date.now()) / 1000));
+}
+
 // A non-200 reply as a failed result. Some gateways send `error` as a string.
 function failFromResponse(result, keyId) {
   let errMsg = `HTTP ${result.status}`;
@@ -2468,9 +2496,8 @@ function failFromResponse(result, keyId) {
     errMsg = (typeof d.error === 'string' ? d.error : d.error?.message) || d.message || errMsg;
     if (d.error && typeof d.error === 'object') errorCode = d.error.code || d.error.type || null;
   } catch (_) {}
-  const ra = parseInt(result.headers?.['retry-after'], 10);
   return { status: 'fail', response: errMsg, time: result.elapsed, tokens: 0, statusCode: result.status,
-           retryAfter: isNaN(ra) ? 0 : ra, keyId, errorCode };
+           retryAfter: parseRetryAfter(result.headers), keyId, errorCode };
 }
 
 // A cancelled hedge loser or a transport failure, or null when a real HTTP
@@ -2890,11 +2917,7 @@ function adaptiveNonStream(model, provider, tags = {}) {
     // An extra attempt is only worth firing if a key can take it right now.
     // Hedging exists to get an answer sooner; queueing behind a per-minute cap to
     // send one does the opposite, and spends a slot the models still waiting need.
-    const budgetFree = () =>
-      keysFor(provider, model).some((k) => {
-        const budget = budgetFor(provider, k.id);
-        return !budget || slotsUsed(k.id, Date.now()) < budget;
-      });
+    const budgetFree = () => hasFreeKeyBudget(provider, model);
 
     const launch = (escalation = false) => {
       if (settled || stop || abortTesting || launched >= maxAttempts) return;
@@ -2954,9 +2977,37 @@ async function testModel(model, provider) {
   // one go instead of presenting the last attempt as the whole story.
   const done = (r) => ({ ...r, attempts: rounds });
 
+  // The wall clock this one model has consumed. Every retry layer inside the
+  // loop below multiplies — rate-limit windows, transient retries each carrying
+  // a fresh deadline, empty recovery — and without a ceiling a single model can
+  // hold the whole run for minutes. 0 in the setting turns the budget off, and
+  // a generator sits it out entirely: its deadline is minutes by design, and a
+  // 90s ceiling would call every working video model broken.
+  const budgetMs = isMedia(model) ? 0 : settings.perModelBudgetMs;
+  const startedAt = Date.now();
+  const budgetLeft = () =>
+    budgetMs > 0 ? budgetMs - (Date.now() - startedAt) : Infinity;
+  // The verdict when the ceiling is hit. Any key-fact flags already on `r`
+  // (quota, entitlement) are kept: those stay facts about the key, and the
+  // health writer below keeps excluding them.
+  const outOfBudget = (r, why) => done({
+    ...(r || { status: 'fail', time: 0, tokens: 0 }),
+    status: 'fail',
+    tokens: r?.tokens ?? 0,
+    budgetAborted: true,
+    response: `Gave up after ${Math.round((Date.now() - startedAt) / 1000)}s — ${why}`,
+  });
+
   while (true) {
     // Every key may still be cooling from an earlier model's 429.
-    if (soonestKeyAvailable(provider, model) > Date.now()) {
+    const soonest = soonestKeyAvailable(provider, model);
+    if (soonest > Date.now()) {
+      // Waiting out the window counts against the budget: a model that needs
+      // more waiting than the budget allows reports that instead of holding
+      // the run hostage.
+      if (budgetLeft() < soonest - Date.now()) {
+        return outOfBudget(null, 'every key is rate limited past the time budget');
+      }
       updateResultRow(model, { status: 'running', waiting: true, time: null, tokens: null });
       await waitForAnyKey(provider, model);
       updateResultRow(model, RUNNING_RESULT);
@@ -2992,12 +3043,18 @@ async function testModel(model, provider) {
       // below would just buy a second generation (or decision) for nothing.
       if (isMedia(model) || isDecision(model)) return done(r);
       // Empty on the non-streaming endpoint: some models (byNara event-stream)
-      // deliver content only over SSE — try streaming.
+      // deliver content only over SSE — try streaming. But only when a key has
+      // a free slot: the recovery fires parallel attempts, and racing them into
+      // a per-minute cap spends slots the models still waiting need.
       if (abortTesting) return done(r);
-      const streamed = await raceAttempts(model, provider, true, STREAM_HEDGE, { testGroup, attempt: rounds });
+      if (budgetLeft() <= 0) return outOfBudget(r, 'time budget spent before streaming recovery');
+      const streamed = hasFreeKeyBudget(provider, model)
+        ? await raceAttempts(model, provider, true, STREAM_HEDGE, { testGroup, attempt: rounds })
+        : r;
       if (streamed.status === 'pass' && !streamed.isEmpty) return done(streamed);
       // Both empty. Empty can be flaky, so retry the whole model once.
       if (!emptyRetried && !abortTesting) {
+        if (budgetLeft() <= 0) return outOfBudget(r, 'time budget spent before the empty retry');
         emptyRetried = true;
         await sleep(500);
         continue;
@@ -3012,7 +3069,10 @@ async function testModel(model, provider) {
     const quota = r.status === 'fail' && r.keyId ? readQuotaError(provider, r) : null;
     if (quota && !abortTesting) {
       await markKeySpent(provider.id, r.keyId, { ...quota, status: r.statusCode }, model.id);
-      if (keysFor(provider, model).some((k) => !isKeySpentFor(k, model.id))) continue;
+      if (keysFor(provider, model).some((k) => !isKeySpentFor(k, model.id))) {
+        if (budgetLeft() <= 0) return outOfBudget(r, 'time budget spent before trying the next key');
+        continue;
+      }
       return done({ ...r, quotaSpent: true });
     }
 
@@ -3025,7 +3085,11 @@ async function testModel(model, provider) {
       const after = keysFor(provider, model).filter(
         (k) => !deniedPairs.has(denialKey(k.id, model.id))
       ).length;
-      if (after > 0 && after < before) continue; // another key may be entitled
+      if (after > 0 && after < before) {
+        // Another key may be entitled — but not past the budget.
+        if (budgetLeft() <= 0) return outOfBudget(r, 'time budget spent before trying the next key');
+        continue; // another key may be entitled
+      }
       return done({ ...r, entitlementDenied: true });
     }
 
@@ -3033,6 +3097,12 @@ async function testModel(model, provider) {
     // simply moves onto it, and only waits when every key is capped. Being
     // throttled never gets recorded as the model's failure.
     if ((isRateLimit(r) || r.allKeysCooling) && rateLimitWaits < settings.maxRateLimitWaits && !abortTesting) {
+      if (budgetLeft() <= 0) {
+        // Being throttled is a fact about the run's own pacing, so this carries
+        // allKeysCooling when that is what it was: not a model verdict either way.
+        return outOfBudget({ ...(r.allKeysCooling ? { allKeysCooling: true } : {}), statusCode: r.statusCode },
+          `still rate limited after ${rateLimitWaits} window${rateLimitWaits === 1 ? '' : 's'}`);
+      }
       rateLimitWaits += 1;
       if (r.keyId) {
         if (isRateLimit(r)) learnRateLimit(r.keyId);
@@ -3053,6 +3123,7 @@ async function testModel(model, provider) {
     const retryable =
       !isDecision(model) && ((r.statusCode && RETRYABLE_STATUS.has(r.statusCode)) || r.networkError);
     if (retryable && transientRetries < settings.maxTestRetries && !abortTesting) {
+      if (budgetLeft() <= 0) return outOfBudget(r, 'time budget spent before the transient retry');
       await sleep(retryDelay(transientRetries));
       transientRetries++;
       continue;
@@ -3335,6 +3406,10 @@ function renderRunSummary() {
 
   const passed = testResults.filter((r) => r.status === 'pass').length;
   const failed = testResults.filter((r) => r.status === 'fail').length;
+  // An empty 200 is a pass on the wire, but "46 passed" where every answer was
+  // empty is a different fact from 46 real answers. Said in the same breath.
+  const emptyPasses = testResults.filter((r) => r.status === 'pass' && r.isEmpty).length;
+  const emptyNote = emptyPasses ? ` · ${emptyPasses} answered empty` : '';
 
   // Answer quality is reported alongside the HTTP outcome, never folded into it:
   // "7 passed" and "6 of 7 correct" are two different things a user needs.
@@ -3354,10 +3429,12 @@ function renderRunSummary() {
   let message;
   if (lastRun.stopped) {
     state = 'idle';
-    message = `Stopped — ${lastRun.done}/${lastRun.total} tested (${passed} passed, ${failed} failed)${answers}${delta}`;
-  } else if (failed === 0) { state = 'done'; message = `All ${passed} models passed${answers}${delta}`; }
+    message = `Stopped — ${lastRun.done}/${lastRun.total} tested (${passed} passed, ${failed} failed)${answers}${emptyNote}${delta}`;
+  } else if (failed === 0 && passed > 0 && emptyPasses === passed) {
+    state = 'done'; message = `All ${passed} models answered empty${delta}`;
+  } else if (failed === 0) { state = 'done'; message = `All ${passed} models passed${answers}${emptyNote}${delta}`; }
   else if (passed === 0) { state = 'error'; message = `All ${failed} models failed${delta}`; }
-  else { state = c.broke.length ? 'error' : 'done'; message = `Done: ${passed} passed, ${failed} failed${answers}${delta}`; }
+  else { state = c.broke.length ? 'error' : 'done'; message = `Done: ${passed} passed, ${failed} failed${answers}${emptyNote}${delta}`; }
 
   // A failed history write must stay visible: persist() already reported it,
   // but this status runs right after and would otherwise overwrite it.
@@ -4038,9 +4115,18 @@ function updateStats() {
 
   // Average latency measures speed, so only completed calls count. A 502 comes
   // back in ~0.3s and would otherwise drag the average down and make the
-  // provider look faster than it actually is.
-  const times = testResults.filter((r) => r.status === 'pass' && r.time).map((r) => r.time);
+  // provider look faster than it actually is. A generator's time is seconds of
+  // generation, not latency — the same rule the health writer applies — so it
+  // sits this column out too.
+  const times = testResults
+    .filter((r) => r.status === 'pass' && r.time && !isMedia(modelById(r.model)))
+    .map((r) => r.time);
   const avg = times.length > 0 ? times.reduce((a, b) => a + b, 0) / times.length : null;
+
+  // An empty 200 is recorded as a pass (the call succeeded), but "46 passed"
+  // with thirty of them answering nothing reads as healthier than it is. The
+  // count sits on the card so the number and the caveat arrive together.
+  const emptyPasses = testResults.filter((r) => r.status === 'pass' && r.isEmpty).length;
 
   const fetched = models.length;
   const finished = passed + failed;
@@ -4051,7 +4137,9 @@ function updateStats() {
     { label: 'Passed', value: passed, sub: finished ? `/ ${finished}` : '', icon: KPI_ICON.check, tone: 'pass', subhead: 'SUCCESSFUL CALLS',
       pill: finished ? `${Math.round((passed / finished) * 100)}% of finished` : undefined,
       meter: total ? passed / total : 0,
-      foot: finished ? `${Math.round((passed / finished) * 100)}% of finished models` : 'no results yet' },
+      foot: emptyPasses
+        ? `${emptyPasses} returned no content`
+        : finished ? `${Math.round((passed / finished) * 100)}% of finished models` : 'no results yet' },
     { label: 'Failed', value: failed, sub: finished ? `/ ${finished}` : '', icon: KPI_ICON.cross, tone: 'fail', subhead: 'UNSUCCESSFUL CALLS',
       pill: failed ? `${failed} Failed` : '0 Failed',
       meter: total ? failed / total : 0,
@@ -4681,6 +4769,9 @@ const SETTING_INPUTS = [
   ['#set-decision-question', 'decisionQuestion', 'text'],
   ['#set-decision-threshold', 'decisionThreshold', 'ratio'],
   ['#set-deadline-decision', 'deadlineDecisionMs', 'sec'],
+  // 0 is a real value here ("never give up"), not a half-typed number — the
+  // binder special-cases it for that reason.
+  ['#set-per-model-budget', 'perModelBudgetMs', 'sec'],
   ['#set-time-good', 'timeGoodMs', 'sec'],
   ['#set-time-ok', 'timeOkMs', 'sec'],
   ['#set-deadline-chat', 'deadlineChatMs', 'sec'],
@@ -4767,13 +4858,22 @@ function bindSettingsForm() {
       else if (kind === 'text') settings[key] = el.value;
       else {
         const n = Number(el.value);
-        if (!Number.isFinite(n) || n <= 0) return; // ignore a half-typed number
+        // A cleared field is a half-typed number, but Number('') is 0 — and for
+        // the budget 0 is a real choice, so the empty string is refused before
+        // the value is read, not after.
+        if (el.value.trim() === '') return;
         // The idle limit has a floor the app relies on: a saved 0 would mean
         // "never lock by idle" in src/auth, and the field offers no way to ask
         // for that. Clamping here keeps the stored row inside the range the
         // stepper shows.
         if (key === 'lockIdleMin') settings[key] = Math.min(480, Math.max(5, Math.round(n)));
-        else settings[key] = kind === 'sec' ? Math.round(n * 1000) : kind === 'ratio' ? n : Math.round(n);
+        // The per-model budget's 0 is "never give up", a real choice the guard
+        // below would swallow — clamped instead of skipped.
+        else if (key === 'perModelBudgetMs') settings[key] = Math.max(0, Math.round(n));
+        else {
+          if (!Number.isFinite(n) || n <= 0) return; // ignore a half-typed number
+          settings[key] = kind === 'sec' ? Math.round(n * 1000) : kind === 'ratio' ? n : Math.round(n);
+        }
       }
       if (key === 'decisionThreshold') renderDecisionThreshold();
       if (key === 'maxOutputTokens') syncTokenPresets(settings.maxOutputTokens);
@@ -4968,7 +5068,7 @@ const SECTION_RESETTERS = {
     renderLiveToggles();
   },
   'sec-speed': () => {
-    ['timeGoodMs', 'timeOkMs', 'deadlineChatMs', 'deadlineImageMs', 'deadlineVideoMs', 'concurrency'].forEach((k) => {
+    ['timeGoodMs', 'timeOkMs', 'deadlineChatMs', 'deadlineImageMs', 'deadlineVideoMs', 'perModelBudgetMs', 'concurrency'].forEach((k) => {
       settings[k] = DEFAULT_SETTINGS[k];
     });
   },

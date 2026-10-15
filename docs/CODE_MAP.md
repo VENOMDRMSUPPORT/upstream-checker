@@ -2,7 +2,7 @@
 
 > GENERATED FILE — do not edit by hand. Regenerate with: npm run repo:map
 
-141 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
+144 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
 
 The architecture behind these files — boot order, IPC channels, the two databases, the request lifecycle — is in [ARCHITECTURE.md](ARCHITECTURE.md). Task recipes are in [COOKBOOK.md](COOKBOOK.md).
 
@@ -71,48 +71,48 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 690 | API requests (src/api-request.js) |
 | 728 | Old request log file (requests.log) |
 
-### src/renderer/app.js — 7655 lines
+### src/renderer/app.js — 7755 lines
 
 | Line | Section |
 | --- | --- |
 | 2 | VENOM ROUTER — Application Logic v2 |
 | 26 | Model kinds |
 | 97 | Settings |
-| 415 | Saving — every write goes through persist() |
-| 488 | Providers — each saved on its own (save-provider) |
-| 542 | Run history — uptime, regressions, scheduling |
-| 693 | Test definition — prompt + expected answer |
-| 1137 | Title bar |
-| 1144 | Provider page — header |
-| 1440 | API Keys management |
-| 1612 | Fetch models from provider — only models for the key's plan |
-| 1903 | Render the models list |
-| 2069 | Test reliability settings |
-| 2235 | Keys and pacing |
-| 2449 | Testers — one request, judged by the model's kind |
-| 2942 | Test a single model — adaptive hedge, handles reasoning, empty, rate limits |
-| 3113 | Test all selected models |
-| 3369 | Results table |
-| 3586 | Reference facts for the test table |
-| 3975 | Full response modal |
-| 4023 | Stats & status |
-| 4100 | Export |
-| 4168 | Update handling |
-| 4450 | Add Key modal |
-| 4559 | Edit Provider modal |
-| 4634 | Init |
-| 4637 | Scheduled re-testing |
-| 4670 | Settings panel |
-| 5458 | Security — the app lock from inside the app |
-| 5766 | Sidebar ambience — moving stars and the signature heart |
-| 6024 | Breadcrumb — shared helper |
-| 6054 | Providers page |
-| 6400 | Provider types — legend and markers |
-| 6476 | Providers page — key management panel (table rows and cards) |
-| 6497 | Action feedback — Recheck and key Test |
-| 7098 | Stat cards — shared |
-| 7115 | Data toolbar — shared |
-| 7243 | Providers page — Connected view |
+| 421 | Saving — every write goes through persist() |
+| 494 | Providers — each saved on its own (save-provider) |
+| 548 | Run history — uptime, regressions, scheduling |
+| 699 | Test definition — prompt + expected answer |
+| 1143 | Title bar |
+| 1150 | Provider page — header |
+| 1446 | API Keys management |
+| 1618 | Fetch models from provider — only models for the key's plan |
+| 1909 | Render the models list |
+| 2075 | Test reliability settings |
+| 2241 | Keys and pacing |
+| 2465 | Testers — one request, judged by the model's kind |
+| 2965 | Test a single model — adaptive hedge, handles reasoning, empty, rate limits |
+| 3184 | Test all selected models |
+| 3446 | Results table |
+| 3663 | Reference facts for the test table |
+| 4052 | Full response modal |
+| 4100 | Stats & status |
+| 4188 | Export |
+| 4256 | Update handling |
+| 4538 | Add Key modal |
+| 4647 | Edit Provider modal |
+| 4722 | Init |
+| 4725 | Scheduled re-testing |
+| 4758 | Settings panel |
+| 5558 | Security — the app lock from inside the app |
+| 5866 | Sidebar ambience — moving stars and the signature heart |
+| 6124 | Breadcrumb — shared helper |
+| 6154 | Providers page |
+| 6500 | Provider types — legend and markers |
+| 6576 | Providers page — key management panel (table rows and cards) |
+| 6597 | Action feedback — Recheck and key Test |
+| 7198 | Stat cards — shared |
+| 7215 | Data toolbar — shared |
+| 7343 | Providers page — Connected view |
 
 ### src/renderer/catalog.js — 2121 lines
 
@@ -130,7 +130,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 *(no section banners)*
 
-### src/renderer/index.html — 2323 lines
+### src/renderer/index.html — 2327 lines
 
 | Line | Section |
 | --- | --- |
@@ -153,18 +153,18 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 669 | settings: sec-logs |
 | 673 | settings: sec-data |
 | 677 | settings: sec-about |
-| 1804 | page: profile |
-| 2017 | overlay: response-modal |
-| 2037 | overlay: add-key-modal |
-| 2068 | overlay: add-provider-modal |
-| 2103 | overlay: update-modal |
-| 2120 | overlay: update-modal-notes |
-| 2162 | overlay: log-drawer |
-| 2163 | overlay: log-drawer-scrim |
-| 2169 | overlay: log-drawer-body |
-| 2173 | overlay: ku-drawer |
-| 2191 | overlay: mc-chat-drawer |
-| 2221 | overlay: mc-details-drawer |
+| 1808 | page: profile |
+| 2021 | overlay: response-modal |
+| 2041 | overlay: add-key-modal |
+| 2072 | overlay: add-provider-modal |
+| 2107 | overlay: update-modal |
+| 2124 | overlay: update-modal-notes |
+| 2166 | overlay: log-drawer |
+| 2167 | overlay: log-drawer-scrim |
+| 2173 | overlay: log-drawer-body |
+| 2177 | overlay: ku-drawer |
+| 2195 | overlay: mc-chat-drawer |
+| 2225 | overlay: mc-details-drawer |
 
 ### src/renderer/styles.css — 12781 lines
 
@@ -327,7 +327,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
 | `activity.js` | 336 | Model activity — the notification center | PAGE_LIMIT, PAGE_STEP, PANEL_LIMIT, acState, acShell, AC_TOOLBAR, providerName, whenText, rel, itemHTML, added, dot, +39 more |
-| `app.js` | 7655 | VENOM ROUTER — Application Logic v2 | DEFAULT_TEST_PROMPT, DEFAULT_EXPECTED, testPrompt, expectedAnswer, NA, RESPONSE_PREVIEW, truthy, KIND_LABELS, kindLimits, classifyModel, isMedia, isDecision, +455 more |
+| `app.js` | 7755 | VENOM ROUTER — Application Logic v2 | DEFAULT_TEST_PROMPT, DEFAULT_EXPECTED, testPrompt, expectedAnswer, NA, RESPONSE_PREVIEW, truthy, KIND_LABELS, kindLimits, classifyModel, isMedia, isDecision, +457 more |
 | `catalog-caps.js` | 217 | Model capabilities — what a catalogue row can do, read as three states | CAT_CAPABILITIES, hasModality, publishedBool, filesState, outputState, capabilityState, BOOLEAN_CAPS, capabilityOrigin, capabilitySet, capabilityCounts |
 | `catalog.js` | 2121 | Models Catalog — the merged reference, scored | state, chat, details, ui, keyOf, connectedIds, historyRuns, loadHistoryRuns, loadPromise, load, reload, applyRead, +242 more |
 | `database.js` | 319 | Read-only SQLite explorer. All SQL, identifier checks, and redaction happen | PAGE_SIZE, state, byId, escape, number, DB_ICON, sourceCounts, setNotice, box, updateSourceTabs, isApp, isLogs, +33 more |
@@ -340,7 +340,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `ui-select.js` | 245 | Design system — select menu | CHEVRON, CHECK, valueDesc, indexDesc, menu, owner, active, LEAD_ICONS, labelOf, opt, sync, trigger, +21 more |
 | `ui-stepper.js` | 114 | Design system — number input stepper | CHEVRON_UP, CHEVRON_DOWN, enhance, input, stepper, label, stepUnit, unit, repeatTimer, repeatInterval, stopRepeat, enhanceAll, +1 more |
 | `ulid.js` | 22 | Run ids — ULID, the same format as src/db/ulid.js | newUlid |
-| `index.html` | 2323 | App shell markup: nav, every page, the drawers and modals |  |
+| `index.html` | 2327 | App shell markup: nav, every page, the drawers and modals |  |
 | `styles.css` | 12781 | The whole stylesheet: tokens, themes, accents, components |  |
 
 ### src/renderer/providers/
@@ -433,10 +433,13 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | --- | --- | --- | --- |
 | `catalog-caps.test.js` | 139 | catalog-caps.js is a plain browser script of top-level consts and function | a published modality list that omits a token answers no, vision and audio are read from the input modalities, case-insensitively, only a real boolean counts as a published flag, files prefers the published flag and falls back to the modality list, a declared generator answers yes with no modality published, capabilityOrigin names where each answer was read from |
 | `decision-probe.test.js` | 139 | The TypeSafe /systemone decision wire protocol — the `noul` probe body and | nara declares the TypeSafe decision hooks at adapter level, nara decisionProbe builds the noul question body, experiential declares the same hooks at adapter level, readDecisionAnswer scores an object answer, named in the row, readDecisionAnswer scores a bare numeric answer, readDecisionAnswer returns null when no probability comes back |
+| `key-budget-free.test.js` | 58 | hasFreeKeyBudget is evaluated with its own dependencies (slotsUsed, budgetFor, | a key under its cap has a free slot, a key at its cap is not free, slots older than a minute do not count against the cap, no configured cap means no constraint (always free) |
 | `key-quota-state.test.js` | 67 | The quota-state helpers in src/renderer/app.js are plain top-level function | a per-model refusal is a partial spend, never a spent key, a model-less record spends the whole key, a reset-less record expires after the TTL, a dated record is untouched by the TTL |
 | `logs-format.test.js` | 140 | logs-format.js is a plain browser script of top-level function | logEscape: provider text cannot close a tag, toViewModel: escapes every string it puts on the page, formatCost: micros to dollars, small amounts kept visible, formatTokens: thousands separated, null is a dash, statusTone: one tone per outcome, passRateText: a fraction becomes a percentage, null stays unknown |
 | `provider-facts.test.js` | 256 | provider-facts.js is a plain browser script of top-level consts and function | a model with nothing published resolves to null, never to zero, the provider context wins and the reference fills only the gap, the score carries its tier, and an unrated model stays unrated, an unpriced model is null, and a published zero is a zero, the ingested row is preferred, and the raw model is the fallback, the five inputs are read from the modality tokens, not the legend ids |
+| `retry-after-parse.test.js` | 42 | parseRetryAfter is sliced out of app.js on its own: a pure function over the | delay-seconds form reads as seconds, HTTP-date form reads as seconds until that date, a past HTTP-date waits a moment, not a full window, garbage and absence read as "not stated" (0) |
 | `settings-appearance.test.js` | 425 | Verify DEFAULT_SETTINGS has theme, followSystem, accent, density, reduceMotion, debugHeader | Appearance: SETTING_INPUTS includes reduceMotion and debugHeader, Appearance: reset appearance restores all appearance keys to defaults, Appearance: SECTION_RESETTERS unifies reset across all settings tabs, Appearance: reset button has red danger styles and accent dock is styled, Appearance: theme preview boxes render detailed UI mockups, Appearance: accent cluster widget and density preview centering |
+| `test-model-budget.test.js` | 176 | testModel is a plain async function declaration, sliced out of app.js the | an empty budget expires and reports the give-up, not an endless ladder, Stop wins over the budget: an aborted run says Aborted, media models have no budget: a video model may take its minutes, a pass always wins, budget or no budget |
 | `tokenharbor-quota.test.js` | 144 | Token Harbor quota reads share one account-wide 60/min budget across keys, | usage headers are read case-insensitively, missing usage headers read as no reading, only the spent code reads as a spent allowance, a header reading returns the allowance, an over-budget 429 is retried and then read, a model answering without headers is skipped for the next free model |
 | `ui-stepper.test.js` | 155 | Mock DOM elements for testing the unit stepper in Node | enhance: ignores unit if no input[type="number"] exists, stepUnit: respects disabled and readOnly inputs |
 
