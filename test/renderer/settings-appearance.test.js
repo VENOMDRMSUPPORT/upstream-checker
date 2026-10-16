@@ -2,109 +2,48 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
+const { createAppearanceFixture } = require('./appearance-dom');
 
 test('Appearance: DEFAULT_SETTINGS contains all appearance keys with proper defaults', () => {
-  const appJs = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'renderer', 'app.js'), 'utf8');
-
-  // Verify DEFAULT_SETTINGS has theme, followSystem, accent, density, reduceMotion, debugHeader
-  assert.ok(appJs.includes("theme: 'vercel'"), 'default theme is vercel');
-  assert.ok(appJs.includes("followSystem: false"), 'default followSystem is false');
-  assert.ok(appJs.includes("accent: 'emerald'"), 'default accent is emerald');
-  assert.ok(appJs.includes("density: 'normal'"), 'default density is normal');
-  assert.ok(appJs.includes("reduceMotion: false"), 'default reduceMotion is false');
-  assert.ok(appJs.includes("debugHeader: true"), 'default debugHeader is true');
+  const { defaults } = createAppearanceFixture();
+  assert.strictEqual(defaults.theme, 'vercel');
+  assert.strictEqual(defaults.followSystem, false);
+  assert.strictEqual(defaults.accent, 'emerald');
+  assert.strictEqual(defaults.density, 'normal');
+  assert.strictEqual(defaults.reduceMotion, false);
+  assert.strictEqual(defaults.debugHeader, true);
 });
 
 test('Appearance: SETTING_INPUTS includes reduceMotion and debugHeader', () => {
-  const appJs = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'renderer', 'app.js'), 'utf8');
+  const panelJs = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'renderer', 'settings-panel.js'), 'utf8');
 
-  assert.ok(appJs.includes("['#set-reduce-motion', 'reduceMotion', 'bool']"), 'reduceMotion in SETTING_INPUTS');
-  assert.ok(appJs.includes("['#set-debug-header', 'debugHeader', 'bool']"), 'debugHeader in SETTING_INPUTS');
+  assert.ok(panelJs.includes("['#set-reduce-motion', 'reduceMotion', 'bool']"), 'reduceMotion in SETTING_INPUTS');
+  assert.ok(panelJs.includes("['#set-debug-header', 'debugHeader', 'bool']"), 'debugHeader in SETTING_INPUTS');
 });
 
 test('Appearance: applyAppearance reflects theme, density, accent, motion, and debugHeader on the DOM', () => {
-  const htmlAttrs = {};
-  const elements = {
-    'btn-header-debug': { hidden: false },
-    'btn-theme-toggle': { title: '', setAttribute: (k, v) => {} },
-  };
-
-  const documentElement = {
-    setAttribute(k, v) { htmlAttrs[k] = v; },
-  };
-
-  const settings = {
-    theme: 'vercel',
-    followSystem: false,
-    density: 'roomy',
-    accent: 'cyan',
-    reduceMotion: true,
-    debugHeader: false,
-  };
-
-  function effectiveTheme() {
-    return settings.theme;
-  }
-
-  function applyAppearance() {
-    const el = documentElement;
-    const theme = effectiveTheme();
-    el.setAttribute('data-theme', theme);
-    el.setAttribute('data-density', settings.density);
-    el.setAttribute('data-accent', settings.accent);
-    el.setAttribute('data-motion', settings.reduceMotion ? 'reduced' : 'normal');
-
-    const debugBtn = elements['btn-header-debug'];
-    if (debugBtn) debugBtn.hidden = !settings.debugHeader;
-  }
-
-  applyAppearance();
-
-  assert.strictEqual(htmlAttrs['data-theme'], 'vercel');
-  assert.strictEqual(htmlAttrs['data-density'], 'roomy');
-  assert.strictEqual(htmlAttrs['data-accent'], 'cyan');
-  assert.strictEqual(htmlAttrs['data-motion'], 'reduced');
-  assert.strictEqual(elements['btn-header-debug'].hidden, true);
-
-  // Toggle debugHeader back to true
-  settings.debugHeader = true;
-  settings.reduceMotion = false;
-  applyAppearance();
-
-  assert.strictEqual(htmlAttrs['data-motion'], 'normal');
-  assert.strictEqual(elements['btn-header-debug'].hidden, false);
+  const { appearance, state, attributes, nodes } = createAppearanceFixture();
+  state.settings = { ...state.settings, theme: 'vercel', followSystem: false, density: 'roomy', accent: 'cyan', reduceMotion: true, debugHeader: false };
+  appearance.applyAppearance();
+  assert.deepStrictEqual(attributes, { 'data-theme': 'vercel', 'data-density': 'roomy', 'data-accent': 'cyan', 'data-motion': 'reduced' });
+  assert.strictEqual(nodes.get('btn-header-debug').hidden, true);
+  state.settings.debugHeader = true;
+  state.settings.reduceMotion = false;
+  appearance.applyAppearance();
+  assert.strictEqual(nodes.get('btn-header-debug').hidden, false);
+  assert.strictEqual(attributes['data-motion'], 'normal');
 });
 
 test('Appearance: reset appearance restores all appearance keys to defaults', () => {
-  const DEFAULT_SETTINGS = {
-    theme: 'vercel',
-    followSystem: false,
-    accent: 'emerald',
-    density: 'normal',
-    reduceMotion: false,
-    debugHeader: true,
-  };
-
-  const settings = {
-    theme: 'daylight',
-    followSystem: true,
-    accent: 'crimson',
-    density: 'compact',
-    reduceMotion: true,
-    debugHeader: false,
-  };
-
-  const resetKeys = ['theme', 'followSystem', 'accent', 'density', 'reduceMotion', 'debugHeader'];
-  resetKeys.forEach((k) => {
-    settings[k] = DEFAULT_SETTINGS[k];
-  });
-
-  assert.strictEqual(settings.theme, 'vercel');
-  assert.strictEqual(settings.followSystem, false);
-  assert.strictEqual(settings.accent, 'emerald');
-  assert.strictEqual(settings.density, 'normal');
-  assert.strictEqual(settings.reduceMotion, false);
-  assert.strictEqual(settings.debugHeader, true);
+  const { appearance, state } = createAppearanceFixture();
+  state.settings = { ...state.settings, theme: 'daylight', followSystem: true, accent: 'crimson', density: 'compact', reduceMotion: true, debugHeader: false };
+  appearance.reset();
+  assert.strictEqual(state.settings.theme, 'vercel');
+  assert.strictEqual(state.settings.followSystem, false);
+  assert.strictEqual(state.settings.accent, 'emerald');
+  assert.strictEqual(state.settings.density, 'normal');
+  assert.strictEqual(state.settings.reduceMotion, false);
+  assert.strictEqual(state.settings.debugHeader, true);
 });
 
 test('Appearance: markup contains all appearance controls and header diagnostics button', () => {
@@ -135,6 +74,7 @@ test('Appearance: reset button is located in the right side of main card header'
 
 test('Appearance: SECTION_RESETTERS unifies reset across all settings tabs', () => {
   const appJs = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'renderer', 'app.js'), 'utf8');
+  const panelJs = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'renderer', 'settings-panel.js'), 'utf8');
   assert.ok(appJs.includes('SECTION_RESETTERS'), 'SECTION_RESETTERS map exists');
   assert.ok(appJs.includes("'sec-appearance':"), 'sec-appearance resetter defined');
   assert.ok(appJs.includes("'sec-test':"), 'sec-test resetter defined');
@@ -146,7 +86,7 @@ test('Appearance: SECTION_RESETTERS unifies reset across all settings tabs', () 
   assert.ok(appJs.includes("'sec-logs':"), 'sec-logs resetter defined');
   assert.ok(appJs.includes("'sec-security':"), 'sec-security resetter defined');
   assert.ok(appJs.includes("'sec-data':"), 'sec-data resetter defined');
-  assert.ok(appJs.includes("resetBtn.hidden = !(isAppearance || isTest)"), 'reset button visible only on appearance and test tabs');
+  assert.ok(panelJs.includes("resetBtn.hidden = !(isAppearance || isTest)"), 'reset button visible only on appearance and test tabs');
 });
 
 test('Appearance: density controls adjust row padding in results table and density preview', () => {
@@ -227,60 +167,28 @@ test('Appearance: accent cluster widget and density preview centering', () => {
   assert.ok(stylesCss.includes('.accent-mini-swatch'), 'mini swatch styled');
   assert.ok(stylesCss.includes('.accent-active-swatch'), 'active swatch styled');
 
-  // Verify swapping code in app.js
-  assert.ok(appJs.includes('renderAccentClusterHTML'), 'renderAccentClusterHTML defined');
-  assert.ok(appJs.includes('inactiveAccentIds'), 'inactiveAccentIds state tracked');
-  assert.ok(appJs.includes('ensureInactiveAccents'), 'ensureInactiveAccents helper defined');
+  const { appearance, state, nodes } = createAppearanceFixture();
+  appearance.setAccent('violet');
+  assert.strictEqual(state.settings.accent, 'violet');
+  const ids = Array.from(nodes.get('accent-row').innerHTML.matchAll(/data-accent-id="([^"]+)"/g), m => m[1]);
+  assert.deepStrictEqual(ids, ['cyan', 'emerald', 'crimson', 'amber', 'violet']);
 });
 
 test('Appearance: accent swapping state transitions', () => {
-  const ACCENTS = [
-    { id: 'emerald', name: 'Emerald', hex: '#10b981' },
-    { id: 'cyan', name: 'Cyan', hex: '#06b6d4' },
-    { id: 'violet', name: 'Violet', hex: '#8b5cf6' },
-    { id: 'crimson', name: 'Crimson', hex: '#f43f5e' },
-    { id: 'amber', name: 'Amber', hex: '#f59e0b' }
-  ];
-
-  let currentAccent = 'emerald';
-  let inactiveAccentIds = ['cyan', 'violet', 'crimson', 'amber'];
-
-  function setAccentMock(id) {
-    if (!ACCENTS.some(a => a.id === id)) return;
-    const oldId = currentAccent;
-    if (oldId !== id) {
-      const idx = inactiveAccentIds.indexOf(id);
-      if (idx !== -1) {
-        inactiveAccentIds[idx] = oldId;
-      }
-      currentAccent = id;
-    }
-  }
-
-  // 1. Initial state
-  assert.strictEqual(currentAccent, 'emerald');
-  assert.deepStrictEqual(inactiveAccentIds, ['cyan', 'violet', 'crimson', 'amber']);
-
-  // 2. Click violet (index 1) -> swaps with emerald
-  setAccentMock('violet');
-  assert.strictEqual(currentAccent, 'violet');
-  assert.deepStrictEqual(inactiveAccentIds, ['cyan', 'emerald', 'crimson', 'amber']);
-
-  // 3. Click crimson (index 2) -> swaps with violet
-  setAccentMock('crimson');
-  assert.strictEqual(currentAccent, 'crimson');
-  assert.deepStrictEqual(inactiveAccentIds, ['cyan', 'emerald', 'violet', 'amber']);
-
-  // 4. Click cyan (index 0) -> swaps with crimson
-  setAccentMock('cyan');
-  assert.strictEqual(currentAccent, 'cyan');
-  assert.deepStrictEqual(inactiveAccentIds, ['crimson', 'emerald', 'violet', 'amber']);
-
-  // 5. Reset to emerald default
-  currentAccent = 'emerald';
-  inactiveAccentIds = ACCENTS.filter(a => a.id !== 'emerald').map(a => a.id);
-  assert.strictEqual(currentAccent, 'emerald');
-  assert.deepStrictEqual(inactiveAccentIds, ['cyan', 'violet', 'crimson', 'amber']);
+  const { appearance, state, nodes } = createAppearanceFixture();
+  const inactive = () => Array.from(nodes.get('accent-row').innerHTML.matchAll(/data-accent-id="([^"]+)"/g), m => m[1]).slice(0, 4);
+  appearance.renderAppearancePickers();
+  assert.deepStrictEqual(inactive(), ['cyan', 'violet', 'crimson', 'amber']);
+  appearance.setAccent('violet');
+  assert.strictEqual(state.settings.accent, 'violet');
+  assert.deepStrictEqual(inactive(), ['cyan', 'emerald', 'crimson', 'amber']);
+  appearance.setAccent('crimson');
+  assert.deepStrictEqual(inactive(), ['cyan', 'emerald', 'violet', 'amber']);
+  appearance.setAccent('cyan');
+  assert.deepStrictEqual(inactive(), ['crimson', 'emerald', 'violet', 'amber']);
+  appearance.reset();
+  assert.strictEqual(state.settings.accent, 'emerald');
+  assert.deepStrictEqual(inactive(), ['cyan', 'violet', 'crimson', 'amber']);
 });
 
 test('Settings: Test & Prompts section markup and styles', () => {
@@ -328,18 +236,16 @@ test('Appearance: header accent popover renders rich rows with descriptions matc
   const indexHtml = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'renderer', 'index.html'), 'utf8');
   const stylesCss = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'renderer', 'styles.css'), 'utf8');
 
-  // Verify app.js helpers and row markup
-  assert.ok(appJs.includes('accentRowsHTML'), 'accentRowsHTML helper defined');
-  assert.ok(appJs.includes('accent-row-item'), 'accent-row-item markup present');
-  assert.ok(appJs.includes('accent-row-swatch'), 'accent-row-swatch markup present');
-  assert.ok(appJs.includes('accent-row-desc'), 'accent-row-desc markup present');
-  assert.ok(appJs.includes('accent-row-check'), 'accent-row-check markup present');
-  assert.ok(appJs.includes('renderAccentPop'), 'renderAccentPop popover updater present');
-
-  // Verify ACCENTS have professional descriptions
-  assert.ok(appJs.includes("desc: 'Crisp vibrant green"), 'emerald description present');
-  assert.ok(appJs.includes("desc: 'Electric neon cyan"), 'cyan description present');
-  assert.ok(appJs.includes("desc: 'Deep royal purple"), 'violet description present');
+  const { appearance, nodes } = createAppearanceFixture();
+  appearance.renderAccentPop();
+  const rows = nodes.get('accent-pop-swatches').innerHTML;
+  assert.ok(rows.includes('accent-row-item'));
+  assert.ok(rows.includes('accent-row-swatch'));
+  assert.ok(rows.includes('accent-row-desc'));
+  assert.ok(rows.includes('accent-row-check'));
+  assert.ok(rows.includes('Crisp vibrant green'));
+  assert.ok(rows.includes('Electric neon cyan'));
+  assert.ok(rows.includes('Deep royal purple'));
 
   // Verify index.html contains unified popover header and swatches container
   assert.ok(indexHtml.includes('id="accent-pop"'), 'accent-pop container present');
@@ -409,8 +315,9 @@ test('Profile: dedicated Profile & Security page markup, routing, and unified st
   // Verify settings-nav does not contain sec-security tab
   assert.ok(!indexHtml.includes('data-section="sec-security"'), 'sec-security removed from settings navigation tabs');
 
-  // Verify app.js handles routing and rendering for profile page
-  assert.ok(appJs.includes("'profile'"), 'profile page registered in PAGES');
+  // Page routing is owned by the focused page-router module.
+  const pageRouterJs = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../src/renderer/page-router.js'), 'utf8');
+  assert.ok(pageRouterJs.includes("'profile'"), 'profile page registered in page-router');
   assert.ok(appJs.includes('function renderProfilePage()'), 'renderProfilePage function defined');
   assert.ok(appJs.includes('renderSecuritySection();'), 'renderSecuritySection called');
 
@@ -420,5 +327,4 @@ test('Profile: dedicated Profile & Security page markup, routing, and unified st
   assert.ok(stylesCss.includes('.profile-stats-grid'), 'profile-stats-grid styled');
   assert.ok(stylesCss.includes('.profile-security-card'), 'profile-security-card styled');
 });
-
 

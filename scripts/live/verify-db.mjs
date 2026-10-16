@@ -34,6 +34,10 @@ const READY = "typeof PROVIDERS === 'object' && Object.keys(PROVIDERS).length ==
 // ---- run 1: the first launch imports the fixture -----------------------------
 
 async function checkImport({ app, dir, mock, fixture }) {
+  // loaded means the local snapshot was read, not that the async startup
+  // discovery has finished. A fresh fixture has no stored roster. Wait for
+  // that first pass to finish, then assert its contents below (even if empty).
+  await app.waitFor('CATALOG.state.lastSyncAt > 0 && !CATALOG.state.syncing', 30000);
   const s = await app.evaluate(`(async () => {
     const cfg = await window.electronAPI.readConfig();
     const keys = (id) => PROVIDERS[id].keys.map((k) => ({ id: k.id, active: k.active, locked: !!k.locked, quota: !!k.quotaSpent }));
@@ -262,8 +266,8 @@ async function checkRouteTestLogged({ app }) {
     };
     switchProvider('darkapi');
     document.querySelector('#btn-fetch-models').click();
-    await wait(() => models.some((m) => m.id === 'fixture-alpha'), 15000);
-    await runTests(models.filter((m) => m.id === 'fixture-alpha'));
+    await wait(() => getProviderModels().some((m) => m.id === 'fixture-alpha'), 15000);
+    await runTests(getProviderModels().filter((m) => m.id === 'fixture-alpha'));
     await new Promise((r) => setTimeout(r, 800));
     const hist = await window.electronAPI.readHistory();
     const last = hist.runs[hist.runs.length - 1];

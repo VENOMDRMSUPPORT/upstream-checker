@@ -1805,7 +1805,7 @@
   // Re-render just one row (a health verdict landing) without rebuilding the
   // table around it.
   function renderRow(key) {
-    if (currentPage !== 'catalog' || !state.shell) return;
+    if (getCurrentPage() !== 'catalog' || !state.shell) return;
     const e = state.models.get(key);
     if (!e) return renderIfShown();
     const rank = filtered(visibleEntries()).rank.get(key);
@@ -1928,7 +1928,7 @@
   }
 
   function renderIfShown() {
-    if (currentPage !== 'catalog') return;
+    if (getCurrentPage() !== 'catalog') return;
     // Coalesce bursts (a health verdict plus its row redraw) into one paint.
     if (state.pendingRender) return;
     state.pendingRender = requestAnimationFrame(() => { state.pendingRender = null; render(); });

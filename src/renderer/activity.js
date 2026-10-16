@@ -266,7 +266,7 @@
 
   function renderIfShown() {
     try {
-      if (typeof currentPage !== 'undefined' && currentPage === 'activity') render();
+      if (typeof getCurrentPage === 'function' && getCurrentPage() === 'activity') render();
     } catch (_) { /* a page that is gone needs nothing */ }
   }
 

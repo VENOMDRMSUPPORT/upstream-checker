@@ -1,86 +1,43 @@
+// Per-model budgets against the complete production retry/hedge runner.
 const test = require('node:test');
 const assert = require('node:assert');
-const fs = require('fs');
-const path = require('path');
+const { loadRendererModules } = require('./module-loader');
 
-// testModel is a plain async function declaration, sliced out of app.js the
-// same way key-quota-state.test.js slices its block. It is evaluated here with
-// every free variable it touches supplied as a stub, so the retry ladder —
-// budget waits, empty recovery, transient backoff — runs against scripted
-// attempts without a provider, a window or a socket.
-//
-// The bug this pins: no layer of the loop bounded the model's WALL CLOCK. Three
-// rate-limit windows plus two transient retries each carrying a fresh 75s
-// deadline could hold one model for ~7 minutes, and with the default
-// concurrency of 1 the whole run stalled behind it.
-const source = fs.readFileSync(
-  path.join(__dirname, '..', '..', 'src', 'renderer', 'app.js'), 'utf8');
-const start = source.indexOf('async function testModel(model, provider) {');
-const end = source.indexOf('// Parse a non-streaming chat completion body');
-assert.ok(start !== -1 && end !== -1 && end > start, 'testModel block not found in app.js');
-
-const PARAMS = [
-  'settings', 'abortTesting', 'isMedia', 'isDecision', 'newUlid', 'RUNNING_RESULT',
-  'soonestKeyAvailable', 'waitForAnyKey', 'updateResultRow', 'keysFor', 'isKeySpentFor',
-  'clearKeySpent', 'readQuotaError', 'markKeySpent', 'deniedPairs', 'denialKey',
-  'isEntitlementDenial', 'isRateLimit', 'learnRateLimit', 'coolKeyDown', 'RETRYABLE_STATUS',
-  'retryDelay', 'sleep', 'STREAM_HEDGE', 'hasFreeKeyBudget', 'raceAttempts', 'adaptiveNonStream',
-  'formatIn', 'Date',
-];
-
-// Builds a testModel wired to a scripted attempt list. Each `attempt` entry is
-// what adaptiveNonStream returns for that round; entries may be plain results
-// or `{ after: ms, result }` to burn real wall-clock in the attempt, which is
-// what makes a millisecond-scale budget actually expire. Flags are read fresh
-// per call, so `state.abortTesting = true` mid-test behaves like the button.
 function makeRunner(script, opts = {}) {
   const state = { abortTesting: false, ...opts };
   let call = 0;
-  const S = {
-    settings: { perModelBudgetMs: 0, maxRateLimitWaits: 3, maxTestRetries: 2, ...(opts.settings || {}) },
-    get abortTesting() { return state.abortTesting; },
-    isMedia: () => !!opts.isMedia,
-    isDecision: () => false,
-    newUlid: () => 'ulid-1',
-    RUNNING_RESULT: { status: 'running' },
-    soonestKeyAvailable: () =>
-      (typeof opts.soonestKeyAvailable === 'function' ? opts.soonestKeyAvailable() : opts.soonestKeyAvailable) ?? 0,
-    waitForAnyKey: async () => {},
-    updateResultRow: () => {},
-    keysFor: () => [{ id: 'k1' }],
-    isKeySpentFor: () => !!state.spent,
-    clearKeySpent: async () => {},
-    readQuotaError: () => opts.readQuotaError || null,
+  const denied = new Set();
+  const policy = {
+    soonestKeyAvailable: () => (typeof opts.soonestKeyAvailable === 'function' ? opts.soonestKeyAvailable() : opts.soonestKeyAvailable) ?? 0,
+    waitForAnyKey: async () => {}, keysFor: () => [{ id: 'k1' }],
+    isKeySpentFor: () => !!state.spent, clearKeySpent: async () => {},
+    readQuotaError: () => typeof opts.readQuotaError === 'function' ? opts.readQuotaError() : null,
     markKeySpent: async () => { state.spent = true; },
-    deniedPairs: new Set(),
-    denialKey: (k, m) => `${k}::${m}`,
-    isEntitlementDenial: () => false,
-    isRateLimit: () => false,
-    learnRateLimit: () => {},
-    coolKeyDown: () => {},
-    RETRYABLE_STATUS: new Set([502, 503, 504]),
-    retryDelay: () => 1,
-    sleep: async () => {},
-    STREAM_HEDGE: 2,
-    hasFreeKeyBudget: () => true,
-    raceAttempts: async () => ({ status: 'fail', response: 'stub', time: 0, tokens: 0 }),
-    adaptiveNonStream: async () => {
+    deny: (k, m) => denied.add(k + '::' + m),
+    isDenied: (k, m) => denied.has(k + '::' + m),
+    isEntitlementDenial: () => false, isRateLimit: () => false,
+    learnRateLimit: () => {}, coolKeyDown: () => {},
+    hasFreeKeyBudget: () => true, formatIn: () => '',
+  };
+  const modules = loadRendererModules(['test-response', 'test-runner']);
+  const runner = modules.runner.create({
+    responses: modules.responses, policy,
+    getSettings: () => ({ perModelBudgetMs: 0, maxRateLimitWaits: 3, maxTestRetries: 2, ...(opts.settings || {}) }),
+    isAborted: () => state.abortTesting, isMedia: () => !!opts.isMedia, isDecision: () => false,
+    kindLimits: () => ({ deadline: 1000, hedge: false }),
+    newUlid: () => 'ulid-1', nextRequestId: () => 'attempt-' + call, cancelRequest: () => {},
+    onProgress: () => {}, runningResult: { status: 'running' },
+    retryDelay: () => 1, sleep: async () => {},
+    attemptOnce: async () => {
       const step = script[Math.min(call, script.length - 1)];
-      call += 1;
-      if (step && typeof step.after === 'number') await new Promise((r) => setTimeout(r, step.after));
+      call++;
+      if (step && typeof step.after === 'number') await new Promise(r => setTimeout(r, step.after));
       return step && step.result ? step.result : step;
     },
-    formatIn: () => '',
-    Date,
-  };
-  const fn = new Function(...PARAMS, `${source.slice(start, end)}\nreturn testModel;`);
+  });
   return {
-    // Re-extract per run so getter-backed stubs (abortTesting) are read at the
-    // moment the model starts, not when the runner was built — flipping
-    // state.abortTesting mid-test behaves like the Stop button.
-    run: (model) => fn(...PARAMS.map((n) => S[n]))(model, { id: 'p1', name: 'P', keys: [{ id: 'k1', key: 'x' }] }),
-    state,
-    attempts: () => call,
+    run: model => runner.testModel(model, { id: 'p1', name: 'P', keys: [{ id: 'k1', key: 'x' }] }),
+    state, attempts: () => call,
   };
 }
 

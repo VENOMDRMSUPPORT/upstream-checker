@@ -65,37 +65,21 @@ test('readDecisionAnswer returns null when no probability comes back', () => {
   assert.strictEqual(NARA.nara.readDecisionAnswer({ answers: { probe: { noul: 'high' } } }), null);
 });
 
-// attemptDecision itself: sliced out of app.js the same way key-quota-state
-// does, exercised against a stubbed apiRequest and the real provider modules.
-const appSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'app.js'), 'utf8');
-const start = appSource.indexOf('async function attemptDecision');
-assert.ok(start !== -1, 'attemptDecision not found in app.js');
-// app.js is CRLF on disk; the function ends at the first brace in column 0.
-const endMatch = /\r?\n\}\r?\n/.exec(appSource.slice(start));
-assert.ok(endMatch, 'attemptDecision end not found in app.js');
-const block = appSource.slice(start, start + endMatch.index + endMatch[0].length);
-
+// The complete request factory uses the real provider hooks and a fake IPC boundary.
+const { loadRendererModules } = require('./module-loader');
 async function runAttemptDecision({ providerOverrides = {}, response } = {}) {
   const calls = [];
   const registry = { nara: { ...NARA.nara, ...providerOverrides } };
-  const sandbox = {
-    window: {
-      INTEGRATED_PROVIDERS: registry,
-      electronAPI: { apiRequest: async (req) => { calls.push(req); return response; } },
-    },
-    settings: { decisionState: 'draft', decisionQuestion: 'How likely?' },
-    kindLimits: () => ({ deadline: 5000 }),
-    authHeaders: (key) => ({ Authorization: `Bearer ${key}` }),
-    routeTestTags: () => ({}),
-    transportFailure: () => null,
-    failFromResponse: (res) => ({ status: 'fail', response: `HTTP ${res.status}` }),
-    buildEmptyResult: () => ({ status: 'pass', isEmpty: true }),
-    usageTokens: () => 7,
-  };
-  const attemptDecision = new Function(...Object.keys(sandbox),
-    `${block}\nreturn attemptDecision;`)(...Object.values(sandbox));
+  const modules = loadRendererModules(['test-response', 'test-attempts']);
+  const attempts = modules.attempts.create({
+    responses: modules.responses, policy: {},
+    getAdapter: id => registry[id],
+    getSettings: () => ({ decisionState: 'draft', decisionQuestion: 'How likely?' }),
+    kindLimits: () => ({ deadline: 5000 }), routeTestTags: () => ({}),
+    request: async req => { calls.push(req); return response; },
+  });
   const provider = { id: 'nara', name: 'NARA Router', baseUrl: 'https://x/v1', decisionEndpoint: '/systemone' };
-  return { result: await attemptDecision(MODEL, provider, { id: 'k1', key: 'sk-test' }, 'r1'), calls };
+  return { result: await attempts.attemptDecision(MODEL, provider, { id: 'k1', key: 'venomkey:k1' }, 'r1'), calls };
 }
 
 test('attemptDecision consults the adapter hooks, not a hardcoded body', async () => {
@@ -130,9 +114,12 @@ test('attemptDecision fails cleanly for an adapter without hooks', async () => {
   assert.match(result.response, /decision endpoint/);
 });
 
-// The acceptance test: no provider-family wire vocabulary remains in app.js.
-test('app.js no longer hardcodes the noul protocol', () => {
-  assert.ok(!appSource.includes('noul'), 'app.js still mentions noul');
-  assert.ok(appSource.includes('decisionProbe'), 'attemptDecision must consult the adapter hook');
-  assert.ok(appSource.includes('readDecisionAnswer'), 'attemptDecision must consult the adapter parser');
+test('a different adapter wire protocol passes through without router-specific assumptions', async () => {
+  const { result, calls } = await runAttemptDecision({
+    providerOverrides: { decisionProbe: () => ({ custom: 'wire' }), readDecisionAnswer: d => ({ score: d.value, response: 'custom answer' }) },
+    response: { status: 200, body: '{"value":0.8}', elapsed: 10 },
+  });
+  assert.deepStrictEqual(JSON.parse(calls[0].body), { custom: 'wire' });
+  assert.strictEqual(result.decisionScore, 0.8);
+  assert.strictEqual(result.response, 'custom answer');
 });

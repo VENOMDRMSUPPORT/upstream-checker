@@ -1,22 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const fs = require('fs');
-const path = require('path');
+const { loadRendererModules } = require('./module-loader');
 
-// parseRetryAfter is sliced out of app.js on its own: a pure function over the
-// Retry-After header with no window or provider behind it.
+// Exercise the complete pure response module with no provider or window I/O.
 //
 // The bug this pins: parseInt read an HTTP-date form ("Wed, 21 Oct 2026…") as
 // its day-of-month, so a provider naming a reset seconds away sent the key to
 // cool down for a full 60s window.
-const source = fs.readFileSync(
-  path.join(__dirname, '..', '..', 'src', 'renderer', 'app.js'), 'utf8');
-const start = source.indexOf('function parseRetryAfter(headers) {');
-assert.ok(start !== -1, 'parseRetryAfter not found in app.js');
-const end = source.indexOf('function failFromResponse', start);
-const block = source.slice(start, end);
-const P = new Function(`${block}
-return { parseRetryAfter };`)();
+const P = loadRendererModules(['test-response']).responses;
 
 test('delay-seconds form reads as seconds', () => {
   assert.strictEqual(P.parseRetryAfter({ 'retry-after': '30' }), 30);

@@ -1,28 +1,15 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const fs = require('fs');
-const path = require('path');
+const { loadRendererModules } = require('./module-loader');
 
-// The quota-state helpers in src/renderer/app.js are plain top-level function
-// declarations, the same shape as provider-facts.js: queriable here by slicing
-// the block between the QUOTA_SPENT_TTL_MS declaration and the end of
-// isKeySpentFor, which touches neither window nor PROVIDERS at evaluation.
+// The complete key-policy factory owns these quota predicates. Evaluating it
+// needs no provider, DOM or I/O for the predicate cases below.
 //
 // The bug this pins: a per-model refusal (quotaSpent.models = ['atria-...'])
 // rendered as a key-wide "Quota used" badge with "No reset time", while the
 // usage cell beside it said Unlimited — on a provider that publishes no quota
 // at all. A model list means some models, never the key.
-const source = fs.readFileSync(
-  path.join(__dirname, '..', '..', 'src', 'renderer', 'app.js'), 'utf8');
-const start = source.indexOf('const QUOTA_SPENT_TTL_MS');
-const anchor = 'function isKeySpentFor(k, modelId) {';
-const afterAnchor = source.indexOf(anchor);
-assert.ok(start !== -1 && afterAnchor !== -1, 'quota-state block not found in app.js');
-const endBrace = source.indexOf('}', source.indexOf('includes(modelId)', afterAnchor));
-const block = source.slice(start, endBrace + 1);
-const Q = new Function(`${block}
-return { QUOTA_SPENT_TTL_MS, quotaSpentExpired, isKeySpent, isKeyFullySpent,
-  isKeyPartiallySpent, isKeySpentFor };`)();
+const Q = loadRendererModules(['test-policy']).policy.create({});
 
 // One refused model on a key that serves dozens: the routing already treats it
 // this way (keysFor filters just isKeySpentFor), and now the badge agrees.

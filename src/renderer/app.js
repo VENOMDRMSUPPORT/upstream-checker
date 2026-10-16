@@ -19,6 +19,13 @@ const NA = '—';
 // Characters of a response shown inline; longer ones get a click-to-expand cell.
 const RESPONSE_PREVIEW = 160;
 
+// Shared pure response helpers; catalog.js also consumes the chat parser.
+const {
+  usageTokens, parseRetryAfter, failFromResponse, transportFailure, authHeaders, isMissingRoute,
+  findAssetUrl, extractMediaUrl, parseChatCompletion, parseStreamedCompletion, buildEmptyResult,
+  resultRank,
+} = window.VENOM_RENDERER.responses;
+
 
 const truthy = (v) => v === true || v === 'true' || v === 1;
 
@@ -84,7 +91,7 @@ const isDecision = (model) => model && model.kind === 'decision';
 // testResults rows carry only the model id; correctness needs the model itself
 // to know which standard applies.
 function modelById(id) {
-  return models.find((m) => m.id === id) || null;
+  return getProviderModels().find((m) => m.id === id) || null;
 }
 
 // A generator's output is a link to an asset, not prose. Finding one is the whole
@@ -100,213 +107,20 @@ function containsMediaUrl(text) {
 // one maps to a decision a user actually faces — how much a slow model is worth
 // spending on, how long a generator is allowed to take, how much history to
 // keep. Defaults are the values the app shipped with.
-const DEFAULT_SETTINGS = {
-  // Latency bands for the TIME column. Calibrated to what a chat completion
-  // actually costs: under 5s flagged most of a healthy run amber, which left
-  // the colour saying nothing.
-  timeGoodMs: 10000,
-  timeOkMs: 15000,
+const { DEFAULT_SETTINGS, THEMES, ACCENTS, LEGACY_ACCENTS } = window.VENOM_RENDERER.defaults;
 
-  // How long one model may take before it is called hung. A generator needs
-  // minutes; a chat model that takes minutes is broken.
-  deadlineChatMs: 75000,
-  deadlineImageMs: 240000,
-  deadlineVideoMs: 600000,
-  deadlineDecisionMs: 60000,
-
-  // The wall clock a single model may consume across ALL of its attempts —
-  // retries, rate-limit windows and empty recovery multiply (3 windows × 60s +
-  // 2 retries × a 75s deadline can hold one model for ~7 minutes). A deadline
-  // bounds one attempt; this bounds the whole model. 0 turns it off.
-  perModelBudgetMs: 90000,
-
-  // Retry policy for transient failures and for provider rate limits.
-  maxTestRetries: 2,
-  maxRateLimitWaits: 3,
-
-  // Hedging rescues a model that is merely slow by racing extra attempts. It is
-  // also the single biggest multiplier on how many requests a run costs.
-  hedgeEnabled: true,
-  hedgeMax: 6,
-  hedgeStepMs: 2000,
-
-  // A reasoning model can spend its whole budget thinking and return no content
-  // at all, which the app then reports as an empty response. Raising this fixes
-  // that case.
-  maxOutputTokens: 512,
-  matchMode: 'boundary',
-
-  // Generators. Each is sent to its dedicated endpoint first (/images/generations,
-  // /videos) and falls back to chat on a provider that has no such route. A
-  // returned link proves little on its own — verifyAssets fetches its headers and
-  // passes the model only when the link really serves an image or a video.
-  imagePrompt: 'A single red circle centred on a plain white background.',
-  videoPrompt: 'A single red circle slowly moving across a plain white background.',
-  videoPollMs: 5000,
-  verifyAssets: true,
-
-  // Decision models answer a typed question with a probability. The probe is a
-  // statement whose truth is not in doubt, so a healthy model scores it high and
-  // anything under the threshold is a wrong answer — the decision twin of 2+2.
-  decisionState: 'The statement under review: 2 + 2 = 4.',
-  decisionQuestion: 'Is the statement under review mathematically correct?',
-  decisionThreshold: 0.7,
-
-  historyMaxRuns: 300,
-  sparkRuns: 12,
-
-  notifyRegression: true,
-  notifyRunComplete: false,
-
-  // Generators are unselected by default, but once selected they would join
-  // every scheduled run — generating images on a timer, unattended.
-  scheduleSkipMedia: true,
-
-  // Live background cycle. One pass per provider covers status, keys, roster
-  // and diff (see adoptProbeResults); the cadence is the catalog sync minutes.
-  // liveUpdates pauses the whole cycle (the breadcrumb toggle); a manual
-  // re-check still works.
-  liveUpdates: true,
-
-  // Appearance. Every colour in the stylesheet comes from a custom property, so
-  // a theme is a block of overrides rather than a second stylesheet.
-  // 'vercel' (Dark) or 'daylight' (Light). followSystem overrides it with the
-  // OS setting. accent is one of ACCENTS' ids.
-  theme: 'vercel',
-  followSystem: false,
-  accent: 'emerald',
-  density: 'normal',
-
-  // The app lock. Minutes of inactivity before the window asks for the password
-  // again; it always asks on launch. main reads this row for its own copy of the
-  // limit (src/main.js idleLimitMs), so a change here is re-read on every save.
-  lockIdleMin: 60,
-
-  // Turns off transitions and animated flourishes. The stylesheet honours it on
-  // the lock screen through html[data-motion="reduced"]; the OS's own
-  // prefers-reduced-motion is honoured as well and is not overridable from here.
-  reduceMotion: false,
-
-  // Diagnostics button in the top bar (header).
-  debugHeader: true,
-
-  // Request bodies in the request log: off | errors (Failed only) | all. The
-  // metadata of every request is recorded whatever this says. Main reads it
-  // from the saved settings row: a row without it (a new install) means
-  // Failed only, and a value already saved is never changed.
-  logLevel: 'errors',
-  // Mirrors LOG_DEFAULTS in src/logs/settings.js, which main reads back from
-  // the same row. Without them here the retention inputs open empty.
-  logRetentionDays: 90,
-  bodyRetentionDays: 7,
-  statsRetentionMonths: 12,
-
-  // Models Catalog. The pool re-reads every connected provider's model
-  // list on this cadence. openRouterApiKey is optional and unlocks the fourth
-  // upstream document (the Artificial Analysis indices); without it fewer
-  // models are measured and more are estimated, and nothing breaks.
-  catalogSyncMinutes: 5,
-  openRouterApiKey: '',
-  // Days a removed model is retained before the purge deletes it. Read by main
-  // from the saved row on every ingest; bounds enforced there too.
-  purgeWindowDays: 30,
-
-  // Models tested at the same time. 1 is the original behaviour. Raising it is
-  // the only thing that actually shortens a run — widening the hedge spends more
-  // requests on one model without lowering that model's own latency.
-  concurrency: 1,
-};
-
-const THEMES = [
-  { id: 'daylight', name: 'Light' },
-  { id: 'vercel', name: 'Dark' },
-];
-
-// The brand pack's five, each with an emblem drawn in its colour (see
-// scripts/generate-icons.js). hex is the swatch; the stylesheet's [data-accent]
-// rules carry the same colour and the shades derived from it.
-const ACCENTS = [
-  { id: 'emerald', name: 'Emerald', hex: '#10b981', desc: 'Crisp vibrant green · Calm & balanced' },
-  { id: 'cyan', name: 'Cyan', hex: '#06b6d4', desc: 'Electric neon cyan · Sharp tech contrast' },
-  { id: 'violet', name: 'Violet', hex: '#8b5cf6', desc: 'Deep royal purple · Creative & refined' },
-  { id: 'crimson', name: 'Crimson', hex: '#f43f5e', desc: 'Bold vivid rose · Dynamic highlights' },
-  { id: 'amber', name: 'Amber', hex: '#f59e0b', desc: 'Warm golden honey · Cozy sunset glow' },
-];
-
-// Accents saved before the brand pack, and the one they became. 'blue' had no
-// counterpart: cyan is the nearest hue.
-const LEGACY_ACCENTS = { green: 'emerald', rose: 'crimson', blue: 'cyan' };
-
-const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
-
-function effectiveTheme() {
-  if (settings.followSystem) return systemDark.matches ? 'vercel' : 'daylight';
-  return settings.theme;
-}
-
-function accentLabel() {
-  return (ACCENTS.find((a) => a.id === settings.accent) || ACCENTS[0]).name;
-}
-
-function applyAppearance() {
-  const el = document.documentElement;
-  const theme = effectiveTheme();
-  el.setAttribute('data-theme', theme);
-  el.setAttribute('data-density', settings.density);
-  el.setAttribute('data-accent', settings.accent);
-  // The lock screen's motion switch. It reads this attribute in CSS and in
-  // lock.js, so flipping the setting takes effect without a reload — and the
-  // OS's own prefers-reduced-motion is honoured on top of it, in both places.
-  el.setAttribute('data-motion', settings.reduceMotion ? 'reduced' : 'normal');
-  queueBrandIcon(settings.accent);
-
-  const debugBtn = document.getElementById('btn-header-debug');
-  if (debugBtn) debugBtn.hidden = !settings.debugHeader;
-
-  const toggle = document.getElementById('btn-theme-toggle');
-  if (toggle) {
-    const label = theme === 'daylight' ? 'Switch to dark mode' : 'Switch to light mode';
-    toggle.title = label;
-    toggle.setAttribute('aria-label', label);
-  }
-}
-
-// The taskbar icon follows the accent: main sets the window icon to that
-// accent's emblem. Debounced, because a quick run through the swatches would
-// otherwise set it once per click; an unchanged accent is not sent again.
-const brandIcon = { id: null, timer: null };
-
-function queueBrandIcon(id) {
-  if (!window.electronAPI?.setWindowIcon || id === brandIcon.id) return;
-  brandIcon.id = id;
-  clearTimeout(brandIcon.timer);
-  brandIcon.timer = setTimeout(() => window.electronAPI.setWindowIcon(id), 150);
-}
-
-// Every emblem, once, so picking an accent swaps the picture at once instead of
-// showing a gap while the file loads.
-function preloadEmblems() {
-  ACCENTS.forEach((a) => {
-    ['', '-light'].forEach((suffix) => { new Image().src = `../assets/brand/emblem-${a.id}${suffix}.png`; });
-  });
-}
-
-// Windows switching light/dark while the app is open.
-systemDark.addEventListener('change', () => {
-  if (!settings.followSystem) return;
-  applyAppearance();
-  if (currentPage === 'settings') renderAppearancePickers();
+// Assigned when the results-table unit is composed below; appearance/runner
+// call through this binding so create order does not hit the TDZ.
+let resultsTable = null;
+const appearance = window.VENOM_RENDERER.appearance.create({
+  defaults: window.VENOM_RENDERER.defaults, getSettings: () => settings,
+  getCurrentPage: () => getCurrentPage(), queueSettingsSave,
+  hasResultRows: () => !!(resultsTable && resultsTable.hasRows()),
+  renderResultsTable: () => { if (resultsTable) resultsTable.render(); },
+  escapeHtml, showPage, switchSettingsSection,
 });
-
-// Header toggle flips the mode actually on screen; an explicit choice ends
-// following the system.
-function toggleTheme() {
-  settings.theme = effectiveTheme() === 'daylight' ? 'vercel' : 'daylight';
-  settings.followSystem = false;
-  applyAppearance();
-  queueSettingsSave();
-  if (currentPage === 'settings') renderAppearancePickers();
-}
+const { effectiveTheme, accentLabel, applyAppearance, preloadEmblems, toggleTheme,
+  renderAppearancePickers, saveAppearance, setAccent, renderAccentPop, setAccentPopOpen } = appearance;
 
 let settings = { ...DEFAULT_SETTINGS };
 
@@ -389,29 +203,29 @@ Object.values(window.INTEGRATED_PROVIDERS || {}).forEach((entry) => {
 });
 
 
-// Runtime provider map — built at init from BUILTIN_PROVIDERS + config
-let PROVIDERS = {};
-
-function makeRuntimeProvider(def) {
-  // `selected` holds the chosen model ids. It lives on the provider rather than in
-  // the DOM so a re-render (or switching providers and back) doesn't silently
-  // reset the user's picks to "everything".
-  return { models: [], planModels: {}, keys: [], selected: new Set(), ...structuredClone(def) };
-}
+// Provider records and persistence live in a dedicated unit. Keep the stable
+// map reference here for the legacy consumers while page behavior is extracted.
+const providerStore = window.VENOM_RENDERER.providerStore.create({
+  builtinProviders: BUILTIN_PROVIDERS,
+  electronAPI: window.electronAPI,
+  persist,
+  quotaSpentExpired: (value) => quotaSpentExpired(value),
+  getCurrentPage: () => getCurrentPage(),
+  renderProvidersPage: () => renderProvidersPage(),
+  onProvidersChanged: (providerId) => window.dispatchEvent(new CustomEvent('providers-changed', { detail: { providerId } })),
+});
+const PROVIDERS = providerStore.providers;
+const saveProviderConfig = (providerId) => providerStore.save(providerId);
+const loadAllProviders = () => providerStore.loadAll();
 
 // State
 let activeProvider = null; // resolved to the first available provider in init()
-let models = [];
-let modelFilter = ''; // models panel search box, lowercased
 let testResults = [];
 let runTotal = null; // models covered by the current/last run; null = no run yet
 let lastRun = null; // { done, total, stopped } — lets the summary be re-stated
 let isTesting = false;
 let abortTesting = false;
 let runStartTime = null; // Date.now() when the current run began — for elapsed display
-let updateInfo = null;
-let isUpdateDownloading = false;
-let isUpdateReady = false;
 
 // DOM helpers
 const $ = (s) => document.querySelector(s);
@@ -489,60 +303,6 @@ window.electronAPI.onFlushPending(async (token) => {
     window.electronAPI.flushDone(token);
   }
 });
-
-// ============================================
-// Providers — each saved on its own (save-provider)
-// ============================================
-// The provider as save-provider takes it. A key's `key` is what the user
-// typed, the key's placeholder, or '' for a key main holds but can't read
-// here (locked); main keeps the stored secret for the last two.
-function providerPayload(id) {
-  const p = PROVIDERS[id];
-  return {
-    id,
-    name: p.name,
-    baseUrl: p.baseUrl,
-    rpm: p.rpm ?? null,
-    keys: p.keys.map((k) => ({ id: k.id, name: k.name, key: k.key || '', active: k.active !== false, quotaSpent: k.quotaSpent || null })),
-  };
-}
-
-// Main answers with each key as a placeholder and a hint. The objects are
-// updated in place — the Connect flow still holds the one storeKey created —
-// so a key typed a moment ago doesn't stay in the page. Name, active and
-// quotaSpent stay the renderer's: a later edit may already be on its way.
-function adoptSavedKeys(p, saved) {
-  const fresh = new Map(saved.keys.map((k) => [k.id, k]));
-  p.keys.forEach((k) => {
-    const s = fresh.get(k.id);
-    if (!s) return;
-    k.key = s.key;
-    k.hint = s.hint;
-    k.locked = s.locked;
-    // A save payload never carries a quotaSpent: the key's live refusal state
-    // stays the renderer's, so a save (rekey, toggle, TTL cleanup…) never
-    // wipes it by omitting it. Only adopt an explicit one.
-    if (Object.hasOwn(s, 'quotaSpent')) k.quotaSpent = s.quotaSpent || null;
-  });
-}
-
-// Returns whether the save actually landed (persist()'s result, truthy on
-// success, undefined when refused or failed — already reported by persist).
-// Callers that show their own "done" status must skip it when this is false,
-// or the save's error in the status bar gets overwritten by a false success.
-async function saveProviderConfig(providerId) {
-  const p = PROVIDERS[providerId];
-  if (!p) return false;
-  const saved = await persist(`save ${p.name}`, () => window.electronAPI.saveProvider(providerPayload(providerId)));
-  if (saved) adoptSavedKeys(p, saved);
-  // Every save is a user edit to keys or the base URL, so the verdict is stale.
-  // One unified pass re-proves this provider and refreshes its roster.
-  if (window.CATALOG) window.CATALOG.syncAll({ reason: 'manual', providerId });
-  if (currentPage === 'providers') renderProvidersPage();
-  // The Models Catalog shows a provider's models only while it has a key.
-  window.dispatchEvent(new CustomEvent('providers-changed', { detail: { providerId } }));
-  return !!saved;
-}
 
 // ============================================
 // Run history — uptime, regressions, scheduling
@@ -936,7 +696,7 @@ $('#expected-input').addEventListener('input', (e) => {
   updateExpectedChips();
   syncPromptPresetPills();
   // Existing rows are re-judged against the new answer without re-running them.
-  if (tableRows.length > 0) renderResultsTable();
+  if (resultsTable && resultsTable.hasRows()) resultsTable.render();
   updateStats();
   renderRunSummary();
 });
@@ -973,7 +733,7 @@ $('#prompt-presets')?.addEventListener('click', (e) => {
   updatePromptStats();
   updateExpectedChips();
   syncPromptPresetPills();
-  if (tableRows.length > 0) renderResultsTable();
+  if (resultsTable && resultsTable.hasRows()) resultsTable.render();
   updateStats();
   renderRunSummary();
 });
@@ -999,7 +759,7 @@ $('#btn-reset-prompt').addEventListener('click', () => {
   updatePromptStats();
   updateExpectedChips();
   syncPromptPresetPills();
-  if (tableRows.length > 0) renderResultsTable();
+  if (resultsTable && resultsTable.hasRows()) resultsTable.render();
   updateStats();
   renderRunSummary();
 });
@@ -1064,81 +824,6 @@ function isCorrect(result, model) {
   });
 }
 
-async function loadAllProviders() {
-  let stored = {};
-  let readError = null;
-  try {
-    stored = (await window.electronAPI.readConfig()).providers || {};
-  } catch (err) {
-    readError = err;
-  }
-  const norm = (u) => (u || '').trim().replace(/\/+$/, '').toLowerCase();
-
-  PROVIDERS = {};
-
-  // Built-ins: code template with the stored name/baseUrl/keys overlaid (the
-  // store wins). A newly-shipped built-in the store doesn't have yet is seeded
-  // below so its name and baseUrl are visible and editable.
-  const missing = [];
-  Object.values(BUILTIN_PROVIDERS).forEach((def) => {
-    const p = makeRuntimeProvider(def);
-    const s = stored[def.id];
-    if (s) {
-      if (s.name) p.name = s.name;
-      if (s.baseUrl) p.baseUrl = s.baseUrl;
-      // null is "not set", which a provider seeded before its module declared a
-      // limit carries; it falls back to the module's documented rpm.
-      if (s.rpm != null) p.rpm = s.rpm;
-      p.keys = s.keys || [];
-    } else {
-      missing.push(def.id);
-    }
-    PROVIDERS[def.id] = p;
-  });
-  // A refusal that named no reset is one model's answer on one day, not a fact
-  // about the key. It TTLs out of the renderer (isKeySpent / quotaSpentExpired)
-  // but the store has no such clock, so a record older than the TTL is dropped
-  // here on load — otherwise it would outlive its meaning in the DB.
-  Object.values(PROVIDERS).forEach((p) => {
-    (p.keys || []).forEach((k) => {
-      if (k && k.quotaSpent && quotaSpentExpired(k.quotaSpent)) {
-        delete k.quotaSpent;
-        window.electronAPI.saveProvider(providerPayload(p.id)).then(
-          (saved) => { if (saved) adoptSavedKeys(p, saved); },
-        ).catch(() => {});
-      }
-    });
-  });
-
-  // Nothing below may write when the store could not be read: PROVIDERS is
-  // then the bare templates, without a single key. init() shows the error.
-  if (readError) throw readError;
-
-  // Seeded one at a time, so seeding never rewrites another provider.
-  for (const id of missing) {
-    await persist(`add ${PROVIDERS[id].name}`, () => window.electronAPI.saveProvider(providerPayload(id)));
-  }
-
-  // The app only runs its integrated providers. A custom provider left by an
-  // older version is merged in main into the built-in with the same baseUrl
-  // (keys move over, duplicates are dropped by value — by ciphertext for keys
-  // this machine can't read); one with no built-in twin and no keys is
-  // removed. One that still holds keys stays in the store untouched, so no key
-  // is ever thrown away, but it is not loaded.
-  for (const [id, s] of Object.entries(stored)) {
-    if (!s.custom || PROVIDERS[id]) continue;
-    const builtin = Object.values(PROVIDERS).find((p) => !p.custom && norm(p.baseUrl) === norm(s.baseUrl));
-    if (builtin) {
-      const merged = await persist(`merge ${s.name || id} into ${builtin.name}`, () => window.electronAPI.mergeProvider(id, builtin.id));
-      if (merged) builtin.keys = merged.keys;
-    } else if (!(s.keys || []).length) {
-      await persist(`remove ${s.name || id}`, () => window.electronAPI.deleteProvider(id));
-    } else {
-      console.warn(`Custom provider "${s.name || id}" still holds keys; kept in the store, not loaded.`);
-    }
-  }
-}
-
 // ============================================
 // Title bar
 // ============================================
@@ -1146,29 +831,26 @@ $('#btn-minimize').addEventListener('click', () => window.electronAPI.minimize()
 $('#btn-maximize').addEventListener('click', () => window.electronAPI.maximize());
 $('#btn-close').addEventListener('click', () => window.electronAPI.close());
 
-// ============================================
-// Provider page — header
-// ============================================
-// The page shows one provider (activeProvider). Its trail, health and title are
-// drawn here; the keys, models and stats each have their own renderer.
-function renderProviderHead() {
-  const p = PROVIDERS[activeProvider];
-  if (!p) return;
-  $('#pt-crumbs').innerHTML = breadcrumbHTML([
-    { label: 'Overview', page: 'overview' },
-    { label: 'Providers', page: 'providers' },
-    { label: p.name, iconHTML: `<span class="crumb-mark">${providerMark(p)}</span>` },
-  ]);
-  const healthEl = $('#pt-health');
-  if (healthEl) healthEl.innerHTML = providerStatusHTML(p);
-  if (currentPage === 'provider') renderPageHeader('provider');
-}
-
-$('.page-provider').addEventListener('click', (e) => {
-  const go = e.target.closest('[data-go]');
-  if (go) showPage(go.dataset.go);
+// The detail unit owns the provider header and the API-key list UI.
+const providerDetail = window.VENOM_RENDERER.providerDetail.create({
+  $,
+  $$,
+  getProvider: (id) => PROVIDERS[id],
+  getActiveProvider: () => activeProvider,
+  getCurrentPage: () => getCurrentPage(),
+  breadcrumbHTML,
+  providerMark: (p) => providerMark(p),
+  providerStatusHTML: (p) => providerStatusHTML(p),
+  renderPageHeader: (page) => renderPageHeader(page),
+  showPage: (page) => showPage(page),
+  openProviderModal: (id) => openProviderModal(id),
+  escapeHtml,
+  toggleKeyActive: (keyId) => toggleKeyActive(keyId),
+  removeKey: (keyId) => removeKey(keyId),
+  copyKey: (keyId, button) => copyKey(keyId, button),
 });
-$('#pt-edit').addEventListener('click', () => openProviderModal(activeProvider));
+const renderProviderHead = () => providerDetail.renderHead();
+const renderKeysList = () => providerDetail.renderKeys();
 
 // ============================================
 // Provider health — adopted from the unified discovery cycle, no requests of
@@ -1339,9 +1021,9 @@ function setProviderHealth(id, { state, detail }) {
   providerVerdicts.set(id, ring.slice(-PROVIDER_TICKS));
   // A Recheck the user pressed resolves into its verdict (see recheckProvider).
   if (recheckAct.get(id)?.state === 'running') setAct(recheckAct, id, state);
-  if (currentPage === 'provider' && id === activeProvider) renderProviderHead();
+  if (getCurrentPage() === 'provider' && id === activeProvider) renderProviderHead();
   renderQuickStats();
-  if (currentPage === 'providers') renderProvidersPage();
+  if (getCurrentPage() === 'providers') renderProvidersPage();
   // These two show only the state (a dot), and rebuilding them resets open
   // menus, so a probe that confirms the same state leaves them alone.
   if (!prev || prev.state !== state) {
@@ -1413,16 +1095,13 @@ document.addEventListener('click', (e) => {
 function switchProvider(providerId) {
   activeProvider = providerId;
   const p = PROVIDERS[activeProvider];
-  models = p.models || [];
-  modelFilter = '';
-  const search = $('#models-search');
-  if (search) search.value = '';
+  providerModels.setSearch('');
   renderProviderHead();
   renderKeysList();
   renderModelsList();
   updateTestAllButton();
   updateStats();
-  if (currentPage === 'provider') syncRoute();
+  if (getCurrentPage() === 'provider') syncRoute();
 }
 
 // The provider whose run fills the results table. The table holds one
@@ -1447,94 +1126,6 @@ function openProviderPage(id) {
 // ============================================
 // Open padlock = the key is in use for runs; closed = held back. The icon shows
 // the current state, and the tooltip spells out what clicking it will do.
-const ICON_UNLOCKED = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <rect x="3" y="11" width="18" height="11" rx="2"/>
-  <path d="M7 11V7a5 5 0 019.9-1"/>
-</svg>`;
-const ICON_LOCKED = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <rect x="3" y="11" width="18" height="11" rx="2"/>
-  <path d="M7 11V7a5 5 0 0110 0v4"/>
-</svg>`;
-
-function renderKeysList() {
-  const p = PROVIDERS[activeProvider];
-  const container = $('#keys-list');
-  $('#pt-key-count').textContent = String(p.keys.length);
-
-  if (p.keys.length === 0) {
-    container.innerHTML = `
-      <div class="models-empty">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" opacity="0.5" aria-hidden="true">
-          <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
-        </svg>
-        <span>No keys yet</span>
-        <span class="models-empty-hint">Add a key to fetch and test this provider's models.</span>
-      </div>`;
-    return;
-  }
-
-  container.innerHTML = p.keys
-    .map(
-      (k) => `
-    <div class="key-item ${k.locked ? 'unreadable' : k.active ? 'active' : ''}" data-key-id="${k.id}">
-      <div class="key-header">
-        <div class="key-name">${escapeHtml(k.name)}</div>
-        <div class="key-actions">
-          <button class="key-icon-btn key-toggle-btn ${k.active && !k.locked ? 'active' : ''}" data-key-id="${k.id}"
-                  ${k.locked ? 'disabled' : ''}
-                  title="${k.locked ? 'Unreadable on this machine' : k.active ? 'In use — click to disable' : 'Disabled — click to enable'}">
-            ${k.active && !k.locked ? ICON_UNLOCKED : ICON_LOCKED}
-          </button>
-          <button class="key-icon-btn key-delete-btn" data-key-id="${k.id}" title="Remove key">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-              <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/>
-              <path d="M10 11v6M14 11v6"/>
-            </svg>
-          </button>
-        </div>
-      </div>
-      <div class="key-value">
-        <span class="key-masked ${k.locked ? 'unreadable' : ''}">${
-          // No hint and not locked means the save that should have produced
-          // one never landed: the key still sits here as plaintext, unsaved.
-          k.locked ? 'Encrypted for another machine — re-add it' : (k.hint ? escapeHtml(k.hint) : '<span class="kx-notsaved" title="WARNING: Key value was never saved — re-add it">NOT SAVED: not saved</span>')
-        }</span>
-        <button class="key-icon-btn key-copy-btn" data-key-id="${k.id}" title="Copy key" ${k.locked ? 'disabled' : ''}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="9" y="9" width="12" height="12" rx="2"/>
-            <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-          </svg>
-        </button>
-      </div>
-    </div>`
-    )
-    .join('');
-
-  // Bind events
-  $$('.key-toggle-btn').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const keyId = btn.dataset.keyId;
-      toggleKeyActive(keyId);
-    });
-  });
-
-  $$('.key-delete-btn').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const keyId = btn.dataset.keyId;
-      removeKey(keyId);
-    });
-  });
-
-  $$('.key-copy-btn').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      copyKey(btn.dataset.keyId, btn);
-    });
-  });
-}
-
 // The page never holds a key: k.key is a venomkey:<id> placeholder that main
 // swaps for the secret per request, and k.hint is the masked form main
 // computed. Copy is the one way the full value leaves the app, and main
@@ -1545,43 +1136,12 @@ function usableKeys(p) {
   return p.keys.filter((k) => k.active && !k.locked);
 }
 
-async function copyKey(keyId, btn) {
-  const key = PROVIDERS[activeProvider].keys.find((k) => k.id === keyId);
-  if (!key || key.locked) return;
-  try {
-    await window.electronAPI.copyKey(keyId);
-    btn.classList.add('copied');
-    btn.title = 'Copied';
-    setTimeout(() => {
-      btn.classList.remove('copied');
-      btn.title = 'Copy key';
-    }, 1200);
-  } catch (err) {
-    setStatus('error', 'Could not copy the key to the clipboard');
-  }
-}
-
-async function toggleKeyActive(keyId) {
-  const p = PROVIDERS[activeProvider];
-  const key = p.keys.find((k) => k.id === keyId);
-  if (!key) return;
-  key.active = !key.active;
-  await saveProviderConfig(activeProvider);
-  renderKeysList();
-  updateTestAllButton();
-}
-
-async function removeKey(keyId) {
-  const p = PROVIDERS[activeProvider];
-  p.keys = p.keys.filter((k) => k.id !== keyId);
-  await saveProviderConfig(activeProvider);
-  renderKeysList();
-  updateTestAllButton();
-}
-
-// Returns { k, saved }: saved is false when saveProviderConfig's persist()
-// failed — the key stays in the page (still plaintext, no hint) so the key
-// rows can show it as "not saved" instead of quietly losing it.
+// Provider actions are composed after the key view state is available.
+let providerActions;
+function copyKey(keyId, btn) { return providerActions.copyKey(keyId, btn); }
+function toggleKeyActive(keyId) { return providerActions.toggleKeyActive(keyId); }
+function removeKey(keyId) { return providerActions.removeKey(keyId); }
+function refreshAfterKeyChange(pid) { return providerActions.refreshAfterKeyChange(pid); }
 async function storeKey(pid, name, key) {
   const k = { id: `key_${Date.now()}`, name: name || `Key ${Date.now()}`, key, active: true };
   PROVIDERS[pid].keys.push(k);
@@ -1614,421 +1174,34 @@ async function addKey() {
   if (window.KEY_USAGE) KEY_USAGE.refresh(pid, k.id, { force: true });
 }
 
-// ============================================
-// Fetch models from provider — only models for the key's plan
-// ============================================
-function getFreeGroupName(code) {
-  if (code === 'free') return 'FREE';
-  if (code === 'freemium' || code === 'freemium-max') return 'FREE FOR PAID';
-  return code;
-}
-
-// The apiRequest handed to a provider module, tagged for the request log with
-// what its caller is doing. A module's own pricing and plans pages (Nara,
-// Experiential) are tagged 'pricing', whoever asked for them.
-function taggedApiRequest(source, p) {
-  const pricingPages = [p && p.pricingUrl, p && p.plansUrl].filter(Boolean);
-  return (opts) => window.electronAPI.apiRequest({
-    ...opts,
-    source: pricingPages.some((u) => String(opts.url || '').startsWith(u)) ? 'pricing' : source,
-  });
-}
-
-// Discovery for one key. A provider can hand out catalogues that differ per key —
-// one key unlocking the Chinese models and another the Claude/GPT ones is a real
-// arrangement — so this runs once per key and the caller merges the results.
-async function discoverModels(p, apiKey) {
-  const adapter = (window.INTEGRATED_PROVIDERS || {})[p.id];
-  if (adapter && adapter.fetchModels) {
-    return adapter.fetchModels({
-      apiKey,
-      baseUrl: p.baseUrl,
-      plansUrl: p.plansUrl,
-      pricingUrl: p.pricingUrl,
-      apiRequest: taggedApiRequest('discovery', p),
-      formatContext,
-      getFreeGroupName,
-    });
-  }
-
-  // Plain OpenAI-compatible provider: show all models, no plan filtering
-  const modelsResult = await window.electronAPI.apiRequest({
-    url: `${p.baseUrl}/models`,
-    method: 'GET',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    source: 'discovery',
-  });
-  if (modelsResult.status !== 200) throw new Error(`HTTP ${modelsResult.status}`);
-  const rawModels = JSON.parse(modelsResult.body).data || [];
-
-  return rawModels
-    .map((m) => {
-      const ctx = readContextWindow(m);
-      return {
-        ...m,
-        isFree: false,
-        isFreeForPaid: false,
-        noPlans: true,
-        groupName: 'MODELS',
-        hasVision: readsVision(m),
-        hasReasoning: readsReasoning(m),
-        context_window: ctx,
-        contextLabel: formatContext(ctx),
-      };
-    })
-    .sort((a, b) => a.id.localeCompare(b.id));
-}
-
-$('#btn-fetch-models').addEventListener('click', async () => {
-  const p = PROVIDERS[activeProvider];
-  const activeKeys = usableKeys(p);
-  if (activeKeys.length === 0) {
-    setStatus('error', 'No active API keys. Add and activate a key first.');
-    return;
-  }
-
-  const btn = $('#btn-fetch-models');
-  const originalText = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Fetching...';
-  setStatus('running', `Fetching models from ${activeKeys.length} key${activeKeys.length === 1 ? '' : 's'}...`);
-
-  // Every key is asked, and the catalogues are unioned. Each model records which
-  // keys returned it, because that is what testing needs later: sending a Claude
-  // model the key that only unlocks the Chinese ones produces a 404 and records a
-  // working model as broken.
-  const byId = new Map();
-  const failures = [];
-
-  for (const k of activeKeys) {
-    try {
-      const list = await discoverModels(p, k.key);
-      list.forEach((m) => {
-        const existing = byId.get(m.id);
-        if (existing) {
-          if (!existing.keyIds.includes(k.id)) existing.keyIds.push(k.id);
-        } else {
-          byId.set(m.id, { ...m, keyIds: [k.id] });
-        }
-      });
-    } catch (err) {
-      // One bad key must not empty the catalogue the others returned.
-      failures.push(`${k.name}: ${err.message || 'failed'}`);
-    }
-  }
-
-  try {
-    if (byId.size === 0) throw new Error(failures[0] || 'No models returned');
-
-    models = [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
-    // Two entries sharing an id are the same model; keeping both would create two
-    // table rows with the same key, and only the first would ever be updated.
-    models = tagAliasGroups(dedupeById(models));
-
-    const adapter = (window.INTEGRATED_PROVIDERS || {})[p.id];
-    if (adapter && typeof adapter.excludeModel === 'function') {
-      models = models.filter((m) => !adapter.excludeModel(m));
-    }
-
-    models.forEach((m) => { m.kind = classifyModel(p.id, m); });
-
-    p.models = [...models];
-    // Chat models start selected. Generators don't: each one costs a real image
-    // or video generation and a minute of wall clock, so including them in every
-    // run — especially a scheduled one — has to be a decision, not a default.
-    p.selected = new Set(models.filter((m) => !isMedia(m)).map((m) => m.id));
-
-    renderModelsList();
-
-    // Fetch and catalog are one step (spec section 6): the roster that was just
-    // read is the roster main stores, so the Models page's rows, scores and
-    // ranks come from the same pass the list below is drawn from — not from a
-    // document this app no longer has.
-    let catalogNote = '';
-    try {
-      await ingestProviderRoster();
-      catalogNote = ' · catalog updated';
-    } catch (err) {
-      // The list is still worth showing: the fetch succeeded and the refusal is
-      // about the catalog's bookkeeping, not about what the provider lists.
-      catalogNote = ` · catalog not updated: ${err.message}`;
-    }
-
-    const keyNote = activeKeys.length > 1 ? ` across ${activeKeys.length} keys` : '';
-    if (p.plansUrl) {
-      const freeCount = models.filter((m) => m.isFree).length;
-      const freeForPaidCount = models.filter((m) => m.isFreeForPaid).length;
-      setStatus('done', `Fetched ${models.length} models${keyNote} (${freeCount} free + ${freeForPaidCount} free for paid)${catalogNote}`);
-    } else if (failures.length) {
-      setStatus('error', `Fetched ${models.length} models${keyNote} — ${failures.join('; ')}${catalogNote}`);
-    } else {
-      setStatus('done', `Fetched ${models.length} models${keyNote}${catalogNote}`);
-    }
-    updateStats();
-  } catch (err) {
-    setStatus('error', err.message || 'Failed to fetch models');
-    console.error(err);
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = originalText;
-  }
-});
-
-// Hand the fetched roster to main and take back what it stored. The adapter
-// objects go as they are — main maps them through src/catalog/row.js, and the
-// aliases an adapter declares are the only way some rows reach the reference at
-// all, so pre-mapping here would throw them away.
-//
-// `ingest` is the only writer of a provider's roster, and it is one flight per
-// provider: the timer, a Fetch models click and a fetch-information click that
-// overlap cost one upstream read and one write, not three.
-//
-// Its refusals arrive as `{ ok: false, code }` rather than as a rejection, so
-// the verdict is read off the reply and never from a catch.
-async function ingestProviderRoster() {
-  const p = PROVIDERS[activeProvider];
-  if (!p) throw new Error('No provider selected');
-  const reply = await window.electronAPI.catalogIngest(p.id, p.models || []);
-  if (reply && reply.ok === false) {
-    throw new Error(catalogIngestFailure(reply));
-  }
-  if (reply && reply.rows && reply.rows.length) {
-    // The Models page reads its own rows from catalog:read, so this only has to
-    // say what moved — the answer is a status line, not a redraw of a list this
-    // page does not own. `moved` is the edge, not the windows: `added` counts
-    // everything new inside seven days, which would repeat on every click.
-    const moved = (reply.changes && reply.changes.moved) || { appeared: 0, disappeared: 0 };
-    const bits = [];
-    if (moved.appeared) bits.push(`${moved.appeared} new`);
-    if (moved.disappeared) bits.push(`${moved.disappeared} removed`);
-    const scored = reply.rows.filter((r) => r.score != null).length;
-    const detail = bits.length ? ` — ${bits.join(' · ')}` : '';
-    setStatus('done', `Catalog updated: ${reply.rows.length} models, ${scored} scored${detail}`);
-    if (reply.warning) setStatus('warn', reply.warning);
-  }
-  // A manual ingest can move the roster too: the bell and the activity page
-  // read what the ingest just wrote.
-  if (window.ACTIVITY) {
+// Provider discovery owns each provider's fetched roster and catalog sync.
+const providerModels = window.VENOM_RENDERER.providerModels.create({
+  $: (selector) => $(selector), $$: (selector) => $$(selector), electronAPI: window.electronAPI,
+  getProviders: () => PROVIDERS, getActiveProvider: () => activeProvider,
+  integratedProviders: () => window.INTEGRATED_PROVIDERS || {}, usableKeys,
+  setStatus: (state, text) => setStatus(state, text),
+  updateTestAllButton: () => updateTestAllButton(), updateStats: () => updateStats(),
+  renderCostEstimate: () => renderCostEstimate(), classifyModel, isMedia,
+  escapeHtml, kindLabels: KIND_LABELS,
+  refreshActivity: () => {
+    if (!window.ACTIVITY) return;
     if (window.ACTIVITY.refreshBell) window.ACTIVITY.refreshBell();
     if (window.ACTIVITY.renderIfShown) window.ACTIVITY.renderIfShown();
-  }
-  return reply;
-}
-
-// A code's own words, as the owner should read them. SYNC_IN_PROGRESS is not a
-// failure they caused: the same provider is already being ingested, and saying
-// so is the difference between a refusal and a button that appears to do
-// nothing. Every catalog:* channel resolves, so this reads the reply and never
-// catches.
-const CATALOG_INGEST_CODES = {
-  INVALID_PROVIDER_PAYLOAD: 'The provider answered with a model list this app cannot read, so nothing was changed.',
-  NOT_FOUND: 'That provider is no longer in the database, so nothing was fetched.',
-  SUSPICIOUS_PROVIDER_DROP: 'The model count dropped sharply and is being held until it repeats — the last good list is still shown.',
-  SYNC_IN_PROGRESS: 'That provider is already being re-read; try again in a moment.',
-};
-
-function catalogIngestFailure(reply) {
-  return CATALOG_INGEST_CODES[reply.code]
-    || `The catalog refused this roster (${reply.code || 'no code given'})${reply.message ? `: ${reply.message}` : ''}`;
-}
-
-// A router often exposes the same upstream model twice: once bare and once under
-// a tier prefix ("deepseek-v4.1-flash" and "dark-free/deepseek-v4.1-flash"). They
-// are separate entries with separate ids, so they can't be deduped — but they are
-// the same model, and counting them as two distorts uptime and makes the list
-// read as twice the catalogue it is.
-//
-// The bare name is recorded as an alias group so the models list can say so. They are
-// still tested separately: a prefix usually routes to a different pool, and the
-// whole point of the tool is that one can be up while the other is down.
-function tagAliasGroups(list) {
-  const bare = (id) => String(id).split('/').pop().toLowerCase();
-  const counts = new Map();
-  list.forEach((m) => counts.set(bare(m.id), (counts.get(bare(m.id)) || 0) + 1));
-  list.forEach((m) => {
-    const b = bare(m.id);
-    if (counts.get(b) > 1) {
-      m.aliasGroup = b;
-      m.aliasCount = counts.get(b);
-    }
-  });
-  return list;
-}
-
-function dedupeById(list) {
-  const seen = new Set();
-  return list.filter((m) => {
-    if (seen.has(m.id)) return false;
-    seen.add(m.id);
-    return true;
-  });
-}
-
-// "OpenAI-compatible" only pins down the chat endpoint — providers disagree on
-// where capability metadata lives in /models, so probe the shapes seen in the
-// wild before giving up. Without this the TYPE and CONTEXT columns are empty for
-// every plain provider, which is what made them look like dead columns.
-function readContextWindow(m) {
-  return (
-    m.context_window ??
-    m.context_length ??
-    m.max_context_tokens ??
-    m.max_context_length ??
-    m.top_provider?.context_length ??
-    m.limit?.context ??
-    null
-  );
-}
-
-function readsVision(m) {
-  if (m.vision != null) return !!m.vision;
-  if (m.supports_vision != null) return !!m.supports_vision;
-  const modality = m.architecture?.input_modalities ?? m.architecture?.modality;
-  if (Array.isArray(modality)) return modality.includes('image');
-  if (typeof modality === 'string') return modality.includes('image');
-  return Array.isArray(m.capabilities) && m.capabilities.includes('vision');
-}
-
-function readsReasoning(m) {
-  if (m.reasoning != null) return !!m.reasoning;
-  if (m.supports_reasoning != null) return !!m.supports_reasoning;
-  return Array.isArray(m.capabilities) && m.capabilities.includes('reasoning');
-}
-
-// Returns '' when the provider doesn't report a context window, so callers can
-// decide how to render "unknown" (the table shows NA, the models list shows nothing
-// rather than a stray dash under every model name).
-function formatContext(ctx) {
-  if (!ctx) return '';
-  if (ctx >= 1000000) return `${Math.round(ctx / 1000000)}M`;
-  if (ctx >= 1000) return `${Math.round(ctx / 1000)}K`;
-  return String(ctx);
-}
-
-// ============================================
-// Render the models list
-// ============================================
-// The models matching the models panel search box. Filtering is display-only — it
-// never changes which models are selected, so a filtered-out model stays in the
-// run if it was already ticked.
-function visibleModels() {
-  if (!modelFilter) return models;
-  return models.filter((m) => m.id.toLowerCase().includes(modelFilter));
-}
-
-function renderModelsList() {
-  const container = $('#models-list');
-  const countEl = $('#model-count');
-  const shown = visibleModels();
-  // While filtering, read "matching/total" so the hidden models stay accounted for.
-  countEl.textContent =
-    shown.length === models.length ? String(models.length) : `${shown.length}/${models.length}`;
-
-  if (models.length === 0) {
-    container.innerHTML = `
-      <div class="models-empty">
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3">
-          <rect x="2" y="3" width="20" height="14" rx="2"/>
-          <path d="M8 21h8M12 17v4"/>
-        </svg>
-        <span>No models loaded</span>
-        <span class="models-empty-hint">${PROVIDERS[activeProvider].keys.length ? 'Fetch models to list what this provider offers.' : 'Add an API key, then fetch models.'}</span>
-      </div>`;
-    updateTestAllButton();
-    return;
-  }
-
-  if (shown.length === 0) {
-    container.innerHTML = `
-      <div class="models-empty">
-        <span>No model matches "${escapeHtml(modelFilter)}"</span>
-      </div>`;
-    updateTestAllButton();
-    return;
-  }
-
-  let html = '';
-  if (shown[0].noPlans) {
-    // No group label here — the panel header already reads "Models <n>".
-    html += shown.map((m) => buildModelItem(m)).join('');
-  } else {
-    const free = shown.filter((m) => m.isFree);
-    const freeForPaid = shown.filter((m) => m.isFreeForPaid);
-    if (free.length > 0) {
-      html += `<div class="model-group-label">FREE (${free.length})</div>`;
-      html += free.map((m) => buildModelItem(m)).join('');
-    }
-    if (freeForPaid.length > 0) {
-      html += `<div class="model-group-label">FREE FOR PAID (${freeForPaid.length})</div>`;
-      html += freeForPaid.map((m) => buildModelItem(m)).join('');
-    }
-  }
-
-  container.innerHTML = html;
-
-  $$('.model-item').forEach((item) => {
-    item.addEventListener('click', () => toggleModelSelection(item.dataset.modelId, item));
-  });
-
-  updateTestAllButton();
-  updateStats();
-  renderCostEstimate();
-}
-
-// Toggling must refresh the Test button (it disables at zero selected) and the
-// Total stat (which counts the models the next run will cover).
-function toggleModelSelection(id, item) {
-  const sel = PROVIDERS[activeProvider].selected;
-  if (sel.has(id)) {
-    sel.delete(id);
-    item.classList.remove('selected');
-  } else {
-    sel.add(id);
-    item.classList.add('selected');
-  }
-  updateTestAllButton();
-  updateStats();
-}
-
-// All / None apply to what the filter is currently showing, so "None" after a
-// search clears just that subset rather than the whole list.
-function setSelectionForVisible(on) {
-  const sel = PROVIDERS[activeProvider].selected;
-  visibleModels().forEach((m) => (on ? sel.add(m.id) : sel.delete(m.id)));
-  renderModelsList();
-}
-
-$('#models-search').addEventListener('input', (e) => {
-  modelFilter = e.target.value.trim().toLowerCase();
-  renderModelsList();
+  },
 });
-$('#btn-select-all').addEventListener('click', () => setSelectionForVisible(true));
-$('#btn-select-none').addEventListener('click', () => setSelectionForVisible(false));
-
-function buildModelItem(m) {
-  const id = escapeHtml(m.id);
-  const selected = PROVIDERS[activeProvider]?.selected.has(m.id);
-  const gate = m.isFree || !m.isFreeForPaid ? ''
-    : m.freeMinBalance != null
-      ? ` · needs ${escapeHtml(String(m.freeMinBalance))} balance`
-      : ' · needs balance';
-  const tip = `${id}${gate}${m.contextLabel ? ` · ${escapeHtml(m.contextLabel)}` : ''}`;
-  return `
-    <div class="model-item ${selected ? 'selected' : ''}" data-model-id="${id}">
-      <div class="model-checkbox"></div>
-      <div class="model-info">
-        <span class="model-name" title="${tip}">${id}</span>
-        ${KIND_LABELS[m.kind] ? `<span class="model-kind">${KIND_LABELS[m.kind]}</span>` : ''}
-        ${m.contextLabel ? `<span class="model-context">${m.contextLabel}</span>` : ''}
-      </div>
-    </div>`;
-}
-
-function getSelectedModels() {
-  const sel = PROVIDERS[activeProvider]?.selected;
-  if (!sel) return [];
-  return models.filter((m) => sel.has(m.id));
-}
+const getProviderModels = (providerId) => providerModels.getModels(providerId);
+const renderModelsList = () => providerModels.renderModelsList();
+const getSelectedModels = () => providerModels.getSelectedModels();
+const taggedApiRequest = (...args) => providerModels.taggedApiRequest(...args);
+const discoverModels = (...args) => providerModels.discoverModels(...args);
+const ingestProviderRoster = (...args) => providerModels.ingestProviderRoster(...args);
+const tagAliasGroups = (...args) => providerModels.tagAliasGroups(...args);
+const dedupeById = (...args) => providerModels.dedupeById(...args);
+const formatContext = (...args) => providerModels.formatContext(...args);
+const readContextWindow = (...args) => providerModels.readContextWindow(...args);
+const readsVision = (...args) => providerModels.readsVision(...args);
+const readsReasoning = (...args) => providerModels.readsReasoning(...args);
+const getFreeGroupName = (...args) => providerModels.getFreeGroupName(...args);
 
 const TEST_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
 const STOP_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`;
@@ -2081,315 +1254,20 @@ function swapTokenLimitField(providerId) {
 // models cost one request; only slow ones fan out, so the result comes back ASAP.
 // Per-model hard cap lives in kindLimits() — a video generator legitimately
 // needs minutes, a chat model that takes one is broken.
-const STREAM_HEDGE = 2;          // parallel streaming attempts during empty recovery
-// 429 is handled by the rate-limit path below, not here: it isn't a transient
-// glitch to back off from, it's the provider telling us to wait out its window.
-const RETRYABLE_STATUS = new Set([502, 503, 504]);
-
-// Hitting a per-minute cap is not a property of the model — it's a property of
-// how fast we were going. Waiting the window out and continuing gives the model
-// a real verdict instead of recording our own pacing as its failure.
-const RATE_LIMIT_WAIT_MS = 60000; // a full window, when the provider doesn't say
-const RATE_LIMIT_PATTERN =
-  /rate.?limit|too many requests|per[- ]minute|requests? per (minute|min)|\brpm\b|concurrency limit/i;
-
+// Stateful key policy is composed here, never through shared mutable maps.
 let runStatusText = '';
-
-// Checked before the rate limit, because a provider will happily return 429 for
-// a billing problem: NaraRouter answers "Insufficient credits. Please top up your
-// balance" with a 429, and treating that as throttling means waiting out three
-// full windows for something no amount of waiting fixes.
-function isRateLimit(r) {
-  if (isEntitlementDenial(r)) return false;
-  if (r.statusCode === 429) return true;
-  return typeof r.response === 'string' && RATE_LIMIT_PATTERN.test(r.response);
-}
-
-// A key can be refused a model it simply isn't entitled to — an unfunded account
-// asked for a paid-tier model, a plan that doesn't include it. That is a fact
-// about the key, not about the model, and it is permanent until the account
-// changes, so unlike a rate limit there is nothing to wait for.
-// Matched on the message, not the status code. Real examples this has to catch:
-//   403 "Your plan does not include the requested model."
-//   429 "Insufficient credits. Please top up your balance and try again..."
-// The status is unreliable — the second is a billing problem wearing a rate
-// limit's code — so the wording is what decides.
-const ENTITLEMENT_PATTERN = new RegExp(
-  [
-    'insufficient',
-    'top[\s-]?up',
-    'no credit|out of credit|credits? remaining',
-    'plan does not includ|not includ(?:e|ed) (?:in|on) your',
-    'not (?:entitled|available on) your',
-    'not granted',
-    'upgrade your|requires? a paid|paid plan',
-    'payment required|billing',
-    'quota exceeded|subscribe',
-  ].join('|'),
-  'i'
-);
-
-function isEntitlementDenial(r) {
-  if (r.statusCode === 402) return true;
-  return typeof r.response === 'string' && ENTITLEMENT_PATTERN.test(r.response);
-}
-
-// "keyId::modelId" pairs the provider has refused this session. Discovery can't
-// always tell what a key is entitled to — NaraRouter's catalogue comes from
-// public pricing endpoints that never see a key, so every key looks like it can
-// reach everything — so entitlement is learned the only way it can be: by being
-// told no, once, and not asking that key again.
-const deniedPairs = new Set();
-const denialKey = (keyId, modelId) => `${keyId}::${modelId}`;
-
-// A key whose allowance is used up — a free tier's weekly allowance, a prepaid
-// quota. A models-endpoint check can't see it (it keeps answering 200), so it
-// is learned from the provider's error — the module's readQuotaError, else the
-// standard codes below — and kept on the key as `quotaSpent` (so it survives a
-// restart) until the reset time the error named.
-//
-// It is recorded per model, not for the whole key: one key can draw on more
-// than one allowance. Token Harbor's free models share the free-tier allowance,
-// but a campaign model carries its own, so with the free tier spent
-// qwen3.8-flash:free still answers 200. `quotaSpent.models` lists the models
-// that were refused; only those sit the key out, every other model is still
-// tried on it (once), and one that is refused joins the list.
-const QUOTA_ERROR_CODES = new Set(['insufficient_quota', 'quota_exceeded']);
-
-function readQuotaError(provider, r) {
-  const adapter = (window.INTEGRATED_PROVIDERS || {})[provider.id];
-  const info = { status: r.statusCode, code: r.errorCode, message: r.response };
-  const own = adapter && adapter.readQuotaError ? adapter.readQuotaError(info) : null;
-  if (own) return own;
-  return QUOTA_ERROR_CODES.has(r.errorCode) ? { until: null, message: r.response } : null;
-}
-
-// A refusal that named no reset time is one model's answer on one day, not a
-// fact about the key. Without an expiry it would sit on the key forever —
-// Dark API's generic path (readQuotaError) never sets `until`, so a single
-// exhausted route would read as a dead key for every restart after it.
-const QUOTA_SPENT_TTL_MS = 24 * 60 * 60 * 1000;
-
-function quotaSpentExpired(s) {
-  return !s.until && s.at != null && Date.now() - s.at > QUOTA_SPENT_TTL_MS;
-}
-
-// The key has a spent allowance that has not reset yet (for some models).
-function isKeySpent(k) {
-  const s = k && k.quotaSpent;
-  if (!s || quotaSpentExpired(s)) return false;
-  return !s.until || s.until > Date.now();
-}
-
-// The whole key is spent: no model list, so every model sits it out.
-function isKeyFullySpent(k) {
-  return isKeySpent(k) && !(Array.isArray(k.quotaSpent.models) && k.quotaSpent.models.length > 0);
-}
-
-// Only the listed models were refused; the key still serves everything else.
-// This is what the run already does (keysFor filters just these out) — the
-// badge used to claim otherwise.
-function isKeyPartiallySpent(k) {
-  return isKeySpent(k) && !isKeyFullySpent(k);
-}
-
-// The key was refused this model for a spent allowance, and it hasn't reset.
-function isKeySpentFor(k, modelId) {
-  return isKeySpent(k) && Array.isArray(k.quotaSpent.models) && k.quotaSpent.models.includes(modelId);
-}
-
-// "5h 12m", "2d 3h", "40m" — time left until a future moment.
-function formatIn(ts) {
-  const m = Math.max(1, Math.round((ts - Date.now()) / 60000));
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return m % 60 ? `${h}h ${m % 60}m` : `${h}h`;
-  const d = Math.floor(h / 24);
-  return h % 24 ? `${d}d ${h % 24}h` : `${d}d`;
-}
-
-function spentHint(k) {
-  const s = k.quotaSpent;
-  const reset = s.until ? `resets ${new Date(s.until).toLocaleString()} (in ${formatIn(s.until)})` : 'no reset time given (cleared after 24h)';
-  const models = Array.isArray(s.models) && s.models.length ? s.models : null;
-  return models
-    ? `Quota used up for ${models.length} model${models.length === 1 ? '' : 's'} — ${reset}. Those are skipped on this key until then; other models are still tried.\n\n${models.join('\n')}`
-    : `Quota used up — ${reset}.`;
-}
-
-// Records that the key was refused `modelId` for a spent allowance. Models
-// refused earlier in the same period stay listed.
-async function markKeySpent(pid, kid, quota, modelId) {
-  const k = PROVIDERS[pid] && PROVIDERS[pid].keys.find((x) => x.id === kid);
-  if (!k) return;
-  const models = isKeySpent(k) && Array.isArray(k.quotaSpent.models) ? [...k.quotaSpent.models] : [];
-  if (modelId && !models.includes(modelId)) models.push(modelId);
-  k.quotaSpent = { until: quota.until || null, status: quota.status || null, message: quota.message || '', at: Date.now(), models };
-  await saveProviderConfig(pid);
-  refreshAfterKeyChange(pid);
-}
-
-async function clearKeySpent(pid, kid) {
-  const k = PROVIDERS[pid] && PROVIDERS[pid].keys.find((x) => x.id === kid);
-  if (!k || !k.quotaSpent) return;
-  delete k.quotaSpent;
-  await saveProviderConfig(pid);
-  refreshAfterKeyChange(pid);
-}
-
-// ============================================
-// Keys and pacing
-// ============================================
-// The per-minute cap belongs to the key, not to the app: it is a property of the
-// plan that key is on. Both the budget and the cooldown are therefore tracked per
-// key, which is also what makes a second key worth having — the run moves onto it
-// instead of sitting out a whole minute.
-const keyCooldownUntil = new Map(); // keyId -> timestamp
-const keyRequestTimes = new Map();  // keyId -> recent request timestamps
-let keyCursor = 0;
-
-function keyNameById(keyId) {
-  const p = PROVIDERS[activeProvider];
-  const k = p && p.keys.find((x) => x.id === keyId);
-  return k ? k.name : '';
-}
-
-function rpmOf(provider) {
-  const n = Number(provider.rpm);
-  return Number.isFinite(n) && n > 0 ? n : 0; // 0 = unknown, so don't pace
-}
-
-// The keys that can actually serve this model. Discovery records which keys
-// returned each model, so a provider whose keys unlock different catalogues gets
-// each request sent to a key that has the model — otherwise a working model is
-// recorded as broken because the wrong key was used to ask for it.
-function keysFor(provider, model) {
-  let keys = usableKeys(provider);
-  if (model && Array.isArray(model.keyIds) && model.keyIds.length > 0) {
-    const listed = keys.filter((k) => model.keyIds.includes(k.id));
-    if (listed.length > 0) keys = listed;
-  }
-  if (!model) return keys;
-  // A key already refused this model for a spent quota sits out while another
-  // can serve it. When every key is, the full list comes back and testModel
-  // reports that.
-  const unspent = keys.filter((k) => !isKeySpentFor(k, model.id));
-  if (unspent.length > 0) keys = unspent;
-  const permitted = keys.filter((k) => !deniedPairs.has(denialKey(k.id, model.id)));
-  // If every key has been refused, hand back the full list so the caller still
-  // gets a real error to report rather than "no key available".
-  return permitted.length > 0 ? permitted : keys;
-}
-
-function slotsUsed(keyId, now) {
-  return (keyRequestTimes.get(keyId) || []).filter((t) => now - t < 60000).length;
-}
-
-// The configured RPM is a starting guess — it comes from a provider's published
-// figure, and a particular key's plan may allow less. Being refused is the only
-// reliable measurement of what a key is really permitted, so a refusal narrows
-// the budget for that key to below what it had just spent.
-const learnedRpm = new Map(); // keyId -> the ceiling this key actually enforces
-
-function budgetFor(provider, keyId) {
-  const configured = rpmOf(provider);
-  const learned = learnedRpm.get(keyId);
-  if (!configured) return learned || 0;
-  return learned ? Math.min(configured, learned) : configured;
-}
-
-// Called when the provider says the per-minute limit was reached. Whatever we
-// managed to send in the preceding minute was over the line, so the new ceiling
-// sits below it — and never below one, or the key would be unusable.
-function learnRateLimit(keyId) {
-  const sent = slotsUsed(keyId, Date.now());
-  const next = Math.max(1, Math.floor((sent || 1) * 0.75));
-  const prev = learnedRpm.get(keyId);
-  if (!prev || next < prev) {
-    learnedRpm.set(keyId, next);
-    console.info(`Rate limit learned for key ${keyId}: ${next}/min (was sending ${sent})`);
-  }
-}
-
-// Whether any key that can serve this model has a free slot in its per-minute
-// budget right now. Shared by the hedge escalator and the empty-recovery race:
-// neither should fire a parallel attempt into a cap every key is already at,
-// spending a slot the models still waiting need.
-function hasFreeKeyBudget(provider, model) {
-  return keysFor(provider, model).some((k) => {
-    const budget = budgetFor(provider, k.id);
-    return !budget || slotsUsed(k.id, Date.now()) < budget;
-  });
-}
-
-// Round-robin over the eligible keys, but a key with a free slot in its own
-// minute beats one that is merely not cooling off. Without that preference the
-// rotation would stop on a key that has spent its budget and wait there while a
-// second key sat idle — which is the whole reason a second key is worth having.
-function pickKey(provider, model) {  const keys = keysFor(provider, model);
-  if (keys.length === 0) return null;
-  const now = Date.now();
-
-  let free = null;  // usable right now
-  let ready = null; // not cooling, but at its per-minute cap
-
-  for (let i = 0; i < keys.length; i++) {
-    const k = keys[(keyCursor + i) % keys.length];
-    if ((keyCooldownUntil.get(k.id) || 0) > now) continue;
-    const budget = budgetFor(provider, k.id);
-    if (!budget || slotsUsed(k.id, now) < budget) { free = k; break; }
-    if (!ready) ready = k;
-  }
-
-  const chosen = free || ready;
-  if (chosen) keyCursor = (keys.indexOf(chosen) + 1) % keys.length;
-  return chosen;
-}
-
-function soonestKeyAvailable(provider, model) {
-  const keys = keysFor(provider, model);
-  if (keys.length === 0) return Infinity;
-  return Math.min(...keys.map((k) => keyCooldownUntil.get(k.id) || 0));
-}
-
-// Holds a request back until its key has a slot in its own minute. Staying under
-// the cap costs a few seconds; going over it costs a full window — so pacing is
-// strictly cheaper than recovering from a 429.
-async function waitForSlot(provider, key) {
-  const rpm = budgetFor(provider, key.id);
-  if (!rpm) return;
-  while (!abortTesting) {
-    const now = Date.now();
-    const recent = (keyRequestTimes.get(key.id) || []).filter((t) => now - t < 60000);
-    if (recent.length < rpm) {
-      recent.push(now);
-      keyRequestTimes.set(key.id, recent);
-      return;
-    }
-    const waitMs = 60000 - (now - recent[0]) + 100;
-    keyRequestTimes.set(key.id, recent);
-    setStatus('running', `Pacing ${provider.name} — next slot in ${Math.ceil(waitMs / 1000)}s`);
-    await sleep(Math.min(1000, waitMs));
-  }
-}
-
-// Every key is cooling off; wait for whichever frees up first.
-async function waitForAnyKey(provider, model) {
-  let waited = false;
-  while (!abortTesting) {
-    const remaining = soonestKeyAvailable(provider, model) - Date.now();
-    if (remaining <= 0 || !Number.isFinite(remaining)) break;
-    waited = true;
-    setStatus('running', `Rate limited — resuming in ${Math.ceil(remaining / 1000)}s`);
-    await sleep(Math.min(1000, remaining));
-  }
-  if (waited && !abortTesting) setStatus('running', runStatusText);
-}
-
-function coolKeyDown(keyId, result) {
-  const ms = result.retryAfter > 0 ? result.retryAfter * 1000 : RATE_LIMIT_WAIT_MS;
-  keyCooldownUntil.set(keyId, Math.max(keyCooldownUntil.get(keyId) || 0, Date.now() + ms));
-}
+const keyPolicy = window.VENOM_RENDERER.policy.create({
+  getProviders: () => PROVIDERS, getActiveProvider: () => activeProvider,
+  isAborted: () => abortTesting, getRunStatus: () => runStatusText,
+  usableKeys, saveProviderConfig, refreshAfterKeyChange, setStatus, sleep,
+  getAdapter: (id) => (window.INTEGRATED_PROVIDERS || {})[id],
+});
+const {
+  isRateLimit, isEntitlementDenial, readQuotaError, quotaSpentExpired, isKeySpent, isKeyFullySpent,
+  isKeyPartiallySpent, isKeySpentFor, formatIn, spentHint, markKeySpent, clearKeySpent,
+  keyNameById, rpmOf, keysFor, slotsUsed, budgetFor, learnRateLimit, hasFreeKeyBudget, pickKey,
+  soonestKeyAvailable, waitForSlot, waitForAnyKey, coolKeyDown,
+} = keyPolicy;
 
 let requestSeq = 0;
 // Every id handed out during a run, so Stop can kill sockets that are already in
@@ -2468,717 +1346,32 @@ function retryDelay(attempt) {
 // statusCode, retryAfter, keyId), so testModel's retry, rate-limit and
 // entitlement handling applies to all of them unchanged.
 
-// Token count from whichever usage dialect came back: chat's prompt/completion,
-// the images API's input/output, or a bare total.
-function usageTokens(u = {}) {
-  if (Number.isFinite(u.total_tokens)) return u.total_tokens;
-  return (u.prompt_tokens || u.input_tokens || 0) + (u.completion_tokens || u.output_tokens || 0);
-}
+// Request-kind implementations and response parsing live in the extracted units.
+const testAttempts = window.VENOM_RENDERER.attempts.create({
+  responses: window.VENOM_RENDERER.responses, policy: keyPolicy,
+  getSettings: () => settings, getPrompt: () => testPrompt, isAborted: () => abortTesting,
+  defaultPrompt: DEFAULT_TEST_PROMPT, isMedia, isDecision, kindLimits,
+  request: (options) => window.electronAPI.apiRequest(options), routeTestTags,
+  getRequestTags: (id) => requestTags.get(id), nextRequestId, sleep,
+  tokenLimitField, swapTokenLimitField,
+  omitReasoning: (pid, mid) => noReasoningEffort.has(reasoningKey(pid, mid)),
+  disableReasoning: (pid, mid) => noReasoningEffort.add(reasoningKey(pid, mid)),
+  reasoningRejected: (message) => REASONING_REJECTED.test(message),
+  observeUsage: (pid, kid, headers) => { if (window.KEY_USAGE) window.KEY_USAGE.observe(pid, kid, headers); },
+  getAdapter: (id) => (window.INTEGRATED_PROVIDERS || {})[id],
+});
+const { attemptOnce } = testAttempts;
 
-// Retry-After arrives as delay-seconds ("30") or an HTTP-date ("Wed, 21 Oct
-// 2026 07:28:00 GMT"). A date under parseInt read as its day-of-month and sent
-// the run to wait a full window for what was seconds away.
-function parseRetryAfter(headers) {
-  const raw = headers?.['retry-after'];
-  if (!raw) return 0;
-  const secs = parseInt(raw, 10);
-  if (Number.isFinite(secs)) return Math.max(0, secs);
-  const at = Date.parse(raw);
-  return Number.isNaN(at) ? 0 : Math.max(0, Math.round((at - Date.now()) / 1000));
-}
-
-// A non-200 reply as a failed result. Some gateways send `error` as a string.
-function failFromResponse(result, keyId) {
-  let errMsg = `HTTP ${result.status}`;
-  let errorCode = null; // machine-readable error.code (or .type), when the body has one
-  try {
-    const d = JSON.parse(result.body);
-    errMsg = (typeof d.error === 'string' ? d.error : d.error?.message) || d.message || errMsg;
-    if (d.error && typeof d.error === 'object') errorCode = d.error.code || d.error.type || null;
-  } catch (_) {}
-  return { status: 'fail', response: errMsg, time: result.elapsed, tokens: 0, statusCode: result.status,
-           retryAfter: parseRetryAfter(result.headers), keyId, errorCode };
-}
-
-// A cancelled hedge loser or a transport failure, or null when a real HTTP
-// reply came back. The handler resolves these so the message and the elapsed
-// time survive the trip across IPC.
-function transportFailure(result, keyId) {
-  if (result.cancelled) return { status: 'fail', response: 'cancelled', time: result.elapsed || 0, tokens: 0, cancelled: true, keyId };
-  if (result.networkError) {
-    return { status: 'fail', response: result.error || 'Request failed', time: result.elapsed || 0,
-             tokens: 0, networkError: true, timedOut: !!result.timedOut, keyId };
-  }
-  return null;
-}
-
-function authHeaders(apiKey) {
-  return { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
-}
-
-// Providers found to have no dedicated image or video route this session. Many
-// routers serve generators through /chat/completions only; once a provider says
-// so, its generators go straight to chat instead of paying a 404 every time.
-const mediaViaChat = new Set();
-const mediaRouteKey = (providerId, kind) => `${providerId}|${kind}`;
-
-// Whether a failed generation call means "this route does not exist here" (fall
-// back to chat) rather than "this model failed" (report it). A 404 that names
-// the model is a missing model, not a missing route.
-function isMissingRoute(result, errMsg) {
-  const routeWords = /endpoint|route|path|url|not supported|unsupported|not implemented/i;
-  if (result.status === 405 || result.status === 501) return true;
-  if (result.status === 404) return !/model/i.test(errMsg) || routeWords.test(errMsg);
-  return result.status === 400 && routeWords.test(errMsg);
-}
-
-// First link to an asset anywhere in a JSON reply. Field names differ per
-// gateway (url, video_url, output[0], data[0].url...), so keys that mention a
-// url are searched before the rest.
-function findAssetUrl(node, depth = 0) {
-  if (node == null || depth > 5) return null;
-  if (typeof node === 'string') return /^(https?:\/\/|data:(image|video)\/)/i.test(node) ? node : null;
-  if (Array.isArray(node)) {
-    for (const v of node) {
-      const u = findAssetUrl(v, depth + 1);
-      if (u) return u;
-    }
-    return null;
-  }
-  if (typeof node === 'object') {
-    const entries = Object.entries(node).sort(([a], [b]) => /url/i.test(b) - /url/i.test(a));
-    for (const [, v] of entries) {
-      const u = findAssetUrl(v, depth + 1);
-      if (u) return u;
-    }
-  }
-  return null;
-}
-
-// The asset link inside a chat reply, markdown image syntax included.
-function extractMediaUrl(text) {
-  const m = /(https?:\/\/[^\s)"'<>\]]+|data:(?:image|video)\/[^\s)"'<>]+)/i.exec(text || '');
-  return m ? m[1] : null;
-}
-
-// Asks the host what a link serves without downloading it: HEAD first, then a
-// one-byte ranged GET for hosts (signed CDN links, mostly) that refuse HEAD.
-// true/false is a verdict; null means the host would not say, and the caller
-// falls back to the link itself.
-async function verifyAsset(url, kind, headers = {}, requestId = null) {
-  if (!settings.verifyAssets || !url) return null;
-  const want = kind === 'video' ? 'video/' : 'image/';
-  if (/^data:/i.test(url)) return url.slice(5).toLowerCase().startsWith(want);
-  for (const [method, extra] of [['HEAD', {}], ['GET', { Range: 'bytes=0-0' }]]) {
-    let res;
-    try {
-      // Logged under the attempt that produced the link (requestId's tags).
-      res = await window.electronAPI.apiRequest({ url, method, headers: { ...headers, ...extra }, timeoutMs: 20000, ...routeTestTags(requestId) });
-    } catch (_) {
-      continue;
-    }
-    if (res.networkError || res.cancelled) continue;
-    if ([403, 405, 501].includes(res.status)) continue;
-    if (res.status >= 400) return false; // a dead link is not a working generator
-    const type = String(res.headers?.['content-type'] || '').toLowerCase();
-    if (!type || type.startsWith('application/octet-stream')) return null;
-    return type.startsWith(want);
-  }
-  return null;
-}
-
-// Result fields for a generated asset: what the response column shows and, when
-// the check could be made, whether the link really serves that kind of media.
-async function assetResult(url, kind, headers, requestId = null) {
-  const verified = await verifyAsset(url, kind, headers, requestId);
-  const shown = /^data:/i.test(url) ? `Inline ${kind} · ${Math.round((url.length * 3) / 4 / 1024)} KB` : url;
-  return typeof verified === 'boolean' ? { response: shown, assetVerified: verified } : { response: shown };
-}
-
-async function attemptImage(model, provider, key, requestId) {
-  const { deadline } = kindLimits('image');
-  const res = await window.electronAPI.apiRequest({
-    url: `${provider.baseUrl}${provider.imageEndpoint || '/images/generations'}`,
-    method: 'POST',
-    headers: authHeaders(key.key),
-    body: JSON.stringify({ model: model.id, prompt: settings.imagePrompt, n: 1 }),
-    requestId,
-    timeoutMs: deadline,
-    ...routeTestTags(requestId),
-  });
-  const lost = transportFailure(res, key.id);
-  if (lost) return lost;
-  if (res.status !== 200) {
-    const f = failFromResponse(res, key.id);
-    return isMissingRoute(res, f.response) ? { routeMissing: true } : f;
-  }
-
-  const data = JSON.parse(res.body);
-  const item = data.data?.[0] || {};
-  const base = { keyId: key.id, status: 'pass', isEmpty: false, time: res.elapsed, tokens: usageTokens(data.usage) };
-  if (item.b64_json) {
-    return { ...base, response: `Inline image · ${Math.round((item.b64_json.length * 3) / 4 / 1024)} KB`, assetInline: true };
-  }
-  const url = item.url || findAssetUrl(data);
-  if (!url) return { ...buildEmptyResult(data.usage || {}, res.elapsed), response: 'No image returned by provider', keyId: key.id };
-  return { ...base, ...(await assetResult(url, 'image', undefined, requestId)) };
-}
-
-const JOB_DONE = new Set(['completed', 'succeeded', 'success', 'done', 'finished', 'ready']);
-const JOB_FAILED = new Set(['failed', 'error', 'cancelled', 'canceled', 'rejected', 'expired']);
-
-// Video is asynchronous: the create call returns a job, which is polled until it
-// finishes. A gateway that answers synchronously with the asset skips the polling.
-async function attemptVideo(model, provider, key, requestId) {
-  const { deadline } = kindLimits('video');
-  const endpoint = `${provider.baseUrl}${provider.videoEndpoint || '/videos'}`;
-  const started = Date.now();
-  const res = await window.electronAPI.apiRequest({
-    url: endpoint,
-    method: 'POST',
-    headers: authHeaders(key.key),
-    body: JSON.stringify({ model: model.id, prompt: settings.videoPrompt }),
-    requestId,
-    timeoutMs: deadline,
-    ...routeTestTags(requestId),
-  });
-  const lost = transportFailure(res, key.id);
-  if (lost) return lost;
-  if (res.status < 200 || res.status >= 300) {
-    const f = failFromResponse(res, key.id);
-    return isMissingRoute(res, f.response) ? { routeMissing: true } : f;
-  }
-
-  let job = JSON.parse(res.body);
-  const elapsed = () => Date.now() - started;
-  const fail = (response, extra = {}) => ({ status: 'fail', response, time: elapsed(), tokens: 0, keyId: key.id, ...extra });
-
-  while (true) {
-    const state = String(job.status || '').toLowerCase();
-    if (JOB_FAILED.has(state)) {
-      return fail(`Video job ${state}${job.error ? `: ${job.error.message || job.error}` : ''}`);
-    }
-    const url = findAssetUrl(job);
-    const done = JOB_DONE.has(state);
-    if (done || (url && !state)) {
-      const pass = { keyId: key.id, status: 'pass', isEmpty: false, time: elapsed(), tokens: usageTokens(job.usage) };
-      if (url) return { ...pass, ...(await assetResult(url, 'video', undefined, requestId)) };
-      // Finished without a link: the OpenAI shape serves the file from the job.
-      const contentUrl = `${endpoint}/${encodeURIComponent(job.id)}/content`;
-      const verified = await verifyAsset(contentUrl, 'video', { Authorization: `Bearer ${key.key}` }, requestId);
-      return { ...pass, response: `Video ready · job ${job.id}`, ...(typeof verified === 'boolean' ? { assetVerified: verified } : {}) };
-    }
-    if (!job.id) return fail('Video job returned neither an id nor an asset');
-    if (abortTesting) return fail('Aborted', { cancelled: true });
-    if (elapsed() >= deadline) return fail(`Timed out while the video was ${state || 'pending'}`, { statusCode: 0, timedOut: true });
-
-    await sleep(Math.max(1000, settings.videoPollMs));
-    // A poll belongs to the same attempt: it carries the create call's tags.
-    const pollId = nextRequestId(requestTags.get(requestId) || null);
-    const poll = await window.electronAPI.apiRequest({
-      url: `${endpoint}/${encodeURIComponent(job.id)}`,
-      method: 'GET',
-      headers: authHeaders(key.key),
-      requestId: pollId,
-      timeoutMs: 30000,
-      ...routeTestTags(pollId),
-    });
-    if (poll.cancelled) return fail('cancelled', { cancelled: true });
-    if (poll.networkError) continue; // one lost poll is not a failed job
-    if (poll.status !== 200) return { ...failFromResponse(poll, key.id), time: elapsed() };
-    job = JSON.parse(poll.body);
-  }
-}
-
-// A decision model scores a typed question against a state. The wire protocol —
-// body shape and answer parsing — belongs to the provider module (see the
-// decision hooks in src/renderer/providers/*.js); this only drives the request
-// and hands the score on for judging against decisionThreshold.
-async function attemptDecision(model, provider, key, requestId) {
-  const adapter = (window.INTEGRATED_PROVIDERS || {})[provider.id];
-  if (!provider.decisionEndpoint || !adapter || !adapter.decisionProbe || !adapter.readDecisionAnswer) {
-    return { status: 'fail', response: `${provider.name} declares no decision endpoint`, time: 0, tokens: 0, keyId: key.id };
-  }
-  const { deadline } = kindLimits('decision');
-  const body = adapter.decisionProbe(model, { state: settings.decisionState, question: settings.decisionQuestion });
-  const res = await window.electronAPI.apiRequest({
-    url: `${provider.baseUrl}${provider.decisionEndpoint}`,
-    method: 'POST',
-    headers: authHeaders(key.key),
-    body: JSON.stringify(body),
-    requestId,
-    timeoutMs: deadline,
-    ...routeTestTags(requestId),
-  });
-  const lost = transportFailure(res, key.id);
-  if (lost) return lost;
-  if (res.status !== 200) return failFromResponse(res, key.id);
-
-  const data = JSON.parse(res.body);
-  const answered = adapter.readDecisionAnswer(data);
-  if (!answered) {
-    return { ...buildEmptyResult(data.usage || {}, res.elapsed), response: 'No probability returned by provider', keyId: key.id };
-  }
-  return {
-    keyId: key.id,
-    status: 'pass',
-    isEmpty: false,
-    response: answered.response,
-    decisionScore: answered.score,
-    time: res.elapsed,
-    tokens: usageTokens(data.usage),
-  };
-}
-
-// One single request. Returns a pass (content), an empty pass, or a fail carrying
-// statusCode/retryAfter so the caller can decide whether to retry.
-async function attemptOnce(model, provider, stream, requestId) {
-  const key = pickKey(provider, model);
-  if (!key) return { status: 'fail', response: 'All keys are rate limited', time: 0, tokens: 0, allKeysCooling: true };
-  await waitForSlot(provider, key);
-  if (abortTesting) return { status: 'fail', response: 'Aborted', time: 0, tokens: 0, cancelled: true };
-
-  try {
-    if (isDecision(model)) return await attemptDecision(model, provider, key, requestId);
-    if (isMedia(model) && !mediaViaChat.has(mediaRouteKey(provider.id, model.kind))) {
-      const tester = model.kind === 'video' ? attemptVideo : attemptImage;
-      const r = await tester(model, provider, key, requestId);
-      if (!r.routeMissing) return r;
-      mediaViaChat.add(mediaRouteKey(provider.id, model.kind));
-    }
-  } catch (err) {
-    return { status: 'fail', response: err.error || err.message || 'Request failed', time: err.elapsed || 0, tokens: 0,
-             cancelled: !!err.cancelled, networkError: !err.cancelled, keyId: key.id };
-  }
-  return attemptChat(model, provider, stream, requestId, key);
-}
-
-// Chat completion — also the fallback route for a generator whose provider has
-// no dedicated image or video endpoint.
-async function attemptChat(model, provider, stream, requestId, key) {
-  const apiKey = key.key;
-  const baseUrl = provider.baseUrl;
-  // reasoning_effort:'low' is sent to every model — it is a no-op on non-reasoning
-  // models and clamps safely, but it makes reasoning-heavy models think briefly
-  // instead of burning time on a deep chain for a trivial prompt. ('minimal' is
-  // NOT safe — some models return empty under it — so 'low' is the floor.)
-  const media = isMedia(model);
-  const payload = {
-    model: model.id,
-    messages: [{
-      role: 'user',
-      content: model.kind === 'video' ? settings.videoPrompt : media ? settings.imagePrompt : testPrompt || DEFAULT_TEST_PROMPT,
-    }],
-    stream: !!stream,
-  };
-  // Newer OpenAI-compatible gateways rejected max_tokens in favour of
-  // max_completion_tokens. Which one a provider accepts is learned from its own
-  // 400 and remembered, so the swap costs one request per provider, once.
-  payload[tokenLimitField(provider.id)] = settings.maxOutputTokens;
-  // reasoning_effort steers a reasoning model away from a deep chain on a trivial
-  // prompt. It means nothing to a generator, so it isn't sent to one.
-  if (!media && !noReasoningEffort.has(reasoningKey(provider.id, model.id))) {
-    payload.reasoning_effort = 'low';
-  }
-
-  try {
-    const { deadline } = kindLimits(model.kind);
-    const result = await window.electronAPI.apiRequest({
-      url: `${baseUrl}/chat/completions`,
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      requestId,
-      timeoutMs: deadline,
-      ...routeTestTags(requestId),
-    });
-
-    // A cancelled hedge loser (raceAttempts skips those) or a transport failure.
-    const lost = transportFailure(result, key.id);
-    if (lost) return lost;
-
-    // Usage some providers send on every answer (Token Harbor's allowance
-    // headers) keeps the key's reading current without asking for it.
-    if (window.KEY_USAGE) KEY_USAGE.observe(provider.id, key.id, result.headers);
-
-    if (result.status === 200) {
-      const parsed = stream ? parseStreamedCompletion(result.body) : parseChatCompletion(result.body);
-      const usage = parsed.usage || {};
-      if (!parsed.content) return { ...buildEmptyResult(usage, result.elapsed), keyId: key.id };
-      const pass = {
-        keyId: key.id,
-        status: 'pass',
-        response: parsed.content,
-        isEmpty: false,
-        time: result.elapsed,
-        tokens: (usage.prompt_tokens || 0) + (usage.completion_tokens || 0),
-        promptTokens: usage.prompt_tokens || 0,
-        completionTokens: usage.completion_tokens || 0,
-      };
-      // A generator answering over chat still has to hand back a real asset.
-      if (media) {
-        const verified = await verifyAsset(extractMediaUrl(parsed.content), model.kind, {}, requestId);
-        if (typeof verified === 'boolean') pass.assetVerified = verified;
-      }
-      return pass;
-    }
-
-    const failed = failFromResponse(result, key.id);
-    const errMsg = failed.response;
-
-    // "Unsupported parameter: max_tokens" and friends — switch the field and go
-    // again rather than reporting a working model as broken.
-    // A re-send after a rejected parameter is the same attempt, marked as one.
-    const swapId = () => nextRequestId({ ...requestTags.get(requestId), paramSwap: true });
-    if (result.status === 400 && /max_tokens|max_completion_tokens/i.test(errMsg)) {
-      const swapped = swapTokenLimitField(provider.id);
-      if (swapped) return attemptOnce(model, provider, stream, swapId());
-    }
-    if (result.status === 400 && payload.reasoning_effort && REASONING_REJECTED.test(errMsg)) {
-      noReasoningEffort.add(reasoningKey(provider.id, model.id));
-      return attemptOnce(model, provider, stream, swapId());
-    }
-    return failed;
-  } catch (err) {
-    return { status: 'fail', response: err.error || err.message || 'Request failed', time: err.elapsed || 0, tokens: 0, cancelled: !!err.cancelled, networkError: !err.cancelled, keyId: key.id };
-  }
-}
-
-// non-empty pass > empty pass > fail
-function resultRank(r) {
-  if (r.status === 'pass' && !r.isEmpty) return 3;
-  if (r.status === 'pass' && r.isEmpty) return 2;
-  return 1;
-}
-
-// Fire `count` parallel attempts; resolve as soon as one returns a non-empty pass
-// (cancelling the rest). If none do, wait for all and resolve with the best result.
-function raceAttempts(model, provider, stream, count, tags = {}) {
-  return new Promise((resolve) => {
-    const ids = [];
-    let pending = count;
-    let best = null;
-    let settled = false;
-    const cancelRest = () => ids.forEach((id) => window.electronAPI.cancelApiRequest(id, 'hedge_lost'));
-
-    for (let i = 0; i < count; i++) {
-      const id = nextRequestId({ ...tags, hedgeIndex: i });
-      ids.push(id);
-      attemptOnce(model, provider, stream, id).then((r) => {
-        pending -= 1;
-        if (settled) return;
-        if (r.status === 'pass' && !r.isEmpty) {
-          settled = true;
-          cancelRest();
-          resolve(r);
-          return;
-        }
-        if (!r.cancelled && (!best || resultRank(r) > resultRank(best))) best = r;
-        if (pending === 0) {
-          settled = true;
-          resolve(best || r);
-        }
-      });
-    }
-  });
-}
-
-// Adaptive non-streaming hedge: start with one request; if it is slow, fire
-// another parallel attempt every HEDGE_STEP_MS (up to HEDGE_MAX). The first
-// non-empty answer wins (cancel the rest). An empty 200 is deterministic per
-// model, so we stop escalating once we see one and resolve with the best result.
-// A hard per-kind deadline prevents a pathologically slow model from hanging.
-function adaptiveNonStream(model, provider, tags = {}) {
-  const { deadline, hedge } = kindLimits(model.kind);
-  const maxAttempts = hedge ? Math.max(1, settings.hedgeMax) : 1;
-  return new Promise((resolve) => {
-    const ids = [];
-    let settled = false;
-    let best = null;
-    let inflight = 0;
-    let launched = 0;
-    let stop = false; // stop launching new attempts (saw an empty, or aborted)
-    let stepTimer = null;
-    let deadlineTimer = null;
-
-    // Why the attempts still running are cut, for the request log: a winner
-    // makes them hedge losers, Stop is the user's, and the per-kind deadline
-    // is recorded as a timeout.
-    const cancelAll = (reason) => ids.forEach((id) => window.electronAPI.cancelApiRequest(id, reason));
-    const finish = (r, reason = 'hedge_lost') => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(stepTimer);
-      clearTimeout(deadlineTimer);
-      cancelAll(reason);
-      resolve(r);
-    };
-
-    // An extra attempt is only worth firing if a key can take it right now.
-    // Hedging exists to get an answer sooner; queueing behind a per-minute cap to
-    // send one does the opposite, and spends a slot the models still waiting need.
-    const budgetFree = () => hasFreeKeyBudget(provider, model);
-
-    const launch = (escalation = false) => {
-      if (settled || stop || abortTesting || launched >= maxAttempts) return;
-      if (escalation && !budgetFree()) {
-        // No room to widen; check again after the usual interval.
-        stepTimer = setTimeout(() => launch(true), settings.hedgeStepMs);
-        return;
-      }
-      launched += 1;
-      inflight += 1;
-      const id = nextRequestId({ ...tags, hedgeIndex: launched - 1 });
-      ids.push(id);
-      attemptOnce(model, provider, false, id).then((r) => {
-        inflight -= 1;
-        if (settled) return;
-        // Stop was pressed. Every attempt comes back `cancelled`, which sets
-        // neither `stop` nor `best` — without this the promise would hang until
-        // the 75s deadline and "Stopping..." would sit there for over a minute.
-        if (abortTesting) return finish(best || { status: 'fail', response: 'Aborted', time: 0, tokens: 0 }, 'stop');
-        if (r.status === 'pass' && !r.isEmpty) return finish(r); // fastest correct wins
-        if (!r.cancelled && (!best || resultRank(r) > resultRank(best))) best = r;
-        // A completed non-win result (empty or failure) means the model isn't just
-        // slow — stop fanning out. Escalation is only for slowness (pending attempts);
-        // an empty goes to streaming and a failure (e.g. 429) is retried with backoff
-        // by testModel, so we must not keep firing requests at it here.
-        if (!r.cancelled) {
-          stop = true;
-          clearTimeout(stepTimer);
-        }
-        if (inflight === 0 && (stop || abortTesting || launched >= maxAttempts)) finish(best);
-      });
-      if (!stop && launched < maxAttempts) stepTimer = setTimeout(() => launch(true), settings.hedgeStepMs);
-    };
-
-    deadlineTimer = setTimeout(
-      () => finish(best || { status: 'fail', response: 'Timed out', time: deadline, tokens: 0, statusCode: 0, timedOut: true }, 'deadline'),
-      deadline
-    );
-
-    launch();
-  });
-}
-
-// ============================================
-// Test a single model — adaptive hedge, handles reasoning, empty, rate limits
-// ============================================
-async function testModel(model, provider) {
-  // One id per testModel call, so the log pages can draw its retry chain.
-  const testGroup = newUlid();
-  let transientRetries = 0;
-  let emptyRetried = false;
-  let rateLimitWaits = 0;
-  let rounds = 0;
-
-  // `time` is only the winning attempt, so a 502 retried twice still reports
-  // ~0.3s. Carrying the round count lets the table show that it took more than
-  // one go instead of presenting the last attempt as the whole story.
-  const done = (r) => ({ ...r, attempts: rounds });
-
-  // The wall clock this one model has consumed. Every retry layer inside the
-  // loop below multiplies — rate-limit windows, transient retries each carrying
-  // a fresh deadline, empty recovery — and without a ceiling a single model can
-  // hold the whole run for minutes. 0 in the setting turns the budget off, and
-  // a generator sits it out entirely: its deadline is minutes by design, and a
-  // 90s ceiling would call every working video model broken.
-  const budgetMs = isMedia(model) ? 0 : settings.perModelBudgetMs;
-  const startedAt = Date.now();
-  const budgetLeft = () =>
-    budgetMs > 0 ? budgetMs - (Date.now() - startedAt) : Infinity;
-  // The verdict when the ceiling is hit. Any key-fact flags already on `r`
-  // (quota, entitlement) are kept: those stay facts about the key, and the
-  // health writer below keeps excluding them.
-  const outOfBudget = (r, why) => done({
-    ...(r || { status: 'fail', time: 0, tokens: 0 }),
-    status: 'fail',
-    tokens: r?.tokens ?? 0,
-    budgetAborted: true,
-    response: `Gave up after ${Math.round((Date.now() - startedAt) / 1000)}s — ${why}`,
-  });
-
-  while (true) {
-    // Every key may still be cooling from an earlier model's 429.
-    const soonest = soonestKeyAvailable(provider, model);
-    if (soonest > Date.now()) {
-      // Waiting out the window counts against the budget: a model that needs
-      // more waiting than the budget allows reports that instead of holding
-      // the run hostage.
-      if (budgetLeft() < soonest - Date.now()) {
-        return outOfBudget(null, 'every key is rate limited past the time budget');
-      }
-      updateResultRow(model, { status: 'running', waiting: true, time: null, tokens: null });
-      await waitForAnyKey(provider, model);
-      updateResultRow(model, RUNNING_RESULT);
-    }
-    if (abortTesting) return done({ status: 'fail', response: 'Aborted', time: 0, tokens: 0 });
-
-    // Every key that could serve this model was already refused it for a spent
-    // quota: say so, and when the first one resets, without sending anything.
-    const candidates = keysFor(provider, model);
-    if (candidates.length > 0 && candidates.every((k) => isKeySpentFor(k, model.id))) {
-      const resets = candidates.map((k) => k.quotaSpent.until).filter(Boolean);
-      const next = resets.length ? Math.min(...resets) : null;
-      return done({
-        status: 'fail', time: 0, tokens: 0, quotaSpent: true,
-        response: `Quota used up for this model${next ? ` — resets ${new Date(next).toLocaleString()} (in ${formatIn(next)})` : ''}`,
-      });
-    }
-    rounds += 1;
-
-    const r = await adaptiveNonStream(model, provider, { testGroup, attempt: rounds });
-
-    // A key that serves a model it had been refused has quota again (reset
-    // early, topped up). Serving another model says nothing: that one may
-    // draw on a different allowance.
-    if (r.status === 'pass' && r.keyId && isKeySpentFor(provider.keys.find((k) => k.id === r.keyId), model.id)) {
-      clearKeySpent(provider.id, r.keyId);
-    }
-
-    if (r.status === 'pass' && !r.isEmpty) return done(r);
-
-    if (r.status === 'pass' && r.isEmpty) {
-      // Generators and decision models don't stream text, so the SSE recovery
-      // below would just buy a second generation (or decision) for nothing.
-      if (isMedia(model) || isDecision(model)) return done(r);
-      // Empty on the non-streaming endpoint: some models (byNara event-stream)
-      // deliver content only over SSE — try streaming. But only when a key has
-      // a free slot: the recovery fires parallel attempts, and racing them into
-      // a per-minute cap spends slots the models still waiting need.
-      if (abortTesting) return done(r);
-      if (budgetLeft() <= 0) return outOfBudget(r, 'time budget spent before streaming recovery');
-      const streamed = hasFreeKeyBudget(provider, model)
-        ? await raceAttempts(model, provider, true, STREAM_HEDGE, { testGroup, attempt: rounds })
-        : r;
-      if (streamed.status === 'pass' && !streamed.isEmpty) return done(streamed);
-      // Both empty. Empty can be flaky, so retry the whole model once.
-      if (!emptyRetried && !abortTesting) {
-        if (budgetLeft() <= 0) return outOfBudget(r, 'time budget spent before the empty retry');
-        emptyRetried = true;
-        await sleep(500);
-        continue;
-      }
-      return done(r);
-    }
-
-    // The key's quota for this model is spent. It is remembered (until the
-    // reset) so later runs don't ask again, and this model moves on to another
-    // key if there is one. Checked before the entitlement rule below, which
-    // would forget it at the end of the run.
-    const quota = r.status === 'fail' && r.keyId ? readQuotaError(provider, r) : null;
-    if (quota && !abortTesting) {
-      await markKeySpent(provider.id, r.keyId, { ...quota, status: r.statusCode }, model.id);
-      if (keysFor(provider, model).some((k) => !isKeySpentFor(k, model.id))) {
-        if (budgetLeft() <= 0) return outOfBudget(r, 'time budget spent before trying the next key');
-        continue;
-      }
-      return done({ ...r, quotaSpent: true });
-    }
-
-    // This key isn't entitled to this model. Remember that and try another key
-    // if one is left — a model the account can actually reach must not be
-    // recorded as down because the wrong key asked for it.
-    if (isEntitlementDenial(r) && r.keyId && !abortTesting) {
-      const before = keysFor(provider, model).length;
-      deniedPairs.add(denialKey(r.keyId, model.id));
-      const after = keysFor(provider, model).filter(
-        (k) => !deniedPairs.has(denialKey(k.id, model.id))
-      ).length;
-      if (after > 0 && after < before) {
-        // Another key may be entitled — but not past the budget.
-        if (budgetLeft() <= 0) return outOfBudget(r, 'time budget spent before trying the next key');
-        continue; // another key may be entitled
-      }
-      return done({ ...r, entitlementDenied: true });
-    }
-
-    // Rate limited. Cool that key down and try again — with a second key the run
-    // simply moves onto it, and only waits when every key is capped. Being
-    // throttled never gets recorded as the model's failure.
-    if ((isRateLimit(r) || r.allKeysCooling) && rateLimitWaits < settings.maxRateLimitWaits && !abortTesting) {
-      if (budgetLeft() <= 0) {
-        // Being throttled is a fact about the run's own pacing, so this carries
-        // allKeysCooling when that is what it was: not a model verdict either way.
-        return outOfBudget({ ...(r.allKeysCooling ? { allKeysCooling: true } : {}), statusCode: r.statusCode },
-          `still rate limited after ${rateLimitWaits} window${rateLimitWaits === 1 ? '' : 's'}`);
-      }
-      rateLimitWaits += 1;
-      if (r.keyId) {
-        if (isRateLimit(r)) learnRateLimit(r.keyId);
-        coolKeyDown(r.keyId, r);
-      }
-      continue;
-    }
-    if (isRateLimit(r)) {
-      return done({
-        ...r,
-        response: `Still rate limited after ${rateLimitWaits} window${rateLimitWaits === 1 ? '' : 's'} — ${r.response}`,
-      });
-    }
-
-    // A failure. Retry on transient errors (5xx/network) with backoff — except for
-    // a decision call: it carries no idempotency guarantee, so a lost reply may
-    // already have been served and billed, and a retry would pay for it twice.
-    const retryable =
-      !isDecision(model) && ((r.statusCode && RETRYABLE_STATUS.has(r.statusCode)) || r.networkError);
-    if (retryable && transientRetries < settings.maxTestRetries && !abortTesting) {
-      if (budgetLeft() <= 0) return outOfBudget(r, 'time budget spent before the transient retry');
-      await sleep(retryDelay(transientRetries));
-      transientRetries++;
-      continue;
-    }
-    return done(r);
-  }
-}
-
-// Parse a non-streaming chat completion body into { content, usage }.
-function parseChatCompletion(body) {
-  const data = JSON.parse(body);
-  const choice = data.choices?.[0];
-  let content = choice?.message?.content?.trim() || '';
-  if (!content && choice?.message?.reasoning_content) {
-    content = choice.message.reasoning_content.trim();
-  }
-  return { content, usage: data.usage || {} };
-}
-
-// Parse an SSE (stream:true) chat completion body: concatenate delta.content
-// across chunks and read usage from the final chunk.
-function parseStreamedCompletion(body) {
-  let content = '';
-  let usage = null;
-  for (const line of (body || '').split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith('data:')) continue;
-    const payload = trimmed.slice(5).trim();
-    if (!payload || payload === '[DONE]') continue;
-    let chunk;
-    try {
-      chunk = JSON.parse(payload);
-    } catch (_) {
-      continue;
-    }
-    const delta = chunk.choices?.[0]?.delta;
-    if (delta?.content) content += delta.content;
-    if (chunk.usage) usage = chunk.usage;
-  }
-  return { content: content.trim(), usage: usage || {} };
-}
-
-// An empty 200 (no content even after streaming recovery) is a real outcome:
-// the provider returned no text. Report it honestly rather than as a plain pass.
-function buildEmptyResult(usage, elapsed) {
-  return {
-    status: 'pass',
-    response: 'No content returned by provider',
-    isEmpty: true,
-    time: elapsed,
-    tokens: (usage.prompt_tokens || 0) + (usage.completion_tokens || 0),
-    promptTokens: usage.prompt_tokens || 0,
-    completionTokens: usage.completion_tokens || 0,
-  };
-}
+const testRunner = window.VENOM_RENDERER.runner.create({
+  responses: window.VENOM_RENDERER.responses, policy: keyPolicy, attemptOnce,
+  getSettings: () => settings, isAborted: () => abortTesting,
+  isMedia, isDecision, kindLimits, nextRequestId,
+  cancelRequest: (id, reason) => window.electronAPI.cancelApiRequest(id, reason),
+  onProgress: (model, result) => resultsTable.updateRow(model, result),
+  getRunningResult: () => RUNNING_RESULT,
+  newUlid, sleep, retryDelay,
+});
+const { testModel } = testRunner;
 
 // ============================================
 // Test all selected models
@@ -3218,7 +1411,7 @@ $('#btn-retry-failed').addEventListener('click', () => {
 $('#results-body').addEventListener('click', (e) => {
   const btn = e.target.closest('.row-retry-btn');
   if (!btn || isTesting) return;
-  const model = models.find((m) => m.id === btn.dataset.modelId);
+  const model = getProviderModels().find((m) => m.id === btn.dataset.modelId);
   if (model) runTests([model], { reset: false });
 });
 
@@ -3228,10 +1421,10 @@ function retryableModels() {
   const ids = new Set(testResults.filter((r) => r.status === 'fail').map((r) => r.model));
   // Read off the backing data, not the DOM — a "failed only" filter or a sort
   // can leave skipped rows out of the table entirely.
-  tableRows.forEach((e) => {
+  resultsTable.forEachRow((e) => {
     if (e.result.status === 'skipped') ids.add(e.model.id);
   });
-  return models.filter((m) => ids.has(m.id));
+  return getProviderModels().filter((m) => ids.has(m.id));
 }
 
 // A retry replaces the model's previous verdict rather than appending a second one.
@@ -3260,9 +1453,7 @@ async function runTests(list, { reset = true, scheduled = false } = {}) {
   // The run's id tags every request it sends and names its history run, so
   // the request log and the history agree on which run a request was part of.
   routeRun = { runId: newUlid(), trigger: scheduled ? 'scheduled' : 'manual' };
-  keyCooldownUntil.clear();
-  if (reset) learnedRpm.clear();
-  if (reset) deniedPairs.clear();
+  keyPolicy.resetRun(reset);
 
   if (reset) {
     testResults = [];
@@ -3445,127 +1636,20 @@ function renderRunSummary() {
 // ============================================
 // Results table
 // ============================================
-// The table's backing data, in the order rows were created. Sorting and
-// filtering are views over this — the underlying run order never changes, so
-// clearing a sort restores the original sequence.
-let tableRows = [];
-let sortKey = null;
-let sortDir = 1;
-let showFailedOnly = false;
-
-function initResultsTable() {
-  tableRows = [];
-  sortKey = null;
-  sortDir = 1;
-  showFailedOnly = false;
-  $('#results-empty').style.display = 'none';
-  $('#results-table').style.display = '';
-  $('#results-body').innerHTML = '';
-}
-
-function addResultRow(model, result) {
-  tableRows.push({ model, result });
-  const tbody = $('#results-body');
-  const tr = document.createElement('tr');
-  tr.dataset.modelId = model.id;
-  tr.className = rowClassFor(result);
-  tr.innerHTML = buildRowHtml(model, result, tableRows.length);
-  tbody.appendChild(tr);
-  syncColumnVisibility();
-}
-
-const SORTERS = {
-  status: (e) => ({ fail: 0, skipped: 1, queued: 2, running: 3, pass: e.result.isEmpty ? 4 : 5 })[e.result.status] ?? 6,
-  model: (e) => e.model.id.toLowerCase(),
-  context: (e) => contextOf(e.model) ?? -1,
-  score: (e) => scoreOf(e.model),
-  price: (e) => { const c = costOf(e.model); return c.in == null ? c.out : c.in; },
-  latency: (e) => latencyOf(e.model),
-  time: (e) => (e.result.status === 'pass' ? e.result.time : null),
-  tokens: (e) => (e.result.status === 'pass' ? e.result.tokens : null),
-  tps: (e) => tokensPerSecond(e.result),
-  uptime: (e) => uptimeOf(e.model.id),
-  correct: (e) => {
-    const c = isCorrect(e.result, e.model);
-    return c == null ? null : c ? 1 : 0;
-  },
-};
-
-// Rows with no value for the sort column always sink to the bottom, whichever
-// direction is active — a failed model has no "slowest time", it has no time.
-function sortedRows(rows) {
-  if (!sortKey) return rows;
-  const read = SORTERS[sortKey];
-  return [...rows].sort((a, b) => {
-    const x = read(a);
-    const y = read(b);
-    const xNull = x == null || x === '';
-    const yNull = y == null || y === '';
-    if (xNull && yNull) return 0;
-    if (xNull) return 1;
-    if (yNull) return -1;
-    if (typeof x === 'string') return x.localeCompare(y) * sortDir;
-    return (x - y) * sortDir;
-  });
-}
-
-function visibleRows() {
-  const rows = showFailedOnly
-    ? tableRows.filter((e) => e.result.status === 'fail' || e.result.isEmpty)
-    : tableRows;
-  return sortedRows(rows);
-}
-
-function renderResultsTable() {
-  $('#results-body').innerHTML = visibleRows()
-    .map(
-      ({ model, result }, index) =>
-        `<tr class="${rowClassFor(result)}" data-model-id="${escapeHtml(model.id)}">${buildRowHtml(model, result, index + 1)}</tr>`
-    )
-    .join('');
-  syncColumnVisibility();
-}
-
-// Every provider shows the same columns, always. A column with no answers shows
-// em-dashes, never folds away — so a thin provider reads the same table as a
-// rich one. (TYPE stays hidden by CSS; it is not one of the table's columns.)
-function syncColumnVisibility() {
-  const table = $('#results-table');
-  if (!table) return;
-  table.classList.remove('hide-type', 'hide-context', 'hide-score', 'hide-price', 'hide-caps');
-}
-
-$('#results-table thead').addEventListener('click', (e) => {
-  const th = e.target.closest('.th-sortable');
-  if (!th) return;
-  const key = th.dataset.sort;
-  if (sortKey === key) {
-    // third click clears the sort and restores run order
-    if (sortDir === -1) sortKey = null;
-    else sortDir = -1;
-  } else {
-    sortKey = key;
-    sortDir = 1;
-  }
-  $$('#results-table th').forEach((el) => el.classList.remove('sort-asc', 'sort-desc'));
-  if (sortKey) th.classList.add(sortDir === 1 ? 'sort-asc' : 'sort-desc');
-  renderResultsTable();
+// Table state, sort/filter, export and the response modal live in the results
+// unit. Row HTML and reference facts stay here so catalog scoring stays local.
+resultsTable = window.VENOM_RENDERER.results.create({
+  escapeHtml, buildRowHtml, contextOf, scoreOf, costOf, latencyOf, uptimeOf, isCorrect,
+  modelById, updateStats, setStatus,
+  getTestResults: () => testResults,
+  setTestResults: (rows) => { testResults = rows; },
+  clearRunState: () => { runTotal = null; lastRun = null; },
+  getActiveProviderMeta: () => PROVIDERS[activeProvider],
 });
-
-function toggleFailedFilter() {
-  showFailedOnly = !showFailedOnly;
-  updateStats();
-  renderResultsTable();
-}
-$('#pt-kpis').addEventListener('click', (e) => {
-  if (e.target.closest('[data-filter-failed]')) toggleFailedFilter();
-});
-$('#pt-kpis').addEventListener('keydown', (e) => {
-  if ((e.key === 'Enter' || e.key === ' ') && e.target.closest('[data-filter-failed]')) {
-    e.preventDefault();
-    toggleFailedFilter();
-  }
-});
+resultsTable.bind();
+const {
+  initResultsTable, addResultRow, updateResultRow, renderResultsTable, clearResults, tokensPerSecond,
+} = resultsTable;
 
 const ptLegend = $('#pt-legend');
 if (ptLegend) {
@@ -3575,41 +1659,6 @@ if (ptLegend) {
       renderPtLegend();
     }
   });
-}
-
-// Matched on the dataset value rather than an attribute selector, because model
-// ids carry '/', '.' and ':' and would need escaping to be used as a selector.
-function findResultRow(modelId) {
-  let found = null;
-  $$('#results-body tr').forEach((tr) => {
-    if (!found && tr.dataset.modelId === modelId) found = tr;
-  });
-  return found;
-}
-
-function rowClassFor(result) {
-  if (result.isEmpty) return 'row-empty';
-  if (result.status === 'queued') return 'row-pending';
-  if (result.status === 'running') return 'row-running';
-  if (result.status === 'skipped') return 'row-skipped';
-  return result.status === 'pass' ? 'row-pass' : 'row-fail';
-}
-
-function updateResultRow(model, result) {
-  const entry = tableRows.find((e) => e.model.id === model.id);
-  if (entry) entry.result = result;
-
-  // With a sort or filter active the row may need to move (or vanish), so the
-  // whole view is rebuilt. Otherwise patch the one row in place.
-  if (sortKey || showFailedOnly) {
-    renderResultsTable();
-    return;
-  }
-  const tr = findResultRow(model.id);
-  if (!tr) return;
-  const idx = tableRows.findIndex((e) => e.model.id === model.id);
-  tr.className = rowClassFor(result);
-  tr.innerHTML = buildRowHtml(model, result, idx >= 0 ? idx + 1 : null);
 }
 
 // SVG icons for badges
@@ -3739,8 +1788,8 @@ async function loadTestFacts(providerId, models) {
   (reply && reply.rows ? reply.rows : []).forEach((row) => {
     testFacts.set(String(row.id), row);
   });
-  if (tableRows.length > 0) {
-    renderResultsTable();
+  if (resultsTable.hasRows()) {
+    resultsTable.render();
     updateStats();
   }
   return { ...(reply || { ok: true, rows: [] }), refresh };
@@ -3880,7 +1929,7 @@ function renderPtLegend() {
   const container = $('#pt-legend');
   if (!container) return;
   const p = PROVIDERS[activeProvider];
-  const provModels = (p && p.models) || models || [];
+  const provModels = (p && p.models) || getProviderModels() || [];
   const rows = provModels.map((m) => capabilityRowFor(m));
   container.innerHTML = ptLegendHTML(rows);
 }
@@ -3906,7 +1955,7 @@ function buildRowHtml(model, result, rowIndex = null) {
   const isRunning = result.status === 'running' || result.status === 'queued';
   const isFailed = result.status === 'fail';
   const badge = statusIconBadge(result.status, result.isEmpty);
-  const indexNum = rowIndex || (tableRows.findIndex((e) => e.model.id === model.id) + 1) || 1;
+  const indexNum = rowIndex || 1;
 
   let timeStr = NA;
   let timeClass = 'cell-na';
@@ -4042,36 +2091,6 @@ function buildRowHtml(model, result, rowIndex = null) {
 // generated, so including them inflates the rate on a long prompt. This is
 // end-to-end (the elapsed time includes connection and queueing), so treat it as
 // a comparison between models on equal terms, not a raw decode rate.
-function tokensPerSecond(result) {
-  if (!result || result.status !== 'pass' || result.isEmpty) return null;
-  if (!result.completionTokens || !result.time) return null;
-  return result.completionTokens / (result.time / 1000);
-}
-
-// ============================================
-// Full response modal
-// ============================================
-$('#results-body').addEventListener('click', (e) => {
-  const cell = e.target.closest('.response-expandable');
-  if (!cell) return;
-  const tr = cell.closest('tr');
-  const entry = tableRows.find((r) => r.model.id === tr?.dataset.modelId);
-  if (!entry) return;
-  $('#response-modal-title').textContent = entry.model.id;
-  $('#response-modal-body').textContent = entry.result.response || '';
-  $('#response-modal').style.display = 'flex';
-});
-
-$('#response-modal-close').addEventListener('click', () => {
-  $('#response-modal').style.display = 'none';
-});
-$('#response-modal').addEventListener('click', (e) => {
-  if (e.target.id === 'response-modal') $('#response-modal').style.display = 'none';
-});
-$('#response-modal-copy').addEventListener('click', () => {
-  navigator.clipboard.writeText($('#response-modal-body').textContent || '');
-});
-
 // A bar per recent run, oldest on the left. Drawn rather than charted because
 // the only question it has to answer at a glance is "was this always like that,
 // or did something change".
@@ -4128,7 +2147,7 @@ function updateStats() {
   // count sits on the card so the number and the caveat arrive together.
   const emptyPasses = testResults.filter((r) => r.status === 'pass' && r.isEmpty).length;
 
-  const fetched = models.length;
+  const fetched = getProviderModels().length;
   const finished = passed + failed;
   $('#pt-kpis').innerHTML = statCardsHTML([
     { label: 'Models', value: total, sub: fetched ? `/ ${fetched}` : '', icon: KPI_ICON.layers, tone: 'blue', subhead: 'SELECTED FOR RUN',
@@ -4143,9 +2162,9 @@ function updateStats() {
     { label: 'Failed', value: failed, sub: finished ? `/ ${finished}` : '', icon: KPI_ICON.cross, tone: 'fail', subhead: 'UNSUCCESSFUL CALLS',
       pill: failed ? `${failed} Failed` : '0 Failed',
       meter: total ? failed / total : 0,
-      attrs: failed || showFailedOnly ? `data-filter-failed role="button" tabindex="0" aria-pressed="${showFailedOnly}" title="Show only failed / empty responses"` : '',
-      active: showFailedOnly,
-      foot: showFailedOnly ? 'showing only failures — click to show all' : failed ? 'click to show only failures' : 'none failed' },
+      attrs: failed || resultsTable.isFailedFilterActive() ? `data-filter-failed role="button" tabindex="0" aria-pressed="${resultsTable.isFailedFilterActive()}" title="Show only failed / empty responses"` : '',
+      active: resultsTable.isFailedFilterActive(),
+      foot: resultsTable.isFailedFilterActive() ? 'showing only failures — click to show all' : failed ? 'click to show only failures' : 'none failed' },
     { label: 'Average time', value: avg == null ? NA : avg < 1000 ? `${Math.round(avg)} ms` : `${(avg / 1000).toFixed(1)}s`, icon: KPI_ICON.clock,
       tone: 'cyan', subhead: 'RESPONSE LATENCY', foot: 'passed calls only' },
   ]);
@@ -4184,62 +2203,10 @@ function hideProgress() {
   setTimeout(() => { if (!isTesting) $('#progress-container').style.display = 'none'; }, 2000);
 }
 
-// ============================================
-// Export
-// ============================================
-$('#btn-export-csv').addEventListener('click', () => {
-  if (testResults.length === 0) return;
-  const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const header =
-    'Model,Provider,Plan,Status,Correct,Time (ms),Tokens,Completion Tokens,TPS,Attempts,Response\n';
-  const rows = testResults
-    .map((r) => {
-      const tps = tokensPerSecond(r);
-      const correct = isCorrect(r, modelById(r.model));
-      return [
-        q(r.model), q(r.provider), q(r.group || ''), q(r.status),
-        correct == null ? '' : correct ? 'yes' : 'no',
-        r.time ?? '', r.tokens ?? '', r.completionTokens ?? '',
-        tps == null ? '' : tps.toFixed(2), r.attempts ?? 1,
-        q(r.response),
-      ].join(',');
-    })
-    .join('\n');
-  downloadFile(header + rows, exportFilename('csv'), 'text/csv');
-});
-
-$('#btn-export-json').addEventListener('click', () => {
-  if (testResults.length === 0) return;
-  downloadFile(JSON.stringify(testResults, null, 2), exportFilename('json'), 'application/json');
-});
-
-function clearResults() {
-  testResults = [];
-  runTotal = null;
-  lastRun = null;
-  tableRows = [];
-  sortKey = null;
-  sortDir = 1;
-  showFailedOnly = false;
-  $$('#results-table th').forEach((el) => el.classList.remove('sort-asc', 'sort-desc'));
-  $('#results-empty').style.display = '';
-  $('#results-table').style.display = 'none';
-  $('#results-body').innerHTML = '';
-  updateStats();
-  setStatus('idle', 'Ready');
-  $('#progress-container').style.display = 'none';
-}
-$('#btn-clear-results').addEventListener('click', clearResults);
-
-// Fixed names meant every export after the first landed as "(1)", "(2)" with no
-// way to tell which provider or run it came from.
+// Shared download helpers — results CSV/JSON uses the results unit; history
+// export and any other one-shot save go through these.
 function exportFilename(ext) {
-  const p = PROVIDERS[activeProvider];
-  const slug = (p ? p.name : 'results').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
-  return `venom-router-${slug}-${stamp}.${ext}`;
+  return resultsTable.exportFilename(ext);
 }
 
 function downloadFile(content, filename, mimeType) {
@@ -4255,284 +2222,8 @@ function downloadFile(content, filename, mimeType) {
 // ============================================
 // Update handling
 // ============================================
-function showUpdateModal(info) {
-  updateInfo = info;
-  $('#update-modal-version').textContent = info.version;
-
-  // A release is published before its notes are written, so an app that checks in
-  // that window receives an empty body. Rather than a blank panel, say which case
-  // it is: nothing arrived, or something arrived that parsed to nothing.
-  const notesEl = $('#update-modal-notes');
-  const raw = Array.isArray(info.releaseNotes)
-    ? info.releaseNotes.map((n) => (typeof n === 'string' ? n : n?.note || '')).join(String.fromCharCode(10))
-    : info.releaseNotes || '';
-
-  if (raw.trim()) {
-    const list = buildReleaseNotes(raw);
-    // Both shapes the notes can arrive in reduce to a list. If even that comes
-    // out empty, the text itself goes straight into the panel: never a second
-    // framed, scrolling box inside the first.
-    if (list.childElementCount > 0) notesEl.replaceChildren(list);
-    else notesEl.textContent = raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-  } else {
-    notesEl.textContent = 'Release notes were not published yet — see the release page on GitHub.';
-  }
-
-  $('#update-progress').style.display = 'none';
-  $('#update-modal-download-btn').style.display = '';
-  $('#update-modal-download-btn').disabled = false;
-  $('#update-modal-download-btn').innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download Update`;
-  $('#update-modal-install-btn').style.display = 'none';
-  $('#update-modal-later-btn').style.display = '';
-  $('#update-modal-later-btn').textContent = 'Remind Later';
-  $('#update-modal-title').textContent = 'Update Available';
-  $('#update-ready-note').hidden = true;
-
-  $('#update-modal').style.display = 'flex';
-}
-
-function hideUpdateModal() {
-  $('#update-modal').style.display = 'none';
-  updateInfo = null;
-}
-
-// Release notes come from GitHub, so they are remote text rendered inside the
-// app. They arrive in one of two shapes: the release body in Markdown (what
-// main.js fetches from the API), or GitHub's own HTML rendering of it (what
-// electron-updater reads from the releases feed, used when the API is out of
-// reach). Both are reduced to the same items, a heading or an entry, and every
-// item is built as DOM nodes with textContent: markup in a release can only
-// ever be read as characters, never run.
-function buildReleaseNotes(notes) {
-  const items = /<(h[1-6]|ul|ol|li|p)\b[^>]*>/i.test(notes) ? notesFromHtml(notes) : notesFromMarkdown(notes);
-  const list = document.createElement('ul');
-  items.forEach((item) => {
-    const li = document.createElement('li');
-    if (item.heading) {
-      li.className = `notes-heading ${item.level <= 2 ? 'notes-version' : 'notes-section'}`;
-      li.textContent = item.text;
-    } else {
-      appendInlineMarkdown(li, item.text);
-    }
-    if (li.textContent.trim()) list.appendChild(li);
-  });
-  return list;
-}
-
-// Markdown: headings and bullets, with a bullet's wrapped lines joined back to
-// it (the CHANGELOG wraps at 80 columns, and a line-by-line reading used to
-// keep only the first line of every entry).
-function notesFromMarkdown(md) {
-  const items = [];
-  let open = null;
-  md.split(/\r?\n/).forEach((raw) => {
-    const line = raw.trim();
-    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
-    const bullet = /^[-*+]\s+(.*)$/.exec(line);
-    if (heading) {
-      open = null;
-      items.push({ heading: true, level: heading[1].length, text: heading[2].replace(/[*_`]/g, '') });
-    } else if (bullet) {
-      open = { text: bullet[1] };
-      items.push(open);
-    } else if (!line || line === '---' || /^\[[^\]]+\]:\s/.test(line)) {
-      open = null;
-    } else if (open) {
-      open.text += ` ${line}`;
-    } else {
-      // A plain paragraph still says something; keep it as an entry.
-      open = { text: line };
-      items.push(open);
-    }
-  });
-  return items;
-}
-
-// HTML: parsed into an inert document (DOMParser runs no scripts and loads
-// nothing), then only headings and list items are read, as text, in order.
-function notesFromHtml(html) {
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  const items = [];
-  doc.body.querySelectorAll('h1, h2, h3, h4, h5, h6, li, p').forEach((el) => {
-    // A paragraph inside a list item is part of that item.
-    if (el.tagName === 'P' && el.closest('li')) return;
-    const text = el.tagName === 'LI' ? inlineMarkdownOf(el) : el.textContent;
-    const clean = text.replace(/\s+/g, ' ').trim();
-    if (!clean) return;
-    if (/^H[1-6]$/.test(el.tagName)) items.push({ heading: true, level: Number(el.tagName[1]), text: clean });
-    else items.push({ text: clean });
-  });
-  return items;
-}
-
-// An HTML list item back to the small Markdown subset rendered below, so both
-// shapes show bold and code the same way.
-function inlineMarkdownOf(el) {
-  let out = '';
-  el.childNodes.forEach((n) => {
-    if (n.nodeType === Node.TEXT_NODE) out += n.textContent;
-    else if (n.nodeType === Node.ELEMENT_NODE) {
-      if (/^(UL|OL)$/.test(n.tagName)) return; // nested lists are their own items
-      const inner = inlineMarkdownOf(n);
-      if (n.tagName === 'STRONG' || n.tagName === 'B') out += `**${inner}**`;
-      else if (n.tagName === 'CODE') out += `\`${n.textContent}\``;
-      else if (n.tagName === 'BR') out += ' ';
-      else out += inner;
-    }
-  });
-  return out;
-}
-
-// **bold**, *em* and `code` as elements; everything else as plain text.
-function appendInlineMarkdown(parent, text) {
-  const re = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*\s][^*]*\*)/g;
-  let last = 0;
-  for (const m of text.matchAll(re)) {
-    if (m.index > last) parent.append(text.slice(last, m.index));
-    const tok = m[0];
-    const el = document.createElement(tok.startsWith('**') ? 'strong' : tok.startsWith('`') ? 'code' : 'em');
-    el.textContent = tok.startsWith('**') ? tok.slice(2, -2) : tok.slice(1, -1);
-    parent.append(el);
-    last = m.index + tok.length;
-  }
-  if (last < text.length) parent.append(text.slice(last));
-}
-
-function showDownloadProgress(percent) {
-  $('#update-progress').style.display = '';
-  $('#update-progress-bar').style.width = `${percent}%`;
-  $('#update-progress-percent').textContent = `${percent}%`;
-}
-
-// The ready state is shown as the modal, not only as the badge: a download
-// started from the badge never opened it, and the badge alone gave no hint that
-// one more click was needed.
-function showUpdateReady() {
-  $('#update-modal-title').textContent = 'Update Ready';
-  $('#update-ready-note').hidden = false;
-  $('#update-progress').style.display = 'none';
-  $('#update-modal-download-btn').style.display = 'none';
-  $('#update-modal-later-btn').style.display = '';
-  $('#update-modal-later-btn').textContent = 'Later';
-  const install = $('#update-modal-install-btn');
-  install.style.display = '';
-  install.disabled = false;
-  $('#update-modal').style.display = 'flex';
-}
-
-function installUpdateNow() {
-  const install = $('#update-modal-install-btn');
-  install.disabled = true;
-  install.innerHTML = '<span class="spinner"></span> Restarting…';
-  $('#update-modal-later-btn').style.display = 'none';
-  window.electronAPI.updateAPI.installUpdate();
-}
-
-function setUpdateBadgeLabel(text) {
-  const badge = $('#update-badge');
-  badge.title = text;
-  badge.setAttribute('aria-label', text);
-}
-
-function setupUpdateListeners() {
-  if (!window.electronAPI || !window.electronAPI.updateAPI) return;
-  const updateAPI = window.electronAPI.updateAPI;
-
-  updateAPI.onUpdateChecking(() => {
-    console.log('Checking for updates...');
-    const note = $('#about-update-note');
-    if (note) note.textContent = 'Checking for updates…';
-  });
-
-  updateAPI.onUpdateAvailable((info) => {
-    const note = $('#about-update-note');
-    if (note) note.textContent = `New version v${info.version} available!`;
-    if (!isUpdateDownloading && !isUpdateReady) {
-      const badge = $('#update-badge');
-      badge.hidden = false;
-      setUpdateBadgeLabel(`Update v${info.version} available — click to download`);
-      // Also show modal
-      showUpdateModal(info);
-    }
-  });
-
-  updateAPI.onUpdateNotAvailable(() => {
-    console.log('No updates available');
-    const note = $('#about-update-note');
-    if (note) {
-      note.textContent = 'Up to date — latest version installed.';
-      setTimeout(() => { if (note.textContent.includes('Up to date')) note.textContent = ''; }, 6000);
-    }
-  });
-
-  updateAPI.onUpdateError((data) => {
-    console.error('Update error:', data.message);
-    const note = $('#about-update-note');
-    if (note) {
-      note.textContent = 'Could not reach update server.';
-      setTimeout(() => { if (note.textContent.includes('Could not reach')) note.textContent = ''; }, 6000);
-    }
-    if (isUpdateDownloading) {
-      setStatus('error', 'Update download failed');
-      isUpdateDownloading = false;
-      $('#update-badge').classList.remove('update-downloading');
-      setUpdateBadgeLabel('Update download failed — click to retry');
-    }
-  });
-
-  updateAPI.onDownloadProgress((progress) => {
-    showDownloadProgress(progress.percent);
-    // The download may have been started from the modal, so the badge is put
-    // into its downloading state here too.
-    const badge = $('#update-badge');
-    badge.classList.add('update-downloading');
-    badge.style.setProperty('--progress', progress.percent);
-    setUpdateBadgeLabel(`Downloading update… ${progress.percent}%`);
-  });
-
-  updateAPI.onUpdateDownloaded(() => {
-    isUpdateDownloading = false;
-    isUpdateReady = true;
-    const badge = $('#update-badge');
-    badge.classList.remove('update-downloading');
-    badge.classList.add('update-ready');
-    setUpdateBadgeLabel('Update ready — click to restart and install');
-    showUpdateReady();
-  });
-
-  // Badge click handler
-  $('#update-badge')?.addEventListener('click', () => {
-    if (isUpdateReady) {
-      showUpdateReady();
-    } else if (!isUpdateDownloading) {
-      // Start download
-      isUpdateDownloading = true;
-      const badge = $('#update-badge');
-      badge.classList.add('update-downloading');
-      window.electronAPI.updateAPI.downloadUpdate();
-    }
-  });
-
-  // Update modal button handlers
-  $('#update-modal-download-btn')?.addEventListener('click', () => {
-    isUpdateDownloading = true;
-    const btn = $('#update-modal-download-btn');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span> Downloading...';
-    updateAPI.downloadUpdate();
-  });
-
-  $('#update-modal-install-btn')?.addEventListener('click', installUpdateNow);
-
-  $('#update-modal-later-btn')?.addEventListener('click', () => {
-    hideUpdateModal();
-    isUpdateDownloading = false;
-  });
-
-  $('#update-modal')?.addEventListener('click', (e) => {
-    if (e.target.id === 'update-modal') hideUpdateModal();
-  });
-}
+const updates = window.VENOM_RENDERER.updates.create({ setStatus });
+const { setupUpdateListeners } = updates;
 
 // ============================================
 // Add Key modal
@@ -4610,8 +2301,7 @@ async function connectWithKey({ unverified = false } = {}) {
   // "done" here would overwrite it and hide that the key wasn't saved.
   if (saved) setStatus('done', `${p.name} connected`);
   // Connected now: the provider is shown there, with its keys open.
-  providersTab = 'connected';
-  pvShell = null;
+  providerRoster.connectProvider(pid);
   pvExpanded.add(pid);
   refreshAfterKeyChange(pid);
   // New key: prove this provider at once with one unified pass.
@@ -4757,74 +2447,18 @@ $('#auto-test-select').addEventListener('change', (e) => {
 // ============================================
 // Settings panel
 // ============================================
-// Each control binds a settings key to an input, converting where the stored
-// unit and the displayed one differ (milliseconds stored, seconds shown).
-const SETTING_INPUTS = [
-  ['#set-max-tokens', 'maxOutputTokens', 'int'],
-  ['#set-image-prompt', 'imagePrompt', 'text'],
-  ['#set-video-prompt', 'videoPrompt', 'text'],
-  ['#set-video-poll', 'videoPollMs', 'sec'],
-  ['#set-verify-assets', 'verifyAssets', 'bool'],
-  ['#set-decision-state', 'decisionState', 'text'],
-  ['#set-decision-question', 'decisionQuestion', 'text'],
-  ['#set-decision-threshold', 'decisionThreshold', 'ratio'],
-  ['#set-deadline-decision', 'deadlineDecisionMs', 'sec'],
-  // 0 is a real value here ("never give up"), not a half-typed number — the
-  // binder special-cases it for that reason.
-  ['#set-per-model-budget', 'perModelBudgetMs', 'sec'],
-  ['#set-time-good', 'timeGoodMs', 'sec'],
-  ['#set-time-ok', 'timeOkMs', 'sec'],
-  ['#set-deadline-chat', 'deadlineChatMs', 'sec'],
-  ['#set-deadline-image', 'deadlineImageMs', 'sec'],
-  ['#set-deadline-video', 'deadlineVideoMs', 'sec'],
-  ['#set-hedge-enabled', 'hedgeEnabled', 'bool'],
-  ['#set-hedge-max', 'hedgeMax', 'int'],
-  ['#set-hedge-step', 'hedgeStepMs', 'int'],
-  ['#set-retries', 'maxTestRetries', 'int'],
-  ['#set-rl-waits', 'maxRateLimitWaits', 'int'],
-  ['#set-history-max', 'historyMaxRuns', 'int'],
-  ['#set-spark-runs', 'sparkRuns', 'int'],
-  ['#set-skip-media', 'scheduleSkipMedia', 'bool'],
-  ['#set-notify-regression', 'notifyRegression', 'bool'],
-  ['#set-notify-complete', 'notifyRunComplete', 'bool'],
-  ['#set-log-level', 'logLevel', 'text'],
-  ['#set-log-retention', 'logRetentionDays', 'int'],
-  ['#set-body-retention', 'bodyRetentionDays', 'int'],
-  ['#set-stats-retention', 'statsRetentionMonths', 'int'],
-  ['#set-purge-window', 'purgeWindowDays', 'int'],
-  ['#set-concurrency', 'concurrency', 'int'],
-  // Appearance switches that were in the markup and bound to nothing until now:
-  // the setting was saved once and never read again, so flipping it changed
-  // nothing at all. The lock screen's canvas is what reads it now.
-  ['#set-reduce-motion', 'reduceMotion', 'bool'],
-  ['#set-debug-header', 'debugHeader', 'bool'],
-  // The app lock's idle limit. main keeps its own copy and re-reads this row on
-  // every save (src/main.js idleLimitMs), so a change applies without a restart.
-  ['#set-lock-idle', 'lockIdleMin', 'int'],
-];
-
-function fillSettingsForm() {
-  SETTING_INPUTS.forEach(([sel, key, kind]) => {
-    const el = $(sel);
-    if (!el) return;
-    if (kind === 'bool') el.checked = !!settings[key];
-    else if (kind === 'sec') el.value = Math.round(settings[key] / 1000);
-    else el.value = settings[key];
-  });
-  $('#prompt-input').value = testPrompt;
-  $('#expected-input').value = expectedAnswer;
-  $('#auto-test-select').value = String(autoTestMinutes);
-  renderDecisionThreshold();
-  renderCostEstimate();
-  updatePromptStats();
-  updateExpectedChips();
-  syncPromptPresetPills();
-  syncTokenPresets();
-}
+// Settings panel state is composed from the production factory below.
+let settingsPanel = null;
+let fillSettingsForm = () => {};
+let bindSettingsForm = () => {};
+let renderCostEstimate = () => {};
+let prepareSettingsPage = () => {};
+let openSettings = () => {};
 
 function renderDecisionThreshold() {
   $('#decision-threshold-value').textContent = settings.decisionThreshold.toFixed(2);
 }
+
 
 // The Test section holds one probe per model kind; only the chosen kind's
 // fields are shown, so the page stays as short as the chat-only one was.
@@ -4849,197 +2483,29 @@ $('#test-kind-seg').addEventListener('click', (e) => {
   syncTestRouteCard(btn.dataset.kind);
 });
 
-function bindSettingsForm() {
-  SETTING_INPUTS.forEach(([sel, key, kind]) => {
-    const el = $(sel);
-    if (!el) return;
-    el.addEventListener(kind === 'bool' ? 'change' : 'input', () => {
-      if (kind === 'bool') settings[key] = el.checked;
-      else if (kind === 'text') settings[key] = el.value;
-      else {
-        const n = Number(el.value);
-        // A cleared field is a half-typed number, but Number('') is 0 — and for
-        // the budget 0 is a real choice, so the empty string is refused before
-        // the value is read, not after.
-        if (el.value.trim() === '') return;
-        // The idle limit has a floor the app relies on: a saved 0 would mean
-        // "never lock by idle" in src/auth, and the field offers no way to ask
-        // for that. Clamping here keeps the stored row inside the range the
-        // stepper shows.
-        if (key === 'lockIdleMin') settings[key] = Math.min(480, Math.max(5, Math.round(n)));
-        // The per-model budget's 0 is "never give up", a real choice the guard
-        // below would swallow — clamped instead of skipped.
-        else if (key === 'perModelBudgetMs') settings[key] = Math.max(0, Math.round(n));
-        else {
-          if (!Number.isFinite(n) || n <= 0) return; // ignore a half-typed number
-          settings[key] = kind === 'sec' ? Math.round(n * 1000) : kind === 'ratio' ? n : Math.round(n);
-        }
-      }
-      if (key === 'decisionThreshold') renderDecisionThreshold();
-      if (key === 'maxOutputTokens') syncTokenPresets(settings.maxOutputTokens);
-      // Appearance keys repaint immediately; the rest of the row is a stored
-      // value main reads on its next save-settings.
-      if (key === 'reduceMotion' || key === 'debugHeader') applyAppearance();
-      queueSettingsSave();
-      renderCostEstimate();
-      // Colour bands and sparkline length change what is already on screen.
-      if (tableRows.length > 0) renderResultsTable();
-      // The catalog pins TIME as its Speed with the same colours: repaint it too.
-      if (window.CATALOG && window.CATALOG.renderIfShown) window.CATALOG.renderIfShown();
-    });
-  });
-}
-
-// Hedging, retries and the schedule all multiply together, and the product is
-// invisible while you are turning one knob. Saying it out loud is the difference
-// between settings you can change and settings you can reason about.
-// The run-cost note describes the settings that multiply requests, so it shows
-// only beside them — and only once there is a selection to cost.
-const COST_SECTIONS = ['sec-test', 'sec-schedule', 'sec-speed', 'sec-reliability'];
-
-function renderCostEstimate() {
-  const el = $('#settings-estimate');
-  if (!el) return;
-  const models = getSelectedModels().length;
-  const section = document.querySelector('.settings-nav-item.active')?.dataset.section;
-  el.hidden = models === 0 || !COST_SECTIONS.includes(section);
-  if (models === 0) return;
-  const perModelMax = (settings.hedgeEnabled ? Math.max(1, settings.hedgeMax) : 1) * (1 + settings.maxTestRetries);
-  const low = models;
-  const high = models * perModelMax;
-  let text = `${models} models · ${low} to ${high} requests per run`;
-  if (settings.concurrency > 1) text += ` · ${settings.concurrency} at a time`;
-  if (autoTestMinutes > 0) {
-    const perDay = Math.round((24 * 60) / autoTestMinutes);
-    text += ` · ${(low * perDay).toLocaleString()} to ${(high * perDay).toLocaleString()} per day on this schedule`;
-  }
-  el.textContent = text;
-}
 
 // Swatches for both the Appearance page and the header popover.
-function accentSwatchesHTML(cls, role) {
-  return ACCENTS.map((a) => {
-    const on = a.id === settings.accent;
-    return `<button class="${cls} ${on ? 'active' : ''}" type="button" role="${role}" aria-checked="${on}"
-             data-accent-id="${a.id}" title="${a.name}" aria-label="${a.name}"
-             style="background:${a.hex};color:${a.hex}"></button>`;
-  }).join('');
-}
-
-// Inactive accent IDs currently displayed in the 2x2 grid.
-let inactiveAccentIds = ['cyan', 'violet', 'crimson', 'amber'];
-
-function ensureInactiveAccents() {
-  const current = settings.accent;
-  const remaining = ACCENTS.filter((a) => a.id !== current).map((a) => a.id);
-  if (!Array.isArray(inactiveAccentIds) || inactiveAccentIds.length !== 4) {
-    inactiveAccentIds = remaining;
-    return;
-  }
-  if (inactiveAccentIds.includes(current)) {
-    const idx = inactiveAccentIds.indexOf(current);
-    const missing = remaining.find((id) => !inactiveAccentIds.includes(id));
-    if (missing && idx !== -1) {
-      inactiveAccentIds[idx] = missing;
-    } else {
-      inactiveAccentIds = remaining;
-    }
-  }
-}
-
-function renderAccentClusterHTML() {
-  ensureInactiveAccents();
-  const currentAccent = ACCENTS.find((a) => a.id === settings.accent) || ACCENTS[0];
-  const subSwatches = inactiveAccentIds.map((id) => {
-    const a = ACCENTS.find((item) => item.id === id) || ACCENTS[0];
-    return `<button class="accent-swatch accent-mini-swatch" type="button" role="radio" aria-checked="false"
-             data-accent-id="${a.id}" title="${a.name}" aria-label="${a.name}"
-             style="--swatch-color:${a.hex};background:${a.hex};color:${a.hex};"></button>`;
-  }).join('');
-
-  return `<div class="accent-cluster-grid" role="group" aria-label="Alternative accent colors">
-    ${subSwatches}
-  </div>
-  <div class="accent-cluster-divider" aria-hidden="true"></div>
-  <div class="accent-cluster-active-wrap">
-    <button class="accent-swatch active accent-active-swatch" type="button" role="radio" aria-checked="true"
-            data-accent-id="${currentAccent.id}" title="${currentAccent.name} (Active)" aria-label="${currentAccent.name} (Active)"
-            style="--swatch-color:${currentAccent.hex};background:${currentAccent.hex};color:${currentAccent.hex};"></button>
-  </div>`;
-}
-
-function renderAppearancePickers() {
-  const theme = effectiveTheme();
-  $$('#mode-grid .mode-card').forEach((card) => {
-    const on = card.dataset.themeId === theme;
-    card.classList.toggle('active', on);
-    card.setAttribute('aria-checked', String(on));
-  });
-  $('#mode-grid').classList.toggle('following', settings.followSystem);
-  const themeBadge = document.getElementById('theme-active-mode-badge');
-  if (themeBadge) {
-    themeBadge.textContent = settings.followSystem ? 'Auto (System)' : (effectiveTheme() === 'vercel' ? 'Dark' : 'Light');
-  }
-  $('#set-follow-system').checked = settings.followSystem;
-
-  const debugHeaderInput = document.getElementById('set-debug-header');
-  if (debugHeaderInput) debugHeaderInput.checked = !!settings.debugHeader;
-  const reduceMotionInput = document.getElementById('set-reduce-motion');
-  if (reduceMotionInput) reduceMotionInput.checked = !!settings.reduceMotion;
-
-  $('#accent-row').innerHTML = renderAccentClusterHTML();
-  $('#accent-name').textContent = accentLabel();
-
-  $$('#density-seg button').forEach((b) => {
-    const on = b.dataset.value === settings.density;
-    b.classList.toggle('active', on);
-    b.setAttribute('aria-checked', String(on));
-  });
-
-  const densityPill = document.getElementById('density-current-pill');
-  if (densityPill) {
-    densityPill.textContent = `${settings.density.charAt(0).toUpperCase() + settings.density.slice(1)} density`;
-  }
-}
-
-function saveAppearance() {
-  applyAppearance();
-  queueSettingsSave();
-  renderAppearancePickers();
-  if (!$('#accent-pop').hidden) renderAccentPop();
-}
-
-$('#mode-grid').addEventListener('click', (e) => {
-  const card = e.target.closest('.mode-card');
-  if (!card) return;
-  settings.theme = card.dataset.themeId;
-  settings.followSystem = false;
-  saveAppearance();
+settingsPanel = window.VENOM_RENDERER.settingsPanel.create({
+  getSettings: () => settings, queueSettingsSave, applyAppearance,
+  hasResultRows: () => !!(resultsTable && resultsTable.hasRows()),
+  renderResultsTable: () => { if (resultsTable) resultsTable.render(); },
+  getSelectedModels: () => getSelectedModels(),
+  getAutoTestMinutes: () => autoTestMinutes,
+  getTestPrompt: () => testPrompt, getExpectedAnswer: () => expectedAnswer,
+  renderDecisionThreshold, updatePromptStats, updateExpectedChips,
+  syncPromptPresetPills, syncTokenPresets, showPage, syncRoute,
+  getCurrentPage: () => getCurrentPage(), breadcrumbHTML, renderAppearancePickers,
+  refreshLogInfo, renderAbout, renderSecuritySection,
+  fillCatalogSettings: () => { if (window.CATALOG) window.CATALOG.fillSettings(); },
+  renderCatalogSources, onCatalogRepaint: () => {
+    if (window.CATALOG && window.CATALOG.renderIfShown) window.CATALOG.renderIfShown();
+  },
 });
-
-$('#set-follow-system').addEventListener('change', (e) => {
-  settings.followSystem = e.target.checked;
-  // Turning it off keeps the mode that is on screen rather than jumping back.
-  if (!settings.followSystem) settings.theme = systemDark.matches ? 'vercel' : 'daylight';
-  saveAppearance();
-});
-
-$('#density-seg').addEventListener('click', (e) => {
-  const b = e.target.closest('button[data-value]');
-  if (!b) return;
-  settings.density = b.dataset.value;
-  saveAppearance();
-  if (tableRows.length > 0) renderResultsTable();
-});
+({ fillSettingsForm, bindSettingsForm, renderCostEstimate, prepareSettingsPage, openSettings } = settingsPanel);
 
 const SECTION_RESETTERS = {
   'sec-appearance': () => {
-    ['theme', 'followSystem', 'accent', 'density', 'reduceMotion', 'debugHeader'].forEach((k) => {
-      settings[k] = DEFAULT_SETTINGS[k];
-    });
-    inactiveAccentIds = ACCENTS.filter((a) => a.id !== DEFAULT_SETTINGS.accent).map((a) => a.id);
-    saveAppearance();
-    renderAppearancePickers();
+    appearance.reset();
   },
   'sec-test': () => {
     ['verifyAssets', 'decisionState', 'decisionQuestion', 'decisionThreshold', 'deadlineDecisionMs', 'maxOutputTokens', 'matchMode'].forEach((k) => {
@@ -5114,110 +2580,14 @@ $('#btn-reset-appearance').addEventListener('click', () => {
   queueSettingsSave();
   fillSettingsForm();
   renderCostEstimate();
-  if (tableRows.length > 0) renderResultsTable();
+  if (resultsTable.hasRows()) resultsTable.render();
   const meta = SETTINGS_SECTIONS_META[targetId];
   setStatus('done', targetId === 'sec-test' ? 'Test prompt and expected answer restored to defaults' : targetId === 'sec-appearance' ? 'Appearance preferences restored to defaults' : `${meta ? meta.label : 'Settings'} reset to defaults`);
 });
 
-function setAccent(id) {
-  if (!ACCENTS.some((a) => a.id === id)) return;
-  const oldId = settings.accent;
-  if (oldId !== id) {
-    ensureInactiveAccents();
-    const idx = inactiveAccentIds.indexOf(id);
-    if (idx !== -1) {
-      inactiveAccentIds[idx] = oldId;
-    }
-    settings.accent = id;
-    saveAppearance();
-  } else {
-    const activeEl = document.querySelector('#accent-row .accent-active-swatch');
-    if (activeEl) {
-      activeEl.classList.remove('accent-pulse');
-      void activeEl.offsetWidth;
-      activeEl.classList.add('accent-pulse');
-    }
-  }
-}
 
-function bindAccentSwatches(container) {
-  if (!container) return;
-  container.addEventListener('click', (e) => {
-    const sw = e.target.closest('[data-accent-id]');
-    if (sw) setAccent(sw.dataset.accentId);
-  });
-  container.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      const sw = e.target.closest('[data-accent-id]');
-      if (sw) {
-        e.preventDefault();
-        setAccent(sw.dataset.accentId);
-      }
-    }
-  });
-}
-bindAccentSwatches($('#accent-row'));
+appearance.bindControls();
 
-function accentRowsHTML() {
-  return ACCENTS.map((a) => {
-    const on = a.id === settings.accent;
-    return `<div class="accent-row-item ${on ? 'active' : ''}" role="menuitemradio" aria-checked="${on}"
-                 data-accent-id="${a.id}" tabindex="0" title="${escapeHtml(a.name)}">
-      <span class="accent-row-swatch" style="--swatch-c:${a.hex};background:${a.hex}"></span>
-      <div class="accent-row-text">
-        <div class="accent-row-name">${escapeHtml(a.name)}</div>
-        <div class="accent-row-desc">${escapeHtml(a.desc || '')}</div>
-      </div>
-      <div class="accent-row-status">
-        ${on ? `<span class="accent-row-check" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>` : ''}
-      </div>
-    </div>`;
-  }).join('');
-}
-
-// Header accent picker. Built from ACCENTS, like the Settings row, so the two
-// always offer the same colours.
-function renderAccentPop() {
-  $('#accent-pop-swatches').innerHTML = accentRowsHTML();
-  const pill = document.getElementById('accent-current-name');
-  if (pill) pill.textContent = accentLabel();
-}
-
-function setAccentPopOpen(open) {
-  $('#accent-pop').hidden = !open;
-  $('#btn-accent').setAttribute('aria-expanded', String(open));
-  // One header popup at a time: the notifications and profile panels' own
-  // outside-click closers never fire through this stopped toggle click.
-  if (open) {
-    for (const [popId, btnId] of [['notif-pop', 'btn-notifications'], ['profile-pop', 'btn-profile']]) {
-      const other = document.getElementById(popId);
-      if (other && !other.hidden) {
-        other.hidden = true;
-        const btn = document.getElementById(btnId);
-        if (btn) btn.setAttribute('aria-expanded', 'false');
-      }
-    }
-  }
-  if (open) renderAccentPop();
-}
-
-$('#btn-accent').addEventListener('click', (e) => {
-  e.stopPropagation();
-  setAccentPopOpen($('#accent-pop').hidden);
-});
-// Picking re-renders the swatches, detaching the clicked node; stopped here so
-// the outside-click check below doesn't read it as a click outside and close
-// the popover mid-comparison.
-$('#accent-pop').addEventListener('click', (e) => e.stopPropagation());
-bindAccentSwatches($('#accent-pop-swatches'));
-const accentAppBtn = document.getElementById('accent-view-appearance');
-if (accentAppBtn) {
-  accentAppBtn.addEventListener('click', () => {
-    setAccentPopOpen(false);
-    showPage('settings');
-    if (typeof switchSettingsSection === 'function') switchSettingsSection('sec-appearance');
-  });
-}
 const openProfilePage = () => {
   const pop = document.getElementById('profile-pop');
   if (pop) pop.hidden = true;
@@ -5245,16 +2615,6 @@ $('#btn-profile-page-signout')?.addEventListener('click', async () => {
   }
   if (window.LOCK) window.LOCK.show('locked');
 });
-document.addEventListener('click', (e) => {
-  if (!$('#accent-pop').hidden && !e.target.closest('.hdr-accent')) setAccentPopOpen(false);
-});
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !$('#accent-pop').hidden) {
-    setAccentPopOpen(false);
-    $('#btn-accent').focus();
-  }
-});
-
 async function refreshLogInfo() {
   try {
     const info = await window.electronAPI.readLogInfo();
@@ -5470,86 +2830,7 @@ if (syncSources) syncSources.addEventListener('click', async () => {
 });
 
 function switchSettingsSection(sectionId) {
-  const targetId = sectionId || 'sec-appearance';
-  if (targetId === 'sec-security') {
-    showPage('profile');
-    return;
-  }
-  const btn = $(`#settings-nav .settings-nav-item[data-section="${targetId}"]`);
-  if (!btn) return;
-  $$('#settings-nav .settings-nav-item').forEach((b) => {
-    const on = b === btn;
-    b.classList.toggle('active', on);
-    b.setAttribute('aria-selected', String(on));
-  });
-  $$('.settings-section').forEach((sec) => { sec.hidden = sec.id !== targetId; });
-  // The log's own numbers are read when its section opens, never in the
-  // background.
-  if (targetId === 'sec-logs' && window.LOGS) window.LOGS.health();
-  // Same for the four sources: a report of what is on disk, drawn on entry, and
-  // the only network call behind this section is the button's own.
-  if (targetId === 'sec-catalog') renderCatalogSources();
-  // The lock's own state is read on entry so the warning and the status line
-  // reflect a password changed in another window, or a session that expired.
-  if (targetId === 'sec-security') renderSecuritySection();
-
-  // The page scrolls, not the card. A tab picked while scrolled down opens at
-  // its own top, with the categories still stuck in place above the fold.
-  const page = $('.page-settings');
-  const grid = $('.settings-layout-grid');
-  if (page && grid && !page.hidden) {
-    const stick = parseFloat(getComputedStyle(page).paddingTop) || 0;
-    const offset = grid.getBoundingClientRect().top - page.getBoundingClientRect().top;
-    if (offset < stick) page.scrollTop += offset - stick;
-  }
-
-  const resetBtn = $('#btn-reset-appearance');
-  if (resetBtn) {
-    const isAppearance = targetId === 'sec-appearance';
-    const isTest = targetId === 'sec-test';
-    resetBtn.hidden = !(isAppearance || isTest);
-    const meta = SETTINGS_SECTIONS_META[targetId];
-    const labelSpan = resetBtn.querySelector('.reset-btn-label');
-    if (labelSpan) {
-      labelSpan.textContent = 'Reset to defaults';
-    }
-    resetBtn.title = isTest
-      ? 'Restore default prompt and expected answer'
-      : `Reset ${meta ? meta.label : 'appearance'} to defaults`;
-  }
-
-  const meta = SETTINGS_SECTIONS_META[targetId] || { label: 'Settings', desc: 'Configure application options' };
-  const titleEl = $('#settings-main-head-title');
-  const descEl = $('#settings-main-head-desc');
-  if (titleEl) titleEl.textContent = meta.label;
-  if (descEl) descEl.textContent = meta.desc;
-  // The card's icon is the tab's own nav icon, so the two can't drift apart.
-  const iconBox = $('#settings-main-head-icon');
-  const navIcon = btn.querySelector('.settings-nav-icon');
-  if (iconBox) iconBox.replaceChildren(...(navIcon ? [navIcon.cloneNode(true)] : []));
-
-  renderSettingsCrumbs(meta.label);
-  renderCostEstimate();
-  if (currentPage === 'settings') syncRoute();
-}
-
-function prepareSettingsPage() {
-  fillSettingsForm();
-  renderAppearancePickers();
-  refreshLogInfo();
-  renderAbout();
-  renderSecuritySection();
-  if (window.CATALOG) window.CATALOG.fillSettings();
-  const activeBtn = $('#settings-nav .settings-nav-item.active') || $('#settings-nav .settings-nav-item');
-  if (activeBtn) {
-    switchSettingsSection(activeBtn.dataset.section);
-  } else {
-    switchSettingsSection('sec-appearance');
-  }
-}
-
-function openSettings() {
-  showPage('settings');
+  return settingsPanel ? settingsPanel.switchSection(sectionId) : undefined;
 }
 
 $('#btn-settings').addEventListener('click', openSettings);
@@ -5728,7 +3009,7 @@ $('#btn-clear-history').addEventListener('click', async () => {
     setStatus('error', `Couldn't reload the run history: ${ipcMessage(err)}`);
     return;
   }
-  if (tableRows.length > 0) renderResultsTable();
+  if (resultsTable.hasRows()) resultsTable.render();
   setStatus('done', 'History cleared');
 });
 
@@ -5744,50 +3025,25 @@ $('#btn-reset-settings').addEventListener('click', () => {
   // Reset restores the defaults (live updates on): restart the unified cycle.
   if (window.CATALOG && window.CATALOG.scheduleTimer) window.CATALOG.scheduleTimer();
   renderLiveToggles();
-  if (tableRows.length > 0) renderResultsTable();
+  if (resultsTable.hasRows()) resultsTable.render();
   setStatus('done', 'Settings reset to defaults');
 });
 
 
 // App shell. Bound before init() so the nav responds while providers and
 // history are still loading.
-const PAGES = ['overview', 'providers', 'provider', 'catalog', 'activity', 'database', 'history', 'monitor', 'profile', 'settings'];
-let currentPage = 'overview';
+const pageRouter = window.VENOM_RENDERER.pageRouter.create({
+  location, history: window.history, $: (selector) => $(selector),
+  getProviders: () => PROVIDERS, getActiveProvider: () => activeProvider,
+  showPage: (page) => showPage(page), openProviderPage: (id) => openProviderPage(id),
+  switchSettingsSection: (section) => switchSettingsSection(section), logs: window.LOGS,
+});
+const PAGES = pageRouter.pages;
+const getCurrentPage = () => pageRouter.getCurrentPage();
+const applyRoute = () => pageRouter.applyRoute();
+let shellController;
 
-// Routes live in the URL hash (the page is loaded from file://, so real paths
-// can't be used) and survive a reload: #/provider/<providerId>, #/settings/<section>.
-function parseRoute() {
-  const [page, sub] = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
-  return { page: PAGES.includes(page) ? page : 'overview', sub: sub || '' };
-}
-
-function syncRoute() {
-  let hash = `#/${currentPage}`;
-  if (currentPage === 'provider' && activeProvider) hash += `/${encodeURIComponent(activeProvider)}`;
-  if (currentPage === 'settings') {
-    const btn = $('#settings-nav .settings-nav-item.active');
-    if (btn) hash += `/${btn.dataset.section.replace(/^sec-/, '')}`;
-  }
-  // Test History's sub-route is its open tab. state.tab is closed over inside
-  // the logs.js IIFE, so the module exposes a getter for it; without one this
-  // would append the string "undefined". Monitoring has no sub-route.
-  if (currentPage === 'history' && window.LOGS) hash += `/${window.LOGS.tab()}`;
-  // replaceState: no hashchange event and no history stack to walk back through.
-  // window. is required: the run-history Map above shadows the global `history`.
-  if (location.hash !== hash) window.history.replaceState(null, '', hash);
-}
-
-function applyRoute() {
-  const { page, sub } = parseRoute();
-  // The provider page needs a provider; without one it is the Providers page.
-  if (page === 'provider') {
-    if (sub && PROVIDERS[sub]) openProviderPage(sub);
-    else showPage('providers');
-    return;
-  }
-  showPage(page);
-  if (page === 'settings' && sub) switchSettingsSection(`sec-${sub}`);
-}
+function syncRoute() { return pageRouter.syncRoute(); }
 
 const PAGE_META = {
   overview: { title: 'Overview', desc: 'Routing health — providers, models and test activity at a glance.' },
@@ -5801,324 +3057,13 @@ const PAGE_META = {
   settings: { title: 'Settings', desc: 'Test prompt, scheduling, appearance and data.' },
 };
 
-// The header's icon is the page's own nav icon, so the two can't drift apart.
-function renderPageHeader(page) {
-  // The provider page is a child of Providers: it wears that page's icon, and
-  // its title is the provider it shows.
-  const p = page === 'provider' ? PROVIDERS[activeProvider] : null;
-  const meta = p
-    ? { title: p.name, desc: `Test the models ${p.name} offers, and manage its keys.` }
-    : PAGE_META[page];
-  $('#shell-page-title').textContent = meta.title;
-  $('#shell-page-desc').textContent = meta.desc;
-  const navPage = page === 'provider' ? 'providers' : page;
-  const icon = document.querySelector(`.shell-nav-item[data-page="${navPage}"] .shell-nav-icon`);
-  const box = $('#shell-page-icon');
-  box.replaceChildren();
-  if (icon) box.appendChild(icon.cloneNode(true));
-  document.title = `${meta.title} — VENOM Router`;
-}
-
-function showPage(page) {
-  if (!PAGES.includes(page)) return;
-  currentPage = page;
-  $$('.shell-page').forEach((el) => { el.hidden = el.dataset.page !== page; });
-  $$('.shell-nav-item[data-page]').forEach((el) => {
-    const on = el.dataset.page === (page === 'provider' ? 'providers' : page);
-    el.classList.toggle('active', on);
-    if (on) el.setAttribute('aria-current', 'page');
-    else el.removeAttribute('aria-current');
-  });
-  renderPageHeader(page);
-  if (page === 'provider') {
-    // The capabilities legend starts closed, like the catalog page. A visit
-    // resets it; the toggle still opens it for this visit only.
-    ptLegendOpen = false;
-    renderProviderHead();
-    updateStats();
-    renderPtLegend();
-  }
-  if (page === 'profile') renderProfilePage();
-  if (page === 'settings') prepareSettingsPage();
-  if (page === 'catalog' && window.CATALOG) (window.CATALOG.open ? window.CATALOG.open() : window.CATALOG.render());
-  if (page === 'activity' && window.ACTIVITY) window.ACTIVITY.render();
-  if (page === 'database' && window.DATABASE) window.DATABASE.render();
-  if (page === 'history' && window.LOGS) window.LOGS.render();
-  if (page === 'monitor' && window.LOGS) window.LOGS.renderMonitor();
-  // Leaving Test History has to stop its live tail; nothing else tells it the
-  // page is gone, and it would keep querying the log every two seconds.
-  if (page !== 'history' && window.LOGS) window.LOGS.sync();
-  // The Providers page always opens on what is already connected.
-  if (page === 'providers') {
-    providersTab = 'connected';
-    pvShell = null;
-    pvState.view = COMPACT_LAYOUT.matches ? 'cards' : 'table';
-    // The provider-types legend starts closed, like the catalog legend.
-    // A visit resets it; the toggle still opens it for this visit.
-    pvLegendCollapsed = true;
-    try { localStorage.setItem('pvLegendCollapsed', '1'); } catch (_) {}
-    renderProvidersPage();
-  }
-  syncRoute();
-}
-
-// ============================================
-// Sidebar ambience — moving stars and the signature heart
-// ============================================
-// A second, living layer over the sidebar's painted starfield (which stays as
-// it is): a few faint stars that twinkle while they rise slowly, and now and
-// then a shooting star. Positions come from a fixed seed, so the sky is the
-// same every launch. Everything sits under the content, at low opacity.
-function mountSidebarStars() {
-  const nav = document.querySelector('.shell-nav');
-  if (!nav || nav.querySelector('.shell-stars')) return;
-  let seed = 20260926;
-  const rand = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
-  const sky = document.createElement('div');
-  sky.className = 'shell-stars';
-  sky.setAttribute('aria-hidden', 'true');
-  for (let i = 0; i < 16; i++) {
-    const star = document.createElement('span');
-    star.className = 'shell-star';
-    const size = (1 + rand() * 1.4).toFixed(2);
-    star.style.cssText = [
-      `left:${(8 + rand() * 84).toFixed(1)}%`,
-      `bottom:${(4 + rand() * 88).toFixed(1)}%`,
-      `--size:${size}px`,
-      `--rise:${(-18 - rand() * 26).toFixed(0)}px`,
-      `--drift:${(16 + rand() * 14).toFixed(1)}s`,
-      `--twinkle:${(2.4 + rand() * 2.8).toFixed(2)}s`,
-      `--delay:${(-rand() * 20).toFixed(2)}s`,
-      `--peak:${(0.35 + rand() * 0.45).toFixed(2)}`,
-    ].join(';');
-    if (rand() < 0.4) star.classList.add('tinted');
-    star.appendChild(document.createElement('i'));
-    sky.appendChild(star);
-  }
-  const meteor = document.createElement('span');
-  meteor.className = 'shell-meteor';
-  sky.appendChild(meteor);
-  nav.prepend(sky);
-}
-
-// The heart answers a click: a big beat, and a burst of small hearts and
-// sparks that fly out and fade. Reduced motion keeps only a gentle beat.
-function bindSignatureHeart() {
-  const heart = document.querySelector('.shell-heart');
-  if (!heart) return;
-  heart.setAttribute('tabindex', '0');
-  heart.setAttribute('role', 'button');
-  heart.setAttribute('aria-label', 'Crafted with love');
-  const mini = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.5-4.6-10-9.3C.3 8.4 2.1 4.5 5.9 4.1c2.3-.2 4.3 1 5.4 2.9h1.4c1.1-1.9 3.1-3.1 5.4-2.9 3.8.4 5.6 4.3 3.9 7.6C19.5 16.4 12 21 12 21z"/></svg>';
-  const burst = () => {
-    heart.classList.remove('pop');
-    void heart.getBoundingClientRect(); // restart the animation on a quick second click
-    heart.classList.add('pop');
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    const r = heart.getBoundingClientRect();
-    const cx = r.left + r.width / 2;
-    const cy = r.top + r.height / 2;
-    const n = 12;
-    for (let i = 0; i < n; i++) {
-      const p = document.createElement('span');
-      const isHeart = i % 3 !== 2;
-      p.className = `heart-particle${isHeart ? '' : ' spark'}`;
-      if (isHeart) p.innerHTML = mini;
-      // Spread over the upper half-circle, so the burst rises out of the footer.
-      const angle = Math.PI + (Math.PI * (i + 0.5)) / n + (Math.random() - 0.5) * 0.35;
-      const dist = 34 + Math.random() * 38;
-      p.style.cssText = [
-        `left:${cx}px`, `top:${cy}px`,
-        `--dx:${(Math.cos(angle) * dist).toFixed(1)}px`,
-        `--dy:${(Math.sin(angle) * dist).toFixed(1)}px`,
-        `--rot:${((Math.random() - 0.5) * 70).toFixed(0)}deg`,
-        `--scale:${(0.55 + Math.random() * 0.6).toFixed(2)}`,
-        `--dur:${(750 + Math.random() * 450).toFixed(0)}ms`,
-      ].join(';');
-      p.addEventListener('animationend', () => p.remove(), { once: true });
-      document.body.appendChild(p);
-    }
-  };
-  heart.addEventListener('click', burst);
-  heart.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); burst(); } });
-  heart.addEventListener('animationend', (e) => { if (e.animationName === 'shell-heart-pop') heart.classList.remove('pop'); });
-}
-
-function bindShell() {
-  mountSidebarStars();
-  bindSignatureHeart();
-  const shell = $('#shell');
-  renderPageHeader(currentPage);
-  $('#btn-theme-toggle').addEventListener('click', toggleTheme);
-  $('#btn-header-debug')?.addEventListener('click', () => {
-    showPage('settings');
-    switchSettingsSection('sec-logs');
-  });
-  // Empty-state buttons on the Overview lead to where runs happen.
-  $('.page-overview').addEventListener('click', (e) => {
-    const go = e.target.closest('[data-go]');
-    if (go) showPage(go.dataset.go);
-  });
-  // The status strip leads to where provider health is shown per provider.
-  $('#shell-status').addEventListener('click', () => showPage('providers'));
-  $$('.shell-nav-item[data-page]').forEach((el) => {
-    el.addEventListener('click', () => showPage(el.dataset.page));
-  });
-
-  // Collapsed nav (narrow window): a drawer opened from the top bar's menu button.
-  const menuBtn = $('#shell-menu-btn');
-  const setNavOpen = (open) => {
-    shell.classList.toggle('nav-open', open);
-    menuBtn.setAttribute('aria-expanded', String(open));
-    menuBtn.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
-  };
-  menuBtn.addEventListener('click', () => setNavOpen(!shell.classList.contains('nav-open')));
-  $('#shell-nav-close').addEventListener('click', () => setNavOpen(false));
-  $('#shell-backdrop').addEventListener('click', () => setNavOpen(false));
-  shell.querySelectorAll('.shell-nav-item:not(:disabled)').forEach((el) => {
-    el.addEventListener('click', () => setNavOpen(false));
-  });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && shell.classList.contains('nav-open')) setNavOpen(false);
-  });
-  // Widening past the breakpoint turns the drawer back into a rail; a drawer
-  // left "open" would reappear with its backdrop the next time it narrows.
-  window.matchMedia('(max-width: 1100px)').addEventListener('change', (mq) => {
-    if (!mq.matches) setNavOpen(false);
-  });
-
-  // "2h ago" goes stale.
-  setInterval(renderQuickStats, 60000);
-}
-
-function formatAgo(ts) {
-  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
-  if (s < 60) return 'just now';
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
-}
-
-// Quick Stats (nav) and the Overview KPIs come from real state: configured
-// providers, the health probes, and the run history.
-function renderQuickStats() {
-  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-  let last = 0;
-  history.forEach((runs) => {
-    const at = runs.length ? runs[runs.length - 1].at : 0;
-    if (at > last) last = at;
-  });
-  const ids = Object.keys(PROVIDERS);
-  const lastText = last ? formatAgo(last) : 'Never';
-  set('stat-providers', ids.length);
-  set('stat-models', history.size);
-  set('stat-last-check', lastText);
-  set('ov-providers', ids.length);
-  set('ov-models', history.size);
-  set('ov-last', lastText);
-  const states = ids.map((id) => (providerHealth.get(id) || {}).state);
-  const testable = states.filter((st) => st && st !== 'none').length;
-  set('ov-online', testable ? `${states.filter((st) => st === 'ok').length}/${testable}` : '—');
-  renderSystemLamp();
-  renderOverviewPanels();
-}
-
-function scoreClass(rate) {
-  if (rate >= 0.9) return '';
-  return rate >= 0.6 ? 'low' : 'bad';
-}
-
-// Overview: daily pass rate for the last 14 days, and the latest runs.
-function renderOverviewPanels() {
-  const trend = document.getElementById('ov-trend');
-  const activity = document.getElementById('ov-activity');
-  if (!trend || !activity) return;
-
-  if (runLog.length === 0) {
-    const empty = '<div class="ov-empty">No test runs recorded yet.' +
-      '<button class="btn btn-ghost" type="button" data-go="providers">Open Providers</button></div>';
-    trend.innerHTML = empty;
-    activity.innerHTML = empty;
-    $('#ov-trend-meta').textContent = '';
-    $('#ov-activity-meta').textContent = '';
-    return;
-  }
-
-  const DAY = 86400000;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const days = [];
-  for (let d = 13; d >= 0; d--) days.push({ start: today.getTime() - d * DAY, passed: 0, total: 0, runs: 0 });
-  runLog.forEach((r) => {
-    const idx = Math.floor((r.at - days[0].start) / DAY);
-    if (idx < 0 || idx > 13) return;
-    days[idx].passed += r.passed;
-    days[idx].total += r.total;
-    days[idx].runs += 1;
-  });
-  const fmt = (t) => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  trend.innerHTML = '<div class="ov-trend-bars">' + days.map((d) => {
-    if (d.total === 0) return `<div class="ov-trend-bar empty" title="${fmt(d.start)} · no runs"><span></span></div>`;
-    const rate = d.passed / d.total;
-    const pct = Math.round(rate * 100);
-    return `<div class="ov-trend-bar ${scoreClass(rate)}" title="${fmt(d.start)} · ${pct}% pass · ${d.runs} run${d.runs === 1 ? '' : 's'}">` +
-      `<span style="height:${Math.max(4, pct)}%"></span></div>`;
-  }).join('') + '</div>' +
-    `<div class="ov-trend-axis"><span>${fmt(days[0].start)}</span><span>Today</span></div>`;
-  const totals = days.reduce((a, d) => ({ p: a.p + d.passed, t: a.t + d.total }), { p: 0, t: 0 });
-  $('#ov-trend-meta').innerHTML = totals.t ? `<b>${Math.round((totals.p / totals.t) * 100)}%</b> overall` : 'No runs in this window';
-
-  const recent = runLog.slice(-6).reverse();
-  activity.innerHTML = recent.map((r) => {
-    const rate = r.total ? r.passed / r.total : 0;
-    return `<div class="ov-activity-row">
-      <span class="ov-activity-name">${escapeHtml(r.providerName)}</span>
-      <span class="ov-activity-score ${scoreClass(rate)}">${r.passed}/${r.total}</span>
-      <span class="ov-activity-when">${formatAgo(r.at)}</span>
-    </div>`;
-  }).join('');
-  $('#ov-activity-meta').textContent = `${runLog.length} total`;
-}
-
-// Overall system status strip in the nav, summarised from the health probes:
-// green when every testable provider answers, red when any doesn't. The detail
-// lives in the tooltip.
-// Providers without a key are left out: they can't be down, only unconfigured.
-function renderSystemLamp() {
-  const box = document.getElementById('shell-status');
-  if (!box) return;
-  const ids = Object.keys(PROVIDERS);
-  const states = ids.map((id) => (providerHealth.get(id) || {}).state || 'pending');
-  const failed = ids.filter((_, i) => states[i] === 'fail').map((id) => PROVIDERS[id].name);
-  const checked = states.filter((st) => st === 'ok' || st === 'fail').length;
-  const testable = states.filter((st) => st !== 'none').length;
-
-  let state;
-  let text;
-  if (!navigator.onLine) {
-    state = 'fail';
-    text = 'Offline — no network connection';
-  } else if (ids.length === 0 || testable === 0) {
-    state = 'idle';
-    text = 'No provider keys configured';
-  } else if (checked < testable) {
-    state = 'pending';
-    text = `Checking providers… ${checked}/${testable}`;
-  } else if (failed.length === 0) {
-    state = 'ok';
-    text = `All ${testable} providers online`;
-  } else if (failed.length === testable) {
-    state = 'fail';
-    text = 'All providers unreachable';
-  } else {
-    state = 'fail';
-    text = failed.length === 1 ? `${failed[0]} is unreachable` : `${failed.length} providers unreachable`;
-  }
-  box.dataset.state = state;
-  const label = state === 'ok' ? 'All systems operational' : text;
-  box.title = failed.length > 1 ? `${label}: ${failed.join(', ')}` : label;
-  box.setAttribute('aria-label', box.title);
-}
+function renderPageHeader(page) { return shellController.renderPageHeader(page); }
+function showPage(page) { return shellController.showPage(page); }
+function bindShell() { return shellController.bindShell(); }
+function renderQuickStats() { return shellController.renderQuickStats(); }
+function scoreClass(rate) { return shellController.scoreClass(rate); }
+function formatAgo(ts) { return shellController.formatAgo(ts); }
+function renderSystemLamp() { return shellController.renderSystemLamp(); }
 
 // ============================================
 // Breadcrumb — shared helper
@@ -6154,7 +3099,6 @@ function breadcrumbHTML(items) {
 // Providers page
 // ============================================
 // Connected = has at least one key. Integrated = every provider the app knows.
-let providersTab = 'connected';
 
 const PV_ICON = {
   // The copy mark and the tick that replaces it are both rendered into the
@@ -6198,380 +3142,6 @@ function markCopied(el) {
   }, 1200));
 }
 
-function isConnected(p) {
-  return p.keys.length > 0;
-}
-
-// The provider's site link: console/keys/website meta when the module gives
-// one (verified 2026-10-12: no module under src/renderer/providers/ defines
-// any of them — read-only grep), otherwise the registrable part of the API
-// host. Local and bare-IP endpoints have none. Do not invent console URLs;
-// the fallback is the provider's website domain, not its console.
-function providerWebsite(p) {
-  if (p.consoleUrl) return p.consoleUrl;
-  if (p.keysUrl) return p.keysUrl;
-  if (p.website) return p.website;
-  try {
-    const host = new URL(p.baseUrl).hostname;
-    if (host === 'localhost' || /^[\d.]+$/.test(host) || host.includes(':')) return null;
-    return `https://${providerHost(p)}`;
-  } catch (_) {
-    return null;
-  }
-}
-
-function websiteLinkHTML(p) {
-  const url = providerWebsite(p);
-  if (!url) return '';
-  return `<button class="pv-site" type="button" data-site="${escapeHtml(url)}" title="Open website ${escapeHtml(url.replace(/^https?:\/\//, ''))}" aria-label="Open the ${escapeHtml(p.name)} website">` +
-    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg></button>';
-}
-
-function providerHost(p) {
-  try {
-    return new URL(p.baseUrl).hostname.replace(/^(api|router|www)\./, '');
-  } catch (_) {
-    return 'custom';
-  }
-}
-
-// Numbers for a card, all from real state: keys, models with recorded runs,
-// and the all-time pass rate of this provider's runs.
-function providerStats(p) {
-  const prefix = `${p.id}::`;
-  let models = 0;
-  history.forEach((_, key) => { if (key.startsWith(prefix)) models += 1; });
-  const runs = runLog.filter((r) => r.provider === p.id);
-  const total = runs.reduce((n, r) => n + r.total, 0);
-  const passed = runs.reduce((n, r) => n + r.passed, 0);
-  return {
-    keys: p.keys.length,
-    activeKeys: usableKeys(p).length,
-    models,
-    rate: total ? Math.round((passed / total) * 100) : null,
-    runs: runs.length,
-  };
-}
-
-// The same four capabilities on every card, lit when the provider module has
-// them and dimmed when it doesn't, so cards line up and can be compared at a
-// glance. The tooltip says what each one means for the models and runs.
-function providerCapabilities(p) {
-  const adapter = (window.INTEGRATED_PROVIDERS || {})[p.id];
-  const rpm = rpmOf(p);
-  return [
-    {
-      label: 'OpenAI API', icon: PV_ICON.api, tone: 'accent', on: true,
-      tip: 'OpenAI API: models are listed from /models and tested on /chat/completions.',
-    },
-    {
-      label: 'Filtered', icon: PV_ICON.spark, tone: 'green', on: Boolean(adapter && adapter.fetchModels),
-      tip: (on) => on
-        ? "Filtered: the model list follows this provider's own rules (free-only models, plan tiers, access grants) instead of everything /models returns."
-        : 'Not filtered: every model /models returns is listed.',
-    },
-    // The plan slot. A module that publishes its own billing plan names it
-    // here ("$5.50 / week") instead of the generic "Plans" — one slot, not
-    // two, so every card keeps the same four badges and the 2x2 grid holds.
-    p.billing ? {
-      label: p.billing.plan, icon: PV_ICON.layers, tone: 'amber', on: true,
-      tip: `${p.billing.usageLabel || 'Provider plan'}: ${p.billing.plan}.${p.plansUrl ? ' Each key sees the models of its own plan.' : ''}`,
-    } : {
-      label: 'Plans', icon: PV_ICON.layers, tone: 'amber', on: Boolean(p.plansUrl),
-      tip: (on) => on
-        ? 'Plans: each key sees the models of its own plan, so two keys here can list different models.'
-        : 'No plans: every key sees the same models.',
-    },
-    {
-      label: p.unlimitedUsage ? 'Unlimited' : 'Rate limit', icon: PV_ICON.gauge, tone: p.unlimitedUsage ? 'green' : 'violet', on: p.unlimitedUsage || rpm > 0,
-      tip: p.unlimitedUsage
-        ? 'Unlimited usage: this provider publishes no request-rate limit. Runs are not paced.'
-        : rpm > 0
-          ? `Rate limit: ${rpm} requests per minute. Test runs are paced to stay under it.`
-          : 'No published rate limit: test runs are not paced.',
-    },
-  ];
-}
-
-function providerTags(p) {
-  return providerCapabilities(p).map((c) => {
-    const tip = typeof c.tip === 'function' ? c.tip(c.on) : c.tip;
-    // Rate limit carries an info button: the full picture needs more room
-    // than a tooltip.
-    const info = (c.label === 'Rate limit' || c.label === 'Unlimited')
-      ? `<button class="pv-cap-info" type="button" data-rl-info="${escapeHtml(p.id)}" title="Usage and rate details" aria-label="Usage and rate details for ${escapeHtml(p.name)}" aria-haspopup="dialog">${RL_ICON.info}</button>`
-      : '';
-    return `<span class="pv-tag pv-cap t-${c.tone}${c.on ? '' : ' is-off'}" title="${escapeHtml(tip)}">${c.icon}${c.label}${info}</span>`;
-  }).join('');
-}
-
-// ---------- Rate limit details (the badge's info button) ----------
-// What the app does (its pace, and what happens on a 429) comes from app
-// state; what the provider publishes comes from the module's meta.rateLimits
-// ({ source?, lines: [{ label, value }] }).
-const RL_ICON = {
-  info: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><line x1="12" y1="11" x2="12" y2="16.5"/><line x1="12" y1="7.5" x2="12.01" y2="7.5"/></svg>',
-  close: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
-  link: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>',
-};
-
-let rlPopOpener = null;
-
-function rateLimitPopHTML(p) {
-  const rpm = rpmOf(p);
-  const doc = p.rateLimits || null;
-  const pace = p.unlimitedUsage
-    ? `<p class="rl-pace"><b>Unlimited</b> — no request-rate limit is published for the ${escapeHtml(p.unlimitedUsage.label || 'plan').toLowerCase()}.</p>`
-    : rpm
-      ? `<p class="rl-pace"><b>${rpm} requests/min</b> per key — runs are paced to stay under it.</p>`
-      : '<p class="rl-pace"><b>Not paced</b> — this provider publishes no rate limit.</p>';
-  const lines = doc && Array.isArray(doc.lines) && doc.lines.length
-    ? `<h5 class="rl-sub">Published limits</h5><dl class="rl-list">${doc.lines.map((l) => `<dt>${escapeHtml(l.label)}</dt><dd>${escapeHtml(l.value)}</dd>`).join('')}</dl>`
-    : '';
-  const source = doc && doc.source
-    ? `<button class="rl-source" type="button" data-rl-site="${escapeHtml(doc.source)}">${RL_ICON.link}${escapeHtml(doc.source.replace(/^https?:\/\//, ''))}</button>`
-    : '';
-  return `<div class="rl-head">
-      <span class="rl-title">Rate limit · ${escapeHtml(p.name)}</span>
-      <button class="rl-close" type="button" data-rl-close title="Close" aria-label="Close">${RL_ICON.close}</button>
-    </div>
-    ${pace}
-    ${lines}
-    <h5 class="rl-sub">Usage</h5>
-    <p class="rl-note">${p.unlimitedUsage ? `${escapeHtml(p.unlimitedUsage.range)} · ${escapeHtml(p.unlimitedUsage.detail)}.` : 'This provider does not expose a normalized usage reading here.'}</p>
-    ${p.unlimitedUsage ? '' : '<h5 class="rl-sub">If the provider refuses (HTTP 429)</h5><p class="rl-note">The run waits for its Retry-After (or a full minute), lowers that key\'s pace to what it actually allowed, and moves on to another key if there is one. Being throttled is never recorded as the model failing.</p>'}
-    ${source}`;
-}
-
-function openRateLimitPop(btn) {
-  const p = PROVIDERS[btn.dataset.rlInfo];
-  if (!p) return;
-  let pop = document.getElementById('rl-pop');
-  if (!pop) {
-    pop = document.createElement('div');
-    pop.id = 'rl-pop';
-    pop.className = 'rl-pop';
-    pop.setAttribute('role', 'dialog');
-    pop.setAttribute('aria-label', 'Rate limit details');
-    document.body.appendChild(pop);
-    pop.addEventListener('click', (e) => {
-      const site = e.target.closest('[data-rl-site]');
-      if (site) window.electronAPI.openExternal(site.dataset.rlSite);
-      if (e.target.closest('[data-rl-close]')) closeRateLimitPop();
-    });
-  }
-  pop.innerHTML = rateLimitPopHTML(p);
-  pop.hidden = false;
-  // Below the button, kept inside the window; above it when there's no room.
-  const r = btn.getBoundingClientRect();
-  const w = pop.offsetWidth;
-  const h = pop.offsetHeight;
-  const left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8));
-  const below = r.bottom + 8;
-  const top = below + h > window.innerHeight - 8 ? Math.max(8, r.top - h - 8) : below;
-  pop.style.left = `${left}px`;
-  pop.style.top = `${top}px`;
-  rlPopOpener = btn;
-  btn.setAttribute('aria-expanded', 'true');
-  pop.querySelector('.rl-close').focus();
-}
-
-function closeRateLimitPop() {
-  const pop = document.getElementById('rl-pop');
-  if (!pop || pop.hidden) return;
-  pop.hidden = true;
-  if (rlPopOpener && document.contains(rlPopOpener)) {
-    rlPopOpener.setAttribute('aria-expanded', 'false');
-    rlPopOpener.focus();
-  }
-  rlPopOpener = null;
-}
-
-document.addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-rl-info]');
-  if (btn) {
-    e.stopPropagation();
-    const pop = document.getElementById('rl-pop');
-    if (pop && !pop.hidden && rlPopOpener === btn) closeRateLimitPop();
-    else openRateLimitPop(btn);
-    return;
-  }
-  if (!e.target.closest('#rl-pop')) closeRateLimitPop();
-}, true);
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeRateLimitPop(); });
-window.addEventListener('resize', closeRateLimitPop);
-document.addEventListener('scroll', closeRateLimitPop, true);
-
-function providerMark(p, cls = '') {
-  // logoTone (module meta) says how a mark drawn for a dark surface is re-inked
-  // on the light theme: 'mono' goes to the text colour, 'bright' is deepened.
-  const tone = p.logoTone ? ` data-tone="${escapeHtml(p.logoTone)}"` : '';
-  return p.logo
-    ? `<img src="${escapeHtml(p.logo)}" alt="" class="${cls}"${tone}>`
-    : `<span class="pv-dot ${cls}" style="background:${escapeHtml(p.color || 'var(--accent)')}"></span>`;
-}
-
-function providerHealthLine(p) {
-  if (!isConnected(p)) return { state: 'none', text: 'Not connected — needs an API key' };
-  const h = providerHealth.get(p.id);
-  if (!h) return { state: 'pending', text: 'Checking connection…' };
-  if (h.state === 'ok') return { state: 'ok', text: h.detail };
-  if (h.state === 'none') return { state: 'none', text: 'No active key' };
-  return { state: h.state, text: h.detail };
-}
-
-function providerStatusHTML(p) {
-  const health = providerHealthLine(p);
-  const h = providerHealth.get(p.id);
-  const title = h ? `${health.text} — checked ${new Date(h.checkedAt).toLocaleTimeString()}` : health.text;
-  // A provider's badge stands alone: the words are for its keys, where they
-  // tell one key's problem from another's.
-  return statusPillHTML(health.state, health.text, title, { caption: false });
-}
-
-// Inline dot beside a provider's name on the Catalog and Profiles pages, so a
-// provider going down shows there too without opening Providers.
-function healthDotHTML(p) {
-  if (!p) return '';
-  const h = providerHealthLine(p);
-  return `<span class="pv-health pv-health-inline" data-health="${h.state}" title="${escapeHtml(h.text)}"></span>`;
-}
-
-// Integrated cards are a catalogue of what can be connected: who the provider
-// is and a Connect button, nothing operational. Keys, models, pass rate and
-// health belong to the Connected tab, which a provider moves to once it has a
-// working key.
-function providerCardHTML(p, mode) {
-  const connected = isConnected(p);
-  const id = escapeHtml(p.id);
-  const open = mode === 'connected' && pvExpanded.has(p.id);
-  const primary = mode === 'connected'
-    ? `<button class="btn ${open ? 'btn-ghost' : 'btn-primary'} pv-primary" type="button" data-kx-toggle="${id}" aria-expanded="${open}">${PV_ICON.keys}${open ? 'Hide keys' : 'Manage keys'}</button>`
-    : connected
-      ? `<button class="btn btn-primary pv-primary" type="button" data-show-connected="${id}">${PV_ICON.keys}Manage keys</button>`
-      : `<button class="btn btn-primary pv-primary" type="button" data-connect="${id}">${PV_ICON.plug}Connect</button>`;
-  const actions = mode === 'connected'
-    ? `<button class="pv-link" type="button" data-connect="${id}">${PV_ICON.plus}Add key</button>
-       <span class="pv-link-group">
-         ${recheckButtonHTML(p, 'link')}
-         <button class="pv-icon-btn" type="button" data-manage="${id}" title="Test models" aria-label="Test ${escapeHtml(p.name)} models">${PV_ICON.flask}</button>
-       </span>`
-    : connected
-      ? ''
-      : '<span class="pv-hint">Bring an API key to start testing.</span>';
-  const stats = mode === 'connected' ? providerStatsHTML(p) : '';
-
-  const types = providerTypes(p);
-  return `<article class="pv-card ${connected ? 'is-connected' : ''} ${open ? 'open' : ''}" data-provider="${id}" style="--type-stripe:${typeStripe(types)}">
-    <div class="pv-watermark" data-provider="${id}" aria-hidden="true">${providerMark(p)}</div>
-    <div class="pv-card-top">
-      ${providerLogoHTML(p)}
-      <span class="pv-host">${escapeHtml(providerHost(p))}</span>
-    </div>
-    <h3 class="pv-name"><span>${escapeHtml(p.name)}</span>${websiteLinkHTML(p)}</h3>
-    <div class="pv-url">
-      <code title="${escapeHtml(p.baseUrl)}">${escapeHtml(p.baseUrl)}</code>
-      <button class="pv-icon-btn${(pvCopied.get(p.baseUrl) || 0) > Date.now() ? ' copied' : ''}" type="button" data-copy="${escapeHtml(p.baseUrl)}" title="${(pvCopied.get(p.baseUrl) || 0) > Date.now() ? 'Copied' : 'Copy base URL'}" aria-label="Copy base URL">${PV_ICON.copy}</button>
-    </div>
-    <div class="pv-tags pv-caps">${providerTags(p)}</div>
-    ${stats}
-    ${open ? keysPanelHTML(p) : ''}
-    ${primary}
-    <div class="pv-card-actions${mode === 'connected' ? '' : ' is-centered'}">${actions}</div>
-    ${mode === 'connected' ? `<div class="pv-stats-strip">${keyStripHTML(p)}</div>` : ''}
-  </article>`;
-}
-
-function providerStatsHTML(p) {
-  const s = providerStats(p);
-  return `<div class="pv-stats">
-      <div class="pv-stat"><span class="pv-stat-label">Keys</span>
-        <span class="pv-stat-value ${s.keys ? '' : 'dim'}">${s.keys ? String(s.keys) : '0'}</span></div>
-      <div class="pv-stat"><span class="pv-stat-label">Models</span>
-        <span class="pv-stat-value ${s.models ? '' : 'dim'}">${s.models || '—'}</span></div>
-      <div class="pv-stat"><span class="pv-stat-label">Pass rate</span>
-        <span class="pv-stat-value ${s.rate == null ? 'dim' : ''}">${s.rate == null ? '—' : `${s.rate}%`}</span></div>
-      <div class="pv-stats-foot">${providerStatusHTML(p)}</div>
-    </div>`;
-}
-
-
-// ============================================
-// Provider types — legend and markers
-// ============================================
-// Auth kind comes from the module (meta.auth, default an API key); freeTier is
-// a module flag. A provider can carry more than one type.
-const PROVIDER_TYPES = {
-  oauth: { label: 'OAuth 2.0', desc: 'Signs in through an OAuth authorization flow', color: 'var(--type-oauth)' },
-  apikey: { label: 'API Key', desc: 'Authenticates with a provider API key', color: 'var(--type-apikey)' },
-  free: { label: 'Free Tier', desc: 'Includes free models or a free quota', color: 'var(--type-free)' },
-  none: { label: 'No Auth', desc: 'Open to use — nothing to connect', color: 'var(--type-none)' },
-};
-
-// The Providers list is grouped by how a provider authenticates, OAuth first.
-// A provider that offers both is filed once, under its first declared kind,
-// but either filter finds it.
-const PV_AUTH_GROUPS = ['oauth', 'apikey'];
-
-function providerAuthKinds(p) {
-  const kinds = providerTypes(p).filter((t) => PV_AUTH_GROUPS.includes(t));
-  return kinds.length ? kinds : ['apikey'];
-}
-
-function providerAuthGroup(p) {
-  return providerAuthKinds(p)[0];
-}
-
-function providerTypes(p) {
-  const types = Array.isArray(p.auth) && p.auth.length ? [...p.auth] : ['apikey'];
-  if (p.freeTier) types.push('free');
-  return types.filter((t) => PROVIDER_TYPES[t]);
-}
-
-function typeStripe(types, dir = '90deg') {
-  if (types.length === 1) return PROVIDER_TYPES[types[0]].color;
-  const step = 100 / types.length;
-  return `linear-gradient(${dir}, ${types.map((t, i) => `${PROVIDER_TYPES[t].color} ${i * step}% ${(i + 1) * step}%`).join(', ')})`;
-}
-
-// Logo tile on the Providers page, with the provider's type dots on a rail
-// across the bottom edge, read against the legend above the list.
-function providerLogoHTML(p) {
-  const types = providerTypes(p);
-  const rail = `<span class="pv-logo-types" title="${types.map((t) => PROVIDER_TYPES[t].label).join(' · ')}">`
-    + types.map((t) => `<i style="--c:${PROVIDER_TYPES[t].color}"></i>`).join('') + '</span>';
-  return `<span class="pv-logo has-types">${providerMark(p)}${rail}</span>`;
-}
-
-let pvLegendCollapsed = true;
-try { pvLegendCollapsed = localStorage.getItem('pvLegendCollapsed') !== '0'; } catch (_) {}
-
-function providerLegendHTML(list) {
-  const counts = Object.fromEntries(Object.keys(PROVIDER_TYPES).map((t) => [t, 0]));
-  list.forEach((p) => providerTypes(p).forEach((t) => { counts[t] += 1; }));
-  const chevron = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>';
-  return `<div class="pv-legend ${pvLegendCollapsed ? 'collapsed' : ''}">
-    <div class="pv-legend-head" data-legend-toggle>
-      <span class="pv-legend-title"><span class="pv-legend-dots">${Object.values(PROVIDER_TYPES).map((t) => `<i style="--c:${t.color}"></i>`).join('')}</span>Provider types</span>
-      <button class="pv-legend-toggle" type="button" data-legend-toggle aria-expanded="${!pvLegendCollapsed}">
-        <span>${pvLegendCollapsed ? 'Show legend' : 'Hide legend'}</span>${chevron}
-      </button>
-    </div>
-    <div class="pv-legend-body">
-      ${Object.entries(PROVIDER_TYPES).map(([k, t]) => `
-        <div class="pv-legend-item ${counts[k] ? '' : 'empty'}" style="--c:${t.color}">
-          <span class="pv-legend-chip"><i></i></span>
-          <div class="pv-legend-text">
-            <div class="pv-legend-name">${t.label}<span class="pv-legend-count${counts[k] ? '' : ' is-zero'}">${counts[k]} provider${counts[k] === 1 ? '' : 's'}</span></div>
-            <div class="pv-legend-desc">${t.desc}</div>
-          </div>
-        </div>`).join('')}
-    </div>
-    <div class="pv-legend-foot">${list.length} providers total — categories overlap (auth + free tier)</div>
-  </div>`;
-}
-
-
 // ============================================
 // Providers page — key management panel (table rows and cards)
 // ============================================
@@ -6581,7 +3151,6 @@ const pvExpanded = new Set();
 const pvCopied = new Map(); // copyId -> expiresAt (ms); re-applied on render so the tick survives a rebuild
 const keyProbe = new Map();   // keyId -> { state: 'testing'|'ok'|'fail', text, at }
 let keyDeleteArmed = null;    // keyId awaiting a second click to delete
-let keyDeleteTimer = null;
 
 const KX_ICON = {
   chevron: '<svg class="kx-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
@@ -6632,7 +3201,7 @@ function setAct(map, id, state) {
 }
 
 function rerenderProvidersIfShown() {
-  if (currentPage === 'providers') renderProvidersPage();
+  if (getCurrentPage() === 'providers') renderProvidersPage();
 }
 
 // Button inner markup for an action in state `act` ('running' | 'ok' | 'fail'
@@ -6658,543 +3227,90 @@ function recheckButtonHTML(p, variant) {
   return `<button class="dt-icon-btn" ${attrs} title="${title}" aria-label="${title}">${actIconHTML(act, PV_ICON.heart)}</button>`;
 }
 
-function recheckProvider(id) {
-  if (recheckAct.get(id)?.state === 'running') return;
-  setAct(recheckAct, id, 'running');
-  if (currentPage === 'providers') renderProvidersPage();
-  // One unified pass for this provider: fresh verdicts and a fresh roster.
-  if (window.CATALOG && window.CATALOG.syncAll) window.CATALOG.syncAll({ reason: 'manual', providerId: id });
-  else setAct(recheckAct, id, 'fail');
-  if (window.KEY_USAGE) KEY_USAGE.refreshProvider(id, { force: true });
-}
+function recheckProvider(id) { return providerActions.recheckProvider(id); }
 
-// What state a key is in, most important first. A per-model refusal (the
-// quotaSpent.models list) does not make the key spent: other models still run
-// on it, so it reads as active with the affected models named in the hint.
-function keyState(k) {
-  if (k.locked) return { id: 'locked', label: 'Locked', hint: 'Encrypted for another machine — re-add it' };
-  if (!k.active) return { id: 'off', label: 'Off', hint: 'Switched off — not used in runs' };
-  if (isKeyFullySpent(k)) return { id: 'spent', label: 'Quota used', hint: spentHint(k) };
-  const partialHint = isKeyPartiallySpent(k) ? `${spentHint(k)}\n\nOther models still run on this key.` : null;
-  const cool = keyCooldownUntil.get(k.id) || 0;
-  if (cool > Date.now()) return { id: 'cooling', label: 'Cooling down', hint: `Rate limited — free again in ${Math.ceil((cool - Date.now()) / 1000)} s` };
-  const probe = keyProbe.get(k.id);
-  if (probe && probe.state === 'testing') return { id: 'testing', label: 'Testing…', hint: 'Testing connection to endpoint…' };
-  if (probe && probe.state === 'fail') return { id: 'fail', label: 'Failing', hint: probe.text };
-  if (partialHint) return { id: 'active', label: 'Active', hint: partialHint };
-  return { id: 'active', label: 'Active', hint: 'In use by test runs' };
-}
-
-// key_<timestamp> ids carry the moment the key was added.
-function keyAddedLabel(k) {
-  const ts = Number(String(k.id).replace(/^key_/, ''));
-  if (!Number.isFinite(ts) || ts < 1e12) return '';
-  return new Date(ts).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-}
-
-// Models this key sees on its own. The catalogue re-discovers every key on its
-// sync, through the provider's own discovery and filters, so its number is the
-// one runs use; the Check page's last discovery is the fallback.
-function keyModelCount(p, k) {
-  const km = window.CATALOG && window.CATALOG.keyModels(k.id);
-  if (km) return km;
-  if (!p.models || !p.models.length) return null;
-  return { count: p.models.filter((m) => Array.isArray(m.keyIds) && m.keyIds.includes(k.id)).length, at: null };
-}
-
-const KX_META_ICON = {
-  models: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 3 7l9 5 9-5-9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/></svg>',
-  clock: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
-};
-
-// "18 of 21 models" when a key sees less than its provider's keys see
-// together — the case worth noticing; otherwise just the count.
-function keyModelsHTML(p, k) {
-  const km = keyModelCount(p, k);
-  if (!km) return '';
-  const total = p.keys.length > 1 && window.CATALOG ? window.CATALOG.providerModelCount(p.id) : null;
-  const partial = total != null && km.count < total;
-  const text = partial ? `${km.count} of ${total} models` : `${km.count} model${km.count === 1 ? '' : 's'}`;
-  const title = (partial ? `This key sees ${km.count} of the ${total} models this provider's keys offer` : 'Models this key can use')
-    + (km.at ? ` — listed ${new Date(km.at).toLocaleTimeString()}` : '');
-  return `<span class="kx-meta-item${partial ? ' partial' : ''}" title="${escapeHtml(title)}">${KX_META_ICON.models}${escapeHtml(text)}</span>`;
-}
-
-// When this key was last checked, by the background monitor or a Test. The
-// relative time is kept current in place by refreshAgoLabels().
-function keyCheckedHTML(probe) {
-  if (!probe || !probe.at || probe.state === 'testing') return '';
-  return `<span class="kx-meta-item" title="Last checked ${escapeHtml(new Date(probe.at).toLocaleString())}">${KX_META_ICON.clock}Checked <span data-ago="${probe.at}">${escapeHtml(formatAgo(probe.at))}</span></span>`;
-}
-
-// When a spent key's quota comes back: its own cell in the list view (under
-// the provider's last-run column) and a meta item in the card view. The
-// countdown is kept current by refreshAgoLabels(). A per-model refusal leaves
-// this cell empty — naming one exhausted model next to every other exhausted
-// fact is the test table's job, not the key row's.
-function keyResetHTML(k, { inline = false } = {}) {
-  if (!isKeyFullySpent(k) || !k.active) return '';
-  const until = k.quotaSpent.until;
-  const title = escapeHtml(spentHint(k));
-  if (inline) {
-    return `<span class="kx-meta kx-reset" title="${title}"><span class="kx-meta-item">${KX_META_ICON.clock}<span>${until ? `Resets in <span data-in="${until}">${escapeHtml(formatIn(until))}</span>` : 'No reset time'}</span></span></span>`;
-  }
-  if (!until) return `<span class="ku-expiry" data-tone="low" title="${title}"><b>RESET: No reset time</b></span>`;
-  const when = new Date(until).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  return `<span class="ku-expiry" data-tone="low" title="${title}"><b>RESET: Resets in <span data-in="${until}">${escapeHtml(formatIn(until))}</span></b><span class="ku-sub">${escapeHtml(when)}</span></span>`;
-}
-
-function refreshAgoLabels() {
-  $$('[data-ago]').forEach((el) => { el.textContent = formatAgo(Number(el.dataset.ago)); });
-  // A reset that has come round lifts the key: redraw so its state follows.
-  let lapsed = false;
-  $$('[data-in]').forEach((el) => {
-    const t = Number(el.dataset.in);
-    if (t <= Date.now()) lapsed = true;
-    else el.textContent = formatIn(t);
-  });
-  if (lapsed) {
-    Object.keys(PROVIDERS).forEach((pid) => refreshAfterKeyChange(pid));
-  }
-}
-setInterval(refreshAgoLabels, 30000);
-// A catalogue sync brings fresh per-key model counts.
-window.addEventListener('catalog-changed', () => { if (currentPage === 'providers') renderProvidersPage(); });
-
-function keyStripHTML(p) {
-  if (!p.keys.length) return '';
-  return `<div class="kx-strip" aria-label="Key states">${p.keys.map((k) => {
-    const st = keyState(k);
-    return `<span class="kx-seg" data-state="${st.id}" title="${escapeHtml(k.name)} — ${escapeHtml(st.label)}"></span>`;
-  }).join('')}</div>`;
-}
-
-// Everything one key shows, rendered once and laid out twice: as a stacked
-// row in the card view's panel, and as a row on the provider's own column
-// grid in the list view (keyRowsHTML).
-function keyParts(p, k, i) {
-  const pid = escapeHtml(p.id);
-  const st = keyState(k);
-  const kid = escapeHtml(k.id);
-  const probe = keyProbe.get(k.id);
-  const added = keyAddedLabel(k);
-  const isTesting = probe && probe.state === 'testing';
-  // The Test button's own feedback: spinning while this test runs, then the
-  // verdict for a moment (background probes leave it at rest).
-  const testAct = isTesting ? 'running' : keyTestAct.get(k.id)?.state;
-  const testTitle = { running: 'Testing…', ok: 'Key works', fail: 'Key failed' }[testAct] || 'Test key';
-  // The background check covers every active key, so an unprobed active key
-  // is only waiting for it — unless live updates are paused.
-  let probeHTML;
-  if (isTesting) {
-    probeHTML = statusPillHTML('testing', 'Testing…');
-  } else if (!k.active) {
-    probeHTML = statusPillHTML('none', 'Disabled', 'Switched-off keys are excluded from routing and background checks');
-  } else if (isKeyFullySpent(k)) {
-    // The models check may still say OK; the spent quota is what decides
-    // whether this key can serve, so it takes the badge, with the refusal's
-    // status. The reset has its own cell (keyResetHTML).
-    const s = k.quotaSpent;
-    probeHTML = statusPillHTML('spent', `Quota used · ${s.status ? `HTTP ${s.status}` : '—'}`, `${spentHint(k)}${s.message ? `\n\n${s.message}` : ''}`);
-  } else if (probe) {
-    const at = probe.at ? `Checked ${new Date(probe.at).toLocaleTimeString()}` : '';
-    probeHTML = statusPillHTML(probe.state, probe.text, at);
-  } else if (k.locked) {
-    probeHTML = statusPillHTML('none', 'Unreadable', 'Encrypted on another machine — re-add the key');
-  } else {
-    probeHTML = settings.liveUpdates
-      ? statusPillHTML('pending', 'Checking…')
-      : statusPillHTML('none', 'Not checked', 'Live updates are paused — press Test to check this key');
-  }
-  const armed = keyDeleteArmed === k.id;
-  const isUnlocked = k.active && !k.locked;
-  const lockTitle = k.locked
-    ? 'Unreadable on this machine'
-    : (k.active ? 'In use — click to disable' : 'Disabled — click to enable');
-  const lockAria = isUnlocked ? 'Disable key' : 'Enable key';
-  const hint = `${st.hint}${added ? ` · added ${added}` : ''}`;
-  return {
-    st,
-    added,
-    probe,
-    index: `<span class="kx-index" title="${escapeHtml(hint)}">#${i + 1}</span>`,
-    // No state badge: the index chip's colour already says it. A key that is
-    // switched off, or can't be read here, carries a clear icon by its name.
-    name: `<span class="kx-name-line"><span class="kx-name" title="${escapeHtml(hint)}">${escapeHtml(k.name)}</span>${
-      k.locked
-        ? `<span class="kx-flag warn" title="Unreadable on this machine — the key was encrypted elsewhere; re-add it">${KX_ICON.alert}</span>`
-        : !k.active
-          ? `<span class="kx-flag" title="Disabled by the admin — this key is not used in runs">${KX_ICON.lock}</span>`
-          : ''
-    }</span>`,
-    // No hint and not locked means the save that should have produced one
-    // never landed: the key still sits here as plaintext, unsaved.
-    secret: `<div class="kx-secret">
-        ${k.locked ? '<code>encrypted</code>' : (k.hint ? `<code>${escapeHtml(k.hint)}</code>` : '<span class="kx-notsaved" title="WARNING: Key value was never saved — re-add it">NOT SAVED: not saved</span>')}
-        ${k.locked ? '' : `<button class="pv-icon-btn${(pvCopied.get(`${p.id}|${k.id}`) || 0) > Date.now() ? ' copied' : ''}" type="button" data-kx-copy="${pid}|${kid}" title="${(pvCopied.get(`${p.id}|${k.id}`) || 0) > Date.now() ? 'Copied' : 'Copy key'}" aria-label="Copy key">${PV_ICON.copy}</button>`}
-      </div>`,
-    probeHTML,
-    actions: `<button class="kx-btn icon-only kx-test-btn" type="button" data-kx-test="${pid}|${kid}"${testAct ? ` data-act="${testAct}"` : ''} ${k.locked || isTesting || testAct === 'running' ? 'disabled' : ''}${isTesting || testAct === 'running' ? ' aria-busy="true"' : ''} title="${testTitle}" aria-label="${testTitle}">${(isTesting || testAct === "running") ? KX_ICON.test : actIconHTML(testAct, KX_ICON.test)}</button>
-        <button class="kx-btn icon-only kx-lock-btn ${isUnlocked ? 'is-unlocked active' : 'is-locked'}" type="button" data-kx-active="${pid}|${kid}" ${k.locked ? 'disabled' : ''}
-                title="${lockTitle}" aria-label="${lockAria}">${isUnlocked ? KX_ICON.unlock : KX_ICON.lock}</button>
-        <button class="kx-btn icon-only danger ${armed ? 'armed' : ''}" type="button" data-kx-del="${pid}|${kid}" title="${armed ? `Click again to delete ${escapeHtml(k.name)} — or use Undo in toast` : `Delete ${escapeHtml(k.name)}`}" aria-label="${armed ? `Click again to delete ${escapeHtml(k.name)}` : `Delete ${escapeHtml(k.name)}`}">${KX_ICON.trash}${armed ? `<span class="kx-del-label">Delete ${escapeHtml(k.name)}?</span>` : ''}</button>`,
-  };
-}
-
-function keysPanelHTML(p) {
-  const rows = p.keys.map((k, i) => {
-    const kp = keyParts(p, k, i);
-    return `<div class="kx-row" data-state="${kp.st.id}">
-      <div class="kx-id">
-        ${kp.index}
-        <div class="kx-id-text">
-          ${kp.name}
-          <span class="kx-meta">${kp.added ? `<span class="kx-meta-item">Added ${escapeHtml(kp.added)}</span>` : ''}${keyModelsHTML(p, k)}${keyCheckedHTML(kp.probe)}</span>
-          ${keyResetHTML(k, { inline: true })}
-          ${window.KEY_USAGE ? KEY_USAGE.inlineHTML(p, k) : ''}
-        </div>
-      </div>
-      ${kp.secret}
-      <div class="kx-probe-cell">${kp.probeHTML}</div>
-      <div class="kx-actions">${kp.actions}</div>
-    </div>`;
-  }).join('');
-  return `<div class="kx-panel" aria-label="API keys"><div class="kx-list">${rows}</div></div>`;
-}
-
-// An open provider's keys, inside its row card and on the same column grid as
-// the provider row, so each value sits under the provider's own: identity
-// under the name, the check under the status, the key's state under the key
-// count, its model count under the models, and its buttons, with when it was
-// last checked framed beneath them, under the provider's buttons.
-function keyRowsHTML(p) {
-  return p.keys.map((k, i) => {
-    const kp = keyParts(p, k, i);
-    const kmHTML = keyModelsHTML(p, k);
-    // When the key was last checked sits under its buttons, framed to their
-    // width, so the check and the controls that act on it read as one block.
-    const checked = kp.probe && kp.probe.at && kp.probe.state !== 'testing'
-      ? `<span class="kx-checked-frame" title="Last checked ${escapeHtml(new Date(kp.probe.at).toLocaleString())}">${KX_META_ICON.clock}<span data-ago="${kp.probe.at}">${escapeHtml(formatAgo(kp.probe.at))}</span></span>`
-      : '<span class="kx-checked-frame is-empty dt-muted" title="Not checked yet">—</span>';
-    const last = i === p.keys.length - 1;
-    return `<div class="pv-krow${last ? ' last' : ''}" data-state="${kp.st.id}">
-      <div class="pv-cell col-provider"><div class="dt-key">
-        ${kp.index}
-        <div class="dt-key-text">${kp.name}${kp.secret}${kmHTML ? `<span class="kx-meta">${kmHTML}</span>` : ''}</div>
-      </div></div>
-      <div class="pv-cell col-status">${kp.probeHTML}</div>
-      <div class="pv-cell col-rate">${window.KEY_USAGE ? KEY_USAGE.quotaCellHTML(p, k) : ''}</div>
-      <div class="pv-cell col-last">${keyResetHTML(k) || (window.KEY_USAGE ? KEY_USAGE.expiryCellHTML(p, k) : '')}</div>
-      <div class="pv-cell col-actions"><div class="kx-actions-stack"><div class="dt-row-actions">${kp.actions}</div>${checked}</div></div>
-    </div>`;
-  }).join('');
-}
-
-// A group's divider: a framed tag (its kind in the legend colour, how many
-// providers) and a hairline running to the edge.
-function pvGroupHeadHTML(kind, n) {
-  const t = PROVIDER_TYPES[kind];
-  return `<div class="pv-group-head" style="--c:${t.color}" role="presentation">
-    <span class="pv-group-tag">
-      <span class="pv-group-dot" aria-hidden="true"></span>
-      <span class="pv-group-label">${escapeHtml(t.label)}</span>
-      <span class="pv-group-count">${n} provider${n === 1 ? '' : 's'}</span>
-    </span>
-    <span class="pv-group-rule" aria-hidden="true"></span>
-  </div>`;
-}
-
-const PV_BADGE_ICON = {
-  key: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3"/></svg>',
-  account: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
-  model: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
-};
-
-function providerDisplayModelsCount(p) {
-  return window.CATALOG && typeof window.CATALOG.providerVisibleCount === 'function'
-    ? window.CATALOG.providerVisibleCount(p.id)
-    : null;
-}
-
-function providerBadgesHTML(p, s) {
-  const isOAuth = providerAuthKinds(p).includes('oauth');
-  const totalKeys = s?.keys ?? p.keys?.length ?? 0;
-  const activeKeys = s?.activeKeys ?? usableKeys(p).length;
-
-  // F: surface active/total (e.g. 2/3 Active) when some keys are switched off;
-  // all-active keeps the short noun so first paint is unchanged.
-  let keyLabel;
-  if (isOAuth) {
-    if (totalKeys === 0) keyLabel = '0 accounts';
-    else if (activeKeys === totalKeys) keyLabel = totalKeys === 1 ? '1 account' : `${totalKeys} accounts`;
-    else keyLabel = `${activeKeys}/${totalKeys} Active`;
-  } else {
-    if (totalKeys === 0) keyLabel = '0 keys';
-    else if (activeKeys === totalKeys) keyLabel = totalKeys === 1 ? '1 key' : `${totalKeys} keys`;
-    else keyLabel = `${activeKeys}/${totalKeys} Active`;
-  }
-
-  const keyTitle = isOAuth
-    ? `${totalKeys} connected account${totalKeys === 1 ? '' : 's'}`
-    : `${activeKeys} of ${totalKeys} key${totalKeys === 1 ? '' : 's'} active`;
-
-  const keyIcon = isOAuth ? PV_BADGE_ICON.account : PV_BADGE_ICON.key;
-  // Dim when nothing is usable (no keys, or every key switched off) — reuses is-empty, no new CSS.
-  const keyClass = `pv-badge pv-badge-keys ${isOAuth ? 'is-oauth' : ''} ${totalKeys === 0 || activeKeys === 0 ? 'is-empty' : ''}`;
-
-  const modelsCount = providerDisplayModelsCount(p);
-  const modelLabel = modelsCount == null
-    ? '<span class="dt-muted">—</span> models'
-    : escapeHtml(modelsCount === 1 ? '1 model' : `${modelsCount} models`);
-  const modelTitle = modelsCount == null
-    ? '— models available'
-    : `${modelsCount} model${modelsCount === 1 ? '' : 's'} available`;
-  const modelClass = `pv-badge pv-badge-models ${modelsCount === 0 || modelsCount == null ? 'is-empty' : ''}`;
-  const modelIcon = PV_BADGE_ICON.model;
-
-  return `<div class="dt-provider-badges" role="group" aria-label="Provider configuration status">
-    <span class="${keyClass}" title="${escapeHtml(keyTitle)}">${keyIcon}<span class="pv-badge-text">${escapeHtml(keyLabel)}</span></span>
-    <span class="${modelClass}" title="${escapeHtml(modelTitle)}">${modelIcon}<span class="pv-badge-text">${modelLabel}</span></span>
-  </div>`;
-}
-
-// Provider status strip: one tick per verdict of the last PROVIDER_TICKS
-// checks, oldest on the left, drawn under the row's action buttons and exactly
-// as wide as them (the stack stretches it to the buttons' width). Green = that
-// check authenticated, red = it was refused, grey = no verdict — nothing has
-// been checked yet, or the provider has no usable key. The empty slots are
-// deliberate: a strip that drew only what it had would come out a different
-// width on every provider, and could never show "not checked yet" at all.
-//
-// Unlike the solid bar this replaces, the strip carries something the badge
-// beside it does not — how the provider has been behaving — so it is labelled
-// (role="img") rather than hidden from assistive technology.
-function pvStateBarHTML(p) {
-  const ring = providerVerdicts.get(p.id) || [];
-  const empty = PROVIDER_TICKS - ring.length;
-  const ticks = [];
-  for (let i = 0; i < empty; i++) {
-    ticks.push('<span class="pv-state-tick is-empty" title="No check recorded"></span>');
-  }
-  for (const v of ring) {
-    const tone = v.state === 'ok' ? 'ok' : v.state === 'fail' ? 'fail' : 'none';
-    const what = v.detail || (tone === 'ok' ? 'Reachable' : tone === 'fail' ? 'Check failed' : 'No active key');
-    const at = new Date(v.at).toLocaleTimeString();
-    ticks.push(`<span class="pv-state-tick" data-state="${tone}" title="${escapeHtml(`${at} — ${what}`)}"></span>`);
-  }
-  const healthy = ring.filter((v) => v.state === 'ok').length;
-  const summary = ring.length
-    ? `Last ${ring.length} check${ring.length === 1 ? '' : 's'}: ${healthy} healthy — oldest on the left, latest on the right`
-    : 'No checks recorded yet';
-  return `<span class="pv-state-bar" role="img" title="${escapeHtml(summary)}" aria-label="${escapeHtml(summary)}">${ticks.join('')}</span>`;
-}
-
-function providerRateHTML(s) {
-  if (s?.rate == null) {
-    return '<div class="dt-rate is-empty" title="No test runs recorded yet"><div class="dt-rate-bar" aria-hidden="true"><span style="width:0%"></span></div><b class="dt-muted">—</b></div>';
-  }
-  const runs = s.runs || 0;
-  const tip = `${runs} run${runs === 1 ? '' : 's'}`;
-  const tone = typeof scoreClass === 'function' ? scoreClass(s.rate / 100) : '';
-  const width = Math.max(0, Math.min(100, s.rate));
-  return `<div class="dt-rate" title="${escapeHtml(tip)}"><div class="dt-rate-bar"><span class="${tone}" style="width:${width}%"></span></div><b>${s.rate}%</b></div>`;
-}
-
-// Connected providers as a list of row cards, one per provider with a gap
-// between them, on one column grid shared with each provider's key rows, and
-// grouped by auth kind under a divider each. The whole row opens its keys;
-// there is no separate key button.
-function pvRowsHTML(groups, stats) {
-  const rows = groups.map((x) => pvGroupHeadHTML(x.g, x.items.length) + x.items.map((p) => {
-    const s = stats.get(p.id);
-    const last = pvLastRun(p);
-    const id = escapeHtml(p.id);
-    const open = pvExpanded.has(p.id);
-    return `<div class="pv-rowcard ${open ? 'open' : ''}" role="listitem">
-      <div class="pv-row ${open ? 'open' : ''}" data-kx-toggle="${id}" role="button" aria-expanded="${open}" tabindex="0">
-        <div class="pv-cell col-provider"><div class="dt-provider">${KX_ICON.chevron}
-          ${providerLogoHTML(p)}
-          <div><div class="dt-provider-name">${escapeHtml(p.name)}${websiteLinkHTML(p)}</div>${providerBadgesHTML(p, s)}</div>
-        </div></div>
-        <div class="pv-cell col-status"><div class="pv-status-stack">${providerStatusHTML(p)}</div></div>
-        <div class="pv-cell col-rate">${providerRateHTML(s)}</div>
-        <div class="pv-cell col-last">${last ? `<span title="${escapeHtml(new Date(last).toLocaleString())}">LAST: ${escapeHtml(formatAgo(last))}</span>` : '<span class="dt-muted">LAST: never</span>'}</div>
-        <div class="pv-cell col-actions">
-          <div class="pv-actions-stack">
-            <div class="dt-row-actions">
-              <button class="dt-icon-btn" type="button" data-connect="${id}" title="Add key" aria-label="Add key">${PV_ICON.plus}</button>
-              ${recheckButtonHTML(p)}
-              <button class="dt-icon-btn dt-icon-go" type="button" data-manage="${id}" title="Test models" aria-label="Test ${escapeHtml(p.name)} models">${PV_ICON.flask}</button>
-            </div>
-            ${pvStateBarHTML(p)}
-          </div>
-        </div>
-      </div>${open ? `<div class="pv-rowcard-keys">${keyRowsHTML(p)}</div>` : ''}
-    </div>`;
-  }).join('')).join('');
-  return `<div class="pv-rows" role="list" aria-label="Connected providers">
-    ${rows}
-  </div>`;
-}
-
-function refreshAfterKeyChange(pid) {
-  if (pid === activeProvider) {
-    renderKeysList();
-    updateTestAllButton();
-  }
-  if (currentPage === 'providers') {
-    const page = document.querySelector('.page-providers');
-    const scrollPos = page ? page.scrollTop : window.scrollY;
-    const activeEl = document.activeElement;
-    const activeSelector = activeEl && activeEl.dataset ? (
-      activeEl.dataset.kxDel ? `[data-kx-del="${activeEl.dataset.kxDel}"]` :
-      activeEl.dataset.kxTest ? `[data-kx-test="${activeEl.dataset.kxTest}"]` :
-      activeEl.dataset.kxActive ? `[data-kx-active="${activeEl.dataset.kxActive}"]` :
-      activeEl.dataset.kxCopy ? `[data-kx-copy="${activeEl.dataset.kxCopy}"]` :
-      null
-    ) : null;
-
-    renderProvidersPage();
-
-    if (page) page.scrollTop = scrollPos;
-    else window.scrollTo(window.scrollX, scrollPos);
-
-    if (activeSelector) {
-      const elToFocus = document.querySelector(activeSelector);
-      if (elToFocus) elToFocus.focus({ preventScroll: true });
-    }
-  }
-}
-
-// Checks one key with the provider: a GET on its models endpoint, unless the
-// module declares meta.keyCheck because that endpoint answers without a key
-// and so says nothing about one. Never rejects: a failure comes back as a
-// response.
-async function probeKey(p, apiKey) {
-  const check = p.keyCheck || { endpoint: p.modelsEndpoint || '/models' };
-  try {
-    return await window.electronAPI.apiRequest({
-      url: `${p.baseUrl}${check.endpoint}`,
-      method: check.method || 'GET',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: check.body ? JSON.stringify(check.body) : undefined,
-      timeoutMs: HEALTH_TIMEOUT_MS,
-      source: 'key_check',
-    });
-  } catch (err) {
-    return { status: 0, networkError: true, error: err.message };
-  }
-}
-
-async function testKey(pid, kid) {
-  const p = PROVIDERS[pid];
-  const k = p && p.keys.find((x) => x.id === kid);
-  if (!k || k.locked) return;
-  const startedAt = Date.now();
-  keyProbe.set(kid, { state: 'testing', text: 'Testing…', at: startedAt });
-  refreshAfterKeyChange(pid);
-  const res = await probeKey(p, k.key);
-  // A models check can't see a spent quota. A module that reports usage is
-  // read here, while the spinner still runs; the reading also settles the
-  // key's spent-quota state (key-usage.js reconcileSpent).
-  if (window.KEY_USAGE && isHealthyResponse(res)) await KEY_USAGE.refresh(pid, kid, { force: true });
-  // Same minimum spinner time as Recheck, so an instant answer still reads.
-  const hold = startedAt + ACT_MIN_RUNNING_MS - Date.now();
-  if (hold > 0) await new Promise((r) => setTimeout(r, hold));
-  const result = keyProbeResult(res);
-  keyProbe.set(kid, result);
-  setAct(keyTestAct, kid, result.state);
-  refreshAfterKeyChange(pid);
-}
-
-async function setKeyActive(pid, kid) {
-  const p = PROVIDERS[pid];
-  const k = p && p.keys.find((x) => x.id === kid);
-  if (!k || k.locked) return;
-  k.active = !k.active;
-  if (!k.active) {
-    keyProbe.delete(kid);
-    if (window.KEY_USAGE) KEY_USAGE.forget(kid);
-  }
-  await saveProviderConfig(pid);
-  refreshAfterKeyChange(pid);
-}
-
-// Two clicks to delete: the first arms the button for a few seconds.
-async function deleteKey(pid, kid) {
-  if (keyDeleteArmed !== kid) {
-    keyDeleteArmed = kid;
-    clearTimeout(keyDeleteTimer);
-    keyDeleteTimer = setTimeout(() => { keyDeleteArmed = null; refreshAfterKeyChange(pid); }, 3500);
-    refreshAfterKeyChange(pid);
-    return;
-  }
-  clearTimeout(keyDeleteTimer);
-  keyDeleteArmed = null;
-  const p = PROVIDERS[pid];
-  const deletedIndex = p.keys.findIndex((x) => x.id === kid);
-  const deletedKey = deletedIndex >= 0 ? { ...p.keys[deletedIndex] } : null;
-  p.keys = p.keys.filter((x) => x.id !== kid);
-  keyProbe.delete(kid);
-  if (window.KEY_USAGE) KEY_USAGE.forget(kid);
-  if (window.CATALOG) window.CATALOG.forgetKey(kid);
-  if (!p.keys.length) pvExpanded.delete(pid);
-  await saveProviderConfig(pid);
-  refreshAfterKeyChange(pid);
-  if (deletedKey) {
-    showKeyDeletedToast(pid, deletedKey, deletedIndex);
-  }
-}
-
-function showKeyDeletedToast(pid, deletedKey, deletedIndex) {
-  const root = document.getElementById('mc-toasts');
-  if (!root) return;
-  const el = document.createElement('div');
-  el.className = 'mc-toast mc-toast-warn';
-  el.setAttribute('role', 'status');
-  const keyLabel = deletedKey.name || deletedKey.hint || 'key';
-  el.innerHTML = `<span class="mc-toast-ico">${KX_ICON.trash}</span><span class="mc-toast-msg">Deleted key <strong>${escapeHtml(keyLabel)}</strong></span><button class="mc-toast-undo" type="button">Undo</button>`;
-  let undone = false;
-  const undoBtn = el.querySelector('.mc-toast-undo');
-  if (undoBtn) {
-    undoBtn.onclick = async () => {
-      if (undone) return;
-      undone = true;
-      const p = PROVIDERS[pid];
-      if (p) {
-        if (deletedIndex >= 0 && deletedIndex <= p.keys.length) {
-          p.keys.splice(deletedIndex, 0, deletedKey);
-        } else {
-          p.keys.push(deletedKey);
-        }
-        await saveProviderConfig(pid);
-        refreshAfterKeyChange(pid);
-      }
-      el.classList.remove('show');
-      setTimeout(() => el.remove(), 240);
-    };
-  }
-  root.appendChild(el);
-  requestAnimationFrame(() => el.classList.add('show'));
-  setTimeout(() => {
-    if (!undone) {
-      el.classList.remove('show');
-      setTimeout(() => el.remove(), 240);
-    }
-  }, 5000);
-}
-
-// Accordion: opening one provider closes whichever was open.
-function togglePvExpanded(pid) {
-  const wasOpen = pvExpanded.has(pid);
-  pvExpanded.clear();
-  if (!wasOpen) pvExpanded.add(pid);
-  if (currentPage === 'providers') renderProvidersPage();
-  // Opening a provider's keys brings their usage up to date (if it is stale).
-  if (!wasOpen && window.KEY_USAGE) KEY_USAGE.refreshProvider(pid);
-}
-
-// ============================================
+const providerKeys = window.VENOM_RENDERER.providerKeys.create({
+  $$,
+  getProviders: () => PROVIDERS,
+  getSettings: () => settings,
+  getKeyDeleteArmed: () => keyDeleteArmed,
+  pvCopied,
+  keyProbe,
+  keyTestAct,
+  keyPolicy,
+  isKeyFullySpent,
+  isKeyPartiallySpent,
+  spentHint,
+  escapeHtml,
+  formatAgo,
+  formatIn,
+  statusPillHTML,
+  actIconHTML,
+  KX_ICON,
+  PV_ICON,
+  scheduleInterval: (fn, ms) => setInterval(fn, ms),
+  onCatalogChanged: (fn) => window.addEventListener('catalog-changed', fn),
+  getCurrentPage: () => getCurrentPage(),
+  renderProvidersPage: () => renderProvidersPage(),
+  refreshAfterKeyChange,
+});
+const { keyStripHTML, keysPanelHTML, keyRowsHTML } = providerKeys;
+let pvLegendCollapsed = true;
+try { pvLegendCollapsed = localStorage.getItem('pvLegendCollapsed') !== '0'; } catch (_) {}
+const providerView = window.VENOM_RENDERER.providerView.create({
+  getProviders: () => PROVIDERS,
+  getRunLog: () => runLog,
+  getHistory: () => history,
+  getExpanded: () => pvExpanded,
+  getCopied: () => pvCopied,
+  getLegendCollapsed: () => pvLegendCollapsed,
+  getProviderHealth: () => providerHealth,
+  getProviderVerdicts: () => providerVerdicts,
+  getProviderTicks: () => PROVIDER_TICKS,
+  usableKeys,
+  rpmOf,
+  escapeHtml,
+  PV_ICON,
+  KX_ICON,
+  statusPillHTML,
+  providerKeys,
+  recheckButtonHTML,
+  scoreClass,
+  formatAgo,
+});
+const {
+  isConnected, providerWebsite, websiteLinkHTML, providerHost, providerStats,
+  providerCapabilities, providerTags, providerMark, providerHealthLine,
+  closeRateLimitPop, providerStatusHTML, healthDotHTML, providerCardHTML, providerStatsHTML,
+  PROVIDER_TYPES, PV_AUTH_GROUPS, providerAuthKinds, providerAuthGroup,
+  providerTypes, typeStripe, providerLogoHTML, providerLegendHTML,
+  pvGroupHeadHTML, providerDisplayModelsCount, providerBadgesHTML,
+  pvStateBarHTML, providerRateHTML, pvLastRun, pvRowsHTML,
+} = providerView;
+providerActions = window.VENOM_RENDERER.providerActions.create({
+  getProviders: () => PROVIDERS,
+  getActiveProvider: () => activeProvider,
+  getCurrentPage: () => getCurrentPage(),
+  getKeyDeleteArmed: () => keyDeleteArmed,
+  setKeyDeleteArmed: (value) => { keyDeleteArmed = value; },
+  getExpanded: () => pvExpanded,
+  keyProbe,
+  keyTestAct,
+  recheckAct,
+  saveProviderConfig,
+  renderKeysList,
+  updateTestAllButton,
+  renderProvidersPage: () => renderProvidersPage(),
+  setStatus,
+  isHealthyResponse,
+  keyProbeResult,
+  setAct,
+  healthTimeoutMs: HEALTH_TIMEOUT_MS,
+  actionMinRunningMs: ACT_MIN_RUNNING_MS,
+  KX_ICON,
+  escapeHtml,
+});
+const { probeKey, testKey, setKeyActive, deleteKey, togglePvExpanded } = providerActions;
 // Stat cards — shared
 // ============================================
 // items: [{ label, value, sub?, foot, icon, meter? (0..1), tone? ('pass' | 'fail'), profile?, attrs?, active? }]
@@ -7334,351 +3450,79 @@ function bindDataToolbar(root, state, onChange, config = {}) {
   });
 }
 
-// The list at full width, cards once the window is narrow enough for the nav
-// to fold into a drawer — the same breakpoint, so the page and the chrome
-// change shape together. There is no manual switch: the window decides.
+// catalog.js still shares this classic-script media-query helper.
 const COMPACT_LAYOUT = window.matchMedia('(max-width: 1100px)');
-
-// ============================================
-// Providers page — Connected view
-// ============================================
-const pvState = {
-  search: '',
-  filter: 'all',
-  status: 'all',
-  sort: 'name',
-  view: COMPACT_LAYOUT.matches ? 'cards' : 'table',
-};
-let pvShell = null; // which tab the body skeleton was built for
-
-const PV_TOOLBAR = {
-  placeholder: 'Search providers, models, hosts or URLs…',
-  statusFilter: {
-    icon: 'server',
-    label: 'Provider Status',
-    options: [
-      { value: 'all',     label: 'All Providers' },
-      { value: 'ok',      label: 'Connected' },
-      { value: 'fail',    label: 'Down' },
-      { value: 'pending', label: 'Pending' },
-      { value: 'none',    label: 'No Active Key' },
-    ],
+const providerRoster = window.VENOM_RENDERER.providerRoster.create({
+  $,
+  $$,
+  compactLayout: COMPACT_LAYOUT,
+  getProviders: () => PROVIDERS,
+  getRunLog: () => runLog,
+  getCurrentPage: () => getCurrentPage(),
+  isConnected,
+  usableKeys,
+  providerHealthLine,
+  providerStats,
+  providerAuthKinds,
+  providerAuthGroup,
+  providerDisplayModelsCount,
+  providerHost,
+  providerLegendHTML,
+  groupHeadHTML: (kind, count) => pvGroupHeadHTML(kind, count),
+  providerCardHTML,
+  providerRowsHTML: (groups, stats) => pvRowsHTML(groups, stats),
+  dataToolbarHTML,
+  bindDataToolbar,
+  statCardsHTML,
+  noMatchIcon: DT_ICON.nomatch,
+  emptyIcon: PV_ICON.empty,
+  plugIcon: PV_ICON.plug,
+  authGroups: PV_AUTH_GROUPS,
+  breadcrumbHTML,
+  closeRateLimitPop,
+  toggleExpanded: (id) => togglePvExpanded(id),
+  clearExpanded: () => pvExpanded.clear(),
+  setLegendCollapsed: (value) => { pvLegendCollapsed = value; },
+  getLegendCollapsed: () => pvLegendCollapsed,
+  testKey: (pid, kid) => testKey(pid, kid),
+  setKeyActive: (pid, kid) => setKeyActive(pid, kid),
+  deleteKey: (pid, kid) => deleteKey(pid, kid),
+  getKey: (pid, kid) => PROVIDERS[pid]?.keys.find((key) => key.id === kid),
+  markCopied,
+  setStatus,
+  showPage,
+  switchProvider,
+  openAddKeyModal,
+  openProviderPage,
+  recheckProvider,
+});
+const KPI_ICON = providerRoster.KPI_ICON;
+const renderProvidersPage = () => providerRoster.render();
+shellController = window.VENOM_RENDERER.shell.create({
+  $, $$,
+  pageRouter,
+  pageMeta: PAGE_META,
+  getProviders: () => PROVIDERS,
+  getActiveProvider: () => activeProvider,
+  getCurrentPage: () => getCurrentPage(),
+  getRunHistory: () => history,
+  getRunLog: () => runLog,
+  getProviderHealth: () => providerHealth,
+  renderProviderHead,
+  resetProviderPage: () => {
+    ptLegendOpen = false;
+    renderProviderHead();
+    updateStats();
+    renderPtLegend();
   },
-  filters: [
-    { value: 'all',    label: 'All' },
-    { value: 'oauth',  label: 'OAuth',   dot: 'var(--type-oauth)' },
-    { value: 'apikey', label: 'API Key', dot: 'var(--type-apikey)' },
-  ],
-  sorts: [
-    { value: 'name',   label: 'Name' },
-    { value: 'rate',   label: 'Pass rate' },
-    { value: 'models', label: 'Models' },
-    { value: 'recent', label: 'Last run' },
-  ],
-};
-
-const KPI_ICON = {
-  plug: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0z"/><path d="M12 18v4"/></svg>',
-  key: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/></svg>',
-  pulse: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>',
-  target: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>',
-  layers: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg>',
-  check: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
-  cross: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
-  clock: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
-};
-
-function pvLastRun(p) {
-  for (let i = runLog.length - 1; i >= 0; i--) if (runLog[i].provider === p.id) return runLog[i].at;
-  return 0;
-}
-
-function pvHealthState(p) {
-  return providerHealthLine(p).state;
-}
-
-function renderConnectedKpis(connected, all) {
-  const keys = connected.reduce((n, p) => n + p.keys.length, 0);
-  const active = connected.reduce((n, p) => n + usableKeys(p).length, 0);
-  const reachable = connected.filter((p) => pvHealthState(p) === 'ok').length;
-  let passed = 0;
-  let total = 0;
-  runLog.forEach((r) => {
-    if (connected.some((p) => p.id === r.provider)) { passed += r.passed; total += r.total; }
-  });
-  const rate = total ? passed / total : null;
-  $('#pv-kpis').innerHTML = statCardsHTML([
-    { label: 'Connected', value: connected.length, sub: `/ ${all.length}`, icon: KPI_ICON.plug, tone: 'green', subhead: 'OF INTEGRATED PROVIDERS',
-      pill: connected.length > 0 ? `${connected.length} Active` : undefined, meter: all.length ? connected.length / all.length : 0, foot: 'of the integrated providers' },
-    { label: 'Active keys', value: active, sub: `/ ${keys}`, icon: KPI_ICON.key, tone: 'amber', subhead: 'KEY ALLOCATION',
-      pill: active > 0 ? `${active} Active` : undefined, meter: keys ? active / keys : 0, foot: keys - active ? `${keys - active} switched off` : 'all keys in use' },
-    { label: 'Reachable', value: reachable, sub: `/ ${connected.length}`, icon: KPI_ICON.pulse, tone: connected.length > 0 && reachable < connected.length ? 'amber' : 'cyan', subhead: 'ENDPOINT HEALTH',
-      pill: connected.length > 0 && reachable === connected.length ? 'All Reachable' : (connected.length > 0 && reachable > 0 && reachable < connected.length ? `${reachable}/${connected.length} Reachable` : undefined), meter: connected.length ? reachable / connected.length : 0, foot: 'answered the health check' },
-    { label: 'Pass rate', value: rate == null ? '—' : `${Math.round(rate * 100)}%`, icon: KPI_ICON.target, tone: 'blue', subhead: 'BENCHMARK RUNS',
-      pill: rate != null ? `${Math.round(rate * 100)}% Benchmarked` : undefined, meter: rate, foot: total ? `${total.toLocaleString()} results recorded` : 'no runs recorded yet' },
-  ]);
-}
-
-function pvFilterState(p) {
-  return providerHealthLine(p).state;
-}
-
-// Models a provider offers, as search text (read-only over CATALOG rows, which
-// carry id + name + family — the same fields the Models Catalog searches).
-// visibleEntries() is preferred so the text matches what the Catalog shows;
-// state.models is the fallback before first load or when the tab filter hides
-// rows. Never writes to CATALOG.
-function pvModelSearchText(p) {
-  try {
-    if (window.CATALOG && typeof window.CATALOG.visibleEntries === 'function') {
-      const rows = window.CATALOG.visibleEntries().filter((e) => e && e.providerId === p.id);
-      if (rows.length) return rows.map((e) => `${e.name || ''} ${e.id || ''} ${e.family || ''}`).join(' ');
-    }
-    const m = window.CATALOG && window.CATALOG.state && window.CATALOG.state.models;
-    if (m && typeof m.values === 'function') {
-      return [...m.values()].filter((e) => e && e.providerId === p.id).map((e) => `${e.name || ''} ${e.id || ''} ${e.family || ''}`).join(' ');
-    }
-  } catch (_) {}
-  return '';
-}
-
-function pvSearchText(p) {
-  const keys = (p.keys || []).map((k) => `${k.name || ''} ${k.hint || ''}`).join(' ');
-  return `${p.name} ${providerHost(p)} ${p.baseUrl} ${keys} ${pvModelSearchText(p)}`;
-}
-
-function pvFiltered(connected) {
-  const q = pvState.search.trim().toLowerCase();
-  let list = connected.filter((p) => {
-    if (q && !pvSearchText(p).toLowerCase().includes(q)) return false;
-    if (pvState.filter !== 'all' && !providerAuthKinds(p).includes(pvState.filter)) return false;
-    if (pvState.status !== 'all' && pvFilterState(p) !== pvState.status) return false;
-    return true;
-  });
-  const stats = new Map(list.map((p) => [p.id, providerStats(p)]));
-  const by = {
-    name: (a, b) => a.name.localeCompare(b.name),
-    rate: (a, b) => {
-      const ra = stats.get(a.id)?.rate ?? null;
-      const rb = stats.get(b.id)?.rate ?? null;
-      if (ra == null && rb == null) return a.name.localeCompare(b.name);
-      if (ra == null) return 1;
-      if (rb == null) return -1;
-      if (rb !== ra) return rb - ra;
-      return a.name.localeCompare(b.name);
-    },
-    models: (a, b) => {
-      const ma = providerDisplayModelsCount(a);
-      const mb = providerDisplayModelsCount(b);
-      if (ma == null && mb == null) return a.name.localeCompare(b.name);
-      if (ma == null) return 1;
-      if (mb == null) return -1;
-      if (mb !== ma) return mb - ma;
-      return a.name.localeCompare(b.name);
-    },
-    recent: (a, b) => pvLastRun(b) - pvLastRun(a),
-  };
-  list = list.sort(by[pvState.sort] || by.name);
-  return { list, stats };
-}
-
-
-function renderConnectedResults(connected) {
-  // A rebuild replaces the opener button, so a lingering popover would float detached — keep auto-close.
-  closeRateLimitPop();
-  const results = $('#pv-results');
-  // Filter counts reflect the search and status filter, so a chip never promises rows it hides.
-  const q = pvState.search.trim().toLowerCase();
-  const searched = connected.filter((p) => {
-    if (q && !pvSearchText(p).toLowerCase().includes(q)) return false;
-    if (pvState.status !== 'all' && pvFilterState(p) !== pvState.status) return false;
-    return true;
-  });
-  const count = { all: searched.length };
-  PV_AUTH_GROUPS.forEach((g) => { count[g] = searched.filter((p) => providerAuthKinds(p).includes(g)).length; });
-  $$('#pv-toolbar [data-dt-count]').forEach((el) => { el.textContent = count[el.dataset.dtCount] ?? 0; });
-
-  const { list, stats } = pvFiltered(connected);
-  if (list.length === 0) {
-    results.innerHTML = `<div class="dt-nomatch"><span class="dt-nomatch-icon" aria-hidden="true">${DT_ICON.nomatch}</span><strong>No providers match</strong>
-      Try a different search or filter.
-      <button class="btn btn-ghost" type="button" data-dt-clear>Clear search and filters</button></div>`;
-    return;
-  }
-  // One group per auth kind, each under its own divider; a kind with no
-  // provider (OAuth, today) shows no group at all.
-  const groups = PV_AUTH_GROUPS
-    .map((g) => ({ g, items: list.filter((p) => (pvState.filter === 'all' ? providerAuthGroup(p) === g : g === pvState.filter)) }))
-    .filter((x) => x.items.length);
-  results.innerHTML = pvState.view === 'table'
-    ? pvRowsHTML(groups, stats)
-    : groups.map((x) => pvGroupHeadHTML(x.g, x.items.length) + `<div class="pv-grid">${x.items.map((p) => providerCardHTML(p, 'connected')).join('')}</div>`).join('');
-}
-
-function renderProvidersPage() {
-  // Same orphan guard: the popover lives on body while its opener is rebuilt.
-  closeRateLimitPop();
-  const body = document.getElementById('pv-body');
-  if (!body) return;
-  const all = Object.values(PROVIDERS);
-  const connected = all.filter(isConnected);
-  $('#pv-count-connected').textContent = connected.length;
-  $('#pv-count-integrated').textContent = all.length;
-  $$('.pv-tab').forEach((t) => {
-    const on = t.dataset.tab === providersTab;
-    t.classList.toggle('active', on);
-    t.setAttribute('aria-selected', String(on));
-  });
-  $('#pv-crumbs').innerHTML = breadcrumbHTML([
-    { label: 'Overview', page: 'overview' },
-    { label: 'Providers', tab: 'connected', icon: 'providers' },
-    { label: providersTab === 'connected' ? 'Connected' : 'Integrated' },
-  ]);
-
-  // Grouped by auth kind under the same dividers as the Connected tab, in a
-  // denser grid: this tab is a catalogue that grows with every provider added.
-  if (providersTab === 'integrated') {
-    pvShell = 'integrated';
-    const groups = PV_AUTH_GROUPS
-      .map((g) => ({ g, items: all.filter((p) => providerAuthGroup(p) === g) }))
-      .filter((x) => x.items.length);
-    body.innerHTML = providerLegendHTML(all) + groups.map((x) => pvGroupHeadHTML(x.g, x.items.length) +
-      `<div class="pv-grid pv-grid-compact">${x.items.map((p) => providerCardHTML(p, 'integrated')).join('')}</div>`).join('');
-    return;
-  }
-  if (connected.length === 0) {
-    pvShell = 'empty';
-    body.innerHTML = `<div class="pv-empty">
-      <div class="pv-empty-icon">${PV_ICON.empty}</div>
-      <h3>No providers connected yet</h3>
-      <p>Connect an integrated provider with an API key and it will show up here, with its keys, health and test history in one place.</p>
-      <button class="btn btn-primary" type="button" data-tab="integrated">${PV_ICON.plug}Browse integrated providers</button>
-    </div>`;
-    return;
-  }
-  // Build the skeleton (stats, toolbar, results) once per visit to the tab; later
-  // calls only refresh the stats and the results, so typing isn't interrupted.
-  if (pvShell !== 'connected') {
-    pvShell = 'connected';
-    body.innerHTML = `<div id="pv-kpis"></div><div id="pv-legend"></div><div id="pv-toolbar">${dataToolbarHTML(PV_TOOLBAR, pvState)}</div><div id="pv-results"></div>`;
-    bindDataToolbar($('#pv-toolbar'), pvState, () => renderConnectedResults(Object.values(PROVIDERS).filter(isConnected)));
-  }
-  renderConnectedKpis(connected, all);
-  $('#pv-legend').innerHTML = providerLegendHTML(connected);
-  renderConnectedResults(connected);
-}
-
-// Crossing the breakpoint changes the whole page's shape: Connected tab,
-// the legend folded and every provider closed. Search, filters and sort order are kept.
-COMPACT_LAYOUT.addEventListener('change', (e) => {
-  pvState.view = e.matches ? 'cards' : 'table';
-  providersTab = 'connected';
-  pvExpanded.clear();
-  pvLegendCollapsed = true;
-  try { localStorage.setItem('pvLegendCollapsed', '1'); } catch (_) {}
-  pvShell = null; // rebuild the toolbar layout to match the view
-  if (currentPage === 'providers') renderProvidersPage();
+  renderProfilePage,
+  prepareSettingsPage,
+  providerRoster,
+  syncRoute,
+  toggleTheme,
+  switchSettingsSection,
+  escapeHtml,
 });
-
-document.querySelector('.page-providers').addEventListener('keydown', (e) => {
-  const row = e.target.closest && e.target.closest('.pv-row[data-kx-toggle]');
-  if (row && e.target === row && (e.key === 'Enter' || e.key === ' ')) {
-    e.preventDefault();
-    togglePvExpanded(row.dataset.kxToggle);
-  }
-});
-
-// "/" jumps to the search box on pages that have one.
-document.addEventListener('keydown', (e) => {
-  if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
-  if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
-  const input = document.querySelector('.shell-page:not([hidden]) [data-dt="search"]');
-  if (input) { e.preventDefault(); input.focus(); }
-});
-
-$('.page-providers').addEventListener('click', async (e) => {
-  const site = e.target.closest('[data-site]');
-  if (site) {
-    window.electronAPI.openExternal(site.dataset.site);
-    return;
-  }
-  const kx = e.target.closest('[data-kx-test], [data-kx-active], [data-kx-del], [data-kx-copy]');
-  if (kx) {
-    if (kx.disabled) return;
-    const [pid, kid] = (kx.dataset.kxTest || kx.dataset.kxActive || kx.dataset.kxDel || kx.dataset.kxCopy).split('|');
-    if (kx.dataset.kxTest) testKey(pid, kid);
-    else if (kx.dataset.kxActive) setKeyActive(pid, kid);
-    else if (kx.dataset.kxDel) deleteKey(pid, kid);
-    else {
-      const k = PROVIDERS[pid]?.keys.find((x) => x.id === kid);
-      if (k && !k.locked) {
-        try {
-          await window.electronAPI.copyKey(kid);
-          markCopied(kx);
-        } catch (err) {
-          setStatus('error', 'Could not copy the key to the clipboard');
-        }
-      }
-    }
-    return;
-  }
-  // A row (or its keys button, or a card's Manage keys) opens the key panel;
-  // other buttons inside the row keep their own meaning.
-  const toggle = e.target.closest('[data-kx-toggle]');
-  if (toggle && (toggle.tagName === 'BUTTON' || !e.target.closest('button, a, input, .kx-panel'))) {
-    togglePvExpanded(toggle.dataset.kxToggle);
-    return;
-  }
-  // The whole legend header toggles it; the button inside stays the keyboard
-  // and screen-reader control, and carries the state.
-  if (e.target.closest('[data-legend-toggle]')) {
-    pvLegendCollapsed = !pvLegendCollapsed;
-    try { localStorage.setItem('pvLegendCollapsed', pvLegendCollapsed ? '1' : '0'); } catch (_) {}
-    $$('.pv-legend').forEach((lg) => {
-      lg.classList.toggle('collapsed', pvLegendCollapsed);
-      const t = lg.querySelector('.pv-legend-toggle');
-      t.setAttribute('aria-expanded', String(!pvLegendCollapsed));
-      t.querySelector('span').textContent = pvLegendCollapsed ? 'Show legend' : 'Hide legend';
-    });
-    return;
-  }
-  if (e.target.closest('[data-dt-clear]')) {
-    Object.assign(pvState, { search: '', filter: 'all', status: 'all', sort: 'name' });
-    pvShell = null;
-    renderProvidersPage();
-    return;
-  }
-  const el = e.target.closest('[data-tab], [data-go], [data-connect], [data-manage], [data-recheck], [data-copy], [data-show-connected]');
-  if (!el || el.disabled) return;
-  const d = el.dataset;
-  if (d.tab) { providersTab = d.tab; pvShell = null; renderProvidersPage(); return; }
-  if (d.showConnected) {
-    providersTab = 'connected';
-    pvExpanded.add(d.showConnected);
-    pvShell = null;
-    renderProvidersPage();
-    return;
-  }
-  if (d.go) { showPage(d.go); return; }
-  if (d.connect) {
-    switchProvider(d.connect);
-    const name = PROVIDERS[d.connect].name;
-    if (providersTab === 'integrated') openAddKeyModal(`Connect ${name}`, d.connect);
-    else openAddKeyModal(`Add key to ${name}`);
-    return;
-  }
-  if (d.manage) { openProviderPage(d.manage); return; }
-  if (d.recheck) { recheckProvider(d.recheck); return; }
-  if (d.copy) {
-    try {
-      await navigator.clipboard.writeText(d.copy);
-      markCopied(el);
-    } catch (_) {
-      setStatus('error', 'Could not copy to the clipboard');
-    }
-  }
-});
-
 bindShell();
 
 async function init() {
