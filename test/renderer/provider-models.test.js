@@ -84,3 +84,20 @@ test('HTTP discovery failure leaves the provider roster intact and restores the 
   assert.match(calls.statuses.at(-1)[1], /HTTP 401/);
   assert.equal(button.disabled, false);
 });
+
+test('a quota-based roster (no free rows) still renders every model item', async () => {
+  // Apinex on a subscription key: the adapter returns noPlans false with
+  // every row isFree/isFreeForPaid false. The grouped branch used to render
+  // only FREE and FREE FOR PAID headers, leaving the list empty while the
+  // count badge showed the full roster.
+  const { unit, providers, button, elements } = setup({
+    body: { data: [{ id: 'quota-a' }, { id: 'quota-b' }] },
+  });
+  providers.alpha.models = [];
+  await button.handlers.click();
+  const list = elements.get('#models-list').innerHTML;
+  assert.match(list, /quota-a/);
+  assert.match(list, /quota-b/);
+  assert.match(list, /model-item/g);
+  assert.doesNotMatch(list, /models-empty/);
+});

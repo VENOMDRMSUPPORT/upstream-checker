@@ -331,7 +331,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `provider-detail.js` | 59 | The single-provider page header and API-key list. | VENOM_RENDERER |
 | `provider-facts.js` | 288 | Reference facts for the Providers test table. | TEST_INPUTS, FILE_TOKENS, MIN_SAMPLES_FOR_LATENCY, resolveContext, resolveScore, resolveCost, resolveCapabilityRow, resolveInputs, readsToken, filesState, modalityParts, fmtPrice, +8 more |
 | `provider-keys.js` | 198 | Shared provider-key status and rendering for cards and connected rows. | VENOM_RENDERER |
-| `provider-models.js` | 286 | Provider model discovery, roster ownership and catalog ingestion. | VENOM_RENDERER |
+| `provider-models.js` | 290 | Provider model discovery, roster ownership and catalog ingestion. | VENOM_RENDERER |
 | `provider-roster.js` | 291 | Connected and integrated providers page controller. | VENOM_RENDERER |
 | `provider-store.js` | 118 | Runtime provider data and its persistence boundary. | VENOM_RENDERER |
 | `provider-view.js` | 557 | Shared provider presentation and card/row markup. | VENOM_RENDERER, isConnected, providerWebsite, websiteLinkHTML, providerHost, providerStats, providerCapabilities, providerTags, RL_ICON, rlPopOpener, rateLimitPopHTML, openRateLimitPop, +23 more |
@@ -454,7 +454,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `provider-detail.test.js` | 81 | Provider detail UI: the complete production module receives app behavior through callbacks. | key list escapes provider text and routes key actions through callbacks, empty key list shows the connect hint without binding stale actions |
 | `provider-facts.test.js` | 256 | provider-facts.js is a plain browser script of top-level consts and function | a model with nothing published resolves to null, never to zero, the provider context wins and the reference fills only the gap, the score carries its tier, and an unrated model stays unrated, an unpriced model is null, and a published zero is a zero, the ingested row is preferred, and the raw model is the fallback, the five inputs are read from the modality tokens, not the legend ids |
 | `provider-keys.test.js` | 48 | Shared key status and provider-row rendering. |  |
-| `provider-models.test.js` | 87 | Provider model discovery owns the per-provider roster and catalog handoff. |  |
+| `provider-models.test.js` | 104 | Provider model discovery owns the per-provider roster and catalog handoff. | a quota-based roster (no free rows) still renders every model item |
 | `provider-roster.test.js` | 94 | Connected and integrated provider page state and rendering. |  |
 | `provider-store.test.js` | 115 | Provider runtime records, hydration and save reconciliation. | failed config read blocks all seed, merge and cleanup writes, save reconciles stored key placeholders without erasing live key state, save invalidates catalog data and refreshes the visible providers page |
 | `results-table.test.js` | 146 | Results table sort/filter/export through the production factory. | results module registers a create factory, sort sinks null times and toggles failed-only filter, clear restores empty DOM and notifies status, CSV export uses provider slug and includes status, tokensPerSecond ignores prompt tokens and non-pass rows |

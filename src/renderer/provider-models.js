@@ -67,6 +67,10 @@ window.VENOM_RENDERER.providerModels = {
         const freeForPaid = shown.filter((m) => m.isFreeForPaid);
         if (free.length) html += `<div class="model-group-label">FREE (${free.length})</div>${free.map(buildModelItem).join('')}`;
         if (freeForPaid.length) html += `<div class="model-group-label">FREE FOR PAID (${freeForPaid.length})</div>${freeForPaid.map(buildModelItem).join('')}`;
+        // A roster with no free row at all (a fully quota-based provider, e.g.
+        // Apinex on a subscription key) would otherwise render an empty list
+        // while the count badge still read the full roster.
+        if (!free.length && !freeForPaid.length) html += shown.map(buildModelItem).join('');
       }
       container.innerHTML = html;
       $$('.model-item').forEach((item) => item.addEventListener('click', () => toggleModelSelection(item.dataset.modelId, item)));
