@@ -2,8 +2,8 @@
 
 **VENOM Router** is a Windows desktop LLM router (Electron 33 + better-sqlite3):
 it connects providers and keys, keeps a live model catalog, tests models, records
-requests, and monitors provider/model activity. Version 2.1.2.
-Tests: `npm test` (702, about 6 s on this machine). Everything on disk is written
+requests, and monitors provider/model activity. Read the version in `package.json`.
+Tests: `npm test` (750, about 6 s on this machine). Everything on disk is written
 in English.
 
 This file is the entry point for any coding agent. Read it, then the two
@@ -17,7 +17,7 @@ wholesale (~200 k tokens together).
 | --- | --- | --- | --- |
 | 1 | [CLAUDE.md](CLAUDE.md) | **Binding workflow rules.** One checkout, the owner's data folder is off-limits, never change how the app starts, when a release may run. | ~900 tokens |
 | 2 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Boot order, the two databases, the request lifecycle, the 44 generated app channels plus auth/handshake notes, the renderer's globals, what proves what. | ~3 k |
-| 3 | [docs/CODE_MAP.md](docs/CODE_MAP.md) | Generated index: every file under `src/`, `scripts/`, `test/` with its purpose and top-level names, **and line landmarks inside every file over 700 lines** — jump to `app.js`'s Results table (line 2887), a page in `index.html`, a block in `styles.css`. | ~6 k |
+| 3 | [docs/CODE_MAP.md](docs/CODE_MAP.md) | Generated index: every file under `src/`, `scripts/`, `test/` with its purpose and top-level names, **and line landmarks inside every file over 700 lines** — jump to the Results table in `app.js`, a page in `index.html`, a block in `styles.css`; use the current generated line numbers. | ~6 k |
 | 4 | [docs/COOKBOOK.md](docs/COOKBOOK.md) | Recipes: add a provider, an IPC channel, a setting, a log column; change the UI and prove it. | ~2 k |
 
 Then open the specific files the task names — and for a long file, open the
@@ -57,7 +57,9 @@ it may change, the acceptance command. That, plus this file, is what turns a
 | Schema of `venom-logs.db` | `src/logs/migrations.js` |
 | One finished request → one log row | `src/logs/recorder.js` |
 | Log query API (list/get/stats/runs/export) | `src/logs/query.js` |
-| The pages: shell, settings, testing engine | `src/renderer/app.js` |
+| Shell, general settings, provider/results UI and composition | `src/renderer/app.js` |
+| Test policy, requests, responses and retry/hedging | `src/renderer/test-policy.js`, `test-attempts.js`, `test-response.js`, `test-runner.js` |
+| Settings defaults, appearance, update UI and sidebar effects | `src/renderer/settings-defaults.js`, `appearance.js`, `updates.js`, `sidebar-effects.js` |
 | Test History + Monitoring | `src/renderer/logs.js` + `logs-format.js` |
 | Catalog roster: discovery, the Models table, the three per-row actions | `src/renderer/catalog.js` |
 | Bell + Model Activity page (roster change feed) | `src/renderer/activity.js`, events in `src/db/repos/roster-events.js` |

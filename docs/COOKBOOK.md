@@ -82,16 +82,16 @@ exercised once by hand or through a live check.
 input in `src/renderer/index.html`, and — only if main needs the value —
 `src/main.js` + `src/db/ipc.js` hook.
 
-1. Add the key to `DEFAULTS` in `app.js` (~line 90) with its default and a
+1. Add the key to `DEFAULT_SETTINGS` in `settings-defaults.js` with its default and a
    comment saying what it is for. `loadSettings` ignores a stored value whose
    type differs from the default, so the default's type is the contract.
 2. Add the control to the right Settings section in `index.html`
    (`data-section="sec-…"`), with a stable id like `#set-my-thing`.
-3. Register it once in the `SETTING_INPUTS` table in `app.js` (~line 3885):
+3. Register it once in the `SETTING_INPUTS` table in `app.js` (use CODE_MAP landmarks):
    `['#set-my-thing', 'myThing', 'int' | 'text' | 'bool' | 'sec' | 'ratio']`.
    That single line gives it fill-on-open, save-on-input and debounced persist.
 4. If a change must act immediately (not just be stored), add the side effect in
-   the input handler in `bindSettingsForm()` (~line 3950), next to
+   the input handler in `bindSettingsForm()` (use CODE_MAP landmarks), next to
    `scheduleHealthMonitor()`.
 5. If **main** needs it (a timer, a purge limit, a network default), read it
    from the saved row — do not send it per request. Follow
@@ -196,3 +196,54 @@ the CHANGELOG instead.
 Run live gates serially while diagnosing failures. They launch separate Electron
 instances over scratch folders and use a local mock provider; do not use
 `npm start` as a substitute for an automated live proof.
+
+---
+
+## 8. Extract or extend a renderer unit
+
+1. Keep the current classic-script/CSP model. Register on `window.VENOM_RENDERER`
+   inside an IIFE or expose `create(deps)`; do not add ambient lexical globals,
+   runtime HTML fetches, a framework or new Node/network access in the renderer.
+2. Pick a cohesive boundary (policy, requests, response parsing, appearance,
+   results table, settings panel, provider storage, provider detail UI or
+   connected/integrated provider roster),
+   not arbitrary line chunks. Pure parsing stays in `test-response.js`; key
+   eligibility/pacing belongs in `test-policy.js`; request adapters live in
+   `test-attempts.js`; retry/hedging belongs in `test-runner.js`; table state,
+   sorting/export and the response modal belong in `results-table.js`; form
+   conversion and section navigation belong in `settings-panel.js`.
+3. Pass callbacks and **live getters** from app.js. Do not capture `settings`
+   or `abortTesting` by value: reset replaces settings and Stop can happen while
+   a request is in flight. Do not expose mutable cooldown/denial maps just to
+   make a test convenient. Preserve the original event-binding/init points.
+   Keep section resetters and shared provider-card/key-panel markup in app.js.
+   Provider persistence belongs in `provider-store.js`; the single-provider
+   header and key list belong in `provider-detail.js`; connected/integrated
+   roster state and page interactions belong in `provider-roster.js`. Pass live
+   provider/page getters and narrow callbacks; discovery, roster ownership and
+   catalog handoff belong in `provider-models.js`. None should import app state
+   or duplicate persistence. Hash parsing and deep-link dispatch belong in
+   `page-router.js`; page lifecycle effects stay composed in app.js.
+4. Add the script before app.js in index.html. Existing DOM IDs, script order,
+   lock-gated startup, request tags and the main/preload path stay unchanged.
+   Keep existing global helper aliases only where legacy consumers need them.
+5. Use `test/renderer/module-loader.js` to evaluate the **whole production
+   script** in a controlled VM. Avoid extracting functions by comment anchors,
+   asserting implementation source strings or testing copied mock algorithms.
+6. Run focused module tests, `npm run repo:map`, then `npm run check`. For a
+   renderer split, also run `node scripts/live/verify-renderer-modules.mjs`,
+   `npm run verify:live` and `npm run verify:lock` serially.
+
+The module live gate measures appearance/popup/modal/page geometry, exercises
+real controls, resets/replaces settings and verifies save/close/reopen. It uses
+only fake fixture keys and a local mock, and never downloads or installs an
+update. It is not evidence of real-provider, real-stream or real-429 behavior.
+
+For provider-roster assertions, `CATALOG.state.loaded` is **not discovery
+readiness**. Wait for `lastSyncAt > 0 && !syncing` with a bounded deadline, then
+assert the actual published rows. Do not hide a failure with a fixed sleep or
+change startup behavior to make a test pass.
+
+index.html remains one static document in this gradual slice. If source-template
+composition is introduced later, keep it build-time, preserve IDs/order/CSP and
+verify generated-output freshness; do not fetch templates at runtime.

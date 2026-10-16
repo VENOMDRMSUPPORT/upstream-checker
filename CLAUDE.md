@@ -10,8 +10,8 @@ because they were broken once and it cost the owner a day of confusion.
 
 ## Current project facts
 
-- Current version: **2.1.2**, defined only in `package.json`.
-- The suite currently contains **702 tests** and runs through Electron's Node.
+- Current version: read `package.json`; it is the only authoritative version.
+- The suite currently contains **750 tests** and runs through Electron's Node.
 - Nine provider modules are loaded from `src/renderer/providers/`.
 - Runtime data is SQLite: `venom.db` plus `venom-logs.db`; legacy JSON is import
   input only.
@@ -20,7 +20,7 @@ because they were broken once and it cost the owner a day of confusion.
 
 ## One checkout. Always this one.
 
-The owner works in **`C:\Users\venom\Desktop\UPSTREAM CHECKER`** and runs the
+The current authorized checkout is **`G:\Venom-Projects\venom-router`**. The owner runs the
 app with **`npm start`** from that folder. That is the only copy of this
 project they look at.
 
@@ -37,7 +37,8 @@ project they look at.
 ## The owner's data folder is theirs
 
 Their real providers, keys and history live in
-`%APPDATA%\venom-router`. The app opens it by default.
+`%APPDATA%\venom-router`. Packaged builds open it by default; unpackaged
+development uses the separate `venom-router-dev` folder described above.
 
 - **Never launch the app on that folder to test something.** Every
   verification run uses `--user-data-dir=<a temporary folder>` and deletes it
@@ -81,13 +82,14 @@ summary.
 ### Verification commands
 
 ```text
-npm run check                 CODE_MAP freshness + the full 702-test suite
+npm run check                 CODE_MAP freshness + the full test suite
 npm run check:keystore        Windows DPAPI/safeStorage encryption round-trip
 npm run verify:live           end-to-end app path with mock provider and scratch data
 npm run verify:catalog        catalog boot and sync path under a network guard
 npm run verify:legend         capability legend geometry and icon states
 npm run verify:sidebar        catalog details drawer geometry
 npm run verify:lock           lock screen, inert shell and reset-lock behavior
+node scripts/live/verify-renderer-modules.mjs  module composition, appearance, persistence and navigation
 ```
 
 Run live checks serially when diagnosing a failure: each one owns a scratch

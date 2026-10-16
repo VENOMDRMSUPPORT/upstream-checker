@@ -200,12 +200,47 @@ table below rather than treating the generated list as the entire runtime wire.
 
 ## 7. Renderer
 
-Load order matters: classic scripts, no modules, globals shared.
+Load order matters: classic local scripts, no runtime imports or template fetches.
 
 `providers/*.js` (register into `window.INTEGRATED_PROVIDERS`) →
 `ui-select.js` → `ui-stepper.js` → `ulid.js` → **`lock.js`** → **`profile.js`** →
-**`app.js`** → `key-usage.js` → `catalog-caps.js` → `catalog.js` →
+`provider-facts.js` → **renderer units** → **`app.js`** → `key-usage.js` → `catalog-caps.js` → `catalog.js` →
 `logs-format.js` → `logs.js` → `database.js` → `activity.js`.
+
+Renderer units register on **`window.VENOM_RENDERER`** before app.js composes them:
+
+| File | Namespace | Owns |
+| --- | --- | --- |
+| `test-response.js` | `responses` | Pure response/usage/Retry-After parsing, asset lookup and result ranking |
+| `test-policy.js` | `policy.create(deps)` | Quota predicates, private denied pairs, key cooldowns, learned RPM and pacing |
+| `test-attempts.js` | `attempts.create(deps)` | Chat/image/video/decision requests and parameter negotiation through injected IPC |
+| `test-runner.js` | `runner.create(deps)` | Adaptive hedging, deadline cancellation, retry rounds and model budgets |
+| `settings-defaults.js` | `defaults` | Shipped settings, themes, accents and legacy accent mapping |
+| `appearance.js` | `appearance.create(deps)` | Theme/accent/density controls, icon debounce and system-theme listener |
+| `updates.js` | `updates.create(deps)` | Update badge/modal state and inert release-note rendering |
+| `sidebar-effects.js` | `effects` | Deterministic stars and the accessible signature heart |
+| `results-table.js` | `results.create(deps)` | Results rows, sorting/filtering, response modal, CSV/JSON export and clear state |
+| `settings-panel.js` | `settingsPanel.create(deps)` | Settings form conversion, cost estimate, section navigation and page preparation |
+| `provider-store.js` | `providerStore.create(deps)` | Stable runtime provider map, saved-provider hydration, safe key reconciliation, per-provider save and legacy custom-provider cleanup |
+| `provider-detail.js` | `providerDetail.create(deps)` | Single-provider page header, breadcrumbs, key-list rendering and key-action delegation |
+| `provider-actions.js` | `providerActions.create(deps)` | Key checks, toggles/deletion, undo, row expansion and post-action view refresh through injected persistence |
+| `provider-keys.js` | `providerKeys.create(deps)` | Shared key status, countdown updates, provider key panels and connected-row key markup |
+| `provider-roster.js` | `providerRoster.create(deps)` | Connected/integrated roster state, filtering, sorting, responsive layout and delegated roster actions |
+| `provider-models.js` | `providerModels.create(deps)` | Provider-owned fetched model rosters and selections, per-key discovery, catalog ingestion and metadata normalization |
+| `provider-view.js` | `providerView.create(deps)` | Shared provider identity, health, capability, legend, card and connected-row presentation |
+| `page-router.js` | `pageRouter.create(deps)` | Hash-route parsing/synchronization and deep-link delegation |
+| `shell.js` | `shell.create(deps)` | Shell navigation, page-entry lifecycle, Overview summaries, health lamp and responsive navigation |
+
+Factory internals are closure-scoped. Mutable app state is supplied through
+**live getters**, especially settings, current page and abort state: Data reset
+replaces the settings object, and Stop can change while a request is pending.
+App.js keeps compatibility aliases used by existing consumers (for example
+`isKeySpent` in key-usage.js and `parseChatCompletion` in catalog.js). It still owns
+request IDs/tags, run coordination, settings persistence and shared provider
+presentation helpers. Shell navigation, page-entry lifecycle and Overview
+summaries are composed through `shell.js`; results-table and settings-panel
+behavior is also composed through their factories. It is not yet an
+initialization-only entry point.
 
 - **`lock.js`** — the app lock screen, `window.LOCK`. Loaded before `app.js`
   because `app.js`'s `start()` is gated: it asks `auth:status` first and does no
@@ -216,10 +251,42 @@ Load order matters: classic scripts, no modules, globals shared.
 - **`profile.js`** — the header's Administrator menu: **Lock now** and **Sign
   out**. Both call `auth:lock`, which clears main's session and sends
   `auth:locked` back.
-- **`app.js`** is the core: settings, provider/key model, discovery, the test
-  engine (hedging, retries, rate-limit pacing), history, exports, the shell and
-  the router (`PAGES`, hash routes `#/provider/<id>`, `#/settings/<section>`,
-  `#/history/<tab>`).
+- **`app.js`** composes the units and owns general settings, key mutations,
+  run history, results/exports and cross-page business behavior.
+- **`provider-store.js`** owns the stable runtime provider map and its read,
+  seed, legacy cleanup and save reconciliation path. It calls the app's typed
+  persistence boundary and leaves page refresh, catalog invalidation and the
+  `providers-changed` event behind explicit callbacks.
+- **`provider-detail.js`** owns the single-provider page's header and key-list
+  DOM. It receives live provider/page getters and delegates key mutations to
+  app-owned actions, so it does not own request policy or persistence.
+- **`provider-roster.js`** owns the connected/integrated Providers page state,
+  responsive layout, filtering/sorting, and page-level event delegation. It
+  receives live provider/history getters and calls app-owned key and discovery
+  actions through callbacks. Provider card and shared key-panel markup are
+  separate from its page state.
+- **`provider-keys.js`** owns the shared key-status view, expiry and relative-time
+  updates, and the key rows embedded in provider cards and connected-provider
+  rows. Key mutations remain app callbacks; it never reads or renders secret
+  values, only the masked hint.
+- **`provider-actions.js`** owns provider-key checks and interactions, including
+  activation, two-step deletion with Undo, and connected-row expansion. It uses
+  the provider store's save callback and the main-owned request path; key
+  material stays in the provider records and never crosses into presentation.
+- **`provider-view.js`** owns shared provider identity, status, capabilities,
+  authentication labels, legends, cards and connected-row markup. Health and
+  run data arrive through live getters; rate-limit and key actions stay behind
+  app callbacks.
+- **`provider-models.js`** owns discovery and catalog handoff. Each runtime
+  provider record is the source for its fetched model list and selected models;
+  app.js and existing classic-script consumers use narrow compatibility getters.
+- **`page-router.js`** owns hash parsing, URL synchronization and deep-link
+  delegation for `#/provider/<id>`, `#/settings/<section>` and `#/history/<tab>`.
+  Page rendering and shell navigation are delegated to `shell.js`.
+- **`shell.js`** owns shell navigation, page visibility and lifecycle dispatch,
+  responsive navigation behavior, and the Overview's quick stats, run panels
+  and system-health lamp. It calls page modules through injected callbacks and
+  does not own their data.
 - **`catalog.js`** — the Models page. It holds no pool: discovery hands the
   adapter's roster to `catalog:ingest` and the page draws what `catalog:read`
   serves back, re-scored against today's reference. Three per-row actions, in
@@ -235,9 +302,18 @@ Load order matters: classic scripts, no modules, globals shared.
   `fetchModels`, `classify(model)`, `fetchKeyUsage`, `fetchKeyHistory`,
   `readQuotaError`, `readUsageHeaders`.
 
-Classic scripts share one global scope: a top-level `const` here can silently
-shadow one in another file (the reason `logs-format.js` defines `logEscape`
-instead of `escapeHtml`).
+Legacy classic scripts share a lexical global scope: a duplicate top-level
+`const` can stop a script from loading. New units keep their internals inside
+factories/IIFEs instead of adding more lexical globals. Production-module tests
+use `test/renderer/module-loader.js` to evaluate complete scripts, not source
+slices that depend on comments or line positions.
+
+**Catalog readiness has two stages:** `state.loaded` means the local snapshot
+was read. The first provider-discovery pass runs asynchronously afterwards;
+`state.lastSyncAt > 0 && !state.syncing` means that pass completed, whether it
+succeeded or failed. A live test asserting provider-published rows must wait for
+the pass, then assert the actual rows; a new scratch database can be empty while
+`loaded` is already true. This does not change startup behavior.
 
 ## 8. What proves what
 

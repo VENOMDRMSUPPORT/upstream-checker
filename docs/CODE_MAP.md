@@ -2,7 +2,7 @@
 
 > GENERATED FILE — do not edit by hand. Regenerate with: npm run repo:map
 
-144 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
+183 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
 
 The architecture behind these files — boot order, IPC channels, the two databases, the request lifecycle — is in [ARCHITECTURE.md](ARCHITECTURE.md). Task recipes are in [COOKBOOK.md](COOKBOOK.md).
 
@@ -71,50 +71,38 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 690 | API requests (src/api-request.js) |
 | 728 | Old request log file (requests.log) |
 
-### src/renderer/app.js — 7755 lines
+### src/renderer/app.js — 3599 lines
 
 | Line | Section |
 | --- | --- |
 | 2 | VENOM ROUTER — Application Logic v2 |
-| 26 | Model kinds |
-| 97 | Settings |
-| 421 | Saving — every write goes through persist() |
-| 494 | Providers — each saved on its own (save-provider) |
-| 548 | Run history — uptime, regressions, scheduling |
-| 699 | Test definition — prompt + expected answer |
-| 1143 | Title bar |
-| 1150 | Provider page — header |
-| 1446 | API Keys management |
-| 1618 | Fetch models from provider — only models for the key's plan |
-| 1909 | Render the models list |
-| 2075 | Test reliability settings |
-| 2241 | Keys and pacing |
-| 2465 | Testers — one request, judged by the model's kind |
-| 2965 | Test a single model — adaptive hedge, handles reasoning, empty, rate limits |
-| 3184 | Test all selected models |
-| 3446 | Results table |
-| 3663 | Reference facts for the test table |
-| 4052 | Full response modal |
-| 4100 | Stats & status |
-| 4188 | Export |
-| 4256 | Update handling |
-| 4538 | Add Key modal |
-| 4647 | Edit Provider modal |
-| 4722 | Init |
-| 4725 | Scheduled re-testing |
-| 4758 | Settings panel |
-| 5558 | Security — the app lock from inside the app |
-| 5866 | Sidebar ambience — moving stars and the signature heart |
-| 6124 | Breadcrumb — shared helper |
-| 6154 | Providers page |
-| 6500 | Provider types — legend and markers |
-| 6576 | Providers page — key management panel (table rows and cards) |
-| 6597 | Action feedback — Recheck and key Test |
-| 7198 | Stat cards — shared |
-| 7215 | Data toolbar — shared |
-| 7343 | Providers page — Connected view |
+| 33 | Model kinds |
+| 104 | Settings |
+| 235 | Saving — every write goes through persist() |
+| 308 | Run history — uptime, regressions, scheduling |
+| 459 | Test definition — prompt + expected answer |
+| 828 | Title bar |
+| 1125 | API Keys management |
+| 1248 | Test reliability settings |
+| 1343 | Testers — one request, judged by the model's kind |
+| 1377 | Test all selected models |
+| 1637 | Results table |
+| 1712 | Reference facts for the test table |
+| 2119 | Stats & status |
+| 2223 | Update handling |
+| 2229 | Add Key modal |
+| 2337 | Edit Provider modal |
+| 2412 | Init |
+| 2415 | Scheduled re-testing |
+| 2448 | Settings panel |
+| 2839 | Security — the app lock from inside the app |
+| 3069 | Breadcrumb — shared helper |
+| 3099 | Providers page |
+| 3146 | Providers page — key management panel (table rows and cards) |
+| 3166 | Action feedback — Recheck and key Test |
+| 3331 | Data toolbar — shared |
 
-### src/renderer/catalog.js — 2121 lines
+### src/renderer/catalog.js — 2122 lines
 
 | Line | Section |
 | --- | --- |
@@ -130,7 +118,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 *(no section banners)*
 
-### src/renderer/index.html — 2327 lines
+### src/renderer/index.html — 2346 lines
 
 | Line | Section |
 | --- | --- |
@@ -242,9 +230,10 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `verify-catalog-boot.mjs` | 428 | Something the owner can click — proven two ways, on a scratch data folder. | PORT, failures, check, sleep, READY, openCatalogAndRead, checkFailureWords, checkModelsCatalogPageUntouched, measureCatalog, runGuardedSession, runPositiveControl, runSyncedSession, +4 more |
 | `verify-catalog-legend.mjs` | 235 | Live check of the Models page's capability legend, against the fixture folder. | failures, check, PORT, READY, TONES, toneClass, measureLegend, dir, mock |
 | `verify-catalog-sidebar.mjs` | 118 | Live check of the Models page's details drawer and its two tabs. | failures, check, dir, mock |
-| `verify-db.mjs` | 544 | Live check of the local database against a synthetic data folder. | failures, check, sleep, until, READY, checkImport, checkKeysStayInMain, saveForNextRun, queueSaveThenClose, checkFlushOnClose, checkPersistence, checkSingleInstance, +20 more |
+| `verify-db.mjs` | 548 | Live check of the local database against a synthetic data folder. | failures, check, sleep, until, READY, checkImport, checkKeysStayInMain, saveForNextRun, queueSaveThenClose, checkFlushOnClose, checkPersistence, checkSingleInstance, +20 more |
 | `verify-lock.mjs` | 486 | Live check of the app lock, against a scratch data folder. | require, ROOT, SHOT_DIR, shotPath, runResetLock, readRow, readLockRow, readSurvivors, failures, check, PORT, READY, +4 more |
 | `verify-provider-table.mjs` | 420 | Live check of the provider test table's reference columns, against the fixture | REAL_CACHE, seedRealCache, REAL_MODELS, startMockWithRealModels, failures, check, READY, freePort, measureTable, dir, mock, app |
+| `verify-renderer-modules.mjs` | 203 | Live acceptance for extracted renderer units: real DOM and scratch data only. | failures, check, dir |
 
 ### src/
 
@@ -327,20 +316,39 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
 | `activity.js` | 336 | Model activity — the notification center | PAGE_LIMIT, PAGE_STEP, PANEL_LIMIT, acState, acShell, AC_TOOLBAR, providerName, whenText, rel, itemHTML, added, dot, +39 more |
-| `app.js` | 7755 | VENOM ROUTER — Application Logic v2 | DEFAULT_TEST_PROMPT, DEFAULT_EXPECTED, testPrompt, expectedAnswer, NA, RESPONSE_PREVIEW, truthy, KIND_LABELS, kindLimits, classifyModel, isMedia, isDecision, +457 more |
+| `app.js` | 3599 | VENOM ROUTER — Application Logic v2 | DEFAULT_TEST_PROMPT, DEFAULT_EXPECTED, testPrompt, expectedAnswer, NA, RESPONSE_PREVIEW, truthy, KIND_LABELS, kindLimits, classifyModel, isMedia, isDecision, +270 more |
+| `appearance.js` | 324 | Theme, accent and density controls; state is read through live getters. | VENOM_RENDERER |
 | `catalog-caps.js` | 217 | Model capabilities — what a catalogue row can do, read as three states | CAT_CAPABILITIES, hasModality, publishedBool, filesState, outputState, capabilityState, BOOLEAN_CAPS, capabilityOrigin, capabilitySet, capabilityCounts |
-| `catalog.js` | 2121 | Models Catalog — the merged reference, scored | state, chat, details, ui, keyOf, connectedIds, historyRuns, loadHistoryRuns, loadPromise, load, reload, applyRead, +242 more |
+| `catalog.js` | 2122 | Models Catalog — the merged reference, scored | state, chat, details, ui, keyOf, connectedIds, historyRuns, loadHistoryRuns, loadPromise, load, reload, applyRead, +242 more |
 | `database.js` | 319 | Read-only SQLite explorer. All SQL, identifier checks, and redaction happen | PAGE_SIZE, state, byId, escape, number, DB_ICON, sourceCounts, setNotice, box, updateSourceTabs, isApp, isLogs, +33 more |
 | `key-usage.js` | 607 | Key usage — quota, expiry and request history per API key | KEY_USAGE |
 | `lock.js` | 400 | The app lock screen — src/renderer/lock.js | MIN_IDLE_MIN, el, resolved, onUnlocked, particle, frame, running, activityBound, lastActivitySent, throttleTimer, reduceMotion, ACTIVITY_SEND_MS, +35 more |
 | `logs-format.js` | 132 | Log pages — pure formatting and mapping | LOGS_RANGES, logEscape, normalizeProvider, providerLabel, formatDuration, formatCost, formatTokens, logPad, formatWhen, statusTone, passRateText, rangePreset, +1 more |
 | `logs.js` | 1308 | Log pages — Runs, Requests and Monitoring | state, el, REDUCED_MOTION, drawerOpener, closeTimer, tabFromRoute, parts, loadInfo, LOG_ICONS, emptyState, loggingOffMarkup, why, +130 more |
+| `page-router.js` | 51 | Hash-route parsing and synchronization for the renderer shell. | VENOM_RENDERER |
 | `profile.js` | 83 | Header profile menu — Administrator, and the way out | wrap, button, pop, setOpen, isOpen, lockNow, lockItem, signOutItem |
+| `provider-actions.js` | 228 | Provider key and health actions; persistence and network remain injected. | VENOM_RENDERER, copyKey, toggleKeyActive, removeKey, recheckProvider, refreshAfterKeyChange, probeKey, testKey, setKeyActive, deleteKey, showKeyDeletedToast, togglePvExpanded |
+| `provider-detail.js` | 59 | The single-provider page header and API-key list. | VENOM_RENDERER |
 | `provider-facts.js` | 288 | Reference facts for the Providers test table. | TEST_INPUTS, FILE_TOKENS, MIN_SAMPLES_FOR_LATENCY, resolveContext, resolveScore, resolveCost, resolveCapabilityRow, resolveInputs, readsToken, filesState, modalityParts, fmtPrice, +8 more |
+| `provider-keys.js` | 198 | Shared provider-key status and rendering for cards and connected rows. | VENOM_RENDERER |
+| `provider-models.js` | 286 | Provider model discovery, roster ownership and catalog ingestion. | VENOM_RENDERER |
+| `provider-roster.js` | 291 | Connected and integrated providers page controller. | VENOM_RENDERER |
+| `provider-store.js` | 118 | Runtime provider data and its persistence boundary. | VENOM_RENDERER |
+| `provider-view.js` | 557 | Shared provider presentation and card/row markup. | VENOM_RENDERER, isConnected, providerWebsite, websiteLinkHTML, providerHost, providerStats, providerCapabilities, providerTags, RL_ICON, rlPopOpener, rateLimitPopHTML, openRateLimitPop, +23 more |
+| `results-table.js` | 275 | Results table sort/filter/export and response modal. Row HTML and reference | VENOM_RENDERER |
+| `settings-defaults.js` | 145 | Shipped settings defaults and appearance choices — no DOM or I/O. | VENOM_RENDERER |
+| `settings-panel.js` | 245 | General settings form binding, cost estimate and section navigation. | VENOM_RENDERER |
+| `shell.js` | 227 | App shell navigation, page lifecycle and Overview summaries. | VENOM_RENDERER |
+| `sidebar-effects.js` | 83 | Deterministic sidebar stars and keyboard-accessible signature-heart effects. | VENOM_RENDERER |
+| `test-attempts.js` | 310 | Provider test requests — chat, media and decision routes through injected IPC only. | VENOM_RENDERER |
+| `test-policy.js` | 332 | Key eligibility, quota state and per-key pacing. Maps belong to each instance. | VENOM_RENDERER |
+| `test-response.js` | 133 | Test response parsing, asset lookup and result classification — pure helpers. | VENOM_RENDERER |
+| `test-runner.js` | 301 | Adaptive hedging and per-model retry orchestration, independent of DOM and application globals. | VENOM_RENDERER |
 | `ui-select.js` | 245 | Design system — select menu | CHEVRON, CHECK, valueDesc, indexDesc, menu, owner, active, LEAD_ICONS, labelOf, opt, sync, trigger, +21 more |
 | `ui-stepper.js` | 114 | Design system — number input stepper | CHEVRON_UP, CHEVRON_DOWN, enhance, input, stepper, label, stepUnit, unit, repeatTimer, repeatInterval, stopRepeat, enhanceAll, +1 more |
 | `ulid.js` | 22 | Run ids — ULID, the same format as src/db/ulid.js | newUlid |
-| `index.html` | 2327 | App shell markup: nav, every page, the drawers and modals |  |
+| `updates.js` | 292 | Update badge, modal and inert release-note rendering; download state belongs to this controller. | VENOM_RENDERER |
+| `index.html` | 2346 | App shell markup: nav, every page, the drawers and modals |  |
 | `styles.css` | 12781 | The whole stylesheet: tokens, themes, accents, components |  |
 
 ### src/renderer/providers/
@@ -431,17 +439,36 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
+| `appearance-dom.js` | 39 | Minimal DOM boundary for production appearance controls; live gates prove geometry. |  |
+| `appearance.test.js` | 56 | Appearance factory behavior with a small DOM boundary; production functions are not copied. | system theme changes only apply while following the system, unknown accents are refused without changing or saving appearance |
 | `catalog-caps.test.js` | 139 | catalog-caps.js is a plain browser script of top-level consts and function | a published modality list that omits a token answers no, vision and audio are read from the input modalities, case-insensitively, only a real boolean counts as a published flag, files prefers the published flag and falls back to the modality list, a declared generator answers yes with no modality published, capabilityOrigin names where each answer was read from |
-| `decision-probe.test.js` | 139 | The TypeSafe /systemone decision wire protocol — the `noul` probe body and | nara declares the TypeSafe decision hooks at adapter level, nara decisionProbe builds the noul question body, experiential declares the same hooks at adapter level, readDecisionAnswer scores an object answer, named in the row, readDecisionAnswer scores a bare numeric answer, readDecisionAnswer returns null when no probability comes back |
-| `key-budget-free.test.js` | 58 | hasFreeKeyBudget is evaluated with its own dependencies (slotsUsed, budgetFor, | a key under its cap has a free slot, a key at its cap is not free, slots older than a minute do not count against the cap, no configured cap means no constraint (always free) |
-| `key-quota-state.test.js` | 67 | The quota-state helpers in src/renderer/app.js are plain top-level function | a per-model refusal is a partial spend, never a spent key, a model-less record spends the whole key, a reset-less record expires after the TTL, a dated record is untouched by the TTL |
+| `decision-probe.test.js` | 126 | The TypeSafe /systemone decision wire protocol — the `noul` probe body and | nara declares the TypeSafe decision hooks at adapter level, nara decisionProbe builds the noul question body, experiential declares the same hooks at adapter level, readDecisionAnswer scores an object answer, named in the row, readDecisionAnswer scores a bare numeric answer, readDecisionAnswer returns null when no probability comes back |
+| `key-budget-free.test.js` | 38 | Free-budget checks through the same production pacing used by test attempts. | a key under its cap has a free slot, a key at its cap is not free, slots older than a minute do not count against the cap, no configured cap means no constraint (always free) |
+| `key-quota-state.test.js` | 54 | The complete key-policy factory owns these quota predicates. Evaluating it | a per-model refusal is a partial spend, never a spent key, a model-less record spends the whole key, a reset-less record expires after the TTL, a dated record is untouched by the TTL |
 | `logs-format.test.js` | 140 | logs-format.js is a plain browser script of top-level function | logEscape: provider text cannot close a tag, toViewModel: escapes every string it puts on the page, formatCost: micros to dollars, small amounts kept visible, formatTokens: thousands separated, null is a dash, statusTone: one tone per outcome, passRateText: a fraction becomes a percentage, null stays unknown |
+| `module-loader.js` | 20 | Loads complete browser modules in a controlled VM; no source slicing. |  |
+| `page-router.test.js` | 60 | Hash routes belong to the page-router unit; page changes remain app callbacks. | deep links delegate page entry and subpage behavior to the app |
+| `provider-actions.test.js` | 55 | Provider-key actions use injected persistence and the main request path. | key activation saves changes and locked keys remain unchanged |
+| `provider-detail.test.js` | 81 | Provider detail UI: the complete production module receives app behavior through callbacks. | key list escapes provider text and routes key actions through callbacks, empty key list shows the connect hint without binding stale actions |
 | `provider-facts.test.js` | 256 | provider-facts.js is a plain browser script of top-level consts and function | a model with nothing published resolves to null, never to zero, the provider context wins and the reference fills only the gap, the score carries its tier, and an unrated model stays unrated, an unpriced model is null, and a published zero is a zero, the ingested row is preferred, and the raw model is the fallback, the five inputs are read from the modality tokens, not the legend ids |
-| `retry-after-parse.test.js` | 42 | parseRetryAfter is sliced out of app.js on its own: a pure function over the | delay-seconds form reads as seconds, HTTP-date form reads as seconds until that date, a past HTTP-date waits a moment, not a full window, garbage and absence read as "not stated" (0) |
-| `settings-appearance.test.js` | 425 | Verify DEFAULT_SETTINGS has theme, followSystem, accent, density, reduceMotion, debugHeader | Appearance: SETTING_INPUTS includes reduceMotion and debugHeader, Appearance: reset appearance restores all appearance keys to defaults, Appearance: SECTION_RESETTERS unifies reset across all settings tabs, Appearance: reset button has red danger styles and accent dock is styled, Appearance: theme preview boxes render detailed UI mockups, Appearance: accent cluster widget and density preview centering |
-| `test-model-budget.test.js` | 176 | testModel is a plain async function declaration, sliced out of app.js the | an empty budget expires and reports the give-up, not an endless ladder, Stop wins over the budget: an aborted run says Aborted, media models have no budget: a video model may take its minutes, a pass always wins, budget or no budget |
+| `provider-keys.test.js` | 48 | Shared key status and provider-row rendering. |  |
+| `provider-models.test.js` | 87 | Provider model discovery owns the per-provider roster and catalog handoff. |  |
+| `provider-roster.test.js` | 94 | Connected and integrated provider page state and rendering. |  |
+| `provider-store.test.js` | 115 | Provider runtime records, hydration and save reconciliation. | failed config read blocks all seed, merge and cleanup writes, save reconciles stored key placeholders without erasing live key state, save invalidates catalog data and refreshes the visible providers page |
+| `results-table.test.js` | 146 | Results table sort/filter/export through the production factory. | results module registers a create factory, sort sinks null times and toggles failed-only filter, clear restores empty DOM and notifies status, CSV export uses provider slug and includes status, tokensPerSecond ignores prompt tokens and non-pass rows |
+| `retry-after-parse.test.js` | 33 | Exercise the complete pure response module with no provider or window I/O. | delay-seconds form reads as seconds, HTTP-date form reads as seconds until that date, a past HTTP-date waits a moment, not a full window, garbage and absence read as "not stated" (0) |
+| `settings-appearance.test.js` | 331 |  | Appearance: SETTING_INPUTS includes reduceMotion and debugHeader, Appearance: reset appearance restores all appearance keys to defaults, Appearance: SECTION_RESETTERS unifies reset across all settings tabs, Appearance: reset button has red danger styles and accent dock is styled, Appearance: theme preview boxes render detailed UI mockups, Appearance: accent cluster widget and density preview centering |
+| `settings-panel.test.js` | 186 | General settings form binding and section navigation. | settings panel module registers create, fillForm converts stored milliseconds to seconds, bindForm ignores an empty per-model budget field, lock idle minutes are clamped to 5..480, switchSection updates the active nav and page head, cost estimate shows the request range for multiplying sections |
+| `shell.test.js` | 84 | App shell page lifecycle and Overview summary. | Overview stats and health lamp summarize live getters |
+| `sidebar-effects.test.js` | 41 | Sidebar decoration behavior through the complete production effects script. |  |
+| `test-attempts.test.js` | 84 | Real request construction with controlled IPC transport (no network). | missing image route is learned per provider without losing chat fallback, Stop after pacing prevents any IPC request from being sent |
+| `test-model-budget.test.js` | 133 | Per-model budgets against the complete production retry/hedge runner. | an empty budget expires and reports the give-up, not an endless ladder, Stop wins over the budget: an aborted run says Aborted, media models have no budget: a video model may take its minutes, a pass always wins, budget or no budget |
+| `test-policy.test.js` | 93 | Key eligibility, quota facts and request pacing through the production factory. | pacing reserves a slot and another free key beats one at its minute cap, per-model quota is retained without disabling unrelated models, Stop while pacing does not reserve another request slot |
+| `test-response.test.js` | 59 | Production response parsing and classification, evaluated as a whole module. | response parser uses reasoning text only when message content is empty, failure parser retains machine error code, key identity and retry delay, empty and transport results preserve outcome rather than invent content |
+| `test-runner.test.js` | 65 | Hedging and retry behavior through the production runner factory. | a race winner cancels all minted request ids as hedge losers, decision transport failures are not duplicated by transient retries, a settings replacement controls the next model retry count |
 | `tokenharbor-quota.test.js` | 144 | Token Harbor quota reads share one account-wide 60/min budget across keys, | usage headers are read case-insensitively, missing usage headers read as no reading, only the spent code reads as a spent allowance, a header reading returns the allowance, an over-budget 429 is retried and then read, a model answering without headers is skipped for the next free model |
 | `ui-stepper.test.js` | 155 | Mock DOM elements for testing the unit stepper in Node | enhance: ignores unit if no input[type="number"] exists, stepUnit: respects disabled and readOnly inputs |
+| `updates.test.js` | 74 | Update UI state machine through a fake IPC boundary; never downloads or installs. | release Markdown keeps wrapped bullets and headings as text items, download failure resets downloading state so badge can retry, Later closes the modal without installing or discarding ready behavior |
 
 ## Incoming references (imported by)
 
@@ -450,9 +477,9 @@ Static relative imports only (`require`, `import … from`, `import()`). Builtin
 | File | Imported by |
 | --- | --- |
 | `scripts/check-import-counts.js` | `test/check-import-counts.test.js` |
-| `scripts/live/cdp.mjs` | `scripts/live/fixture.mjs`, `scripts/live/verify-catalog-boot.mjs`, `scripts/live/verify-catalog-legend.mjs`, `scripts/live/verify-catalog-sidebar.mjs`, `scripts/live/verify-db.mjs`, `scripts/live/verify-lock.mjs`, `scripts/live/verify-provider-table.mjs` |
-| `scripts/live/fixture.mjs` | `scripts/live/verify-catalog-legend.mjs`, `scripts/live/verify-catalog-sidebar.mjs`, `scripts/live/verify-db.mjs`, `scripts/live/verify-provider-table.mjs` |
-| `scripts/live/mock-provider.mjs` | `scripts/live/verify-catalog-legend.mjs`, `scripts/live/verify-catalog-sidebar.mjs`, `scripts/live/verify-db.mjs`, `scripts/live/verify-provider-table.mjs` |
+| `scripts/live/cdp.mjs` | `scripts/live/fixture.mjs`, `scripts/live/verify-catalog-boot.mjs`, `scripts/live/verify-catalog-legend.mjs`, `scripts/live/verify-catalog-sidebar.mjs`, `scripts/live/verify-db.mjs`, `scripts/live/verify-lock.mjs`, `scripts/live/verify-provider-table.mjs`, `scripts/live/verify-renderer-modules.mjs` |
+| `scripts/live/fixture.mjs` | `scripts/live/verify-catalog-legend.mjs`, `scripts/live/verify-catalog-sidebar.mjs`, `scripts/live/verify-db.mjs`, `scripts/live/verify-provider-table.mjs`, `scripts/live/verify-renderer-modules.mjs` |
+| `scripts/live/mock-provider.mjs` | `scripts/live/verify-catalog-legend.mjs`, `scripts/live/verify-catalog-sidebar.mjs`, `scripts/live/verify-db.mjs`, `scripts/live/verify-provider-table.mjs`, `scripts/live/verify-renderer-modules.mjs` |
 | `src/api-request.js` | `src/main.js`, `test/api-request.test.js`, `test/main-wiring.test.js` |
 | `src/auth/hash.js` | `src/auth/index.js`, `test/auth/hash.test.js`, `test/auth/ipc.test.js`, `test/auth/lock.test.js`, `test/db/auth-repo.test.js` |
 | `src/auth/index.js` | `src/main.js`, `test/auth/ipc.test.js`, `test/auth/lock.test.js` |
@@ -499,5 +526,7 @@ Static relative imports only (`require`, `import … from`, `import()`). Builtin
 | `src/renderer/ui-stepper.js` | `test/renderer/ui-stepper.test.js` |
 | `src/user-data.js` | `src/main.js`, `test/user-data.test.js` |
 | `test/helpers.js` | `test/api-request.test.js`, `test/auth/ipc.test.js`, `test/auth/lock.test.js`, `test/catalog/engine.test.js`, `test/catalog/ipc.test.js`, `test/catalog/snapshot.test.js`, `test/catalog/sources.test.js`, `test/check-import-counts.test.js`, `test/db/auth-repo.test.js`, `test/db/cipher.test.js`, `test/db/explorer.test.js`, `test/db/history.test.js`, `test/db/import-json.test.js`, `test/db/ipc.test.js`, `test/db/keys.test.js`, `test/db/open.test.js`, `test/db/providers.test.js`, `test/db/roster-events.test.js`, `test/db/settings-secrets.test.js`, `test/db/snapshots.test.js`, `test/logs/ipc.test.js`, `test/logs/lookups.test.js`, `test/logs/open.test.js`, `test/logs/query.test.js`, `test/logs/retention.test.js`, `test/logs/schema.test.js`, `test/logs/writer.test.js`, `test/renderer-ulid.test.js`, `test/repo-map.test.js` |
+| `test/renderer/appearance-dom.js` | `test/renderer/appearance.test.js`, `test/renderer/settings-appearance.test.js` |
+| `test/renderer/module-loader.js` | `test/renderer/appearance-dom.js`, `test/renderer/decision-probe.test.js`, `test/renderer/key-budget-free.test.js`, `test/renderer/key-quota-state.test.js`, `test/renderer/page-router.test.js`, `test/renderer/provider-actions.test.js`, `test/renderer/provider-detail.test.js`, `test/renderer/provider-keys.test.js`, `test/renderer/provider-models.test.js`, `test/renderer/provider-roster.test.js`, `test/renderer/provider-store.test.js`, `test/renderer/results-table.test.js`, `test/renderer/retry-after-parse.test.js`, `test/renderer/settings-panel.test.js`, `test/renderer/shell.test.js`, `test/renderer/sidebar-effects.test.js`, `test/renderer/test-attempts.test.js`, `test/renderer/test-model-budget.test.js`, `test/renderer/test-policy.test.js`, `test/renderer/test-response.test.js`, `test/renderer/test-runner.test.js`, `test/renderer/updates.test.js` |
 
 Every relative import in this tree resolved to a file in this map.
