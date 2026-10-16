@@ -2,7 +2,7 @@
 
 > GENERATED FILE — do not edit by hand. Regenerate with: npm run repo:map
 
-183 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
+185 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
 
 The architecture behind these files — boot order, IPC channels, the two databases, the request lifecycle — is in [ARCHITECTURE.md](ARCHITECTURE.md). Task recipes are in [COOKBOOK.md](COOKBOOK.md).
 
@@ -118,7 +118,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 *(no section banners)*
 
-### src/renderer/index.html — 2346 lines
+### src/renderer/index.html — 2347 lines
 
 | Line | Section |
 | --- | --- |
@@ -348,13 +348,14 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `ui-stepper.js` | 114 | Design system — number input stepper | CHEVRON_UP, CHEVRON_DOWN, enhance, input, stepper, label, stepUnit, unit, repeatTimer, repeatInterval, stopRepeat, enhanceAll, +1 more |
 | `ulid.js` | 22 | Run ids — ULID, the same format as src/db/ulid.js | newUlid |
 | `updates.js` | 292 | Update badge, modal and inert release-note rendering; download state belongs to this controller. | VENOM_RENDERER |
-| `index.html` | 2346 | App shell markup: nav, every page, the drawers and modals |  |
+| `index.html` | 2347 | App shell markup: nav, every page, the drawers and modals |  |
 | `styles.css` | 12781 | The whole stylesheet: tokens, themes, accents, components |  |
 
 ### src/renderer/providers/
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
+| `apinex.js` | 157 | APINEX — integrated provider module | INTEGRATED_PROVIDERS, APINEX_WEB_BASE |
 | `darkapi.js` | 54 | DARK API — integrated provider module | INTEGRATED_PROVIDERS |
 | `devora.js` | 61 | DEVORA — integrated provider module | INTEGRATED_PROVIDERS |
 | `experiential.js` | 129 | Experiential Labs — integrated provider module | INTEGRATED_PROVIDERS |
@@ -439,6 +440,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
+| `apinex-provider.test.js` | 151 | Apinex discovery is tier-aware: a free key may call only the ids the public | a free key sees only allowFree ids, tagged FREE, a subscription key sees the full roster, none tagged FREE, an unreadable subscription answer is treated as free, not as paid, a 401 roster is an error naming the status, not an empty list, a free key reads its daily quota and the 00:00 UTC reset as expiry, a subscription key reads its plan quota and the plan expiry |
 | `appearance-dom.js` | 39 | Minimal DOM boundary for production appearance controls; live gates prove geometry. |  |
 | `appearance.test.js` | 56 | Appearance factory behavior with a small DOM boundary; production functions are not copied. | system theme changes only apply while following the system, unknown accents are refused without changing or saving appearance |
 | `catalog-caps.test.js` | 139 | catalog-caps.js is a plain browser script of top-level consts and function | a published modality list that omits a token answers no, vision and audio are read from the input modalities, case-insensitively, only a real boolean counts as a published flag, files prefers the published flag and falls back to the modality list, a declared generator answers yes with no modality published, capabilityOrigin names where each answer was read from |
