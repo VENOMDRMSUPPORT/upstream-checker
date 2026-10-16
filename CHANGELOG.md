@@ -5,6 +5,30 @@ All notable changes to VENOM Router (formerly Upstream Checker) will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- A stalled Route Test run can no longer hang: a per-model wall-clock budget
+  ends an attempt that produces no progress and records it as stalled instead
+  of waiting forever.
+
+### Changed
+
+- **The renderer is modular.** `app.js` (about 5,500 lines) is now a thin
+  composition root over 19 focused modules — test pipeline, settings,
+  appearance, updates, sidebar effects, results table, provider store/detail/
+  actions/keys/roster/models/view, page router and shell. Behaviour is
+  unchanged; the split is what makes each feature testable on its own.
+- The suite runs **782 tests** (was 750) through a module-loader harness plus
+  per-module suites, and `npm run verify:renderer-modules` checks module
+  composition, appearance, persistence and navigation end to end.
+
+### Removed
+
+- Stale `work/` session artifacts from the 2026-10-13 live run; nothing in
+  the app read them.
+
 ## [2.1.3] - 2026-10-15
 
 ### Changed
