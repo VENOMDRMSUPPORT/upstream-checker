@@ -77,6 +77,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   catalogFetchInfo: (providerId, modelId, rows) => ipcRenderer.invoke('catalog:fetch-info', providerId, modelId, rows),
   catalogEvents: (query) => ipcRenderer.invoke('catalog:events', query || {}),
   catalogEventsRead: (query) => ipcRenderer.invoke('catalog:events-read', query || {}),
+  // Venom router plane: local multi-account gateway status and refresh.
+  // All three RESOLVE; the Venom Profiles page reads profiles, never secrets.
+  routerStatus: () => ipcRenderer.invoke('router:status'),
+  routerRefresh: () => ipcRenderer.invoke('router:refresh'),
+  routerProfiles: () => ipcRenderer.invoke('router:profiles'),
   getDataPath: () => ipcRenderer.invoke('get-data-path'),
   openDataFolder: () => ipcRenderer.send('open-data-folder'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
