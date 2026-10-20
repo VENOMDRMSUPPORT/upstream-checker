@@ -5,6 +5,55 @@ All notable changes to VENOM Router (formerly Upstream Checker) will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Venom router plane** (`src/router/`): multi-account cascade routing behind
+  one local gateway. A smart catalog splits the roster into `venom-lite`,
+  `venom-pro` and `venom-max`; a three-level key pool drains
+  subscription → free → cheap → paid keys and isolates failures per model-on-key,
+  per key and per provider; a cascade engine escalates stalled pro sessions and
+  rescues plain-text tool calls. The HTTP gateway listens on `127.0.0.1` only
+  (default port 28228, Settings › Models Catalog › Local gateway port) and
+  speaks both the OpenAI (`/v1/chat/completions`) and Anthropic (`/v1/messages`)
+  shapes with SSE passthrough. Documented in `docs/VENOM_INTEGRATION_GUIDE.md`.
+- **Venom Profiles page** (Routing group in the nav): policy cards, per-profile
+  dossiers, fleet targets and eligible target lists from `router:profiles`,
+  with measured outcomes from routed log rows and a Refresh action.
+- **Profile badges** (`src/renderer/profile-badges.js`): one fixed colour
+  identity per routing profile (LITE/PRO/MAX), shown on Models Catalog rows,
+  Model Activity feed entries and Monitoring log rows.
+- **Key tiers** (schema v6): `provider_keys.tier`
+  (`subscription`/`free`/`cheap`/`paid`, default `paid`) and
+  `quota_pool_id` for keys that share one quota bucket, plus the
+  `catalog_scores`, `router_cooldowns` and `router_sessions` tables. Additive:
+  older rows read as the paid tier.
+- **KiosAPI** integrated provider (`src/renderer/providers/kiosapi.js`,
+  eleventh built-in). The shared discovery path records which keys served which
+  model, so a free key's 26-model roster and a funded key's 38 merge honestly
+  without a custom `fetchModels`. Billing endpoints answer sentinel limits, so
+  the module publishes no quota — key rows show "No quota published".
+- `router:status`, `router:refresh` and `router:profiles` IPC channels, exposed
+  through `preload.js`. All resolve; none ever carries a secret.
+- Live gates gained a router-page geometry check (nav click, body visible,
+  policy/fleet/eligible sections) in `scripts/live/verify-renderer-modules.mjs`.
+
+### Changed
+
+- **Rate-limit learning never invents a ceiling.** A 429 only tightens an rpm
+  the provider actually publishes; with no published rpm the key is cooled and
+  the observation logged, so one refusal can no longer pace a whole run at one
+  model per minute. Hedging against an unpublished ceiling is bounded by the
+  existing per-model attempt setting (`hedgeMax`).
+- The local gateway binds lazily — on first roster data or the first explicit
+  status/refresh query — never because a window opened. A busy port logs a
+  warning and leaves the desktop untouched.
+- A development run whose stdout/stderr pipe closes (terminal closed, npm
+  stopped) no longer dies on EPIPE; the console line is lost, nothing else.
+- Profile & Security page uses the shared stat-card components and status
+  badges. The suite runs **838 tests** (was 782).
+
 ## [2.1.4] - 2026-10-16
 
 ### Fixed

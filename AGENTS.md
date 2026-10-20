@@ -3,7 +3,7 @@
 **VENOM Router** is a Windows desktop LLM router (Electron 33 + better-sqlite3):
 it connects providers and keys, keeps a live model catalog, tests models, records
 requests, and monitors provider/model activity. Read the version in `package.json`.
-Tests: `npm test` (750, about 6 s on this machine). Everything on disk is written
+Tests: `npm test` (838, about 6 s on this machine). Everything on disk is written
 in English.
 
 This file is the entry point for any coding agent. Read it, then the two
@@ -63,7 +63,7 @@ it may change, the acceptance command. That, plus this file, is what turns a
 | Test History + Monitoring | `src/renderer/logs.js` + `logs-format.js` |
 | Catalog roster: discovery, the Models table, the three per-row actions | `src/renderer/catalog.js` |
 | Bell + Model Activity page (roster change feed) | `src/renderer/activity.js`, events in `src/db/repos/roster-events.js` |
-| Providers (9 built-in) | `src/renderer/providers/*.js` |
+| Providers (11 built-in) | `src/renderer/providers/*.js` |
 | Live verification | `scripts/live/verify-db.mjs` |
 
 ## Non-negotiables (short version — CLAUDE.md is the authority)

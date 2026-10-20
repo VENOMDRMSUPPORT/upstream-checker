@@ -13,6 +13,8 @@ builder-debug.yml
 # IDE
 .vscode/
 .idea/
+.opencode/
+.mimosa/
 *.swp
 *.swo
 *~

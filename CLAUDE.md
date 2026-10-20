@@ -11,8 +11,8 @@ because they were broken once and it cost the owner a day of confusion.
 ## Current project facts
 
 - Current version: read `package.json`; it is the only authoritative version.
-- The suite currently contains **792 tests** and runs through Electron's Node.
-- Ten provider modules are loaded from `src/renderer/providers/`.
+- The suite currently contains **838 tests** and runs through Electron's Node.
+- Eleven provider modules are loaded from `src/renderer/providers/`.
 - Runtime data is SQLite: `venom.db` plus `venom-logs.db`; legacy JSON is import
   input only.
 - Unpackaged `npm start` uses `%APPDATA%\venom-router-dev`; packaged builds use

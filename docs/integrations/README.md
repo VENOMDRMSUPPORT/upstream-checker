@@ -15,7 +15,7 @@ true:
 3. Its logo and live fixture/count updates are present where required.
 4. The provider count and relevant tests/live checks pass.
 
-The current application has **nine** built-in provider modules. Check the source
+The current application has **eleven** built-in provider modules. Check the source
 and [README.md](../../README.md) for the authoritative current list. The table
 below may also contain research references for providers not yet loaded by the
 app.
@@ -24,8 +24,8 @@ app.
 
 | Provider | Doc | Status / description |
 |---|---|---|
-| Apinex | [APINEX.md](./APINEX.md) | Research reference; no current built-in adapter is present. |
-| KiosAPI | [KIOSAPI.md](./KIOSAPI.md) | Research reference; no current built-in adapter is present. |
+| Apinex | [APINEX.md](./APINEX.md) | Built-in adapter reference: tier-aware discovery (`allowFree` flags) and subscription quota. |
+| KiosAPI | [KIOSAPI.md](./KIOSAPI.md) | Built-in adapter reference: per-key roster via shared discovery; no quota published, so no `fetchKeyUsage`. |
 | DarkAPI | [DARKAPI.md](./DARKAPI.md) | Built-in adapter reference. |
 | Nara | [NARA.md](./NARA.md) | Built-in adapter reference: per-key allowlist and account quota. |
 | Nexum | [NEXUM.md](./NEXUM.md) | Built-in adapter reference: router/subscription behavior. |
