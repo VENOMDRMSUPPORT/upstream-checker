@@ -73,7 +73,9 @@ test('billing denial never becomes throttling and learned limits stay key-specif
   assert.equal(policy.isRateLimit({ statusCode: 429, response: 'Too many requests' }), true);
   provider.rpm = 20;
   await policy.waitForSlot(provider, provider.keys[0]);
-  policy.learnRateLimit('k1');
+  // The signature takes the provider: a learned ceiling may only narrow a
+  // PUBLISHED rpm, never invent one from a single refusal.
+  policy.learnRateLimit(provider, 'k1');
   assert.equal(policy.budgetFor(provider, 'k1'), 1);
   assert.equal(policy.budgetFor(provider, 'k2'), 20);
   policy.resetRun(false);

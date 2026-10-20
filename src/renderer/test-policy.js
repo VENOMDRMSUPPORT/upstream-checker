@@ -4,7 +4,8 @@ window.VENOM_RENDERER.policy = {
   create(deps) {
     'use strict';
     const { getProviders, getActiveProvider, isAborted, getRunStatus, usableKeys,
-      saveProviderConfig, refreshAfterKeyChange, setStatus, sleep, getAdapter = () => null } = deps;
+      saveProviderConfig, refreshAfterKeyChange, setStatus, sleep, getAdapter = () => null,
+      getSettings = () => ({}) } = deps;
     // 429 is handled by the rate-limit path below, not here: it isn't a transient
     // glitch to back off from, it's the provider telling us to wait out its window.
 
@@ -212,18 +213,36 @@ window.VENOM_RENDERER.policy = {
     // the budget for that key to below what it had just spent.
     const learnedRpm = new Map(); // keyId -> the ceiling this key actually enforces
 
+    // A ceiling the run can pace against. Only a PUBLISHED rpm is one: a learned
+    // value narrows a published ceiling, it never invents one. A provider whose
+    // limit we don't know (most of them — rpm is null until someone fills it in)
+    // must keep sending, because the honest answer to "we were refused" there is
+    // cool this key down and try again, not to gate every later request behind a
+    // minute. Inventing a ceiling out of a refusal is what turned one 429 into a
+    // run that tested one model a minute.
     function budgetFor(provider, keyId) {
       const configured = rpmOf(provider);
+      if (!configured) return 0;
       const learned = learnedRpm.get(keyId);
-      if (!configured) return learned || 0;
       return learned ? Math.min(configured, learned) : configured;
     }
 
     // Called when the provider says the per-minute limit was reached. Whatever we
     // managed to send in the preceding minute was over the line, so the new ceiling
     // sits below it — and never below one, or the key would be unusable.
-    function learnRateLimit(keyId) {
+    //
+    // It only tightens a ceiling that already exists. With no published rpm there
+    // is nothing to tighten, and guessing from a single refusal measures the
+    // refusal, not the key: a run that sent one request in the window and was told
+    // no would otherwise learn 1/minute and pace the whole run at one model a
+    // minute. The observation is still logged, so the ceiling is visible when the
+    // rpm finally gets filled in.
+    function learnRateLimit(provider, keyId) {
       const sent = slotsUsed(keyId, Date.now());
+      if (!rpmOf(provider)) {
+        console.info(`Rate limit seen on key ${keyId} after ${sent} request(s), but ${provider.name} publishes no rpm: cooling the key instead of pacing`);
+        return;
+      }
       const next = Math.max(1, Math.floor((sent || 1) * 0.75));
       const prev = learnedRpm.get(keyId);
       if (!prev || next < prev) {
@@ -232,14 +251,28 @@ window.VENOM_RENDERER.policy = {
       }
     }
 
+    // How many widening attempts one key may spend in a minute when the provider
+    // publishes no ceiling. Hedging is for rescuing one slow model; left alone it
+    // fires hedgeMax attempts two seconds apart and can spend a provider's whole
+    // minute on the first model of a run — which is what earns the 429s the run
+    // then has to wait out. The bound is the same number the owner already sets
+    // for "how many attempts one model may make".
+    function wideningCeiling() {
+      const n = Number(getSettings().hedgeMax);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    }
+
     // Whether any key that can serve this model has a free slot in its per-minute
     // budget right now. Shared by the hedge escalator and the empty-recovery race:
     // neither should fire a parallel attempt into a cap every key is already at,
     // spending a slot the models still waiting need.
     function hasFreeKeyBudget(provider, model) {
+      const now = Date.now();
       return keysFor(provider, model).some((k) => {
         const budget = budgetFor(provider, k.id);
-        return !budget || slotsUsed(k.id, Date.now()) < budget;
+        if (budget) return slotsUsed(k.id, now) < budget;
+        const ceiling = wideningCeiling();
+        return !ceiling || slotsUsed(k.id, now) < ceiling;
       });
     }
 
@@ -277,8 +310,18 @@ window.VENOM_RENDERER.policy = {
     // the cap costs a few seconds; going over it costs a full window — so pacing is
     // strictly cheaper than recovering from a 429.
     async function waitForSlot(provider, key) {
+      const startedAt = Date.now();
+      const known = (keyRequestTimes.get(key.id) || []).filter((t) => startedAt - t < 60000);
       const rpm = budgetFor(provider, key.id);
-      if (!rpm) return;
+      // No published ceiling: send, but remember that it was sent. That record is
+      // what lets the run reason about how fast it is going at all — without it
+      // every refusal looks like the first request of the window, and the run has
+      // no basis for any judgement about its own pace.
+      if (!rpm) {
+        known.push(startedAt);
+        keyRequestTimes.set(key.id, known);
+        return;
+      }
       while (!isAborted()) {
         const now = Date.now();
         const recent = (keyRequestTimes.get(key.id) || []).filter((t) => now - t < 60000);

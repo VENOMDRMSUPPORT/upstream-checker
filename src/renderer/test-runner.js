@@ -269,7 +269,7 @@ window.VENOM_RENDERER.runner = {
           }
           rateLimitWaits += 1;
           if (r.keyId) {
-            if (isRateLimit(r)) learnRateLimit(r.keyId);
+            if (isRateLimit(r)) learnRateLimit(provider, r.keyId);
             coolKeyDown(r.keyId, r);
           }
           continue;
