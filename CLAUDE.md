@@ -11,8 +11,8 @@ because they were broken once and it cost the owner a day of confusion.
 ## Current project facts
 
 - Current version: read `package.json`; it is the only authoritative version.
-- The suite currently contains **838 tests** and runs through Electron's Node.
-- Eleven provider modules are loaded from `src/renderer/providers/`.
+- Tests run through Electron's Node; use the current `npm test` output as the authoritative test count.
+- Provider modules are loaded from `src/renderer/providers/`; inspect that directory for the current set.
 - Runtime data is SQLite: `venom.db` plus `venom-logs.db`; legacy JSON is import
   input only.
 - Unpackaged `npm start` uses `%APPDATA%\venom-router-dev`; packaged builds use
@@ -46,9 +46,10 @@ development uses the separate `venom-router-dev` folder described above.
   verification run uses `--user-data-dir=<a temporary folder>` and deletes it
   afterwards. `scripts/live/cdp.mjs` already does this and refuses a
   non-scratch path.
-- A scratch run starts with **no providers and an empty database**. That is
-  correct and expected — it is not a broken build. **Say so in one line the
-  first time you do it in a session**, or it reads as damage.
+- Scratch-check initial data depends on the verifier: `verify:live` imports
+  synthetic fixture data, while some focused checks start empty. Check the
+  specific script and describe its setup accurately; neither uses the owner's
+  data folder.
 - Stored keys may be used for live testing through the app's own request path
   (owner-authorized 2026-10-09). Key values themselves are still never
   printed, copied or moved anywhere.
@@ -67,7 +68,7 @@ summary.
 
 - Do not go more than two or three tasks without something they can open and
   click. Say what to look at, in one line.
-- "702 tests pass" is not the same as "you can see it working". Lead with the
+- "The test suite passes" is not the same as "you can see it working". Lead with the
   second when both are true.
 
 ## Verification that counts
@@ -92,6 +93,7 @@ npm run verify:legend         capability legend geometry and icon states
 npm run verify:sidebar        catalog details drawer geometry
 npm run verify:lock           lock screen, inert shell and reset-lock behavior
 node scripts/live/verify-renderer-modules.mjs  module composition, appearance, persistence and navigation
+node scripts/live/verify-provider-table.mjs     provider test table columns and their tri-state display
 ```
 
 Run live checks serially when diagnosing a failure: each one owns a scratch

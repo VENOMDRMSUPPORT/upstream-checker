@@ -108,11 +108,14 @@ allocation is a FREE grant (Amount Due N/A, no card, no spending limit — scree
 working chat models are routable under free quota, same logic as Nara's free-quota pool.
 No $0 / free-marked model exists here — coverage comes from the free grant, not $0 pricing.
 
-> WARNING — allow the §5 allowlist only while the free-quota balance covers usage
-> (Estimated Amount Due N/A). Re-fetch GET /v1/models + chat-ping per key before offering؛
-> stop offering when the pool is exhausted or any real charge appears.
+> WARNING — check the free-quota balance before a large run (Estimated Amount Due N/A);
+> re-fetch GET /v1/models + chat-ping per key before offering；stop offering when the
+> pool is exhausted or any real charge appears.
 
-Router allowlist — free-quota-covered working chat models (live 2026-10-12):
+Roster as served to the app — there is **no allowlist**: the adapter has no
+`fetchModels`, so the shared default discovery offers every id `GET /v1/models`
+returns, minus the `excludeModel` ids below. The three working chat models
+observed live 2026-10-12:
 
 ```text
 mercury-2
@@ -130,10 +133,12 @@ mercury-coder-small
 ```
 
 Notes: mercury-2 + mercury-2.5 are catalogue ids with chat 200 live. mercury-small chat ping
-returned 200 live though it is NOT in GET /v1/models (chat accepts a 6-id vocabulary) — included
-while free quota covers. mercury-decide is decisions-endpoint-only (chat returns 400 for it) —
-excluded. mercury / mercury-coder / mercury-coder-small returned 403 model_access_denied on the
-probe key (pre-2026-02-24 accounts only) — excluded.
+returned 200 live though it is NOT in GET /v1/models (chat accepts a 6-id vocabulary) — the
+adapter cannot offer it, because it is not in the roster the key publishes. mercury-decide is
+decisions-endpoint-only (chat returns 400 for it) and is currently offered as a chat row, because
+the adapter does not exclude it. mercury / mercury-coder / mercury-coder-small returned 403
+model_access_denied on the probe key (pre-2026-02-24 accounts only). The adapter's own
+`excludeModel` drops only the edit/fim ids (`mercury-edit`, `mercury-fim`).
 
 ## 6. Rate limits + errors
 
@@ -160,22 +165,37 @@ probe key (pre-2026-02-24 accounts only) — excluded.
 - 404 host root (live 2026-10-12: GET https://api.inceptionlabs.ai/ AND https://api.inceptionlabs.ai/v1
   no auth): HTTP 404, empty body on / and detail=Not Found on /v1.
 
-## 7. Router integration recipe (per COOKBOOK.md §1)
+## 7. How the app implements it
 
-1. New src/renderer/providers/inception.js (registers itself, nothing imports it): id=inception,
-   name=Inception, baseUrl=https://api.inceptionlabs.ai/v1, color=#f9f6ef (in-repo inception.svg
-   artwork is a brand-cream tile mark on the dark sidebar),
-   logo=../assets/providers/inception.svg, modelsEndpoint=/models, chatEndpoint=/chat/completions.
+`src/renderer/providers/inception.js` is the built-in adapter. It registers
+itself; nothing imports it.
+
+1. Provider module: id=inception, name=**Inception Labs**,
+   baseUrl=https://api.inceptionlabs.ai/v1, color=#f9f6ef (the in-repo
+   inception.svg artwork is a brand-cream tile mark on the dark sidebar),
+   logo=../assets/providers/inception.svg, logoTone=mono,
+   modelsEndpoint=/models, chatEndpoint=/chat/completions,
+   tokenLimitField=max_completion_tokens, rpm=1000,
+   freeTier=true, planNote='Free plan · 200M free-token grant'.
 2. Logo: src/assets/providers/inception.svg (already in repo — verified).
 3. src/renderer/index.html: script providers/inception.js BEFORE app.js.
-4. Fixture + count: extend scripts/live/fixture.mjs and bump READY in scripts/live/verify-db.mjs.
-5. README.md: add the Inception row to the providers table.
-6. npm run repo:map (new file surfaces in CODE_MAP.md).
+4. Fixture + count: the built-in count asserted by the live checks is
+   **eleven**.
+5. README.md: the Inception Labs row in the providers table.
+6. npm run repo:map (new files surface in CODE_MAP.md).
+
+Three details make this provider its own:
+
+- **No `fetchModels`.** The default discovery is used, so the offered roster is
+  whatever `GET /v1/models` returns — see §5 for what that means in practice.
+- **An `excludeModel` hook** that drops the edit/fim ids: Mercury Edit serves
+  `/fim/completions` and `/edit/completions` instead of chat, so testing it
+  would report a working model as broken.
+- **A `meta.keyCheck`** — `GET /v1/models` answers 200 with any key or none,
+  so the key check is a one-token chat request, which answers 401
+  `invalid_api_key` for a bad key.
 
 Accept: npm test then npm run verify:live.
-
-NOTE — provider id inception already exists in app (known, RPM unknown)؛
-allowlist = 3 working chat models under the 200M FREE grant while Due stays N/A (§5).
 
 ## 8. Account & Quota (Raw → normalized, probed live 2026-10-12 + docs-sourced)
 

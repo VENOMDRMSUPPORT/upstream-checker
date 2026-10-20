@@ -18,7 +18,7 @@ No real key value is stored in this repo — use `$KIOS_FREE_KEY` / `$KIOS_PRO_K
 | Type color dot (لون النوع) | API Key (var(--type-apikey)) |
 | Consumption (الاستهلاك) | محدود — sentinel limits + usage numbers per key |
 | Plans (الخطط) | NOT EXPOSED via API (no plan field; only hint: `under group Free (distributor)` inside error-message strings) |
-| Key-fetchable: plan/quota/reset/expiry (بالمفتاح) | quota (limits `100000000` sentinel + `billing/usage.total_usage`) + expiry (`access_until: 0`)؛ NOT EXPOSED: plan / reset / name / email |
+| Key-fetchable: plan/quota/reset/expiry (بالمفتاح) | The API exposes them (quota via the `100000000` sentinel limits + `billing/usage.total_usage`, expiry via `access_until: 0`), but the adapter deliberately does **not** fetch them: sentinel limits are not a quota, so the key rows honestly report "No quota published" (see §7) |
 | Needs web session (يحتاج جلسة ويب) | name/email/plan (`/api/user/*` — web session only, NOT via API key) |
 
 ## 1. Overview + base URLs
@@ -205,25 +205,37 @@ glm-5.3-free
 - The error-message group tag (`under group Free (distributor)`) is the only
   key-tier signal exposed by the API.
 
-## 7. Router integration recipe (per COOKBOOK.md §1)
+## 7. How the app implements it
 
-1. New `src/renderer/providers/kiosapi.js` (registers itself, nothing imports it):
-   ```js
-   window.INTEGRATED_PROVIDERS = window.INTEGRATED_PROVIDERS || {};
-   window.INTEGRATED_PROVIDERS.kiosapi = {
-     meta: {
-       id: 'kiosapi', name: 'KiosAPI', baseUrl: 'https://kiosapi.com/v1',
-       color: '#22d3ee', logo: '../assets/providers/kiosapi.png',
-       modelsEndpoint: '/models', chatEndpoint: '/chat/completions',
-     },
-   };
-   ```
-2. Logo: `src/assets/providers/kiosapi.png` (match existing provider art).
-3. `src/renderer/index.html`: `<script src="providers/kiosapi.js"></script>` **before** `app.js`.
-4. Fixture + count: extend `scripts/live/fixture.mjs` and bump `READY` in
-   `scripts/live/verify-db.mjs`.
-5. `README.md`: add the KiosAPI row to the providers table.
-6. `npm run repo:map` (new file surfaces in `CODE_MAP.md`).
+`src/renderer/providers/kiosapi.js` is the built-in adapter (the eleventh one).
+It registers itself; nothing imports it.
+
+```js
+window.INTEGRATED_PROVIDERS.kiosapi = {
+  meta: {
+    id: 'kiosapi', name: 'KiosAPI', baseUrl: 'https://kiosapi.com/v1',
+    color: '#a78bfa', logo: '../assets/providers/kiosapi.png',
+    modelsEndpoint: '/models', chatEndpoint: '/chat/completions',
+    freeTier: true,
+    planNote: 'Limited consumption · quota not published',
+  },
+};
+```
+
+- **No `fetchModels`.** The roster already differs per key, and the shared
+  default discovery asks every active key and records which ones served each
+  model, so a free key and a funded key merge into one honest list without a
+  special case. A model a key cannot call simply is not in that key's roster,
+  so the 503 `model_not_found` trap (§5/§6) never fires on a key that was
+  never offered the id.
+- **No `fetchKeyUsage`.** The only billing answers are sentinel limits
+  (`soft/hard/system_hard_limit_usd` all `100000000`) and `access_until: 0` —
+  no real quota, reset or expiry exists to show, so the key rows honestly
+  report "No quota published". Plan, name and email sit behind `/api/user/*`,
+  which takes a web session and refuses an API key.
+- Logo: `src/assets/providers/kiosapi.png`. The script is loaded from
+  `src/renderer/index.html` before `app.js`; the built-in count asserted by
+  the live checks is **eleven**.
 
 **Accept:** `npm test` then `npm run verify:live`.
 
@@ -233,6 +245,9 @@ are placeholders; chat `usage` has no `cost_tokens` (unlike Apinex);
 reasoning models burn `max_tokens` on `reasoning_content`.
 
 ## 8. Account & Quota (Raw → normalized, probed live 2026-10-11)
+
+Raw provider facts. The adapter consumes **none** of them (see §7): there is no
+real quota to show.
 
 | Router field | Raw source | Value observed / mapping |
 |---|---|---|

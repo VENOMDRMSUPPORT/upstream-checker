@@ -1,6 +1,6 @@
 # DarkAPI — Provider Reference
 
-Main reference for adding DarkAPI as a venom-router provider.
+Reference for the Dark API provider as the app implements it.
 Evidence: live probes 2026-10-11 (models / chat / streaming /
 billing discovery / errors). Site: `https://darkapi.dev`,
 docs: `https://darkapi.dev/docs`.
@@ -10,7 +10,7 @@ No real key value is stored in this repo — use `$DARKAPI_KEY`.
 
 | Field (الحقل) | Value (القيمة) |
 |---|---|
-| Provider name (اسم المزود) | DarkAPI |
+| Provider name (اسم المزود) | Dark API |
 | Provider URL (رابط المزود) | https://darkapi.dev |
 | API base (قاعدة الـ API) | https://darkapi.dev/v1 |
 | Icon URL (مسار الأيقونة) | `src/assets/providers/darkapi.svg` — in repo |
@@ -18,7 +18,7 @@ No real key value is stored in this repo — use `$DARKAPI_KEY`.
 | Type color dot (لون النوع) | API Key (var(--type-apikey)) |
 | Consumption (الاستهلاك) | غير محدود — paid-only Unlimited plan (no free tier), no token quota |
 | Plans (الخطط) | Unlimited JAILBREAK Model — $8.00 / 15 days, paid-only (from screenshot; NOT EXPOSED via API) |
-| Key-fetchable: plan/quota/reset/expiry (بالمفتاح) | spend (`billing/usage.total_usage`) + expiry (`access_until: 0`)؛ NOT EXPOSED: plan / reset / name / email (screenshot: 5 days remaining) |
+| Key-fetchable: plan/quota/reset/expiry (بالمفتاح) | The API exposes spend (`billing/usage.total_usage`) and expiry (`access_until: 0`), but the adapter fetches **neither**: the plan is unlimited, so there is no quota to show and the key rows report the unlimited plan (see §7). NOT EXPOSED: plan / reset / name / email (screenshot: 5 days remaining) |
 | Needs web session (يحتاج جلسة ويب) | name/email/plan (dashboard only — no user endpoint accepts the API key) |
 
 ## 1. Overview + base URLs
@@ -181,6 +181,10 @@ big-pickle-unrestricted
 (Naming notes: `Atria-Dawn-Preview` is the only CamelCase id; several
 `-unrestricted` / jailbreak-flavoured ids match the plan in §8.)
 
+> NOTE — the bare `unrestricted` id is excluded by the adapter (see §7), so the
+> app shows 35 of these 36 ids. The suffixed routes (`step-5-unrestricted`,
+> `muse-unrestricted`, …) stay: they name a base model and inherit its facts.
+
 > NOTE — some model ids may return 503 / be down at times; this is normal
 > provider-side churn. Skip/retry, do not treat it as a router bug.
 
@@ -202,25 +206,39 @@ big-pickle-unrestricted
 - HEAD-vs-GET quirk: `HEAD /v1/models` returns 404 while `GET` returns
   401/200 — use GET for existence checks, never HEAD.
 
-## 7. Router integration recipe (per COOKBOOK.md §1)
+## 7. How the app implements it
 
-1. New `src/renderer/providers/darkapi.js` (registers itself, nothing imports it):
-   ```js
-   window.INTEGRATED_PROVIDERS = window.INTEGRATED_PROVIDERS || {};
-   window.INTEGRATED_PROVIDERS.darkapi = {
-     meta: {
-       id: 'darkapi', name: 'DarkAPI', baseUrl: 'https://darkapi.dev/v1',
-       color: '#00e0a4', logo: '../assets/providers/darkapi.svg',
-       modelsEndpoint: '/models', chatEndpoint: '/chat/completions',
-     },
-   };
-   ```
-2. Logo: `src/assets/providers/darkapi.svg` (match existing provider art).
-3. `src/renderer/index.html`: `<script src="providers/darkapi.js"></script>` **before** `app.js`.
-4. Fixture + count: extend `scripts/live/fixture.mjs` and bump `READY` in
-   `scripts/live/verify-db.mjs`.
-5. `README.md`: add the DarkAPI row to the providers table.
-6. `npm run repo:map` (new file surfaces in `CODE_MAP.md`).
+`src/renderer/providers/darkapi.js` is the built-in adapter. It registers
+itself; nothing imports it.
+
+```js
+window.INTEGRATED_PROVIDERS.darkapi = {
+  meta: {
+    id: 'darkapi', name: 'Dark API', baseUrl: 'https://darkapi.dev/v1',
+    color: '#00e0a4', logo: '../assets/providers/darkapi.svg',
+    logoTone: 'bright',
+    modelsEndpoint: '/models', chatEndpoint: '/chat/completions',
+    billing: { plan: '$8.00 / 15 days', usageLabel: 'Unlimited JAILBREAK' },
+    unlimitedUsage: { label: 'Unlimited plan', range: '0 → ∞ tokens',
+      detail: 'Unlimited model usage · no published request quota' },
+  },
+};
+```
+
+- **No `fetchModels`.** Dark API is a plain OpenAI-compatible provider with no
+  free / free-for-paid tiers, so the shared default discovery
+  (`GET /models` → show every model) is used.
+- **No `fetchKeyUsage`.** The plan is unlimited, so there is no request quota
+  to fetch and nothing to pace runs against: the key rows report the
+  unlimited plan from `meta.unlimitedUsage`.
+- **An `excludeModel` hook** that drops the bare modifiers
+  (`unrestricted`, `uncensored`, `unsencored`, `abliterated`, `raw`). The bare
+  `unrestricted` names no base model, so there is nothing to look up and
+  nothing to inherit — showing it would be a row of dashes that reads like a
+  data failure. The suffixed routes stay.
+- Logo: `src/assets/providers/darkapi.svg`. The script is loaded from
+  `src/renderer/index.html` before `app.js`; the built-in count asserted by
+  the live checks is **eleven**.
 
 **Accept:** `npm test` then `npm run verify:live`.
 

@@ -29,7 +29,7 @@ done. If a step is missing, the tests will usually tell you which one.
      // fetchKeyHistory, readQuotaError, readUsageHeaders
    };
    ```
-2. Add the logo file (SVG, or PNG if raster) next to the other nine.
+2. Add the logo file (SVG, or PNG if raster) next to the other provider logos.
 3. `index.html`: add `<script src="providers/myprovider.js"></script>` **before**
    `app.js`, in the block that already lists `providers/*.js`.
 4. If the provider's usage API needs a request, tag it: every `apiRequest` call
@@ -149,8 +149,9 @@ version — that is why each migration runs in its own transaction.
 2. Automated proof: `npm run verify:live` launches a **separate** app over CDP
    on a scratch `--user-data-dir` against a mock provider on 127.0.0.1, then
    deletes the folder. `scripts/live/cdp.mjs` refuses any path under
-   `%APPDATA%`. A scratch run starts with **no providers and an empty
-   database** — that is expected, not a broken build.
+   `%APPDATA%`. This check imports synthetic fixture data into its scratch
+   folder; some focused checks start empty. Their setup is verifier-specific,
+   and none uses the owner's data folder.
 3. To check a new element, extend `scripts/live/verify-db.mjs` with an
    `app.evaluate(...)` block: click the real control, then assert.
 4. **Measure geometry, not text.** `textContent` proves text exists, not that
@@ -178,9 +179,10 @@ npm run repo:map -- --check   # exits 1 when it is stale (use in CI or pre-commi
 - Changing the architecture in a way this cookbook or ARCHITECTURE.md describes
   means editing them in the same change. They are hand-written; CODE_MAP.md is
   the only generated one.
-- `docs/superpowers/**` and `docs/INDEX.md` are the historical record. Do not
- update them to describe new work; write the new state into ARCHITECTURE.md or
-the CHANGELOG instead.
+- The documents in `docs/` describe the code as it is now. There is no parallel
+ set of historical plans to update: new state goes into ARCHITECTURE.md, the
+gateway goes into LOCAL_GATEWAY.md, and shipped work goes into the
+CHANGELOG.
 
 ---
 

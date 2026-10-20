@@ -20,6 +20,12 @@ and [README.md](../../README.md) for the authoritative current list. The table
 below may also contain research references for providers not yet loaded by the
 app.
 
+Every reference file keeps the same shape: the raw provider facts that were
+probed (§1–§6 and §8), then **§7 "How the app implements it"** — what the
+built-in adapter actually does with them, including the hooks it deliberately
+does not implement. Read §7 when you want to know what the app does; read the
+other sections when you want to know what the provider does.
+
 ## Reference index
 
 | Provider | Doc | Status / description |

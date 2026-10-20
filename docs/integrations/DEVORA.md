@@ -123,7 +123,7 @@ billing period.
 - Bad-key / unknown-model / site-error shapes: UNKNOWN (section 4).
 - With-key 200/4xx chat shapes beyond the HeX ping: UNKNOWN (section 4).
 
-## 7. Router integration recipe (per COOKBOOK.md section 1)
+## 7. How the app implements it
 
 1. Provider module EXISTS: src/renderer/providers/devora.js (registers
    itself, nothing imports it): id=devora, name=Devora,
@@ -135,8 +135,8 @@ billing period.
    credits_per_million informational under unlimited plan).
 2. Logo: src/assets/providers/devora.svg — IN REPO (Pixel-created 417B, HeX-read 2026-10-13; logoTone bright).
 3. src/renderer/index.html: script providers/devora.js BEFORE app.js.
-4. Fixture + count: bump READY in scripts/live/verify-db.mjs
-   (+ legend/sidebar/provider-table) 8 to 9 — live-check files only.
+4. Fixture + count: the built-in count asserted by the live checks
+   (scripts/live/verify-db.mjs, legend/sidebar/provider-table) is **eleven**.
 5. README row: docs/integrations/README.md Devora row.
 6. npm run repo:map (new files surface in CODE_MAP.md).
 

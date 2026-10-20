@@ -211,7 +211,7 @@ Notes: 12 ids carry 524288 context; the other 32 carry 262144. Vision=true on
   production (chat), x-anti-resale with Telegram contacts (chat 401s).
 - With-key 200/4xx chat shapes beyond HeX big-pickle: UNKNOWN (section 4).
 
-## 7. Router integration recipe (per COOKBOOK.md section 1)
+## 7. How the app implements it
 
 1. Provider module EXISTS: src/renderer/providers/jerouter.js (registers
    itself, nothing imports it): id=jerouter, name=Jerouter,
@@ -221,8 +221,8 @@ Notes: 12 ids carry 524288 context; the other 32 carry 262144. Vision=true on
    month + unlimitedUsage block + excludeModel() for bare modifiers.
 2. Logo: src/assets/providers/jerouter.png — ALREADY IN REPO (verified).
 3. src/renderer/index.html: script providers/jerouter.js BEFORE app.js.
-4. Fixture + count: extend scripts/live/fixture.mjs and bump READY in
-   scripts/live/verify-db.mjs (+ legend/sidebar/provider-table) 7 to 8.
+4. Fixture + count: the built-in count asserted by the live checks
+   (scripts/live/verify-db.mjs, legend/sidebar/provider-table) is **eleven**.
 5. README row: docs/integrations/README.md Jerouter row (venom-router/README.md
    itself is Pixel-owned, untouched).
 6. npm run repo:map (new file surfaces in CODE_MAP.md).

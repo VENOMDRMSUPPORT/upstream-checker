@@ -26,6 +26,8 @@ main      (src/main.js + src/db + src/logs + src/catalog)   all I/O, all secrets
 - `src/db` and `src/logs` never `require('electron')` — the cipher and the log
   are injected. That is what lets the whole data layer run under plain Node in
   the tests, and `test/main-wiring.test.js` asserts it.
+- `src/router` also never requires `electron`, so the routing plane loads under
+  plain Node in its tests. It lives in main and is described in §5.
 
 ## 2. Boot order (src/main.js)
 
@@ -58,17 +60,17 @@ The order is deliberate; each step exists because doing it later caused a bug.
    or one just reset by `npm run reset:lock`. The idle limit is read from
    `lockIdleMin` here and re-read on every `save-settings`; it is arithmetic in
    `isLocked()`, so there is no timer to reschedule.
-7. **IPC registration** — `registerDataIpc` (12 channels; `copy-key` is gated on
-   the lock), `registerLogsIpc` (9 channels), `registerAuthIpc` (5 `auth:*`
-   channels), `startCatalog` (the seven `catalog:*` channels, which write through
-   `repos.snapshots` and so cannot be registered before the store),
-   `createApiRequester` (gated on the lock), then the window.
+7. **IPC registration** — `registerDataIpc` (`copy-key` is gated on the lock),
+  `registerLogsIpc`, `registerAuthIpc`, `startCatalog` (the `catalog:*` channels,
+  which write through `repos.snapshots` and so cannot be registered before the
+   store), then the key resolver, `createApiRequester` (gated on the lock) and
+  `startVenomRouter()` (§5), then the window.
 8. **Window** — saved bounds, frameless, `icon.ico` on Windows; then
    `startUpdateChecks()` (5 s after load, then every 2 h).
 9. **Quit (`will-quit`)** — update timers, then `stopLogs()` (purge timer →
-   writer flush → `wal_checkpoint` → close), then `store.close()`. The log
-   flushes before `venom.db` closes because the recorder reads provider and
-   price rows from it.
+   writer flush → `wal_checkpoint` → close), then the local gateway's socket is
+   stopped, then `store.close()`. The log flushes before `venom.db` closes
+   because the recorder reads provider and price rows from it.
 
 Dev only: `watchRendererInDev` watches `src/renderer` and either swaps one CSS
 sheet or reloads the page. Packaged builds never start it.
@@ -93,16 +95,27 @@ each pending migration runs in its own transaction with its version bump.
 
 **venom.db tables** — `meta`, `settings`, `secrets`, `providers`,
 `provider_keys`, `snapshot_meta`, `roster_snapshot`, `roster_events`, `models`,
-`model_keys`, `provider_sync`, `key_model_counts`, `catalog_meta`, `test_runs`,
+`model_keys`, `provider_sync`, `key_model_counts`, `catalog_meta`, `app_lock`,
+`catalog_scores`, `router_cooldowns`, `router_sessions`, `test_runs`,
 `test_results`.
 A key row holds ciphertext only (`CHECK (cipher GLOB 'enc:v1:?*')`); the plaintext
 is decrypted once per session into a cache in main.
+
+Schema v6 added the routing plane's tables and two columns on `provider_keys`:
+`tier` (`subscription`/`free`/`cheap`/`paid`, default `paid`) and
+`quota_pool_id` (keys that share one quota bucket). `catalog_scores` holds the
+last scored reference rows so the Models page and the router have values in
+0 ms at boot, before any sync. `router_cooldowns` holds the three-level
+isolation state (model-on-key, key, provider) with millisecond expiry, and
+`router_sessions` pins a cascade session to its tier/model/key with its
+escalation level. The migration is additive: an older row reads as the paid
+tier.
 
 The catalog's rows live in `roster_snapshot` (one per provider+model, carrying
 the provider's own facts with every derived field stripped) and `snapshot_meta`
 (one per provider: when it was first seen, when the rows were fetched, how the
 last attempt ended, and a quarantined mass drop). The merged reference is never
-stored — it is rebuilt in memory from four cached documents at boot and after
+stored — it is rebuilt in memory from the cached source documents at boot and after
 every sync. `models` and its neighbours are the pre-2.0 pool: migration v3 empties
 them and no writer fills them again, so treat anything read from `models` as a
 bug.
@@ -165,7 +178,58 @@ The single path every outbound call takes.
 (with `error_class` one of `auth`, `rate_limit`, `quota`, `bad_request`,
 `server`, `network`, `other`).
 
-## 5. Secrets
+## 5. The router plane
+
+`src/router/index.js` is the local multi-account router: it turns the scored
+roster into three routing pools and serves them from one HTTP endpoint on
+`127.0.0.1`. It never requires `electron`, so it loads under plain Node in
+`test/router/router.test.js`.
+
+**Wiring** (`src/main.js`). After the key resolver is built, `startVenomRouter()`
+builds the key pool and the smart catalog from the roster's scored rows and
+registers `router:status`, `router:refresh` and `router:profiles`. The gateway
+object exists from that moment but binds **no socket**: the socket opens on the
+first roster rows or the first explicit status/refresh query, never because a
+window opened. A busy port logs a warning and leaves the desktop untouched.
+
+**The three profiles.** `buildSmartCatalog` splits the roster into `venom-lite`
+(free and near-free rows, cheapest first), `venom-pro` (tool-capable rows,
+split into an efficient and a capable rung) and `venom-max` (documented-score
+frontier rows, at most three, preferring different providers). A row that
+cannot answer in text never becomes a candidate. A row the reference cannot
+score still enters the pools with an explicit `est-heuristic` estimate so it
+ranks last instead of vanishing — and that estimate is never written to
+`catalog_scores`.
+
+**Two identities.** `upstreamModelId(provider, model)` (`provider::model`) is
+the dispatch address; `canonicalSlug(provider, model)` is only the
+scoring/benchmark lookup key. Collapsing listings for display never breaks
+key binding.
+
+**Key pool.** `KeyPoolManager` drains tiers in the order subscription → free →
+cheap → paid, picking within a tier by power-of-two-choices over the
+least-recently-failed keys. Keys sharing a `quota_pool_id` count once, so a
+shared bucket is never read as spare capacity. Failures are isolated on three
+levels: a 429 cools model-on-key, a 402/401 cools the key (and its pool), and
+three consecutive server errors trip the provider. Cooldowns are persisted in
+`router_cooldowns`.
+
+**Cascade.** `VenomCascadeEngine` runs the request: `venom-pro` watches the
+conversation's `role: "tool"` results and escalates a stalled session to the
+capable pool with a handoff note; `venom-max` fans out to up to three routes
+and merges the drafts with a lead-analyst pass (longest draft as the fallback).
+A plain-text tool call is rescued into the OpenAI tool-call shape. Streaming
+pipes the provider's bytes through after its own `200 OK`; failover is only
+possible before the first chunk.
+
+**Secrets.** The router sends `venomkey:<keyId>` placeholders and lets the same
+resolver every other request uses swap in the real value, so a secret never
+crosses into the router, the renderer or a log row.
+
+The user-facing contract — endpoints, headers, tiers, the Venom Profiles page
+and what it does not prove — is in [LOCAL_GATEWAY.md](LOCAL_GATEWAY.md).
+
+## 6. Secrets
 
 - At rest: `enc:v1:` + base64(safeStorage/DPAPI), and the OS master key lives in
   `Local State` inside the same data folder — which is why the folder is moved
@@ -178,34 +242,44 @@ The single path every outbound call takes.
 - The renderer receives a masked hint and a `venomkey:` placeholder, nothing
   more. `copy-key` writes the clipboard in main so the page never sees it.
 
-## 6. IPC surface
+## 7. IPC surface
 
-The generated [CODE_MAP.md](CODE_MAP.md#ipc-channels) lists 44 app/data/log/catalog
-channels. The auth module adds five `auth:*` channels, and the close handshake
-uses the two one-way messages `flush-pending` and `flush-done`; read the grouped
-table below rather than treating the generated list as the entire runtime wire.
+The generated [CODE_MAP.md](CODE_MAP.md#ipc-channels) is the source of truth for
+the current registered invoke/handle channels, including the router channels.
+The auth module adds `auth:*` channels, and the close handshake uses the two
+one-way messages `flush-pending` and `flush-done`; read the grouped table below
+rather than treating the generated list as the entire runtime wire.
 
 | Group | Channels | Notes |
 | --- | --- | --- |
 | Window | `window-minimize`, `window-maximize`, `window-close`, `set-window-icon` | fire-and-forget |
 | Requests | `api-request`, `cancel-api-request` | the only network path. `api-request` **resolves** `{ outcome: 'locked' }` while the app is locked, and is not recorded in the request log — nothing was sent for a row to describe |
 | Data | `read-config`, `database-explorer`, `save-settings`, `save-secret`, `save-test-definition`, `save-provider`, `merge-provider`, `delete-provider`, `copy-key`, `read-history`, `append-run`, `clear-history` | one thing per channel, so two writers cannot overwrite each other. `copy-key` is gated on the lock and answers `{ ok: false, code: 'LOCKED' }` |
-| Catalog | `catalog:ingest`, `catalog:read`, `catalog:health`, `catalog:sources`, `catalog:fetch-info`, `catalog:events`, `catalog:events-read` | the catalog roster, its four sources and its change feed. **Every one resolves**: an outcome the page must act on is `{ ok: false, code, message }`, because `err.code` cannot cross `ipcMain.handle` — a rejection becomes a new Error carrying only its message |
+| Catalog | `catalog:ingest`, `catalog:read`, `catalog:health`, `catalog:sources`, `catalog:fetch-info`, `catalog:events`, `catalog:events-read` | the catalog roster, its sources and its change feed. **Every one resolves**: an outcome the page must act on is `{ ok: false, code, message }`, because `err.code` cannot cross `ipcMain.handle` — a rejection becomes a new Error carrying only its message |
 | App lock | `auth:status`, `auth:unlock`, `auth:change`, `auth:lock`, `auth:activity` | same resolving contract. `auth:locked` travels the other way (main→renderer) when the idle limit ends a session. No reply ever carries the stored hash |
+| Router | `router:status`, `router:refresh`, `router:profiles` | routing status and profile data; defined in `src/main.js` and exposed through `src/preload.js` |
 | Request log | `logs-list`, `logs-get`, `logs-stats`, `logs-facets`, `logs-runs`, `logs-run-summary`, `logs-export`, `logs-info`, `logs-clear` | read-only except export and clear |
 | Legacy log file | `read-log-info`, `open-request-log`, `clear-request-log` | the old `requests.log` |
 | App / shell | `get-data-path`, `open-data-folder`, `open-external`, `notify-regression` | `open-external` accepts http(s) only |
 | Updates | `download-update`, `install-update`, `check-for-updates-manual` | install flushes pending saves first |
 | Close handshake | `flush-pending` (main→renderer), `flush-done` (renderer→main) | main waits at most 2 s |
 
-## 7. Renderer
+## 8. Renderer
 
 Load order matters: classic local scripts, no runtime imports or template fetches.
 
 `providers/*.js` (register into `window.INTEGRATED_PROVIDERS`) →
 `ui-select.js` → `ui-stepper.js` → `ulid.js` → **`lock.js`** → **`profile.js`** →
-`provider-facts.js` → **renderer units** → **`app.js`** → `key-usage.js` → `catalog-caps.js` → `catalog.js` →
-`logs-format.js` → `logs.js` → `database.js` → `activity.js`.
+`provider-facts.js` → `catalog-caps.js` → **renderer units** →
+**`profile-badges.js`** → **`app.js`** → `key-usage.js` → `catalog.js` →
+`logs-format.js` → `logs.js` → `database.js` → `activity.js` →
+**`router-status.js`**.
+
+`catalog-caps.js` is a plain classic script of pure capability readers (three
+states: true, false and the null that means "nobody published this"), not a
+unit on `window.VENOM_RENDERER`. `profile-badges.js` and `router-status.js`
+are standalone classic scripts as well; both degrade to an empty result when
+their channel is unavailable, so a missing page never breaks another one.
 
 Renderer units register on **`window.VENOM_RENDERER`** before app.js composes them:
 
@@ -296,6 +370,14 @@ initialization-only entry point.
 - **`activity.js`** — the header bell and the Model Activity page. Reads the
   roster-event feed (`catalog:events`), never the roster itself; exposes
   `window.ACTIVITY` with `init()`, `render()`, `renderIfShown()`, `refreshBell()`.
+- **`router-status.js`** — the Venom Profiles page. Reads `router:profiles`
+  (falling back to `router:status` counts) and draws the three policy cards,
+  the per-profile dossiers, the fleet totals and the eligible target lists;
+  the Refresh action calls `router:refresh`.
+- **`profile-badges.js`** — the shared LITE/PRO/MAX badge identity. It indexes
+  the profiles payload by provider/model, bare model id and upstream id, and
+  is reused by the Models Catalog rows, the Model Activity feed and the
+  Monitoring log rows.
 - **`key-usage.js`** — per-key quota drawer, provider-agnostic; the log drawer
   reuses its panel CSS.
 - Providers add behaviour through `meta` plus optional hooks:
@@ -315,14 +397,15 @@ succeeded or failed. A live test asserting provider-published rows must wait for
 the pass, then assert the actual rows; a new scratch database can be empty while
 `loaded` is already true. This does not change startup behavior.
 
-## 8. What proves what
+## 9. What proves what
 
 | Command | Proves | Does **not** prove |
 | --- | --- | --- |
-| `npm test` | 702 tests over the data, log, request, auth and catalog layers, under Electron's Node | anything in the renderer except the pure helpers it loads by text |
+| `npm test` | the complete current test suite under Electron's Node; the command output reports its current count | actual Electron UI visibility or real-provider behavior |
 | `npm run verify:live` | the real app, launched on a scratch folder over CDP against a **mock** provider: import, log, pages, drawdown geometry, restart, single instance | a real provider, a real key, a real 429, a real stream |
-| `npm run verify:catalog` | nothing downloads at boot; the four sources fill on a click; the Models page opens on its own path | anything about a real provider or a keyed fetch |
+| `npm run verify:catalog` | nothing downloads at boot; the sources fill on a click; the Models page opens on its own path | anything about a real provider or a keyed fetch |
 | `npm run verify:lock` | the lock screen covers the viewport, the emblem paints (its pixels are counted, not its URL read), the shell is `inert`, the colours ignore a forced theme and accent, and the shipped default opens it | that the lock resists anyone with code execution as this Windows user — it does not |
+| `node scripts/live/verify-renderer-modules.mjs` | module composition, appearance, persistence and navigation end to end, plus the router-page geometry check | a real provider, key, stream or 429 |
 | `npm run reset:lock -- "<dir>"` | deletes the saved password and nothing else | anything about the rest of the data; it touches one row |
 | `npm run repo:map -- --check` | CODE_MAP.md matches the tree | nothing about behaviour |
 | `npm run check:keystore` | DPAPI round-trips on this machine | — |
@@ -339,12 +422,14 @@ the page without opening it would time out on the panel rather than on what it
 came to measure. It resolves the same `{ ok }` value `auth:unlock` always does,
 so a gate can assert the unlock happened instead of assuming it.
 
-## 9. Conventions that bite
+## 10. Conventions that bite
 
 - The version lives **only** in `package.json`; the window reads it over IPC.
-- `docs/superpowers/plans|specs|research` are the *historical* design record
-  (some plans are 300 KB). Read them for intent, never as current state.
-  `docs/INDEX.md` is likewise historical — see its stub.
+- The documents in `docs/` describe the code as it is **now**. There is no
+  parallel set of historical plans to consult; the history lives in `git log`
+  and in [../CHANGELOG.md](../CHANGELOG.md). When a change makes a sentence in
+  [ARCHITECTURE.md](ARCHITECTURE.md) or [COOKBOOK.md](COOKBOOK.md) wrong, fix
+  the sentence in the same change.
 - Migration files are append-only: an entry that has shipped is never edited.
   The app lock's table arrived that way (v4). Its row is written by `src/auth`
   at startup rather than by the migration, because a password hash frozen into a

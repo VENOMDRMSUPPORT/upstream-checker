@@ -1,6 +1,6 @@
 # Apinex — Provider Reference
 
-Main reference for adding Apinex as a venom-router provider.
+Reference for the Apinex provider as the app implements it.
 Evidence: `G:\Venom-Projects\key_models.json`, `key_headers.txt`,
 `apinex.bundle.js` (path presence only), live public probes 2026-10-11,
 re-probed live 2026-10-11 (balance / subscription key-A + key-B / chat / streaming / errors).
@@ -18,7 +18,7 @@ No real key value is stored in this repo — use `$APINEX_KEY`.
 | Type color dot (لون النوع) | API Key (var(--type-apikey)) |
 | Consumption (الاستهلاك) | محدود — FREE tier: 10M tokens/day (resets 00:00 UTC)؛ SUBSCRIPTION tier: `tokenLimit` quota for the plan's `days` period, no daily reset |
 | Plans (الخطط) | FREE 10M/day + 4 plans: 10d/$5/500M, 20d/$10/1.1B, 30d/$20/2.5B, 30d/$30/5B featured (full table in §3, live `GET /api/public/subscriptions`) |
-| Key-fetchable: plan/quota/reset/expiry (بالمفتاح) | YES plan (`subscription.plan`/`plan_label`) + quota (`token_limit`/`tokens_used`/`tokens_remaining`) + reset (`resets_at_utc`) + expiry (`expires_at_utc`) + balance (`/v1/balance`) |
+| Key-fetchable: plan/quota/reset/expiry (بالمفتاح) | YES plan (`subscription.plan`/`plan_label`) + quota (`token_limit`/`tokens_used`/`tokens_remaining`) + reset (`resets_at_utc`) + expiry (`expires_at_utc`). Balance (`/v1/balance`) exists but is **not** fetched — the adapter shows token quota, not dollars (see §7) |
 | Needs web session (يحتاج جلسة ويب) | name/email (`/api/user/me` — web session only, NOT via API key) |
 
 ## 1. Overview + base URLs
@@ -253,25 +253,38 @@ free/kimi-k2.8
 - `404` unknown route: `{"message":"Route GET:/v1/... not found","error":"Not Found","statusCode":404}`.
 - `404` unknown model: `Model not found`.
 
-## 7. Router integration recipe (per COOKBOOK.md §1)
+## 7. How the app implements it
 
-1. New `src/renderer/providers/apinex.js` (registers itself, nothing imports it):
-   ```js
-   window.INTEGRATED_PROVIDERS = window.INTEGRATED_PROVIDERS || {};
-   window.INTEGRATED_PROVIDERS.apinex = {
-     meta: {
-       id: 'apinex', name: 'Apinex', baseUrl: 'https://api.apinex.bond/v1',
-       color: '#22d3ee', logo: '../assets/providers/apinex.png',
-       modelsEndpoint: '/models', chatEndpoint: '/chat/completions',
-     },
-   };
-   ```
-2. Logo: `src/assets/providers/apinex.png` (match existing provider art).
-3. `src/renderer/index.html`: `<script src="providers/apinex.js"></script>` **before** `app.js`.
-4. Fixture + count: extend `scripts/live/fixture.mjs` and bump `READY` in
-   `scripts/live/verify-db.mjs`.
-5. `README.md`: add the Apinex row to the providers table.
-6. `npm run repo:map` (new file surfaces in `CODE_MAP.md`).
+`src/renderer/providers/apinex.js` is the built-in adapter. It registers
+itself; nothing imports it.
+
+```js
+window.INTEGRATED_PROVIDERS.apinex = {
+  meta: {
+    id: 'apinex', name: 'Apinex', baseUrl: 'https://api.apinex.bond/v1',
+    pricingUrl: 'https://apinex.bond/api/public/models',
+    color: '#22d3ee', logo: '../assets/providers/apinex.png',
+    modelsEndpoint: '/models', chatEndpoint: '/chat/completions',
+    freeTier: true, planNote: 'FREE tier · 10M tokens/day',
+    rpm: 5, rateLimits: { /* Free 5/min, Subscription 30/min */ },
+  },
+};
+```
+
+- **A custom `fetchModels`** — the one provider here that needs one. The
+  key's own `/v1/models` answers 36 ids either way, so the adapter reads the
+  tier from `/v1/subscription` and the `allowFree` flags from the public
+  models endpoint, then offers a free key only the `allowFree` ids and a
+  subscription key the full roster. The free set is decided per key because
+  that is what the catalog must show. If the public endpoint cannot be read,
+  a free key shows nothing rather than being offered balance-consuming ids.
+- **A `fetchKeyUsage`** that reads `GET /v1/subscription` only:
+  `token_limit` / `tokens_remaining` become the token quota, and
+  `expires_at_utc` (subscription) or `resets_at_utc` (free) becomes the
+  expiry. Balance USD is informational and is deliberately not fetched.
+- Logo: `src/assets/providers/apinex.png`. The script is loaded from
+  `src/renderer/index.html` before `app.js`; the built-in count asserted by
+  the live checks is **eleven**.
 
 **Accept:** `npm test` then `npm run verify:live`.
 
@@ -280,7 +293,7 @@ free/kimi-k2.8
 | Router field | Raw source | Value observed / mapping |
 |---|---|---|
 | PLAN | GET /v1/subscription plan / plan_label / mode | subscription key-A: plan `10_days` / label `20 days` (verbatim mismatch observed live); free key-B: plan null / label `FREE` / mode `free` |
-| QUOTA | subscription token_limit / tokens_used / tokens_remaining + GET /v1/balance balance_usd | key-A: 1100000000 / 52665 / 1099947335; key-B free: 10000000 / 7268 / 9992732; balance_usd 0 on both probe keys |
+| QUOTA | subscription token_limit / tokens_used / tokens_remaining (the adapter reads these; `/v1/balance` exists but is not fetched) | key-A: 1100000000 / 52665 / 1099947335; key-B free: 10000000 / 7268 / 9992732; balance_usd 0 on both probe keys |
 | RESET TIME | subscription resets_at_utc | subscription tier: null (no daily reset — quota is tokenLimit for plan days); free tier: `2026-10-12T00:00:00.000Z` (00:00 UTC daily reset) |
 | EXPIRY | subscription expires_at_utc | subscription key-A: `2026-10-30T22:42:24.926Z`; free key-B: null |
 | NAME / EMAIL | - (/api/user/me needs web session) | NOT EXPOSED via API key |

@@ -125,10 +125,12 @@ limits, 100% remaining — screenshot), so working chat models under the sub are
 No $0 / free-marked model concept here — coverage comes from the flat sub, not $0 pricing.
 
 > WARNING — §5 ids are NOT chat-ping-verified and NOT /models-verified (no with-key probe
-> was possible). Re-fetch GET /router/v1/models + chat-ping per key before offering؛ offer
-> only ids the key's sub covers؛ stop offering at NEXT RENEWAL 10/17/2026 2:50:30 AM unless
-> the period renews, or if any real per-token charge appears.
-Router allowlist — docs-listed chat ids under the weekly sub (docs 2026-10-12):
+> was possible). Re-fetch GET /router/v1/models + chat-ping per key before offering؛ stop
+> offering at NEXT RENEWAL 10/17/2026 2:50:30 AM unless the period renews, or if any real
+> per-token charge appears.
+Chat ids under the weekly sub (docs 2026-10-12) — note there is **no allowlist in the
+app**: the adapter has no `fetchModels`, so the shared default discovery offers the whole
+live `/v1/models` roster, and these six are only the documented chat ids (see §7):
 
 ```text
 qwen-3.7-max
@@ -178,25 +180,34 @@ by the right standard — in-repo). Re-check the catalogue per billing period.
 - 404 router docs (live 2026-10-12: /router/docs): HTTP 404 — docs live at /nexum-router.
 - With-key 200/4xx chat shapes: UNKNOWN (§4).
 
-## 7. Router integration recipe (per COOKBOOK.md §1)
+## 7. How the app implements it
 
-1. src/renderer/providers/nexum.js — ALREADY IN REPO (verified 2026-10-12): id=nexum,
-   name=Nexum Router, baseUrl=https://dialagram.me/router/v1, color=#10b981,
-   logo=../assets/providers/nexum.svg, modelsEndpoint=/models, chatEndpoint=/chat/completions,
+`src/renderer/providers/nexum.js` is the built-in adapter. It registers itself;
+nothing imports it.
+
+1. Provider module: id=nexum, name=Nexum Router,
+   baseUrl=https://dialagram.me/router/v1, color=#10b981,
+   logo=../assets/providers/nexum.svg, modelsEndpoint=/models,
+   chatEndpoint=/chat/completions,
    billing {plan $5.50/week, interval weekly, usage unlimited} + unlimitedUsage block +
    classify() tagging image/video vs chat by id+display_name (in-repo — the only modality
    signal, since /models carries no modality field).
 2. Logo: src/assets/providers/nexum.svg — ALREADY IN REPO (verified 2026-10-12 —
    gradient-frame tile: #06b6d4 → #10b981 → #f59e0b, dark core #0f172a → #020617).
-3. src/renderer/index.html: script providers/nexum.js BEFORE app.js (verify at wiring time).
-4. Fixture + count: extend scripts/live/fixture.mjs and bump READY in scripts/live/verify-db.mjs.
-5. README.md: add the Nexum row to the providers table.
+3. src/renderer/index.html: script providers/nexum.js BEFORE app.js.
+4. Fixture + count: the built-in count asserted by the live checks is
+   **eleven**.
+5. README.md: the Nexum Router row in the providers table.
 6. npm run repo:map (new file surfaces in CODE_MAP.md).
 
-Accept: npm test then npm run verify:live.
+There is **no allowlist and no `fetchModels`**: the shared default discovery
+offers everything `GET /v1/models` returns. What the adapter adds is a
+`classify()` hook — Nexum mixes chat, image and video models behind one
+endpoint, and `/v1/models` publishes no modality field, so name matching on
+both `id` and `display_name` is the only signal available. It is what keeps a
+generator from being judged by asking it what 2+2 is.
 
-NOTE — provider id nexum already integrated in app (known, RPM Unlimited)؛
-allowlist = 6 docs-listed chat ids under the $5.50/week sub while the period is ACTIVE (§5).
+Accept: npm test then npm run verify:live.
 
 ## 8. Account & Quota (Raw → normalized, keyless probes + docs + Account screenshot 2026-10-12)
 

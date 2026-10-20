@@ -85,24 +85,27 @@ Plan/quota/reset/expiry/name-email are NOT key-fetchable here — §8 is screens
 ## 4. Unverified / not probed
 
 - Streaming (stream:true SSE data: chunks) — NOT probed live. Do not document as working until live-tested.
-- Any /v1/* endpoint beyond /models and /chat/completions (except the §3 404 sweep).
+- Any /v1/* endpoint beyond /models, /chat/completions and the decision
+  endpoint `/systemone` (except the §3 404 sweep).
 - Image / audio / tool / embedding endpoints — none discovered؛ API host root 404.
 
 ## 5. Models roster — free-only allowlist (probed live 2026-10-12, per user exclusion rule 2026-10-11)
 
 GET /v1/models returns a 292-id catalogue — but the router offers free models ONLY (standing user rule
 2026-10-11: EXCLUDE any model that deducts from balance / needs token payment). User screenshot
-2026-10-12 confirms the free set = Promotional 5. Free-only must be fetched live (no per-key
-allowlist endpoint exists here — the catalogue is the same on the probe key؛ the free set is
-screenshot-pinned, not key-derived).
+2026-10-12 confirms the free set = Promotional 5. The free set is derived live, not hardcoded: the
+adapter reads the `promotions` entries with `free === true` from the public catalogue
+(https://api.experientiallabs.ai/api/models) and keeps only the slugs this key's own
+GET /v1/models grants, so it is key-derived (see §7).
 
-> WARNING — the router MUST offer only the 5-id free set below؛ never offer any model outside
-> the 5 — the other 287 catalogue ids stay EXCLUDED (PAYG / balance-deducting per user rule
+> WARNING — the router MUST offer only the granted free set；never offer any model outside
+> it — the other catalogue ids stay EXCLUDED (PAYG / balance-deducting per user rule
 > 2026-10-11). A key calling an ungranted alias fails live with 403 model_not_granted (see §6).
 > Granted-but-route-down aliases fail with 503 unavailable_route — retry, do not drop them from the
 > free set. Never hardcode the 292 catalogue as offerable.
 
-Router allowlist — 5 Promotional free models (screenshot 2026-10-12, live ids verified 2026-10-12):
+Router allowlist — the Promotional free models as granted to the probe key (screenshot 2026-10-12,
+live ids verified 2026-10-12):
 
 ```text
 clef-flash
@@ -432,17 +435,36 @@ wizardlm-2-8x22b
 - 404 host root (live 2026-10-12: GET https://api.experientiallabs.ai/ no auth):
   HTTP 404, body detail=Not Found (FastAPI default — NOT the gateway envelope).
 
-## 7. Router integration recipe (per COOKBOOK.md §1)
+## 7. How the app implements it
 
-1. New src/renderer/providers/experiential.js (registers itself, nothing imports it): id=experiential,
-   name=Experiential, baseUrl=https://api.experientiallabs.ai/v1, color=#ededed (in-repo experiential.svg
-   artwork is a light mark fill on the dark sidebar — no brand color shipped),
-   logo=../assets/providers/experiential.svg, modelsEndpoint=/models, chatEndpoint=/chat/completions.
+`src/renderer/providers/experiential.js` is the built-in adapter. It registers
+itself; nothing imports it.
+
+1. Provider module: id=experiential, name=**Experiential Labs**,
+   baseUrl=https://api.experientiallabs.ai/v1, color=#ededed (the in-repo
+   experiential.svg artwork is a light mark fill on the dark sidebar — no brand
+   color shipped), logo=../assets/providers/experiential.svg, logoTone=mono,
+   modelsEndpoint=/models, chatEndpoint=/chat/completions,
+   pricingUrl=https://api.experientiallabs.ai/api/models,
+   decisionEndpoint=/systemone, freeTier=true,
+   planNote='Promotional free set · 5 models'.
 2. Logo: src/assets/providers/experiential.svg (already in repo — verified).
 3. src/renderer/index.html: script providers/experiential.js BEFORE app.js.
-4. Fixture + count: extend scripts/live/fixture.mjs and bump READY in scripts/live/verify-db.mjs.
-5. README.md: add the Experiential row to the providers table.
-6. npm run repo:map (new file surfaces in CODE_MAP.md).
+4. Fixture + count: the built-in count asserted by the live checks is
+   **eleven**.
+5. README.md: the Experiential Labs row in the providers table.
+6. npm run repo:map (new files surface in CODE_MAP.md).
+
+Two hooks make this provider its own:
+
+- **A custom `fetchModels`** that reads the key's granted slugs from
+  `GET /v1/models` and the free promotions from the public catalogue, then
+  offers the intersection. Nothing is hardcoded: a promotional model this key
+  is not granted is skipped (and logged), because it could only ever answer
+  403 `model_not_granted`.
+- **A `decisionProbe` / `readDecisionAnswer` pair** with
+  `meta.decisionEndpoint = '/systemone'`. A model whose every deployment is a
+  native decision model is tested on that endpoint instead of on chat.
 
 Accept: npm test then npm run verify:live.
 

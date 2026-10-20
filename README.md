@@ -4,13 +4,13 @@ Windows desktop LLM router for connecting providers and API keys, discovering th
 models each key can serve, testing them through one protected request path, and
 reviewing health, history and request telemetry.
 
-Built with Electron 33 and `better-sqlite3`. Current version: **2.1.2** (see
+Built with Electron 33 and `better-sqlite3`. Current version: **2.1.4** (see
 [CHANGELOG.md](CHANGELOG.md)). Formerly Upstream Checker — existing packaged
 installs migrate their data folder in place.
 
 ## Features
 
-- **Provider and key management** — connect nine integrated provider adapters,
+- **Provider and key management** — connect eleven integrated provider adapters,
   keep key values encrypted by Windows DPAPI, and never expose plaintext keys to
   the renderer.
 - **Multi-key discovery** — ask every active key for its roster and retain which
@@ -23,17 +23,21 @@ installs migrate their data folder in place.
 - **Provider health and activity** — one background sync cycle covers provider
   status, key verdicts, roster changes and the Model Activity notification feed.
 - **Key usage** — provider-specific quota, expiry and request history hooks where
-  the provider exposes them (including Mirai API and Token Harbor).
+  the provider exposes them (Apinex, Mirai API and Token Harbor).
 - **Test History and Monitoring** — keep run history plus a separate SQLite
   request log with filtering, statistics, exports, retention and secret scrubbing.
 - **App lock and security** — local password gate, idle locking, inert locked UI,
   encrypted keys and a safe reset command that removes only the lock row.
 - **Appearance and updates** — dark/light themes, five accent colours, provider
   logos and GitHub Release auto-updates.
+- **Local routing gateway** — one local endpoint that routes across every
+  connected key, split into three profiles (`venom-lite`, `venom-pro`,
+  `venom-max`), with a Venom Profiles page showing pools, fleet totals and
+  cooldowns. See [docs/LOCAL_GATEWAY.md](docs/LOCAL_GATEWAY.md).
 
-The former benchmark suite and Routing Profiles page are not part of the current
-2.1.x application. The catalog score is reference metadata and measured/provider
-health data, not the retired benchmark product.
+The former benchmark suite is not part of the current application. The catalog
+score is reference metadata and measured/provider health data, not the retired
+benchmark product.
 
 ## Integrated providers
 
@@ -50,7 +54,7 @@ include:
 | Token Harbor | `https://tokenharbor.ai/v1` |
 | Experiential Labs | `https://api.experientiallabs.ai/v1` |
 | Jerouter | `https://je.jerouter.web.id/v1` |
-| Devora | see `src/renderer/providers/devora.js` |
+| Devora | `https://api.devora.my.id/v1` |
 | Apinex | `https://api.apinex.bond/v1` |
 | KiosAPI | `https://kiosapi.com/v1` |
 
@@ -58,9 +62,10 @@ All adapters use the shared provider contract. Most expose OpenAI-compatible
 `GET /models` and `POST /chat/completions`; provider-specific hooks may change
 catalogue, classification, quota or endpoint behavior.
 
-Detailed provider research lives in [docs/integrations/](docs/integrations/).
-That directory distinguishes built-in adapters from reference material for
-providers that are not currently loaded by the app.
+Detailed provider reference material lives in [docs/integrations/](docs/integrations/).
+Each file separates the probed provider facts from what the built-in adapter
+does with them, and the directory's own README states which providers are
+actually loaded by the app.
 
 ## Pages
 
@@ -70,11 +75,13 @@ providers that are not currently loaded by the app.
 | Providers | Connected keys, health/usage, integrated adapters and provider pages |
 | Models Catalog | Connected/all model views, scores, capabilities, health and actions |
 | Model Activity | Roster additions/removals and the notification bell |
-| Provider | One provider's keys, discovered models, tests and result export |
+| Database | Bounded, read-only inspection of the local SQLite databases |
+| Provider | One provider's keys, discovered models, tests and result export (opened from the Providers page) |
 | Test History | Runs and individual request history |
 | Monitoring | Request-log statistics, facets and trends |
-| Database | Bounded, read-only inspection of the local SQLite databases |
-| Settings and Profile | Appearance, testing, schedule, reliability, catalog, history, logs, data and security |
+| Venom Profiles | The three routing profiles, their target pools, fleet totals and cooldowns |
+| Profile | Profile & Security — lock state, password and security actions |
+| Settings | Appearance, testing, schedule, speed, reliability, catalog, history, logs, data and about |
 
 ## Project structure
 
@@ -87,22 +94,27 @@ src/
   db/                     venom.db, migrations, repositories, encryption and import
   logs/                   venom-logs.db, recorder, writer, query and retention
   catalog/                Source cache, merge, scoring, snapshots and activity
+  router/                 Local gateway: routing profiles, key pool, cascade engine
   renderer/
     index.html            App shell, pages, drawers and modals
     app.js                Settings, providers, discovery, testing and routing shell
     catalog.js            Models Catalog page
     logs.js               Test History and Monitoring
-    activity.js            Model Activity page and notification bell
-    providers/*.js         One adapter per integrated provider
+    activity.js           Model Activity page and notification bell
+    router-status.js      Venom Profiles page
+    profile-badges.js     LITE/PRO/MAX badges shared across the pages
+    providers/*.js        One adapter per integrated provider
 scripts/
   live/                   Scratch-folder CDP checks and mock provider
   repo-map.mjs            Generated CODE_MAP.md index
   run-tests.js            Runs tests under Electron's Node
   release.mjs             Release-only tag, publish and installer workflow
 docs/
+  INDEX.md                What every document covers and how far to trust it
   ARCHITECTURE.md         Runtime and data-flow map
   CODE_MAP.md             Generated file/symbol/IPC index
   COOKBOOK.md             Change recipes and acceptance commands
+  LOCAL_GATEWAY.md        The local routing gateway and its three profiles
   integrations/           Provider reference material
 ```
 
@@ -148,7 +160,7 @@ Requires Node.js and Windows-compatible Electron native dependencies.
 ```bash
 npm install
 npm start                         # owner workflow; not a test command
-npm test                          # 702 tests under Electron's Node
+npm test                          # the full suite under Electron's Node
 npm run check                     # code-map freshness plus the full suite
 npm run check:keystore            # DPAPI/safeStorage verification
 npm run verify:live               # end-to-end mock-provider check on scratch data

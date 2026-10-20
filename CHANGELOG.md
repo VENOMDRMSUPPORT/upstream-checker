@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Routed requests are now logged under their own source.** The local gateway
+  tags every request it dispatches `venom-router`, but the recorder's source
+  whitelist did not accept that name, so the rows were stored under `other`.
+  The Venom Profiles page filters the log on `venom-router` and therefore
+  matched nothing: its measured outcomes always read "insufficient evidence".
+  `venom-router` is now a first-class source, so the tag also appears in the
+  Monitoring source filter and in the `logs-facets` list.
+
 ### Added
 
 - **Venom router plane** (`src/router/`): multi-account cascade routing behind
@@ -17,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rescues plain-text tool calls. The HTTP gateway listens on `127.0.0.1` only
   (default port 28228, Settings › Models Catalog › Local gateway port) and
   speaks both the OpenAI (`/v1/chat/completions`) and Anthropic (`/v1/messages`)
-  shapes with SSE passthrough. Documented in `docs/VENOM_INTEGRATION_GUIDE.md`.
+  shapes with SSE passthrough. Documented in `docs/LOCAL_GATEWAY.md`.
 - **Venom Profiles page** (Routing group in the nav): policy cards, per-profile
   dossiers, fleet targets and eligible target lists from `router:profiles`,
   with measured outcomes from routed log rows and a Refresh action.
@@ -52,7 +62,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A development run whose stdout/stderr pipe closes (terminal closed, npm
   stopped) no longer dies on EPIPE; the console line is lost, nothing else.
 - Profile & Security page uses the shared stat-card components and status
-  badges. The suite runs **838 tests** (was 782).
+  badges. The suite runs **839 tests** (was 782).
+
+### Documentation
+
+- The documentation set was reviewed, corrected and pruned. Removed: the
+  `docs/superpowers/` plans, specs and research, the phase-2 tracker under
+  `docs/archive/`, the catalog-engine handoff and the `.superpowers/` task
+  briefs — all of it described work that has already shipped, and the history
+  is in `git log` and in this changelog.
+- `docs/INDEX.md` is now the live index of every document and what to trust in
+  it. `docs/VENOM_INTEGRATION_GUIDE.md` became `docs/LOCAL_GATEWAY.md`: the
+  local gateway's endpoints, the three profiles, key tiers and what it does
+  not prove.
+- `docs/ARCHITECTURE.md` gained the router plane (a new §5) and the schema v6
+  tables, and its renderer load order now matches `index.html`.
+- The provider reference files under `docs/integrations/` now separate the
+  probed provider facts from what the built-in adapter does with them, and no
+  longer claim a provider count, an allowlist or a quota hook the code does
+  not implement.
+- `README.md` was corrected: the current version, the eleven built-in
+  providers, the pages (including the Venom Profiles page), the project
+  structure and the local gateway.
 
 ## [2.1.4] - 2026-10-16
 
@@ -64,14 +95,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **The renderer is modular.** `app.js` (about 5,500 lines) is now a thin
+- **The renderer is modular.** `app.js` (about 3,300 lines) is now a thin
   composition root over 19 focused modules — test pipeline, settings,
   appearance, updates, sidebar effects, results table, provider store/detail/
   actions/keys/roster/models/view, page router and shell. Behaviour is
   unchanged; the split is what makes each feature testable on its own.
 - The suite runs **782 tests** (was 750) through a module-loader harness plus
-  per-module suites, and `npm run verify:renderer-modules` checks module
-  composition, appearance, persistence and navigation end to end.
+  per-module suites, and `node scripts/live/verify-renderer-modules.mjs` checks
+  module composition, appearance, persistence and navigation end to end.
 
 ### Removed
 

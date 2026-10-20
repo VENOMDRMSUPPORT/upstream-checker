@@ -42,8 +42,8 @@ GOAL
   and clicking it again clears the filter.
 
 READ FIRST
-  AGENTS.md; docs/ARCHITECTURE.md §7; docs/CODE_MAP.md → landmarks for
-  src/renderer/app.js (Results table ~line 2887) and src/renderer/index.html
+  AGENTS.md; docs/ARCHITECTURE.md §8; docs/CODE_MAP.md → landmarks for
+  src/renderer/app.js (Results table ~line 1638) and src/renderer/index.html
 
 FILES YOU MAY CHANGE
   src/renderer/app.js, src/renderer/index.html, src/renderer/styles.css

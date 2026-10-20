@@ -1,6 +1,6 @@
 # Nara — Provider Reference
 
-Main reference for adding Nara (byNara) as a venom-router provider.
+Reference for the NARA Router provider as the app implements it.
 Evidence: live probes 2026-10-11 (site root, GET /v1/models per key,
 GET /v1/me per key, chat ping max_tokens:5, 401/403/404 error shapes,
 billing-endpoint 404 sweep) + user dashboard screenshots (marked
@@ -11,7 +11,7 @@ No real key value is stored in this repo — use $NARA_KEY_A / $NARA_KEY_B.
 
 | Field (الحقل) | Value (القيمة) |
 |---|---|
-| Provider name (اسم المزود) | Nara (byNara) |
+| Provider name (اسم المزود) | NARA Router (byNara) |
 | Provider URL (رابط المزود) | https://router.bynara.id/ |
 | API base (قاعدة الـ API) | https://router.bynara.id/v1 |
 | Icon URL (مسار الأيقونة) | src/assets/providers/nara.svg — in repo |
@@ -19,7 +19,7 @@ No real key value is stored in this repo — use $NARA_KEY_A / $NARA_KEY_B.
 | Type color dot (لون النوع) | API Key (var(--type-apikey)) |
 | Consumption (الاستهلاك) | محدود — Free models only (user rule 2026-10-11: PAYG excluded) — Free daily 7M (screenshot)؛ Free-For-Paid 15M while holding qualifying credit (funded key-A Rp111,786.69 ~$6.25)؛ live GET /v1/me limit 100M on both probe keys, reset 00:00 UTC — router uses live values |
 | Plans (الخطط) | Free plan only observed (screenshot-sourced: 15 req/min, reset 07:00 WIB, no expiry)؛ no plan-catalogue endpoint — billing/balance/quota/subscription all 404؛ PAYG / balance-deducting models excluded per standing rule — router never offers them |
-| Key-fetchable: plan/quota/reset/expiry (بالمفتاح) | YES — plan + quota + reset + credit + usage + email via GET /v1/me |
+| Key-fetchable: plan/quota/reset/expiry (بالمفتاح) | The API exposes them via `GET /v1/me` (plan, quota, reset, credit, usage, email), but the adapter does **not** fetch them: the key rows show the free-plan note from `meta.planNote` instead (see §7) |
 | Needs web session (يحتاج جلسة ويب) | PAYG on/off toggle (dashboard UI, screenshot-sourced — no API endpoint found) |
 
 ## 1. Overview + base URLs
@@ -79,14 +79,21 @@ Account/quota/credit data comes from GET /v1/me instead (see above + §8).
 ## 4. Unverified / not probed
 
 - Streaming (stream:true SSE data: chunks) — NOT probed live. Do not document as working until live-tested.
-- Any /v1/* endpoint beyond /models, /me, /chat/completions (except the §3 404 sweep).
+- Any /v1/* endpoint beyond /models, /me, /chat/completions and the decision
+  endpoint `/systemone` (except the §3 404 sweep).
 - Image / audio / tool endpoints — none discovered؛ site root is a web app (root 200).
 
 ## 5. Models roster — free-only allowlist (probed live 2026-10-11, reframed per user exclusion rule 2026-10-12)
 
 GET /v1/models returns the same 51-id catalogue on both keys — but the router offers free models ONLY (standing user rule 2026-10-11: EXCLUDE any model that deducts from balance / needs token payment). Nara screenshot 2026-10-12 confirms the free set = 11 ids: 6 Free (no cost) + 5 Free-for-paid (served free while holding qualifying credit).
 
-> WARNING — the router MUST intersect the live GET /v1/me models allowlist with the 11-id free set below, per key, and only offer ids present in BOTH؛ never offer any model outside the 11 — the 40 PAYG / balance-deducting ids stay EXCLUDED even when a key allowlist includes them (key-B listed all 51 live). A key calling a non-allowlisted id fails live with 403 forbidden (see §6). Never hardcode one roster for all keys — re-fetch /v1/me per key, it changes.
+> WARNING — the router MUST offer the free set only, and never any model outside it — the
+> 40 PAYG / balance-deducting ids stay EXCLUDED even when a key allowlist includes them
+> (key-B listed all 51 live). A key calling a non-allowlisted id fails live with 403
+> forbidden (see §6). The free set is **derived live**, not hardcoded: the adapter reads
+> the zero-price plans from `/api/plans` and the `free_for_paid` flag from
+> `/api/pricing`, so it follows the provider's own catalogue (see §7). Never hardcode one
+> roster for all keys.
 
 Router allowlist — 6 Free models (no cost, screenshot 2026-10-12):
 
@@ -164,14 +171,36 @@ mimo-v2.5-pro
 - 404 unknown route (incl. the whole §3 billing-endpoint sweep): error type=not_found, message=The requested endpoint does not exist.
 - 404 unknown model: error type=not_found, message=The requested model does not exist.
 
-## 7. Router integration recipe (per COOKBOOK.md §1)
+## 7. How the app implements it
 
-1. New src/renderer/providers/nara.js (registers itself, nothing imports it): id=nara, name=Nara, baseUrl=https://router.bynara.id/v1, color=#2e81fe (picked from the in-repo nara.svg artwork rgb(46,129,254)), logo=../assets/providers/nara.svg, modelsEndpoint=/models, chatEndpoint=/chat/completions.
+`src/renderer/providers/nara.js` is the built-in adapter. It registers itself;
+nothing imports it.
+
+1. Provider module: id=nara, name=**NARA Router**,
+   baseUrl=https://router.bynara.id/v1, color=#00d4ff, logoTone=bright,
+   logo=../assets/providers/nara.svg, modelsEndpoint=/models,
+   plansEndpoint=/api/plans, chatEndpoint=/chat/completions,
+   pricingUrl=https://router.bynara.id/api/pricing,
+   plansUrl=https://router.bynara.id/api/plans, decisionEndpoint=/systemone,
+   rpm=30, freeTier=true, planNote='Free plan · 7M tokens/day'.
 2. Logo: src/assets/providers/nara.svg (already in repo — verified).
 3. src/renderer/index.html: script providers/nara.js BEFORE app.js.
-4. Fixture + count: extend scripts/live/fixture.mjs and bump READY in scripts/live/verify-db.mjs.
-5. README.md: add the Nara row to the providers table.
+4. Fixture + count: the built-in count asserted by the live checks is
+   **eleven**.
+5. README.md: the NARA Router row in the providers table.
 6. npm run repo:map (new file surfaces in CODE_MAP.md).
+
+Two hooks make this provider its own:
+
+- **A custom `fetchModels`** that reads the provider's own public catalogue:
+  `/api/pricing` for the per-model facts and the `free_for_paid` flag, and
+  `/api/plans` for the genuinely-free tier (the models of any plan priced at
+  zero). A model is offered when it is free **or** flagged free-for-paid, and
+  the two are tagged differently so "free" and "free while holding credit" can
+  never be confused. `/v1/me` is not called for discovery.
+- **A `decisionProbe` / `readDecisionAnswer` pair** with
+  `meta.decisionEndpoint = '/systemone'`: NARA Router relays Experiential's
+  TypeSafe Jev, which refuses chat and answers only on the decision route.
 
 Accept: npm test then npm run verify:live.
 
