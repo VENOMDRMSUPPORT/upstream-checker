@@ -83,6 +83,14 @@ test('an unknown source is other; missing or malformed tags fall back to the def
   assert.strictEqual(swapped.meta_json, '{"paramSwap":true}');
 });
 
+test('the local gateway tag is kept as its own source, not folded into other', () => {
+  // The Venom Profiles page filters the request log on this exact value
+  // (src/renderer/router-status.js). If the recorder folded it into 'other',
+  // the page would match no rows and report no measured outcome.
+  const { row } = buildRecord(done({ args: { source: 'venom-router' } }), opts);
+  assert.strictEqual(row.source, 'venom-router');
+});
+
 test('a secret ref is key_id secret:<name>; without a key, the one provider at that origin, none when two share it', () => {
   const secret = buildRecord(done({
     args: { url: 'https://artificialanalysis.ai/api/v2/data/llms/models', method: 'GET', headers: { 'x-api-key': 'venomsecret:aaApiKey' }, body: undefined },

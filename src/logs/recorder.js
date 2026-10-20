@@ -15,7 +15,9 @@ const { scrub } = require('./scrub');
 // The sources a request can be logged under. 'benchmark' and 'leaderboard' left
 // with the code that sent them: no caller produces either name any more, so a
 // row carrying one would be a row nothing in this app can have written.
-const SOURCES = new Set(['route_test', 'health', 'key_check', 'key_usage', 'discovery', 'pricing', 'other']);
+// 'venom-router' is the one the local gateway produces (src/main.js sends it on
+// every routed request), and the Venom Profiles page filters the log on it.
+const SOURCES = new Set(['route_test', 'health', 'key_check', 'key_usage', 'discovery', 'pricing', 'venom-router', 'other']);
 const CANCEL_REASONS = new Set(['hedge_lost', 'stop', 'deadline']);
 const TRIGGERS = new Set(['manual', 'scheduled']);
 const BODY_MAX = 8192;
