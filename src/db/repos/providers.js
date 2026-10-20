@@ -16,6 +16,14 @@ const ANY_PLACEHOLDER = /^venom(?:key|secret):/;
 // constant for ids read from a legacy config.json instead of duplicating it.
 const KEY_ID = /^[A-Za-z0-9_.-]{1,64}$/;
 
+// Router tiers for the multi-account waterfall (migration v6). Unknown or
+// legacy values read as 'paid', so a v5 database behaves like one paid pool.
+const KEY_TIERS = new Set(['subscription', 'free', 'cheap', 'paid']);
+
+function normaliseTier(value) {
+  return KEY_TIERS.has(value) ? value : 'paid';
+}
+
 // The display mask the renderer has always shown, computed from the plaintext
 // at read time. Never stored: it still holds real characters of the key.
 function maskKey(key) {
@@ -48,6 +56,20 @@ function createProvidersRepo(db, cipher, cache, log = console) {
   };
   const cacheKey = (id) => `key:${id}`;
   const warnedLocked = new Set();
+  // Migration v6 columns (tier, quota_pool_id) do not exist on older files
+  // opened in tests against a truncated migration list. Probe once; writes
+  // fall back to the v5 shape when they are absent.
+  let tierColumns = null;
+  function hasTierColumns() {
+    if (tierColumns !== null) return tierColumns;
+    try {
+      const cols = db.prepare('PRAGMA table_info(provider_keys)').all();
+      tierColumns = cols.some((c) => c.name === 'tier') && cols.some((c) => c.name === 'quota_pool_id');
+    } catch (_) {
+      tierColumns = false;
+    }
+    return tierColumns;
+  }
 
   function reveal(row) {
     const plain = revealCached(cipher, cache, cacheKey(row.id), row.cipher);
@@ -69,6 +91,8 @@ function createProvidersRepo(db, cipher, cache, log = console) {
       hint: locked ? '' : maskKey(secret),
       active: row.active === 1,
       locked,
+      tier: normaliseTier(row.tier),
+      quotaPoolId: row.quota_pool_id != null ? String(row.quota_pool_id) : null,
     };
     if (row.quota_spent_json) out.quotaSpent = JSON.parse(row.quota_spent_json);
     return out;
@@ -160,6 +184,17 @@ function createProvidersRepo(db, cipher, cache, log = console) {
       };
       if (stored.has(k.id)) q.updateKey.run(values);
       else q.insertKey.run(values);
+      // Router tier metadata (migration v6). Kept out of the base upsert so
+      // v5 files without the columns keep working; a missing column is a
+      // no-op, never a failed save.
+      if (hasTierColumns()) {
+        try {
+          db.prepare('UPDATE provider_keys SET tier = ?, quota_pool_id = ? WHERE id = ?')
+            .run(normaliseTier(k.tier), k.quotaPoolId != null ? String(k.quotaPoolId) : null, k.id);
+        } catch (_) {
+          tierColumns = false;
+        }
+      }
     });
     // A key left out of the payload was deleted by the user.
     stored.forEach((r, id) => {
@@ -244,7 +279,30 @@ function createProvidersRepo(db, cipher, cache, log = console) {
     }));
   }
 
-  return { list, get, save, merge, remove, keyRecord, revealKey, importProvider };
+  // Router plane: every active key with its provider origin. Placeholders
+  // stay out of here — dispatch resolves venomkey:<id> through revealKey.
+  function listAllActiveKeys() {
+    const rows = db.prepare(`SELECT k.*, p.base_url AS base_url FROM provider_keys k
+      JOIN providers p ON p.id = k.provider_id WHERE k.active = 1 ORDER BY k.position, k.id`).all();
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      providerId: row.provider_id,
+      baseUrl: row.base_url,
+      tier: normaliseTier(row.tier),
+      quotaPoolId: row.quota_pool_id != null ? String(row.quota_pool_id) : null,
+    }));
+  }
+
+  function setKeyTier(id, tier, quotaPoolId = null) {
+    if (!hasTierColumns()) return false;
+    db.prepare('UPDATE provider_keys SET tier = ?, quota_pool_id = ?, updated_at = ? WHERE id = ?')
+      .run(normaliseTier(tier), quotaPoolId != null ? String(quotaPoolId) : null, Date.now(), id);
+    return true;
+  }
+
+  return { list, get, save, merge, remove, keyRecord, revealKey,
+    listAllActiveKeys, setKeyTier, importProvider };
 }
 
-module.exports = { createProvidersRepo, maskKey, KEY_PLACEHOLDER, KEY_ID };
+module.exports = { createProvidersRepo, maskKey, KEY_PLACEHOLDER, KEY_ID, KEY_TIERS, normaliseTier };

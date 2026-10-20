@@ -42,7 +42,21 @@ test('schema v2 added the two snapshot tables and touched models not at all — 
   ['summary_json', 'first_seen', 'last_seen', 'removed_at', 'is_new', 'updated_at'].forEach((name) => {
     assert.ok(cols.includes(name), `v3 keeps ${name}`);
   });
-  assert.strictEqual(store.db.pragma('user_version', { simple: true }), 5);
+  assert.strictEqual(store.db.pragma('user_version', { simple: true }), 6);
+});
+
+// v6 is the router plane: key tiers plus the persisted score/cooldown/session
+// tables. Additive like v2: old rows read as the paid tier, new tables start
+// empty, and nothing already stored is rewritten.
+test('schema v6 adds key tiers and the router tables without touching rows', async (t) => {
+  const store = await memoryStore(t);
+  const cols = store.db.prepare('PRAGMA table_info(provider_keys)').all().map((c) => c.name);
+  assert.ok(cols.includes('tier'), 'provider_keys gains tier');
+  assert.ok(cols.includes('quota_pool_id'), 'provider_keys gains quota_pool_id');
+  for (const name of ['catalog_scores', 'router_cooldowns', 'router_sessions']) {
+    assert.ok(tablesIn(store.db).includes(name), `${name} exists`);
+  }
+  assert.strictEqual(store.db.pragma('user_version', { simple: true }), 6);
 });
 
  // v3 is the irreversible one: it clears the legacy pool on the owner's data. The
@@ -169,27 +183,27 @@ test('reopening an up-to-date file runs nothing and makes no backup', async (t) 
   (await database.open(dir, opts())).close();
   const store = await database.open(dir, opts());
   try {
-    assert.deepStrictEqual(store.migration, { from: 5, to: 5, backup: null });
+    assert.deepStrictEqual(store.migration, { from: 6, to: 6, backup: null });
     assert.deepStrictEqual(fs.readdirSync(dir).filter((n) => n.includes('.bak-v')), []);
   } finally {
     store.close();
   }
 });
 
-// The newest shipped version is 5, so a pending migration here is a v6: these
+// The newest shipped version is 6, so a pending migration here is a v7: these
 // three cases are about the migration SEQUENCE, and they read the same whichever
 // version the plan has reached — but their fixtures must sit one above it.
 test('a pending migration backs up first, then runs and bumps user_version', async (t) => {
   const dir = tempDir(t);
   (await database.open(dir, opts())).close();
-  const withV6 = [...database.MIGRATIONS, { version: 6, up(db) { db.exec('CREATE TABLE extra_v6 (x INTEGER)'); } }];
-  const store = await database.open(dir, { ...opts(), migrations: withV6 });
+  const withV7 = [...database.MIGRATIONS, { version: 7, up(db) { db.exec('CREATE TABLE extra_v7 (x INTEGER)'); } }];
+  const store = await database.open(dir, { ...opts(), migrations: withV7 });
   try {
-    assert.strictEqual(store.migration.from, 5);
-    assert.strictEqual(store.migration.to, 6);
-    assert.strictEqual(store.migration.backup, path.join(dir, 'venom.db.bak-v5'));
+    assert.strictEqual(store.migration.from, 6);
+    assert.strictEqual(store.migration.to, 7);
+    assert.strictEqual(store.migration.backup, path.join(dir, 'venom.db.bak-v6'));
     assert.ok(fs.existsSync(store.migration.backup));
-    assert.strictEqual(store.db.pragma('user_version', { simple: true }), 6);
+    assert.strictEqual(store.db.pragma('user_version', { simple: true }), 7);
   } finally {
     store.close();
   }
@@ -199,13 +213,13 @@ test('a migration that throws rolls back and leaves the version', async (t) => {
   const dir = tempDir(t);
   (await database.open(dir, opts())).close();
   const broken = [...database.MIGRATIONS, {
-    version: 6,
+    version: 7,
     up(db) { db.exec('CREATE TABLE half_done (x INTEGER)'); throw new Error('migration bug'); },
   }];
   await assert.rejects(database.open(dir, { ...opts(), migrations: broken }), /migration bug/);
   const store = await database.open(dir, opts());
   try {
-    assert.strictEqual(store.db.pragma('user_version', { simple: true }), 5);
+    assert.strictEqual(store.db.pragma('user_version', { simple: true }), 6);
     assert.strictEqual(store.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'half_done'").get().n, 0);
   } finally {
     store.close();
@@ -216,12 +230,12 @@ test('keeps only the three newest backups', async (t) => {
   const dir = tempDir(t);
   (await database.open(dir, opts())).close();
   const steps = [...database.MIGRATIONS];
-  for (let v = 6; v <= 9; v += 1) {
+  for (let v = 7; v <= 10; v += 1) {
     steps.push({ version: v, up(db) { db.exec(`CREATE TABLE step_${v} (x INTEGER)`); } });
     (await database.open(dir, { ...opts(), migrations: [...steps] })).close();
   }
   const backups = fs.readdirSync(dir).filter((n) => n.startsWith('venom.db.bak-v')).sort();
-  assert.deepStrictEqual(backups, ['venom.db.bak-v6', 'venom.db.bak-v7', 'venom.db.bak-v8']);
+  assert.deepStrictEqual(backups, ['venom.db.bak-v7', 'venom.db.bak-v8', 'venom.db.bak-v9']);
 });
 
 test('downgrade guard: a newer schema is refused and the file is not written', async (t) => {

@@ -245,4 +245,49 @@ module.exports = [
       `);
     },
   },
+  {
+    version: 6,
+    up(db) {
+      // Venom router plane (local multi-account routing):
+      // - provider_keys.tier ranks quota to drain first
+      //   (subscription | free | cheap | paid).
+      // - provider_keys.quota_pool_id groups keys that draw from one shared
+      //   quota bucket, so pooled keys are not mistaken for spare capacity.
+      // - catalog_scores persists the last scored reference rows, so routing
+      //   and the Models page have values in 0ms at boot, before any sync.
+      // - router_cooldowns holds the three-level isolation state
+      //   (model-on-key, key, provider) with millisecond expiry timestamps.
+      // - router_sessions pins a cascade session to its tier/model/key and
+      //   carries the escalation level plus the compact handoff summary.
+      db.exec(`
+        ALTER TABLE provider_keys ADD COLUMN tier TEXT NOT NULL DEFAULT 'paid';
+        ALTER TABLE provider_keys ADD COLUMN quota_pool_id TEXT;
+        CREATE TABLE catalog_scores (
+          model_key TEXT PRIMARY KEY,
+          score REAL,
+          score_source TEXT,
+          score_basis_json TEXT,
+          catalog_rank INTEGER,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE router_cooldowns (
+          scope TEXT NOT NULL,
+          scope_key TEXT NOT NULL,
+          until_ms INTEGER NOT NULL,
+          reason TEXT,
+          PRIMARY KEY (scope, scope_key)
+        );
+        CREATE TABLE router_sessions (
+          session_id TEXT PRIMARY KEY,
+          venom_tier TEXT NOT NULL,
+          model_id TEXT,
+          key_id TEXT,
+          escalation_level INTEGER NOT NULL DEFAULT 0,
+          consecutive_tool_errors INTEGER NOT NULL DEFAULT 0,
+          handoff_summary TEXT,
+          updated_at INTEGER NOT NULL
+        );
+      `);
+    },
+  },
 ];

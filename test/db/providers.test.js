@@ -15,7 +15,7 @@ test('a typed key is stored encrypted and read back as a placeholder with a hint
   assert.ok(raw.startsWith('enc:v1:') && !raw.includes('sk-nara-secret-0001'));
   assert.deepStrictEqual(saved, {
     name: 'NaraRouter', baseUrl: NARA, rpm: null,
-    keys: [{ id: 'key_1', name: 'Main', key: 'venomkey:key_1', hint: 'sk-nara-se********0001', active: true, locked: false }],
+    keys: [{ id: 'key_1', name: 'Main', key: 'venomkey:key_1', hint: 'sk-nara-se********0001', active: true, locked: false, tier: 'paid', quotaPoolId: null }],
   });
   assert.strictEqual(store.repos.providers.revealKey('key_1'), 'sk-nara-secret-0001');
   assert.deepStrictEqual(Object.keys(store.repos.providers.list()), ['nara']);
@@ -49,7 +49,7 @@ test("a locked key sent back as '' keeps its ciphertext, save after save", async
   });
   for (let i = 0; i < 3; i += 1) {
     const current = store.repos.providers.get('nara');
-    assert.deepStrictEqual(current.keys[0], { id: 'key_1', name: 'Other PC', key: '', hint: '', active: true, locked: true });
+    assert.deepStrictEqual(current.keys[0], { id: 'key_1', name: 'Other PC', key: '', hint: '', active: true, locked: true, tier: 'paid', quotaPoolId: null });
     store.repos.providers.save({ id: 'nara', name: current.name, baseUrl: current.baseUrl, rpm: current.rpm, keys: current.keys });
     assert.strictEqual(cipherOf(store, 'key_1'), LOCKED_BLOB);
   }

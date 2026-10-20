@@ -48,6 +48,7 @@ test('read-config hands out placeholders and hints, never keys', async (t) => {
   const cfg = await ipc.invoke('read-config');
   assert.deepStrictEqual(cfg.providers.nara.keys[0], {
     id: 'key_1', name: 'Main', key: 'venomkey:key_1', hint: 'sk-nara-se********0001', active: true, locked: false,
+    tier: 'paid', quotaPoolId: null,
   });
   assert.strictEqual(cfg.settings.openRouterApiKey, 'venomsecret:openRouterApiKey');
 });
