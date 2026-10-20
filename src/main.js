@@ -22,6 +22,329 @@ const { createCatalogIpc } = require('./catalog/ipc');
 const { createAuthLock } = require('./auth');
 const { registerAuthIpc } = require('./auth/ipc');
 
+// A development run's stdout is a pipe — npm's, an IDE task's, a redirect's — and
+// the reader on the other end goes away more often than it should: the terminal is
+// closed, npm is stopped, the parent shell exits. Every write after that raises
+// EPIPE as an unhandled 'error' event on the stream, which Electron reports as an
+// uncaught exception in the main process, and it takes the whole log with it:
+// electron-log runs its console transport before the file one, so the throw escapes
+// between them and main.log stops as well. A dead pipe must cost the console line,
+// nothing else.
+for (const stream of [process.stdout, process.stderr]) {
+  if (!stream || typeof stream.on !== 'function') continue;
+  stream.on('error', (err) => {
+    const code = err && err.code;
+    if (code === 'EPIPE' || code === 'ERR_STREAM_DESTROYED' || code === 'ERR_STREAM_WRITE_AFTER_END') return;
+    try {
+      process.stderr.write(`log stream error: ${(err && err.message) || err}\n`);
+    } catch (_) {
+      // A stream that just failed is not worth failing over a second time.
+    }
+  });
+}
+
+// Venom router plane (src/router): multi-account cascade routing behind one
+// local gateway. Lazy-required inside buildVenomRouter so a fault here can
+// never break the desktop boot path above. Boot only builds the pool and the
+// catalog (pure: no socket, no DNS): the gateway binds on first roster data
+// or on the first explicit router:status/refresh query, so opening a window
+// never listens, exactly like it never downloads.
+let venomRouter = null;
+let venomGateway = null;
+let venomGatewayStarting = null;
+
+function readRosterRowsForRouter(repos) {
+  const rows = [];
+  try {
+    const ids = repos.snapshots.listProviderIds();
+    for (const providerId of ids) {
+      const snapshot = repos.snapshots.read(providerId);
+      for (const row of (snapshot && snapshot.lastGoodRows) || []) {
+        rows.push({ provider_id: providerId, providerId, model_id: row.id, ...row });
+      }
+    }
+  } catch (err) {
+    log.warn('venom-router: roster read failed, routing without it:', err.message);
+  }
+  return rows;
+}
+
+function startVenomRouter() {
+  buildVenomRouter();
+}
+
+// The local gateway port is owner-configurable (Settings › routerGatewayPort)
+// because sibling routers on this machine (9Router, OmniRoute) already sit on
+// the default. Read here and re-read on every save below, like idleLimitMs: a
+// missing or out-of-range value reads as the default and is never written back.
+function gatewayPort() {
+  try {
+    const saved = store && store.repos.settings.get('settings');
+    const router = require('./router');
+    return router.normalizeGatewayPort(saved && saved.routerGatewayPort);
+  } catch (err) {
+    log.warn('Could not read routerGatewayPort; using the default:', err.message);
+    try { return require('./router').ROUTER_PORT; } catch (_) { return 28228; }
+  }
+}
+
+function buildVenomRouter() {
+  try {
+    const router = require('./router');
+    const keys = typeof store.repos.providers.listAllActiveKeys === 'function'
+      ? store.repos.providers.listAllActiveKeys() : [];
+    const keyPool = new router.KeyPoolManager({ keys });
+    let scored = [];
+    try {
+      scored = catalogEngine ? catalogEngine.scoreRows(readRosterRowsForRouter(store.repos)) : [];
+    } catch (err) {
+      log.warn('venom-router: scoring failed, routing unscored:', err.message);
+    }
+    const smartCatalog = router.buildSmartCatalog(scored, keys);
+    // Persist measured/estimated scores for 0ms values at the next boot.
+    // Rows the reference cannot score stay null here by design (a guess is
+    // not a measurement) and are simply skipped by the writer.
+    try { router.persistCatalogScores(store.db, scored); } catch (err) {
+      log.warn('venom-router: catalog score persist failed:', err.message);
+    }
+    const dispatchUpstream = async (route, payload) => {
+      const baseUrl = String((keyPool.keys.get(route.keyId) || {}).baseUrl || '').replace(/\/+$/, '');
+      const url = `${baseUrl}/chat/completions`;
+      const reply = await requester.request({
+        url,
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer venomkey:${route.keyId}` },
+        body: payload.body || {},
+        source: 'venom-router',
+        timeoutMs: 60000,
+      });
+      if (reply && (reply.networkError || reply.blocked)) {
+        const err = new Error((reply && reply.error) || 'upstream request failed');
+        err.status = reply.blocked ? 403 : 0;
+        throw err;
+      }
+      let text = '';
+      try {
+        const parsed = JSON.parse(String((reply && reply.body) || '{}'));
+        const choice = (parsed.choices || [])[0] || {};
+        text = String((choice.message && choice.message.content) || choice.text || '');
+        if (!text && reply && reply.body) text = String(reply.body).slice(0, 4000);
+      } catch (_) {
+        text = String((reply && reply.body) || '');
+      }
+      if (reply && reply.status >= 400) {
+        const err = new Error(`upstream answered ${reply.status}`);
+        err.status = reply.status;
+        throw err;
+      }
+      return { text, status: reply.status, model: route.modelId };
+    };
+    // Streaming dispatcher for true SSE passthrough: opens the provider
+    // request with stream:true and hands the live byte stream back without
+    // buffering it. Secrets resolve through the same keyResolver as every
+    // other outbound request, and the finished stream is recorded in the
+    // request log from a bounded tee sample — never the full body.
+    const streamUpstream = (route, payload) => new Promise((resolve, reject) => {
+      const startedAt = Date.now();
+      const keyEntry = keyPool.keys.get(route.keyId) || {};
+      const baseUrl = String(keyEntry.baseUrl || '').replace(/\/+$/, '');
+      const plainArgs = { url: `${baseUrl}/chat/completions`, method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer venomkey:${route.keyId}` },
+        body: { ...(payload.body || {}), model: route.modelId, stream: true },
+        source: 'venom-router', timeoutMs: 60000 };
+      let outgoing;
+      try {
+        if (!keyResolver) throw new Error('key resolver unavailable');
+        outgoing = keyResolver.resolve({ url: plainArgs.url, headers: plainArgs.headers, body: plainArgs.body });
+      } catch (err) {
+        reject(err);
+        return;
+      }
+      if (!outgoing || outgoing.blocked) {
+        const err = new Error((outgoing && outgoing.error) || 'upstream request refused');
+        err.status = 403;
+        reject(err);
+        return;
+      }
+      const refs = Array.isArray(outgoing.refs) ? outgoing.refs : [];
+      const substitutions = Array.isArray(outgoing.substitutions) ? outgoing.substitutions : [];
+      const recordStream = ({ httpStatus, contentType, sample, firstByteMs, firstTokenMs, error }) => {
+        try {
+          if (recorder) recorder.record({ args: plainArgs, startedAt, refs, substitutions,
+            cancelReason: null, httpStatus, contentType, responseText: sample,
+            error: error || null, elapsed: Date.now() - startedAt,
+            firstByteMs, firstTokenMs, outcome: 'end' });
+        } catch (_) { /* logging never breaks the reply */ }
+      };
+      let urlObj;
+      try {
+        urlObj = new URL(outgoing.url);
+      } catch (err) {
+        reject(err);
+        return;
+      }
+      const transport = urlObj.protocol === 'https:' ? https : require('http');
+      let req;
+      try {
+        req = transport.request({ hostname: urlObj.hostname, port: urlObj.port || (urlObj.protocol === 'https:' ? 443 : 80),
+          path: urlObj.pathname + urlObj.search, method: 'POST', headers: outgoing.headers || {}, timeout: 60000 },
+        (res) => {
+          const firstByteMs = Date.now() - startedAt;
+          const headers = res.headers || {};
+          if (res.statusCode !== 200) {
+            let drained = '';
+            res.on('data', (c) => { drained += c.toString('utf8'); });
+            res.on('end', () => {
+              recordStream({ httpStatus: res.statusCode, contentType: String(headers['content-type'] || ''),
+                sample: drained.slice(0, 8000), firstByteMs, firstTokenMs: null,
+                error: `upstream answered ${res.statusCode}` });
+              resolve({ status: res.statusCode, headers, stream: null });
+            });
+            res.on('error', () => resolve({ status: res.statusCode, headers, stream: null }));
+            return;
+          }
+          const contentType = String(headers['content-type'] || '');
+          let sample = '';
+          let firstTokenMs = null;
+          const teed = (async function * tee() {
+            try {
+              for await (const chunk of res) {
+                const text = chunk.toString('utf8');
+                if (firstTokenMs === null && /"(?:content|text|reasoning_content|reasoning)"\s*:\s*"[^"\\]/.test(text)) {
+                  firstTokenMs = Date.now() - startedAt;
+                }
+                if (sample.length < 32768) sample += text.slice(0, 32768 - sample.length);
+                yield chunk;
+              }
+              recordStream({ httpStatus: 200, contentType, sample, firstByteMs, firstTokenMs, error: null });
+            } catch (err) {
+              recordStream({ httpStatus: 200, contentType, sample, firstByteMs, firstTokenMs,
+                error: (err && err.message) || 'stream cut off' });
+              throw err;
+            }
+          })();
+          resolve({ status: 200, headers, stream: teed });
+        });
+      } catch (err) {
+        reject(err);
+        return;
+      }
+      req.on('error', (err) => reject(err));
+      req.on('timeout', () => {
+        req.destroy();
+        const err = new Error('No response for 60s');
+        err.status = 0;
+        reject(err);
+      });
+      try {
+        req.write(typeof outgoing.body === 'string' ? outgoing.body : JSON.stringify(outgoing.body));
+        req.end();
+      } catch (err) {
+        req.destroy();
+        reject(err);
+      }
+    });
+    venomRouter = new router.VenomCascadeEngine({ smartCatalog, keyPool, dispatchUpstream, streamUpstream });
+    // The gateway object exists from boot so router:status has something to
+    // report, but it binds no socket yet: ensureVenomGateway() listens on the
+    // first roster data or the first explicit status/refresh query.
+    venomGateway = router.createVenomHttpGateway({ cascadeEngine: venomRouter, port: gatewayPort(), log });
+    ipcMain.handle('router:status', async () => {
+      await ensureVenomGateway();
+      const catalog = venomRouter && venomRouter.smartCatalog;
+      return {
+        ok: true, gateway: venomGatewayStarted(), port: venomGateway ? venomGateway.port() : gatewayPort(),
+        pools: catalog ? catalog.counts : null,
+        tiers: catalog ? {
+          lite: (catalog.lite || []).length,
+          proEfficient: (catalog.efficient || []).length,
+          proCapable: (catalog.capable || []).length,
+          max: (catalog.max || []).length,
+        } : null,
+        pool: keyPool.status(),
+      };
+    });
+    ipcMain.handle('router:refresh', async () => {
+      refreshVenomRouter();
+      await ensureVenomGateway();
+      return { ok: true };
+    });
+    // Venom Profiles page: per-profile target lists with live key counts,
+    // gateway state and fleet totals. Resolves like every other channel: a
+    // refusal is a value, never a throw.
+    ipcMain.handle('router:profiles', async () => {
+      await ensureVenomGateway();
+      try {
+        const router = require('./router');
+        const keys = typeof store.repos.providers.listAllActiveKeys === 'function'
+          ? store.repos.providers.listAllActiveKeys() : [];
+        let active = keys.length;
+        let total = keys.length;
+        try {
+          const providers = store.repos.providers.list();
+          let on = 0;
+          let all = 0;
+          for (const provider of providers || []) {
+            for (const key of (provider && provider.keys) || []) {
+              all += 1;
+              if (key && key.active !== false) on += 1;
+            }
+          }
+          active = on;
+          total = all;
+        } catch (_) { /* active-only fallback above stays */ }
+        const catalog = venomRouter && venomRouter.smartCatalog;
+        return router.buildProfilesPayload(catalog, { keys,
+          poolStatus: keyPool.status(),
+          gateway: { listening: venomGatewayStarted(), port: venomGateway ? venomGateway.port() : gatewayPort() },
+          fleet: { active, total, disabled: Math.max(0, total - active) } });
+      } catch (err) {
+        return { ok: false, code: 'PROFILES_FAILED', message: err.message };
+      }
+    });
+  } catch (err) {
+    log.warn('venom-router: disabled for this session:', err.message);
+    venomRouter = null;
+    venomGateway = null;
+  }
+}
+
+// One flight only: concurrent callers share the same bind attempt, and a busy
+// port stays a warning, never a boot failure.
+function venomGatewayStarted() {
+  return Boolean(venomGateway && venomGateway.isListening && venomGateway.isListening());
+}
+
+function ensureVenomGateway() {
+  if (!venomGateway || venomGatewayStarted()) return Promise.resolve(venomGatewayStarted());
+  if (!venomGatewayStarting) {
+    venomGatewayStarting = venomGateway.start().then(
+      ({ host, port }) => {
+        log.info(`venom-router gateway on http://${host}:${port}/v1 (venom-lite/pro/max)`);
+        return true;
+      },
+      () => false,
+    ).finally(() => { venomGatewayStarting = null; });
+  }
+  return venomGatewayStarting;
+}
+
+function refreshVenomRouter() {
+  if (!venomRouter || !store) return;
+  try {
+    const router = require('./router');
+    const keys = store.repos.providers.listAllActiveKeys();
+    const scored = catalogEngine ? catalogEngine.scoreRows(readRosterRowsForRouter(store.repos)) : [];
+    venomRouter.refresh({ smartCatalog: router.buildSmartCatalog(scored, keys) });
+    venomRouter.keyPool.refresh(keys);
+    try { router.persistCatalogScores(store.db, scored); } catch (_) { /* next refresh */ }
+    // Real roster data just landed: this is demand, not a window opening.
+    if (scored.length) void ensureVenomGateway();
+  } catch (err) {
+    log.warn('venom-router: refresh failed:', err.message);
+  }
+}
+
 // --smoke-test only ever runs on an explicit scratch folder: refused here,
 // before the real data folder is resolved, moved or locked.
 if (app.commandLine.hasSwitch('smoke-test') && !app.commandLine.hasSwitch('user-data-dir')) {
@@ -630,9 +953,17 @@ app.whenReady().then(async () => {
       // roster_snapshot), so a write that changes what a model costs must drop
       // the recorder's cached price for it. Ingest is the only writer and this
       // is its only caller, which is why it can be this narrow.
-      onRosterWritten: () => { if (priceBook) priceBook.invalidate(); },
+      onRosterWritten: () => {
+        if (priceBook) priceBook.invalidate();
+        refreshVenomRouter();
+      },
     });
     keyResolver = createKeyResolver({ providers: store.repos.providers, secrets: store.repos.secrets });
+    // Local multi-account gateway (venom-lite/pro/max on 127.0.0.1:28228 by default).
+    // Best-effort and lazy: boot builds the pool and catalog only, and the
+    // socket binds on first roster data or first status query — never because
+    // a window opened. A busy port logs and leaves the desktop as it was.
+    startVenomRouter();
     initAutoUpdater();
     createWindow();
     startUpdateChecks();
@@ -654,6 +985,11 @@ app.on('will-quit', () => {
   // The request log first, so its queue is flushed before venom.db closes.
   stopLogs();
   auth = null;
+  if (venomGateway) {
+    try { venomGateway.stop(); } catch (_) { /* closing anyway */ }
+    venomGateway = null;
+  }
+  venomRouter = null;
   if (store) {
     store.close();
     store = null;
