@@ -27,8 +27,10 @@ project they look at.
 - **Never run `git worktree add`.** No second checkout, no scratch clone, no
   "isolated" copy. If isolation seems necessary, ask first and say plainly
   what it costs: *"your `npm start` will not show this work until it merges."*
-- Work on a branch **in this folder**. `git switch -c feat/x` and stay here.
-  A branch the owner can run is worth more than a branch that is tidy.
+- **Work only on `main`. Never create, switch to or push any other branch.**
+  No `git switch -c`, no `git branch`, no feature branches, no PR branches.
+  Every commit lands on `main` in this folder. The owner runs `npm start`
+  from here, so a branch they never check out is work they cannot see.
 - If work must live somewhere else for a real reason and the owner agrees,
   **say it in the same message**, with the exact command to run it:
   `cd "<path>" && npm start`. Never let them discover it by finding an empty
@@ -107,5 +109,5 @@ back.** Do not run it without the owner saying so in that message, and not
 before they have used the build against their real providers for a normal
 day.
 
-Pushing a branch or `main` is not releasing — it saves work and ships
-nothing. Still ask, but say which of the two it is.
+Pushing `main` is not releasing — it saves work and ships nothing. Still ask,
+but say plainly that it is a push.

@@ -69,6 +69,8 @@ it may change, the acceptance command. That, plus this file, is what turns a
 ## Non-negotiables (short version — CLAUDE.md is the authority)
 
 - **One checkout, this one.** Never `git worktree add`.
+- **Work only on `main`.** Never create, switch to or push any other branch —
+  no `git switch -c`, no feature branches.
 - **Never launch the app against `%APPDATA%\venom-router`** to test. Use a
   scratch `--user-data-dir`; `scripts/live/cdp.mjs` enforces it.
 - **Never change how the app starts** (`npm start`, the resolved data folder,
