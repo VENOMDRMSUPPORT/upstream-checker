@@ -7,7 +7,7 @@ window.VENOM_RENDERER.pageRouter = {
       location, history, $, getProviders, getActiveProvider, showPage,
       openProviderPage, switchSettingsSection, logs,
     } = deps;
-    const pages = ['overview', 'providers', 'provider', 'catalog', 'activity', 'database', 'history', 'monitor', 'profile', 'settings'];
+    const pages = ['overview', 'providers', 'provider', 'catalog', 'activity', 'database', 'history', 'monitor', 'router', 'profile', 'settings'];
     let currentPage = 'overview';
 
     function parseRoute() {

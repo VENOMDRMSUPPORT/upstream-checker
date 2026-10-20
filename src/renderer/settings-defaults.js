@@ -114,6 +114,12 @@ window.VENOM_RENDERER.defaults = (() => {
     // from the saved row on every ingest; bounds enforced there too.
     purgeWindowDays: 30,
 
+    // Local multi-account gateway (venom-lite/pro/max on 127.0.0.1). Read by
+    // main at boot (src/main.js gatewayPort); out-of-range values fall back
+    // to the default there too. A change applies after restart. Move it when
+    // a sibling router on this machine (9Router, OmniRoute) owns 20128.
+    routerGatewayPort: 28228,
+
     // Models tested at the same time. 1 is the original behaviour. Raising it is
     // the only thing that actually shortens a run — widening the hedge spends more
     // requests on one model without lowering that model's own latency.

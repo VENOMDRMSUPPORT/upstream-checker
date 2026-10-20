@@ -56,7 +56,7 @@
       ${dot}
       <div class="ntf-text">
         <div class="ntf-line">${escapeHtml(providerName(ev.provider_id))} ${added ? 'added' : 'removed'} model
-          <b>${escapeHtml(ev.name || ev.model_id)}</b></div>
+          <b>${escapeHtml(ev.name || ev.model_id)}</b>${window.PROFILE_BADGES && typeof window.PROFILE_BADGES.badgeFor === 'function' ? window.PROFILE_BADGES.badgeFor(ev.provider_id, ev.name, ev.model_id) : ''}</div>
         <div class="ntf-time">${escapeHtml(when.rel || when.abs)}</div>
       </div>
       ${unread}

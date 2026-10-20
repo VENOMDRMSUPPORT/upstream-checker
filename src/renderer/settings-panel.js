@@ -51,6 +51,7 @@ window.VENOM_RENDERER.settingsPanel = {
       ['#set-reduce-motion', 'reduceMotion', 'bool'],
       ['#set-debug-header', 'debugHeader', 'bool'],
       ['#set-lock-idle', 'lockIdleMin', 'int'],
+      ['#set-gateway-port', 'routerGatewayPort', 'int'],
     ];
 
     const COST_SECTIONS = ['sec-test', 'sec-schedule', 'sec-speed', 'sec-reliability'];
@@ -101,6 +102,7 @@ window.VENOM_RENDERER.settingsPanel = {
             const n = Number(el.value);
             if (el.value.trim() === '') return;
             if (key === 'lockIdleMin') settings[key] = Math.min(480, Math.max(5, Math.round(n)));
+            else if (key === 'routerGatewayPort') settings[key] = Math.min(65535, Math.max(1024, Math.round(n)));
             else if (key === 'perModelBudgetMs') settings[key] = Math.max(0, Math.round(n));
             else {
               if (!Number.isFinite(n) || n <= 0) return;

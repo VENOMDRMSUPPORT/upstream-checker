@@ -163,6 +163,21 @@ test('lock idle minutes are clamped to 5..480', () => {
   assert.equal(settings().lockIdleMin, 480);
 });
 
+test('gateway port is clamped to 1024..65535', () => {
+  const { panel, get, settings } = setup();
+  panel.bindForm();
+  const el = get('#set-gateway-port');
+  el.value = '80';
+  el.handlers.input();
+  assert.equal(settings().routerGatewayPort, 1024);
+  el.value = '99999';
+  el.handlers.input();
+  assert.equal(settings().routerGatewayPort, 65535);
+  el.value = '20129';
+  el.handlers.input();
+  assert.equal(settings().routerGatewayPort, 20129);
+});
+
 test('switchSection updates the active nav and page head', () => {
   const { panel, get, navItems, sections } = setup();
   panel.switchSection('sec-appearance');

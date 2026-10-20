@@ -1260,6 +1260,7 @@ const keyPolicy = window.VENOM_RENDERER.policy.create({
   getProviders: () => PROVIDERS, getActiveProvider: () => activeProvider,
   isAborted: () => abortTesting, getRunStatus: () => runStatusText,
   usableKeys, saveProviderConfig, refreshAfterKeyChange, setStatus, sleep,
+  getSettings: () => settings,
   getAdapter: (id) => (window.INTEGRATED_PROVIDERS || {})[id],
 });
 const {
@@ -2892,7 +2893,7 @@ function renderProfileCrumbs() {
   if (!el) return;
   el.innerHTML = breadcrumbHTML([
     { label: 'Overview', page: 'overview' },
-    { label: 'Profile & Security' }
+    { label: 'Profile & Security', icon: 'profile' }
   ]);
 }
 
@@ -3053,6 +3054,7 @@ const PAGE_META = {
   database: { title: 'Database', desc: 'Read-only explorer for the local app and request databases.' },
   history: { title: 'Test History', desc: 'Every request this app has sent, and the runs they belong to.' },
   monitor: { title: 'Monitoring', desc: 'Requests, errors, latency and cost over time.' },
+  router: { title: 'Venom Profiles', desc: 'Policy cards, per-profile dossiers and eligible targets for venom-lite, venom-pro and venom-max.' },
   profile: { title: 'Profile & Security', desc: 'Workspace administrator identity, session security and access controls.' },
   settings: { title: 'Settings', desc: 'Test prompt, scheduling, appearance and data.' },
 };

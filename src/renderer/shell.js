@@ -47,6 +47,7 @@ window.VENOM_RENDERER.shell = {
       if (page === 'database' && window.DATABASE) window.DATABASE.render();
       if (page === 'history' && window.LOGS) window.LOGS.render();
       if (page === 'monitor' && window.LOGS) window.LOGS.renderMonitor();
+      if (page === 'router' && window.ROUTER) window.ROUTER.render();
       // Leaving Test History stops its live tail; nothing else tells it the page is gone.
       if (page !== 'history' && window.LOGS) window.LOGS.sync();
       if (page === 'providers') providerRoster.resetForEntry();

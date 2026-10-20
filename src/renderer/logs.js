@@ -424,11 +424,13 @@
   function rowsMarkup() {
     return state.rows.map((row) => {
       const vm = toViewModel(row, state.providerNames);
+      const profileBadge = window.PROFILE_BADGES && typeof window.PROFILE_BADGES.badgeFor === 'function'
+        ? window.PROFILE_BADGES.badgeFor(row.provider_id, row.model_requested) : '';
       return `<tr class="log-row" data-id="${vm.id}">
         <td class="col-time">${vm.when}</td>
         <td class="col-source">${vm.source}</td>
         <td class="col-provider"><strong>${vm.provider}</strong></td>
-        <td class="col-model">${vm.model}</td>
+        <td class="col-model">${vm.model}${profileBadge}</td>
         <td class="col-outcome"><span class="log-pill ${vm.tone}">${vm.errorClass || vm.status}</span></td>
         <td class="col-latency dt-num">${vm.latency}</td>
         <td class="col-ttft dt-num">${vm.ttft}</td>

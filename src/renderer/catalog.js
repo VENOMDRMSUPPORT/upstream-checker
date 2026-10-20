@@ -1367,6 +1367,9 @@
     if (e.isNew) out.push(`<span class="pv-tag mc-new" title="${escapeHtml(e.first_seen ? `First seen ${formatAgo(e.first_seen)}` : 'Newly listed')}">NEW</span>`);
     if (e.kind && e.kind !== 'chat') out.push(`<span class="pv-tag t-violet">${escapeHtml(e.kind)}</span>`);
     if (e.cost_kind === 'free') out.push('<span class="pv-tag t-green">free</span>');
+    if (window.PROFILE_BADGES && typeof window.PROFILE_BADGES.badgeFor === 'function') {
+      out.push(window.PROFILE_BADGES.badgeFor(e.providerId, e.id, e.key));
+    }
     return out.join('');
   }
 
