@@ -52,6 +52,7 @@ include:
 | Jerouter | `https://je.jerouter.web.id/v1` |
 | Devora | see `src/renderer/providers/devora.js` |
 | Apinex | `https://api.apinex.bond/v1` |
+| KiosAPI | `https://kiosapi.com/v1` |
 
 All adapters use the shared provider contract. Most expose OpenAI-compatible
 `GET /models` and `POST /chat/completions`; provider-specific hooks may change

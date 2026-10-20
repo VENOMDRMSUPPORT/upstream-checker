@@ -29,7 +29,7 @@ async function until(fn, ms = 20000) {
   return false;
 }
 
-const READY = "typeof PROVIDERS === 'object' && Object.keys(PROVIDERS).length === 10 && !!window.CATALOG && CATALOG.state.loaded";
+const READY = "typeof PROVIDERS === 'object' && Object.keys(PROVIDERS).length === 11 && !!window.CATALOG && CATALOG.state.loaded";
 
 // ---- run 1: the first launch imports the fixture -----------------------------
 
@@ -65,7 +65,7 @@ async function checkImport({ app, dir, mock, fixture }) {
       banner: !document.querySelector('#store-error').hidden,
     };
   })()`);
-  check('ten built-in providers loaded', s.providers.length === 10, s.providers.join(', '));
+  check('eleven built-in providers loaded', s.providers.length === 11, s.providers.join(', '));
   check('legacy custom provider merged into Dark API, duplicate key dropped',
     s.dark.map((k) => k.id).join(',') === 'k_dark_1,k_dark_2,k_cust_2', s.dark.map((k) => k.id).join(','));
   check('the merged custom provider is gone from the store', !s.stored.includes('custom_legacy'), s.stored.join(', '));

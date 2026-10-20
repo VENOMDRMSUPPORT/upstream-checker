@@ -97,7 +97,7 @@ function check(name, cond, detail = '') {
   console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}${detail ? `  -> ${detail}` : ''}`);
 }
 
-const READY = "typeof PROVIDERS === 'object' && Object.keys(PROVIDERS).length === 10 && !!window.CATALOG && CATALOG.state.loaded";
+const READY = "typeof PROVIDERS === 'object' && Object.keys(PROVIDERS).length === 11 && !!window.CATALOG && CATALOG.state.loaded";
 
 // Both ports are claimed from the OS rather than fixed. A run killed mid-flight
 // leaves its mock and its debugging socket behind, and the next run then dies on

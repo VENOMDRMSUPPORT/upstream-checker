@@ -78,7 +78,7 @@ try {
     return { ...connected, integratedGridVisible: !!grid && gridRect.width > 0 && gridRect.height > 0,
       integratedCards: grid ? grid.querySelectorAll('.pv-card').length : 0 };
   })()`);
-  check('connected and integrated provider roster render visibly from live data', providerRoster.visible && providerRoster.count > 0 && providerRoster.integrated === 10 && providerRoster.results && providerRoster.rows === providerRoster.count && providerRoster.firstRowVisible && providerRoster.errors.length === 0 && providerRoster.integratedGridVisible && providerRoster.integratedCards > 0, JSON.stringify(providerRoster));
+  check('connected and integrated provider roster render visibly from live data', providerRoster.visible && providerRoster.count > 0 && providerRoster.integrated === 11 && providerRoster.results && providerRoster.rows === providerRoster.count && providerRoster.firstRowVisible && providerRoster.errors.length === 0 && providerRoster.integratedGridVisible && providerRoster.integratedCards > 0, JSON.stringify(providerRoster));
 
   const appearance = await app.evaluate(`(() => {
     document.querySelector('.shell-nav-item[data-page="settings"]').click();
@@ -159,7 +159,7 @@ try {
   check('release-note modal is visible and HTML notes remain inert', notes.visible && notes.safe && notes.formatted && notes.closed, JSON.stringify(notes));
 
   const navigation = await app.evaluate(`(() => {
-    return ['overview', 'providers', 'catalog', 'profile', 'history', 'monitor', 'database', 'activity', 'settings'].map(page => {
+    return ['overview', 'providers', 'catalog', 'profile', 'history', 'monitor', 'router', 'database', 'activity', 'settings'].map(page => {
       document.querySelector('.shell-nav-item[data-page="' + page + '"]').click();
       const el = document.querySelector('.shell-page[data-page="' + page + '"]');
       const r = el.getBoundingClientRect();
@@ -167,6 +167,23 @@ try {
     });
   })()`);
   check('existing shell navigation continues to show each page', navigation.every(n => n.visible), navigation.filter(n => !n.visible).map(n => n.page).join(', '));
+
+  const routerPage = await app.evaluate(`(async () => {
+    document.querySelector('.shell-nav-item[data-page="router"]').click();
+    await window.ROUTER.refresh();
+    const el = document.querySelector('.shell-page[data-page="router"]');
+    const r = el.getBoundingClientRect();
+    const body = document.getElementById('rt-body');
+    const bodyRect = body.getBoundingClientRect();
+    return { visible: !el.hidden && r.width > 0 && r.height > 0,
+      bodyVisible: bodyRect.width > 0 && bodyRect.height > 0 && bodyRect.top < innerHeight && bodyRect.bottom > 0,
+      text: body.textContent.slice(0, 2500) };
+  })()`);
+  check('router status page shows tiers, gateway and pool from live main', routerPage.visible && routerPage.bodyVisible
+    && routerPage.text.includes('LITE POLICY') && routerPage.text.includes('MAX POLICY')
+    && routerPage.text.includes('FLEET TARGETS') && routerPage.text.includes('Venom Lite')
+    && routerPage.text.includes('ELIGIBLE TARGETS')
+    && /127\.0\.0\.1:28228|Inactive/.test(routerPage.text), JSON.stringify(routerPage));
 
   const saved = await app.evaluate(`(async () => {
     await flushPendingSaves();
