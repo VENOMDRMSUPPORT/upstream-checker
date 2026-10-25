@@ -284,7 +284,7 @@ window.INTEGRATED_PROVIDERS.apinex = {
   expiry. Balance USD is informational and is deliberately not fetched.
 - Logo: `src/assets/providers/apinex.png`. The script is loaded from
   `src/renderer/index.html` before `app.js`; the built-in count asserted by
-  the live checks is **eleven**.
+  the live checks is **thirteen**.
 
 **Accept:** `npm test` then `npm run verify:live`.
 

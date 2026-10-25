@@ -10,7 +10,7 @@ installs migrate their data folder in place.
 
 ## Features
 
-- **Provider and key management** — connect eleven integrated provider adapters,
+- **Provider and key management** — connect thirteen integrated provider adapters,
   keep key values encrypted by Windows DPAPI, and never expose plaintext keys to
   the renderer.
 - **Multi-key discovery** — ask every active key for its roster and retain which

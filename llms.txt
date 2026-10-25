@@ -1,7 +1,7 @@
 # VENOM Router
 
-> Windows desktop LLM router (Electron 33 + better-sqlite3, v2.1.2). It connects
-> nine provider adapters and encrypted keys, discovers a live model catalog,
+> Windows desktop LLM router (Electron 33 + better-sqlite3, v2.1.4). It connects
+> thirteen provider adapters and encrypted keys, discovers a live model catalog,
 > tests models through main-process networking, and records request telemetry.
 > Source is plain JavaScript with no framework or bundler. Everything on disk is
 > written in English.
@@ -20,9 +20,9 @@
 
 ## Current facts
 
-- Version: `2.1.2` from `package.json`; never hardcode another version.
-- Tests: `npm test` currently reports `702` passing tests under Electron's Node.
-- Built-in provider modules: `src/renderer/providers/` currently contains nine.
+- Version: `2.1.4` from `package.json`; never hardcode another version.
+- Tests: `npm test` currently reports `918` passing tests under Electron's Node.
+- Built-in provider modules: `src/renderer/providers/` currently contains thirteen.
 - Data: `venom.db` and `venom-logs.db`; legacy JSON is import-only.
 - Security: renderer has no Node/network access; secrets are placeholders in the
   renderer and encrypted/resolved in main.

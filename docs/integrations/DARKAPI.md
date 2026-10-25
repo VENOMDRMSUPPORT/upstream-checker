@@ -238,7 +238,7 @@ window.INTEGRATED_PROVIDERS.darkapi = {
   data failure. The suffixed routes stay.
 - Logo: `src/assets/providers/darkapi.svg`. The script is loaded from
   `src/renderer/index.html` before `app.js`; the built-in count asserted by
-  the live checks is **eleven**.
+  the live checks is **thirteen**.
 
 **Accept:** `npm test` then `npm run verify:live`.
 

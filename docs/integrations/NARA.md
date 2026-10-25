@@ -186,7 +186,7 @@ nothing imports it.
 2. Logo: src/assets/providers/nara.svg (already in repo — verified).
 3. src/renderer/index.html: script providers/nara.js BEFORE app.js.
 4. Fixture + count: the built-in count asserted by the live checks is
-   **eleven**.
+   **thirteen**.
 5. README.md: the NARA Router row in the providers table.
 6. npm run repo:map (new file surfaces in CODE_MAP.md).
 

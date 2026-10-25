@@ -136,7 +136,7 @@ billing period.
 2. Logo: src/assets/providers/devora.svg — IN REPO (Pixel-created 417B, HeX-read 2026-10-13; logoTone bright).
 3. src/renderer/index.html: script providers/devora.js BEFORE app.js.
 4. Fixture + count: the built-in count asserted by the live checks
-   (scripts/live/verify-db.mjs, legend/sidebar/provider-table) is **eleven**.
+   (scripts/live/verify-db.mjs, legend/sidebar/provider-table) is **thirteen**.
 5. README row: docs/integrations/README.md Devora row.
 6. npm run repo:map (new files surface in CODE_MAP.md).
 

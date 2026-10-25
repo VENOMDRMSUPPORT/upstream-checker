@@ -196,7 +196,7 @@ nothing imports it.
    gradient-frame tile: #06b6d4 → #10b981 → #f59e0b, dark core #0f172a → #020617).
 3. src/renderer/index.html: script providers/nexum.js BEFORE app.js.
 4. Fixture + count: the built-in count asserted by the live checks is
-   **eleven**.
+   **thirteen**.
 5. README.md: the Nexum Router row in the providers table.
 6. npm run repo:map (new file surfaces in CODE_MAP.md).
 

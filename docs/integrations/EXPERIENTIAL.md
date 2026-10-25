@@ -451,7 +451,7 @@ itself; nothing imports it.
 2. Logo: src/assets/providers/experiential.svg (already in repo — verified).
 3. src/renderer/index.html: script providers/experiential.js BEFORE app.js.
 4. Fixture + count: the built-in count asserted by the live checks is
-   **eleven**.
+   **thirteen**.
 5. README.md: the Experiential Labs row in the providers table.
 6. npm run repo:map (new files surface in CODE_MAP.md).
 

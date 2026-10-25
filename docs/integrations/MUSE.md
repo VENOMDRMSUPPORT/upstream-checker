@@ -163,7 +163,7 @@ window.INTEGRATED_PROVIDERS.muse = {
   never sees a Muse session cookie.
 - Logo: `src/assets/providers/muse.png`. The script is loaded from
   `src/renderer/index.html` before `app.js`; the built-in count asserted by
-  the live checks is **twelve**.
+  the live checks is **thirteen**.
 
 **Prerequisite:** the MuseBridge must be running on `127.0.0.1:8787` (or
 wherever the provider's base URL points). The app checks `/health` to

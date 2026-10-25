@@ -207,7 +207,7 @@ glm-5.3-free
 
 ## 7. How the app implements it
 
-`src/renderer/providers/kiosapi.js` is the built-in adapter (the eleventh one).
+`src/renderer/providers/kiosapi.js` is the built-in adapter.
 It registers itself; nothing imports it.
 
 ```js
@@ -235,7 +235,7 @@ window.INTEGRATED_PROVIDERS.kiosapi = {
   which takes a web session and refuses an API key.
 - Logo: `src/assets/providers/kiosapi.png`. The script is loaded from
   `src/renderer/index.html` before `app.js`; the built-in count asserted by
-  the live checks is **eleven**.
+  the live checks is **thirteen**.
 
 **Accept:** `npm test` then `npm run verify:live`.
 

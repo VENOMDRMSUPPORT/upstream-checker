@@ -222,7 +222,7 @@ Notes: 12 ids carry 524288 context; the other 32 carry 262144. Vision=true on
 2. Logo: src/assets/providers/jerouter.png — ALREADY IN REPO (verified).
 3. src/renderer/index.html: script providers/jerouter.js BEFORE app.js.
 4. Fixture + count: the built-in count asserted by the live checks
-   (scripts/live/verify-db.mjs, legend/sidebar/provider-table) is **eleven**.
+   (scripts/live/verify-db.mjs, legend/sidebar/provider-table) is **thirteen**.
 5. README row: docs/integrations/README.md Jerouter row (venom-router/README.md
    itself is Pixel-owned, untouched).
 6. npm run repo:map (new file surfaces in CODE_MAP.md).
