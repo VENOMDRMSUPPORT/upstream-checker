@@ -34,6 +34,11 @@ window.VENOM_RENDERER.providerStore = {
         k.key = s.key;
         k.hint = s.hint;
         k.locked = s.locked;
+        // A signed-in account keeps its own fields: the placeholder of its
+        // access token and the account's public facts.
+        if (Object.hasOwn(s, 'oauth')) k.oauth = s.oauth;
+        if (Object.hasOwn(s, 'oauthKey')) k.oauthKey = s.oauthKey;
+        if (Object.hasOwn(s, 'account')) k.account = s.account;
         // Preserve live refusal state unless the save explicitly returned one.
         if (Object.hasOwn(s, 'quotaSpent')) k.quotaSpent = s.quotaSpent || null;
       });

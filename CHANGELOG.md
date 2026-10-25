@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The connect modal shows a spinner while the app waits for the sign-in: for
+  the browser to open, for the person to sign in, for the answer to come
+  back.
+
+### Fixed
+
+- A sign-in this build does not know says so, and names the grant, instead
+  of being reported as the wrong kind of sign-in.
+
+### Added
+
+- **Antigravity** as the thirteenth built-in provider: Google's Antigravity
+  IDE entitlement. It signs in on a Google account in the person's own
+  browser — the consent page opens there, the answer comes back to a
+  short-lived address on this machine, the tab closes itself and the app
+  carries on — and several accounts may be connected at once, each with its
+  own daily allowance. The service does not speak OpenAI, so the app talks
+  to it in its own protocol through a new *wire* layer (`src/wire/`), which
+  the page and the routing gateway share. The access token lasts an hour, so
+  the app renews the accounts it holds before their tokens die. The model
+  list is the official app's list: the models the service has retired and
+  the ones it keeps for itself are left out, and so are the families the
+  account has no allowance for. The limits are the ones the Antigravity app
+  shows — a weekly and a five-hour allowance per group of models — in the
+  drawer, with one bar per group on the account row, and the account's plan
+  (Free, Pro or Ultra) on its badge. Documented in
+  docs/integrations/ANTIGRAVITY.md.
+- **The `loopback` OAuth grant** (`src/oauth/loopback.js`): a third kind of
+  sign-in, beside the device grant and the in-app window. The OAuth client
+  itself belongs to main (`src/oauth/profiles.js`), so the page names a
+  profile and never supplies an address — code that ran in the renderer
+  cannot point a sign-in, and the authorization code that comes back from it,
+  at a host of its choosing. An answer whose state does not match the
+  sign-in is refused before any code is exchanged. Documented in
+  `docs/OAUTH_PROVIDERS.md`.
+- **Muse AI** as the twelfth built-in provider. It is served by a local
+  bridge (MuseBridge) on 127.0.0.1:8787: the bridge drives the muse.ai web
+  client in a real browser, handles login automatically, and exposes an
+  OpenAI-compatible API. The app talks to it like any other provider; the
+  only special thing is that the usage comes from /admin/usage. Documented
+  in docs/integrations/MUSE.md.
+- **The OAuth plane** (`src/oauth/`): a signed-in account is a provider key
+  with two secrets beside it — the credential the API is called with, and the
+  access token the sign-in produced, each encrypted in its own column
+  (`provider_keys.oauth_cipher`, schema v7) and reached by a placeholder
+  (`venomoauth:<id>`) that main resolves for the provider's own origin, like
+  every other secret. Main owns the flow, the token and the credential; the
+  renderer only ever sees the code to type and the state of the sign-in. The
+  provider declares its flow as plain data, and main checks it before it uses
+  it. Documented in `docs/OAUTH_PROVIDERS.md`.
+
 ### Fixed
 
 - **Routed requests are now logged under their own source.** The local gateway

@@ -831,6 +831,32 @@ $('#btn-minimize').addEventListener('click', () => window.electronAPI.minimize()
 $('#btn-maximize').addEventListener('click', () => window.electronAPI.maximize());
 $('#btn-close').addEventListener('click', () => window.electronAPI.close());
 
+// A provider that signs in on a web page. The page asks for the state of the
+// sign-in; main keeps the flow, the access token and the credential it
+// produces (docs/OAUTH_PROVIDERS.md).
+const oauthConnect = window.VENOM_RENDERER.oauthConnect.create({
+  $,
+  electronAPI: window.electronAPI,
+  getProvider: (id) => PROVIDERS[id],
+  reloadProviders: (providerId) => reloadProvidersAfterConnect(providerId),
+  escapeHtml,
+});
+
+// After a sign-in: main has the account, the page's copy of the providers
+// does not. The configuration is read again and the views are redrawn.
+async function reloadProvidersAfterConnect(providerId) {
+  try {
+    await loadAllProviders();
+  } catch (err) {
+    console.error('Could not read the providers after the sign-in:', err);
+  }
+  renderProviderHead();
+  renderKeysList();
+  renderModelsList();
+  refreshAfterKeyChange(providerId);
+  if (window.KEY_USAGE) window.KEY_USAGE.refreshProvider(providerId, { force: true });
+}
+
 // The detail unit owns the provider header and the API-key list UI.
 const providerDetail = window.VENOM_RENDERER.providerDetail.create({
   $,
@@ -848,6 +874,7 @@ const providerDetail = window.VENOM_RENDERER.providerDetail.create({
   toggleKeyActive: (keyId) => toggleKeyActive(keyId),
   removeKey: (keyId) => removeKey(keyId),
   copyKey: (keyId, button) => copyKey(keyId, button),
+  connectAccount: (providerId) => oauthConnect.open(providerId),
 });
 const renderProviderHead = () => providerDetail.renderHead();
 const renderKeysList = () => providerDetail.renderKeys();
@@ -1174,11 +1201,28 @@ async function addKey() {
   if (window.KEY_USAGE) KEY_USAGE.refresh(pid, k.id, { force: true });
 }
 
+// A provider that does not speak OpenAI (Antigravity, for one). The request
+// is built and the answer read by the app's wire, which lives in main so the
+// routing gateway speaks the same protocol as the page does (src/wire).
+const providerWire = {
+  build: async (providerId, op, args) => {
+    const reply = await window.electronAPI.wireBuild({ ...(args || {}), providerId, op });
+    if (!reply || reply.ok === false) throw new Error((reply && reply.error) || 'The request could not be built');
+    return reply.spec;
+  },
+  parse: async (providerId, op, body, extra) => {
+    const reply = await window.electronAPI.wireParse({ ...(extra || {}), providerId, op, body });
+    if (!reply || reply.ok === false) throw new Error((reply && reply.error) || 'The answer could not be read');
+    return reply.answer;
+  },
+};
+
 // Provider discovery owns each provider's fetched roster and catalog sync.
 const providerModels = window.VENOM_RENDERER.providerModels.create({
   $: (selector) => $(selector), $$: (selector) => $$(selector), electronAPI: window.electronAPI,
   getProviders: () => PROVIDERS, getActiveProvider: () => activeProvider,
   integratedProviders: () => window.INTEGRATED_PROVIDERS || {}, usableKeys,
+  wire: providerWire,
   setStatus: (state, text) => setStatus(state, text),
   updateTestAllButton: () => updateTestAllButton(), updateStats: () => updateStats(),
   renderCostEstimate: () => renderCostEstimate(), classifyModel, isMedia,
@@ -1193,6 +1237,19 @@ const getProviderModels = (providerId) => providerModels.getModels(providerId);
 const renderModelsList = () => providerModels.renderModelsList();
 const getSelectedModels = () => providerModels.getSelectedModels();
 const taggedApiRequest = (...args) => providerModels.taggedApiRequest(...args);
+// An account that lives on a web page rather than on an API: the app opens
+// that page with the stored session and hands back what it says. The
+// provider's own declaration says how to get there.
+async function readAccountUsage(p) {
+  const entry = (window.INTEGRATED_PROVIDERS || {})[p.id];
+  const cfg = entry && entry.meta && entry.meta.oauth;
+  if (!cfg) return { ok: false, message: 'This provider has no account to read' };
+  try {
+    return await window.electronAPI.oauthUsage(p.id, cfg);
+  } catch (err) {
+    return { ok: false, message: err.message };
+  }
+}
 const discoverModels = (...args) => providerModels.discoverModels(...args);
 const ingestProviderRoster = (...args) => providerModels.ingestProviderRoster(...args);
 const tagAliasGroups = (...args) => providerModels.tagAliasGroups(...args);
@@ -1360,6 +1417,7 @@ const testAttempts = window.VENOM_RENDERER.attempts.create({
   reasoningRejected: (message) => REASONING_REJECTED.test(message),
   observeUsage: (pid, kid, headers) => { if (window.KEY_USAGE) window.KEY_USAGE.observe(pid, kid, headers); },
   getAdapter: (id) => (window.INTEGRATED_PROVIDERS || {})[id],
+  wire: providerWire,
 });
 const { attemptOnce } = testAttempts;
 
@@ -3497,6 +3555,7 @@ const providerRoster = window.VENOM_RENDERER.providerRoster.create({
   openAddKeyModal,
   openProviderPage,
   recheckProvider,
+  connectAccount: (providerId) => oauthConnect.open(providerId),
 });
 const KPI_ICON = providerRoster.KPI_ICON;
 const renderProvidersPage = () => providerRoster.render();

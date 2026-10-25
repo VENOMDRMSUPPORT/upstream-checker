@@ -55,6 +55,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Main decrypts the key and writes the clipboard; the page never holds it.
   copyKey: (keyId) => ipcRenderer.invoke('copy-key', keyId),
 
+  // The OAuth plane (docs/OAUTH_PROVIDERS.md). The provider's own flow is
+  // declared as plain data and handed to main, which opens the sign-in page
+  // and waits for the approval. No secret crosses: the reply carries the
+  // code to type and the state of the sign-in.
+  oauthStart: (providerId, config) => ipcRenderer.invoke('oauth-start', providerId, config),
+  oauthStatus: (providerId) => ipcRenderer.invoke('oauth-status', providerId),
+  oauthCancel: (providerId) => ipcRenderer.invoke('oauth-cancel', providerId),
+  oauthReopen: (providerId) => ipcRenderer.invoke('oauth-reopen', providerId),
+  // The account's usage, read again with the stored session.
+  oauthUsage: (providerId, config) => ipcRenderer.invoke('oauth-usage', providerId, config),
+  // An account whose token has grown old, renewed now.
+  oauthRenew: (providerId, keyId) => ipcRenderer.invoke('oauth-renew', providerId, keyId),
+
+  // A provider that does not speak OpenAI (docs/integrations/ANTIGRAVITY.md).
+  // The page asks main to build the request that provider understands and to
+  // read the answer it sends back. The address comes from the database, not
+  // from here, and the key travels as the placeholder it always is.
+  wireBuild: (args) => ipcRenderer.invoke('wire:build', args),
+  wireParse: (args) => ipcRenderer.invoke('wire:parse', args),
+
   // Run history
   readHistory: () => ipcRenderer.invoke('read-history'),
   appendRun: (run, maxRuns) => ipcRenderer.invoke('append-run', run, maxRuns),

@@ -17,6 +17,7 @@
     "verify:legend": "node scripts/live/verify-catalog-legend.mjs",
     "verify:sidebar": "node scripts/live/verify-catalog-sidebar.mjs",
     "verify:lock": "node scripts/live/verify-lock.mjs",
+    "verify:antigravity": "node scripts/live/verify-antigravity.mjs",
     "check:import": "node scripts/check-import-counts.js",
     "repo:map": "node scripts/repo-map.mjs",
     "test": "node scripts/run-tests.js",

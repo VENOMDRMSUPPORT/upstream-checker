@@ -8,6 +8,9 @@ const { createCipher } = require('./db/cipher');
 const { importLegacy, listImportedFiles, describeImportWarnings, needsReimportPrompt, FILES } = require('./db/import-json');
 const { registerDataIpc } = require('./db/ipc');
 const { createKeyResolver } = require('./db/keys');
+const { createOAuthManager } = require('./oauth');
+const { registerOAuthIpc } = require('./oauth/ipc');
+const wire = require('./wire');
 const { requestFlush } = require('./flush');
 const { createApiRequester } = require('./api-request');
 const { readLogSettings } = require('./logs/settings');
@@ -88,6 +91,40 @@ function gatewayPort() {
   }
 }
 
+// The request the gateway sends upstream. Most providers speak OpenAI and
+// answer /chat/completions; a provider with a wire of its own is asked in that
+// protocol instead, and its answer is read the same way. The key travels as
+// the placeholder it always is — the secret is put in by the resolver, after
+// the address has been checked against the provider's own.
+function upstreamSpec(route, keyEntry, payload, key) {
+  const baseUrl = String((keyEntry && keyEntry.baseUrl) || '').replace(/\/+$/, '');
+  const custom = route && route.providerId
+    ? wire.build(route.providerId, 'chat', {
+      baseUrl,
+      model: route.modelId,
+      payload: { ...(payload.body || {}), model: route.modelId, stream: payload.body && payload.body.stream },
+      project: keyEntry && keyEntry.project,
+      apiKey: key,
+    })
+    : null;
+  if (custom) {
+    return {
+      url: custom.url,
+      method: custom.method,
+      headers: { ...custom.headers, authorization: `Bearer ${key}` },
+      body: custom.body,
+      wire: true,
+    };
+  }
+  return {
+    url: `${baseUrl}/chat/completions`,
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+    body: (payload && payload.body) || {},
+    wire: false,
+  };
+}
+
 function buildVenomRouter() {
   try {
     const router = require('./router');
@@ -108,13 +145,17 @@ function buildVenomRouter() {
       log.warn('venom-router: catalog score persist failed:', err.message);
     }
     const dispatchUpstream = async (route, payload) => {
-      const baseUrl = String((keyPool.keys.get(route.keyId) || {}).baseUrl || '').replace(/\/+$/, '');
-      const url = `${baseUrl}/chat/completions`;
+      const keyEntry = keyPool.keys.get(route.keyId) || {};
+      const baseUrl = String(keyEntry.baseUrl || '').replace(/\/+$/, '');
+      const key = `venomkey:${route.keyId}`;
+      // A provider that does not speak OpenAI is asked in its own protocol;
+      // the rest answer /chat/completions as they always have.
+      const spec = upstreamSpec(route, keyEntry, payload, key);
       const reply = await requester.request({
-        url,
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer venomkey:${route.keyId}` },
-        body: payload.body || {},
+        url: spec.url,
+        method: spec.method,
+        headers: spec.headers,
+        body: spec.body,
         source: 'venom-router',
         timeoutMs: 60000,
       });
@@ -125,9 +166,15 @@ function buildVenomRouter() {
       }
       let text = '';
       try {
-        const parsed = JSON.parse(String((reply && reply.body) || '{}'));
-        const choice = (parsed.choices || [])[0] || {};
-        text = String((choice.message && choice.message.content) || choice.text || '');
+        if (spec.wire) {
+          // The answer is in the provider's own shape: the wire reads it.
+          const answer = wire.parse(route.providerId, 'chat', String((reply && reply.body) || ''));
+          text = String((answer && answer.content) || '');
+        } else {
+          const parsed = JSON.parse(String((reply && reply.body) || '{}'));
+          const choice = (parsed.choices || [])[0] || {};
+          text = String((choice.message && choice.message.content) || choice.text || '');
+        }
         if (!text && reply && reply.body) text = String(reply.body).slice(0, 4000);
       } catch (_) {
         text = String((reply && reply.body) || '');
@@ -148,10 +195,15 @@ function buildVenomRouter() {
       const startedAt = Date.now();
       const keyEntry = keyPool.keys.get(route.keyId) || {};
       const baseUrl = String(keyEntry.baseUrl || '').replace(/\/+$/, '');
-      const plainArgs = { url: `${baseUrl}/chat/completions`, method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer venomkey:${route.keyId}` },
-        body: { ...(payload.body || {}), model: route.modelId, stream: true },
+      const key = `venomkey:${route.keyId}`;
+      const spec = upstreamSpec(route, keyEntry, { body: { ...(payload.body || {}), model: route.modelId, stream: true } }, key);
+      const plainArgs = { url: spec.url, method: spec.method,
+        headers: spec.headers,
+        body: spec.body,
         source: 'venom-router', timeoutMs: 60000 };
+      // A provider that streams in its own shape is translated into the one
+      // the gateway's clients read; the rest is piped through untouched.
+      const translator = spec.wire ? wire.stream(route.providerId, { model: route.modelId }) : null;
       let outgoing;
       try {
         if (!keyResolver) throw new Error('key resolver unavailable');
@@ -214,7 +266,14 @@ function buildVenomRouter() {
                   firstTokenMs = Date.now() - startedAt;
                 }
                 if (sample.length < 32768) sample += text.slice(0, 32768 - sample.length);
-                yield chunk;
+                if (translator) {
+                  for (const piece of translator.push(text)) yield piece;
+                } else {
+                  yield chunk;
+                }
+              }
+              if (translator) {
+                for (const piece of translator.flush()) yield piece;
               }
               recordStream({ httpStatus: 200, contentType, sample, firstByteMs, firstTokenMs, error: null });
             } catch (err) {
@@ -393,6 +452,10 @@ let store = null;
 let importReport = null;
 // Swaps key placeholders for secrets in api-request (src/db/keys.js).
 let keyResolver = null;
+// The OAuth plane: a provider that signs in on a web page. Main keeps the
+// flow, the access token and the credential it produces; the page only asks
+// for the state.
+let oauthManager = null;
 
 // The app lock (src/auth). Built right after venom.db opens, before the window:
 // its row lives in that database, and the request gate below consults it on
@@ -944,6 +1007,53 @@ app.whenReady().then(async () => {
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('auth:locked', reason || 'locked');
       },
     });
+    // A provider that signs in on a web page. The provider module declares
+    // the flow as plain data; main opens the page, waits for the approval,
+    // exchanges the token and stores the account. The page never sees a
+    // secret.
+    oauthManager = createOAuthManager({
+      repos: store.repos,
+      openExternal: openExternalUrl,
+      log,
+      // A provider that signs in on a web page needs a window the app owns:
+      // no application can read another application's cookies.
+      BrowserWindow,
+      parentWindow: mainWindow,
+      // The person signs in in their own browser; the app is where the work
+      // is, so the window comes back to the front when the account is in.
+      focusWindow: () => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        try {
+          if (typeof mainWindow.isMinimized === 'function' && mainWindow.isMinimized()) mainWindow.restore();
+          mainWindow.show();
+          mainWindow.focus();
+        } catch (_) { /* the window may be closing */ }
+      },
+    });
+    registerOAuthIpc({ ipcMain, oauth: oauthManager, auth, log });
+    // The accounts the app holds keep themselves alive: a token that is
+    // about to expire is renewed in the background, so a provider that signs
+    // in on a web page still works an hour later.
+    if (oauthManager && typeof oauthManager.startRenewals === 'function') oauthManager.startRenewals();
+    // A provider that does not speak OpenAI: the page asks main to build the
+    // request that provider understands and to read the answer it sends back.
+    // The provider's own address comes from the database and never from the
+    // page, so a key can only ever travel to the provider it belongs to.
+    ipcMain.handle('wire:build', async (_event, args) => {
+      const a = args && typeof args === 'object' ? args : {};
+      const providerId = String(a.providerId || '');
+      const provider = store.repos.providers.get(providerId);
+      if (!provider) return { ok: false, error: 'That provider is not in the database' };
+      const spec = wire.build(providerId, String(a.op || ''), { ...a, baseUrl: provider.baseUrl });
+      if (!spec) return { ok: false, error: 'This provider speaks OpenAI' };
+      return { ok: true, spec };
+    });
+    ipcMain.handle('wire:parse', async (_event, args) => {
+      const a = args && typeof args === 'object' ? args : {};
+      const answer = wire.parse(String(a.providerId || ''), String(a.op || ''), a.body, { stream: a.stream === true });
+      if (!answer) return { ok: false, error: 'This provider speaks OpenAI' };
+      return { ok: true, answer };
+    });
     // After both databases and after their IPC, before the window: the catalog
     // writes through repos.snapshots. Disk only at boot — see startCatalog above.
     catalogEngine = startCatalog({
@@ -982,6 +1092,11 @@ app.whenReady().then(async () => {
 
 app.on('will-quit', () => {
   stopUpdateChecks();
+  // Every sign-in in flight stops before the database closes.
+  if (oauthManager) {
+    try { oauthManager.stopAll(); } catch (_) { /* closing anyway */ }
+    oauthManager = null;
+  }
   // The request log first, so its queue is flushed before venom.db closes.
   stopLogs();
   auth = null;
@@ -1110,12 +1225,16 @@ ipcMain.on('open-data-folder', () => shell.openPath(app.getPath('userData')));
 
 // Provider websites and similar links open in the user's browser. Only http(s)
 // is accepted, so a crafted string can't launch a file or another protocol.
+async function openExternalUrl(url) {
+  const u = new URL(String(url));
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error('Only http and https links open outside the app');
+  await shell.openExternal(u.toString());
+  return true;
+}
+
 ipcMain.handle('open-external', async (_e, url) => {
   try {
-    const u = new URL(String(url));
-    if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
-    await shell.openExternal(u.toString());
-    return true;
+    return await openExternalUrl(url);
   } catch (_) {
     return false;
   }

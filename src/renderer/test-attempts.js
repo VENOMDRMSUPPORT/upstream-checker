@@ -5,7 +5,7 @@ window.VENOM_RENDERER.attempts = {
     'use strict';
     const { getSettings, getPrompt, isAborted, defaultPrompt, isMedia, isDecision, kindLimits,
       request, routeTestTags, getRequestTags, nextRequestId, sleep, tokenLimitField,
-      swapTokenLimitField, omitReasoning, disableReasoning, reasoningRejected, observeUsage, getAdapter } = deps;
+      swapTokenLimitField, omitReasoning, disableReasoning, reasoningRejected, observeUsage, getAdapter, wire } = deps;
     const { pickKey, waitForSlot } = deps.policy;
     const { usageTokens, parseRetryAfter, failFromResponse, transportFailure, authHeaders,
       isMissingRoute, findAssetUrl, extractMediaUrl, parseChatCompletion, parseStreamedCompletion, buildEmptyResult } = deps.responses;
@@ -244,11 +244,25 @@ window.VENOM_RENDERER.attempts = {
 
       try {
         const { deadline } = kindLimits(model.kind);
+        // A provider that does not speak OpenAI (Antigravity) asks in its own
+        // protocol: the module builds the request and reads the answer, and
+        // the body the app already made is what goes in.
+        const adapter = getAdapter(provider.id);
+        const own = adapter && typeof adapter.buildChatRequest === 'function' ? adapter : null;
+        const spec = own
+          ? await own.buildChatRequest({
+            baseUrl, model: model.id, payload, apiKey,
+            project: (key.account && key.account.project) || null,
+            wire,
+          })
+          : null;
         const result = await request({
-          url: `${baseUrl}/chat/completions`,
-          method: 'POST',
-          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+          url: spec ? spec.url : `${baseUrl}/chat/completions`,
+          method: spec ? spec.method : 'POST',
+          headers: spec
+            ? spec.headers
+            : { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(spec ? spec.body : payload),
           requestId,
           timeoutMs: deadline,
           ...routeTestTags(requestId),
@@ -263,7 +277,9 @@ window.VENOM_RENDERER.attempts = {
         observeUsage(provider.id, key.id, result.headers);
 
         if (result.status === 200) {
-          const parsed = stream ? parseStreamedCompletion(result.body) : parseChatCompletion(result.body);
+          const parsed = own
+            ? await own.parseChatResponse({ body: result.body, stream, wire })
+            : (stream ? parseStreamedCompletion(result.body) : parseChatCompletion(result.body));
           const usage = parsed.usage || {};
           if (!parsed.content) return { ...buildEmptyResult(usage, result.elapsed), keyId: key.id };
           const pass = {

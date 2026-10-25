@@ -13,6 +13,7 @@ Every document in this repository, what it covers, and how far to trust it.
 | [COOKBOOK.md](COOKBOOK.md) | Recipes for the changes that come up most often, each with the files to touch and the command that proves it | Hand-written |
 | [AGENT_TASK_TEMPLATE.md](AGENT_TASK_TEMPLATE.md) | The task card used to delegate work without paying for discovery twice | Hand-written |
 | [LOCAL_GATEWAY.md](LOCAL_GATEWAY.md) | The local multi-account gateway: the three routing profiles, the endpoint contract, the port setting, key tiers, what it does not prove | Hand-written |
+| [OAUTH_PROVIDERS.md](OAUTH_PROVIDERS.md) | The OAuth plane: a provider that signs in on a web page, the three grants (device, in-app window, loopback), what a signed-in account is, the flow, the channels, what the app deliberately does not do | Hand-written |
 | [integrations/](integrations/) | Per-provider reference material: endpoints, hooks, quotas, and the evidence level behind each claim | Hand-written — see [its README](integrations/README.md) for the evidence rules |
 
 ## Reading order

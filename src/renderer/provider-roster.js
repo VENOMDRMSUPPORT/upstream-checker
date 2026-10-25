@@ -12,7 +12,7 @@ window.VENOM_RENDERER.providerRoster = {
       authGroups, breadcrumbHTML, closeRateLimitPop, toggleExpanded,
       clearExpanded, setLegendCollapsed, getLegendCollapsed, testKey,
       setKeyActive, deleteKey, getKey, markCopied, setStatus, showPage,
-      switchProvider, openAddKeyModal, openProviderPage, recheckProvider,
+      switchProvider, openAddKeyModal, openProviderPage, recheckProvider, connectAccount,
     } = deps;
     const state = { search: '', filter: 'all', status: 'all', sort: 'name', view: compactLayout.matches ? 'cards' : 'table' };
     let tab = 'connected';
@@ -265,8 +265,15 @@ window.VENOM_RENDERER.providerRoster = {
       if (d.showConnected) { tab = 'connected'; toggleExpanded(d.showConnected); shell = null; render(); return; }
       if (d.go) { showPage(d.go); return; }
       if (d.connect) {
+        const target = getProviders()[d.connect];
+        // A provider that signs in on a web page has no key to paste: its
+        // Connect button starts the sign-in, not the key modal.
+        if (target && Array.isArray(target.auth) && target.auth.includes('oauth')) {
+          if (connectAccount) connectAccount(d.connect);
+          return;
+        }
         switchProvider(d.connect);
-        const name = getProviders()[d.connect].name;
+        const name = target ? target.name : '';
         openAddKeyModal(tab === 'integrated' ? `Connect ${name}` : `Add key to ${name}`, tab === 'integrated' ? d.connect : undefined);
         return;
       }

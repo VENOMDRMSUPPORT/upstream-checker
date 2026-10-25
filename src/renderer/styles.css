@@ -2406,6 +2406,59 @@ html, body {
   display: none;
 }
 
+/* OAuth connect modal: the sign-in happens in the browser, this window waits
+   for it. The code is shown large because it is the one thing the person may
+   have to type by hand. */
+.oauth-status-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.oauth-status-row .key-verify {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.oauth-spinner {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  flex: 0 0 auto;
+}
+.oauth-lead {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.oauth-code-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px 12px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent-text) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-text) 28%, transparent);
+}
+.oauth-code-box[hidden] {
+  display: none;
+}
+.oauth-code-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.oauth-code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text-0);
+  user-select: all;
+}
+
 .update-ready-note {
   padding: 10px 12px;
   border-radius: var(--radius-md);
@@ -12351,9 +12404,470 @@ body.locked :is(#btn-settings, #btn-header-debug, #btn-accent, .hdr-accent, #btn
 [data-accent="amber"] .ntf-foot .ntf-btn-primary:hover {
   color: #18181b;
 }
+/* Model Activity — page and notifications */
 .ac-list { display: flex; flex-direction: column; gap: 8px; }
 .ac-list .ntf-item { cursor: pointer; padding: 12px 14px; }
-.ac-more { display: flex; justify-content: center; padding: 12px 0 4px; }
+.ac-more { display: flex; justify-content: center; padding: 16px 0 8px; }
+
+/* Top toolbar breadcrumb actions */
+.ac-crumbs-toolbar {
+  align-items: center;
+}
+.ac-crumbs-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.ac-top-mark-read {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.ac-top-mark-read:hover {
+  color: var(--text-0);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.ac-all-caught-up {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-3);
+  font-family: 'JetBrains Mono', monospace;
+  padding: 4px 8px;
+  border-radius: var(--radius-md);
+  background: var(--bg-2);
+}
+
+/* Bell notification logo */
+.ntf-item .pv-logo.ntf-logo {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.ntf-item .pv-logo.ntf-logo img {
+  width: 15px;
+  height: 15px;
+}
+.ntf-item .pv-logo.ntf-logo .pv-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+/* Event badges (Added / Removed) */
+.ac-kind-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+.ac-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+.ac-badge-added {
+  color: var(--pass);
+  background: color-mix(in srgb, var(--pass) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pass) 28%, transparent);
+}
+.ac-badge-removed {
+  color: var(--fail);
+  background: color-mix(in srgb, var(--fail) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fail) 28%, transparent);
+}
+.ac-badge-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ac-new-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/* Table View */
+.ac-table-wrap {
+  margin-top: 14px;
+}
+.ac-table th {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding: 10px 12px;
+}
+.ac-table td {
+  padding: 12px;
+  vertical-align: middle;
+}
+
+/* Row styling by state: green tint for added, red tint for removed */
+.ac-table tbody tr.ac-row.is-added {
+  background: color-mix(in srgb, var(--pass) 4%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--pass) 70%, transparent);
+}
+.ac-table tbody tr.ac-row.is-added:hover {
+  background: color-mix(in srgb, var(--pass) 9%, transparent);
+  border-left-color: var(--pass);
+}
+
+.ac-table tbody tr.ac-row.is-removed {
+  background: color-mix(in srgb, var(--fail) 4%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--fail) 70%, transparent);
+}
+.ac-table tbody tr.ac-row.is-removed:hover {
+  background: color-mix(in srgb, var(--fail) 9%, transparent);
+  border-left-color: var(--fail);
+}
+
+.ac-table tbody tr.ac-row.is-unread {
+  font-weight: 500;
+}
+
+/* Column # (Row index & Event ID) */
+.col-ac-idx {
+  text-align: center;
+  padding: 8px 6px !important;
+}
+.ac-idx-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+.ac-idx-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.ac-idx-id {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  color: var(--text-4);
+}
+
+.ac-provider-cell {
+  cursor: pointer;
+  user-select: none;
+}
+.ac-provider-cell:hover .dt-provider-name {
+  color: var(--accent);
+}
+.ac-provider-text {
+  min-width: 0;
+}
+.ac-model-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 220px;
+}
+.ac-model-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ac-model-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-0);
+}
+.ac-model-sub {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ac-code {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: var(--bg-3);
+  border: 1px solid var(--border-2);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-2);
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ac-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border-2);
+  background: var(--bg-2);
+  color: var(--text-3);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.ac-icon-btn:hover {
+  background: var(--bg-4);
+  color: var(--text-0);
+  border-color: var(--border-3);
+}
+.ac-icon-btn.copied {
+  color: var(--pass);
+  border-color: var(--pass);
+}
+.ac-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 5px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  background: var(--bg-2);
+  color: var(--text-3);
+  border: 1px solid var(--border-1);
+}
+.ac-tag-catalog {
+  background: color-mix(in srgb, var(--pass) 12%, transparent);
+  color: var(--pass);
+  border-color: color-mix(in srgb, var(--pass) 25%, transparent);
+}
+.ac-tag-price {
+  color: var(--text-2);
+}
+.ac-date-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 130px;
+}
+.ac-date-rel {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-1);
+}
+.ac-date-abs {
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-3);
+}
+.ac-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.ac-btn-mark-read {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  font-size: 10.5px;
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.ac-btn-mark-read:hover {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border-color: var(--accent);
+  color: var(--text-0);
+}
+.ac-read-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  color: var(--text-4);
+  opacity: 0.8;
+  padding: 0 4px;
+}
+
+/* Cards View */
+.ac-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+  margin-top: 14px;
+}
+.ac-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--border-1);
+  border-radius: 14px;
+  background: var(--bg-1);
+  overflow: hidden;
+  isolation: isolate;
+  transition: border-color var(--transition-normal), transform var(--transition-normal), box-shadow var(--transition-normal);
+}
+.ac-card.is-added {
+  border-left: 3px solid var(--pass);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--pass) 5%, var(--bg-1)) 0%, var(--bg-1) 100%);
+  border-color: color-mix(in srgb, var(--pass) 25%, var(--border-1));
+}
+.ac-card.is-added:hover {
+  border-color: color-mix(in srgb, var(--pass) 50%, var(--border-1));
+  box-shadow: 0 12px 28px -14px color-mix(in srgb, var(--pass) 35%, transparent);
+}
+.ac-card.is-removed {
+  border-left: 3px solid var(--fail);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--fail) 5%, var(--bg-1)) 0%, var(--bg-1) 100%);
+  border-color: color-mix(in srgb, var(--fail) 25%, var(--border-1));
+}
+.ac-card.is-removed:hover {
+  border-color: color-mix(in srgb, var(--fail) 50%, var(--border-1));
+  box-shadow: 0 12px 28px -14px color-mix(in srgb, var(--fail) 35%, transparent);
+}
+.ac-card:hover {
+  transform: translateY(-2px);
+}
+.ac-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.ac-card-provider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  min-width: 0;
+}
+.ac-card-provider .pv-logo {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+}
+.ac-card-provider .pv-logo img {
+  width: 24px;
+  height: 24px;
+}
+.ac-card-provider:hover .ac-card-provider-name {
+  color: var(--accent);
+}
+.ac-card-provider-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ac-card-provider-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ac-card-provider-host {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ac-card-kind-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.ac-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+.ac-card-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text-0);
+  word-break: break-word;
+}
+.ac-card-code-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ac-card-code-row .ac-code {
+  max-width: calc(100% - 32px);
+}
+.ac-card-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ac-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-1);
+}
+.ac-card-time {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ac-card-time-icon svg {
+  width: 12px;
+  height: 12px;
+  opacity: 0.7;
+}
+.ac-time-dot {
+  opacity: 0.5;
+}
+.ac-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
 
 
 /* Settings grouping and subtle group headers */

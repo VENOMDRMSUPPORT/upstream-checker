@@ -241,6 +241,9 @@ and what it does not prove — is in [LOCAL_GATEWAY.md](LOCAL_GATEWAY.md).
   never scrubbed.
 - The renderer receives a masked hint and a `venomkey:` placeholder, nothing
   more. `copy-key` writes the clipboard in main so the page never sees it.
+- A signed-in account (the OAuth plane, §7) holds a second secret: its access
+  token, in its own encrypted column, reached by the `venomoauth:` placeholder
+  and resolved by the same origin rule.
 
 ## 7. IPC surface
 
@@ -257,6 +260,8 @@ rather than treating the generated list as the entire runtime wire.
 | Data | `read-config`, `database-explorer`, `save-settings`, `save-secret`, `save-test-definition`, `save-provider`, `merge-provider`, `delete-provider`, `copy-key`, `read-history`, `append-run`, `clear-history` | one thing per channel, so two writers cannot overwrite each other. `copy-key` is gated on the lock and answers `{ ok: false, code: 'LOCKED' }` |
 | Catalog | `catalog:ingest`, `catalog:read`, `catalog:health`, `catalog:sources`, `catalog:fetch-info`, `catalog:events`, `catalog:events-read` | the catalog roster, its sources and its change feed. **Every one resolves**: an outcome the page must act on is `{ ok: false, code, message }`, because `err.code` cannot cross `ipcMain.handle` — a rejection becomes a new Error carrying only its message |
 | App lock | `auth:status`, `auth:unlock`, `auth:change`, `auth:lock`, `auth:activity` | same resolving contract. `auth:locked` travels the other way (main→renderer) when the idle limit ends a session. No reply ever carries the stored hash |
+| OAuth | `oauth-start`, `oauth-status`, `oauth-cancel`, `oauth-reopen`, `oauth-usage`, `oauth-renew` | a provider that signs in on a web page (docs/OAUTH_PROVIDERS.md). `oauth-start` returns the code to type; `oauth-status` is a read and answers even while the app is locked; the ones that act are gated on the lock and answer `{ ok: false, code: 'LOCKED' }`. Main keeps the flow, the token and the credential — the renderer never sees a secret |
+| Wire | `wire:build`, `wire:parse` | a provider that does not speak OpenAI: the page asks main to build the request that provider understands and to read the answer it sends back. The provider's own address comes from the database, never from the page, so a key can only ever travel to the provider it belongs to (src/wire/) |
 | Router | `router:status`, `router:refresh`, `router:profiles` | routing status and profile data; defined in `src/main.js` and exposed through `src/preload.js` |
 | Request log | `logs-list`, `logs-get`, `logs-stats`, `logs-facets`, `logs-runs`, `logs-run-summary`, `logs-export`, `logs-info`, `logs-clear` | read-only except export and clear |
 | Legacy log file | `read-log-info`, `open-request-log`, `clear-request-log` | the old `requests.log` |
@@ -381,8 +386,18 @@ initialization-only entry point.
 - **`key-usage.js`** — per-key quota drawer, provider-agnostic; the log drawer
   reuses its panel CSS.
 - Providers add behaviour through `meta` plus optional hooks:
-  `fetchModels`, `classify(model)`, `fetchKeyUsage`, `fetchKeyHistory`,
-  `readQuotaError`, `readUsageHeaders`.
+  `fetchModels`, `classify(model)`, `excludeModel(model)`, `fetchKeyUsage`,
+  `fetchKeyHistory`, `readQuotaError`, `readUsageHeaders`,
+  `decisionProbe`, `readDecisionAnswer`, and — for a provider that does not
+  speak OpenAI — `buildChatRequest` / `parseChatResponse`.
+- A provider that does not speak OpenAI has a **wire**: `src/wire/<id>.js`
+  holds its whole protocol — the request it understands and the answer it
+  sends back. The wire lives in main, so the page and the routing gateway
+  speak the same one; the page reaches it through `wire:build` / `wire:parse`.
+- `meta.auth` says what kind of credential the provider takes — `apikey` (the
+  default), `oauth`, `none` — and the roster counts the accounts accordingly.
+  A provider that signs in on a web page declares its flow in `meta.oauth`
+  and is driven by the OAuth plane (docs/OAUTH_PROVIDERS.md).
 
 Legacy classic scripts share a lexical global scope: a duplicate top-level
 `const` can stop a script from loading. New units keep their internals inside

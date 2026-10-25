@@ -37,6 +37,7 @@ it may change, the acceptance command. That, plus this file, is what turns a
 | `npm run verify:live` | drives a separate app over CDP on a scratch data folder against a mock provider; prints `ALL LIVE CHECKS PASSED` |
 | `npm run verify:catalog` / `verify:legend` / `verify:sidebar` | focused Models Catalog live checks on scratch data |
 | `npm run verify:lock` | focused app-lock and security-page live check on scratch data |
+| `npm run verify:antigravity` | focused Antigravity check on scratch data: the sign-in, the roster, the allowance, the chat |
 | `node scripts/live/verify-renderer-modules.mjs` | module composition, appearance, persistence and navigation, plus the router-page geometry check |
 | `node scripts/live/verify-provider-table.mjs` | the provider test table's reference columns and their tri-state display |
 | `npm run repo:map` | regenerate `docs/CODE_MAP.md` after adding/moving a file |
@@ -67,6 +68,8 @@ it may change, the acceptance command. That, plus this file, is what turns a
 | Local routing gateway and the three profiles | `src/router/index.js`, wired in `src/main.js`; `docs/LOCAL_GATEWAY.md` |
 | Venom Profiles page and the shared profile badges | `src/renderer/router-status.js`, `src/renderer/profile-badges.js` |
 | Built-in provider adapters (current set) | `src/renderer/providers/` — inspect the directory for the current modules |
+| A provider that signs in on a web page (the OAuth plane) | `src/oauth/`, wired in `src/main.js`; `docs/OAUTH_PROVIDERS.md` |
+| A provider that does not speak OpenAI (its own protocol) | `src/wire/` — the request it understands and the answer it sends back |
 | Live verification | `scripts/live/verify-db.mjs` |
 
 ## Non-negotiables (short version — CLAUDE.md is the authority)

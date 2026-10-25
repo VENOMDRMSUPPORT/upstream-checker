@@ -32,7 +32,7 @@ try {
   const startupErrors = await app.evaluate('window.__rendererErrors || []');
   check('renderer startup completes without page errors', startupErrors.length === 0, JSON.stringify(startupErrors));
   const modules = await app.evaluate('Object.keys(window.VENOM_RENDERER).sort()');
-  check('all extracted units load together in the real renderer', modules.join(',') === 'appearance,attempts,defaults,effects,pageRouter,policy,providerActions,providerDetail,providerKeys,providerModels,providerRoster,providerStore,providerView,responses,results,runner,settingsPanel,shell,updates', modules.join(', '));
+  check('all extracted units load together in the real renderer', modules.join(',') === 'appearance,attempts,defaults,effects,oauthConnect,pageRouter,policy,providerActions,providerDetail,providerKeys,providerModels,providerRoster,providerStore,providerView,responses,results,runner,settingsPanel,shell,updates', modules.join(', '));
 
   const providerDetail = await app.evaluate(`(() => {
     openProviderPage('darkapi');
@@ -45,6 +45,37 @@ try {
       names: [...document.querySelectorAll('#keys-list .key-name')].map(el => el.textContent) };
   })()`);
   check('provider detail header and key list are visible in the real renderer', providerDetail.visible && providerDetail.keyCount === 3 && providerDetail.names.includes('Dark one') && providerDetail.names.includes('Custom only'), JSON.stringify(providerDetail));
+
+  // The OAuth provider: the panel says Accounts, the button says Connect, and
+  // the button a person would click is on screen. The key one is not there —
+  // an account is signed in, not pasted.
+  const oauthProvider = await app.evaluate(`(() => {
+    openProviderPage('muse');
+    const connect = document.getElementById('btn-connect-account');
+    const add = document.getElementById('btn-add-key');
+    const rect = connect && connect.getBoundingClientRect();
+    return {
+      connectVisible: !!connect && !connect.hidden && rect.width > 0 && rect.height > 0,
+      addHidden: !!add && add.hidden,
+      label: (document.getElementById('pt-keys-label-text') || {}).textContent || '',
+      empty: (document.querySelector('#keys-list .models-empty') || {}).textContent || '',
+    };
+  })()`);
+  check('an OAuth provider offers Connect instead of Add API Key', oauthProvider.connectVisible && oauthProvider.addHidden && oauthProvider.label === 'Accounts', JSON.stringify(oauthProvider));
+
+  // The provider's logo has to load, not merely point at a file: an image
+  // that never decoded renders as a dead tile.
+  const museLogo = await app.evaluate(`(() => {
+    document.querySelector('.shell-nav-item[data-page="providers"]').click();
+    document.querySelector('.pv-tab[data-tab="integrated"]').click();
+    const cards = [...document.querySelectorAll('.pv-grid-compact .pv-card')];
+    const card = cards.find(c => (c.textContent || '').includes('Muse AI'));
+    const img = card && card.querySelector('img');
+    const rect = img && img.getBoundingClientRect();
+    return { card: !!card, img: !!img, complete: !!(img && img.complete), natural: img ? img.naturalWidth : 0,
+      src: img ? img.getAttribute('src') : '', visible: !!rect && rect.width > 0 && rect.height > 0 };
+  })()`);
+  check("the Muse logo file loads and draws in the integrated roster", museLogo.card && museLogo.img && museLogo.complete && museLogo.natural > 0 && museLogo.visible, JSON.stringify(museLogo));
 
   const providerModels = await app.evaluate(`(() => {
     switchProvider('darkapi');
@@ -78,7 +109,7 @@ try {
     return { ...connected, integratedGridVisible: !!grid && gridRect.width > 0 && gridRect.height > 0,
       integratedCards: grid ? grid.querySelectorAll('.pv-card').length : 0 };
   })()`);
-  check('connected and integrated provider roster render visibly from live data', providerRoster.visible && providerRoster.count > 0 && providerRoster.integrated === 11 && providerRoster.results && providerRoster.rows === providerRoster.count && providerRoster.firstRowVisible && providerRoster.errors.length === 0 && providerRoster.integratedGridVisible && providerRoster.integratedCards > 0, JSON.stringify(providerRoster));
+  check('connected and integrated provider roster render visibly from live data', providerRoster.visible && providerRoster.count > 0 && providerRoster.integrated === 13 && providerRoster.results && providerRoster.rows === providerRoster.count && providerRoster.firstRowVisible && providerRoster.errors.length === 0 && providerRoster.integratedGridVisible && providerRoster.integratedCards > 0, JSON.stringify(providerRoster));
 
   const appearance = await app.evaluate(`(() => {
     document.querySelector('.shell-nav-item[data-page="settings"]').click();

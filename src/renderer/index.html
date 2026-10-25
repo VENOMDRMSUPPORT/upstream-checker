@@ -458,8 +458,9 @@
         <!-- Model activity: every roster arrival and departure across connected
              providers, newest first. Written by the catalog ingest flow. -->
         <section class="shell-page page-activity" data-page="activity" hidden>
-          <div class="pv-toolbar">
+          <div class="pv-toolbar ac-crumbs-toolbar">
             <nav class="crumbs" id="ac-crumbs" aria-label="Breadcrumb"></nav>
+            <div class="ac-crumbs-actions" id="ac-crumbs-actions"></div>
           </div>
           <div class="pv-body" id="ac-body"></div>
         </section>
@@ -492,9 +493,14 @@
             <div class="pt-side">
               <section class="ov-panel pt-panel pt-keys">
                 <div class="ov-panel-head">
-                  <span>API keys <b class="pt-count" id="pt-key-count">0</b></span>
+                  <span id="pt-keys-label"><span id="pt-keys-label-text">API keys</span> <b class="pt-count" id="pt-key-count">0</b></span>
                   <button class="section-action-btn" id="btn-add-key" type="button" title="Add API key" aria-label="Add API key">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  </button>
+                  <!-- A provider that signs in on a web page: the account is
+                       connected, not pasted. The button replaces the one above. -->
+                  <button class="section-action-btn" id="btn-connect-account" type="button" title="Connect an account" aria-label="Connect an account" hidden>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
                   </button>
                 </div>
                 <div class="keys-list" id="keys-list"></div>
@@ -2121,6 +2127,35 @@
     </div>
   </div>
 
+  <!-- OAuth Connect Modal: a provider that signs in on a web page -->
+  <div class="modal-overlay" id="oauth-modal" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="oauth-modal-title">Connect</h3>
+        <button class="modal-close" id="oauth-modal-close" aria-label="Close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p class="oauth-lead" id="oauth-modal-lead">A sign-in page opens in your browser. Sign in there, approve the app, and come back — this window waits for you.</p>
+        <div class="oauth-code-box" id="oauth-modal-code-box" hidden>
+          <span class="oauth-code-label">Your code</span>
+          <span class="oauth-code" id="oauth-modal-code"></span>
+        </div>
+        <div class="oauth-status-row" id="oauth-modal-status-row" hidden>
+          <span class="spinner oauth-spinner" id="oauth-modal-spinner" aria-hidden="true"></span>
+          <div class="key-verify" id="oauth-modal-status" role="status" hidden></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="oauth-modal-reopen">Open the page again</button>
+        <button class="btn btn-ghost" id="oauth-modal-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Edit Provider Modal (providers are integrated: edited, never added) -->
   <div class="modal-overlay" id="add-provider-modal" style="display:none">
     <div class="modal">
@@ -2361,6 +2396,8 @@
   <script src="providers/devora.js"></script>
   <script src="providers/apinex.js"></script>
   <script src="providers/kiosapi.js"></script>
+  <script src="providers/muse.js"></script>
+  <script src="providers/antigravity.js"></script>
   <script src="ui-select.js"></script>
   <script src="ui-stepper.js"></script>
   <script src="ulid.js"></script>
@@ -2388,6 +2425,7 @@
   <script src="page-router.js"></script>
   <script src="shell.js"></script>
   <script src="profile-badges.js"></script>
+  <script src="oauth-connect.js"></script>
   <script src="app.js"></script>
   <script src="key-usage.js"></script>
   <script src="catalog.js"></script>

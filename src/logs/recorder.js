@@ -65,10 +65,12 @@ function originOf(url) {
 
 // The key's own provider when a key was substituted (or refused); otherwise
 // the one provider whose base URL has this origin (several → unknown).
+// A signed-in account answers with an 'oauth' ref: it is the same key row,
+// and a request that used its access token belongs to that provider and key.
 function whoFor(refs, url, providers) {
   const list = Array.isArray(providers) ? providers : [];
   const all = Array.isArray(refs) ? refs : [];
-  const key = all.find((r) => r && r.kind === 'key');
+  const key = all.find((r) => r && (r.kind === 'key' || r.kind === 'oauth'));
   const secret = all.find((r) => r && r.kind === 'secret');
   let providerId = key && key.providerId ? key.providerId : null;
   if (!providerId) {

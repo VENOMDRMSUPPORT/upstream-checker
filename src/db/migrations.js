@@ -290,4 +290,30 @@ module.exports = [
       `);
     },
   },
+  {
+    version: 7,
+    up(db) {
+      // OAuth accounts (the OAuth plane, docs/OAUTH_PROVIDERS.md).
+      //
+      // A signed-in account is a provider key like any other: one row, one
+      // credential in `cipher`, the same request path. Two columns are added
+      // beside it:
+      //
+      // - oauth_cipher holds the account's access token, encrypted like every
+      //   other secret. It is what lets the account be read again later (a
+      //   quota reading needs it) and what lets a fresh credential be minted
+      //   when the old one stops working. It is never the credential the API
+      //   is called with, so a row without it still works.
+      // - oauth_meta_json holds the account's public facts: the email, the
+      //   plan, the published usage windows. Nothing secret is in it.
+      //
+      // Both are nullable: a row that was never signed in has neither, and
+      // the CHECK keeps a written token in the enc:v1: envelope.
+      db.exec(`
+        ALTER TABLE provider_keys ADD COLUMN oauth_cipher TEXT
+          CHECK (oauth_cipher IS NULL OR oauth_cipher GLOB 'enc:v1:?*');
+        ALTER TABLE provider_keys ADD COLUMN oauth_meta_json TEXT;
+      `);
+    },
+  },
 ];

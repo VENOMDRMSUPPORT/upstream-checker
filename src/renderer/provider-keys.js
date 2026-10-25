@@ -126,6 +126,12 @@ window.VENOM_RENDERER.providerKeys = {
         : (k.active ? 'In use — click to disable' : 'Disabled — click to enable');
       const lockAria = isUnlocked ? 'Disable key' : 'Enable key';
       const hint = `${state.hint}${added ? ` · added ${added}` : ''}`;
+      // A signed-in account: its plan is shown beside its name, so the row
+      // says which account this is and what it is on.
+      const account = k.account || null;
+      const accountBadge = (k.oauth && account && account.tier)
+        ? `<span class="kx-flag ok" title="Signed in as ${escapeHtml(account.email || k.name)} · ${escapeHtml(account.tier)}">${escapeHtml(account.tier)}</span>`
+        : '';
       return {
         st: state,
         added,
@@ -137,7 +143,7 @@ window.VENOM_RENDERER.providerKeys = {
             : !k.active
               ? `<span class="kx-flag" title="Disabled by the admin — this key is not used in runs">${KX_ICON.lock}</span>`
               : ''
-        }</span>`,
+        }${accountBadge}</span>`,
         secret: `<div class="kx-secret">
         ${k.locked ? '<code>encrypted</code>' : (k.hint ? `<code>${escapeHtml(k.hint)}</code>` : '<span class="kx-notsaved" title="WARNING: Key value was never saved — re-add it">NOT SAVED: not saved</span>')}
         ${k.locked ? '' : `<button class="pv-icon-btn${(pvCopied.get(`${p.id}|${k.id}`) || 0) > Date.now() ? ' copied' : ''}" type="button" data-kx-copy="${pid}|${kid}" title="${(pvCopied.get(`${p.id}|${k.id}`) || 0) > Date.now() ? 'Copied' : 'Copy key'}" aria-label="Copy key">${PV_ICON.copy}</button>`}
@@ -151,6 +157,7 @@ window.VENOM_RENDERER.providerKeys = {
     }
 
     function keysPanelHTML(p) {
+      const isOauth = Array.isArray(p.auth) && p.auth.includes('oauth');
       const rows = p.keys.map((k, i) => {
         const parts = keyParts(p, k, i);
         return `<div class="kx-row" data-state="${parts.st.id}">
@@ -168,7 +175,7 @@ window.VENOM_RENDERER.providerKeys = {
       <div class="kx-actions">${parts.actions}</div>
     </div>`;
       }).join('');
-      return `<div class="kx-panel" aria-label="API keys"><div class="kx-list">${rows}</div></div>`;
+      return `<div class="kx-panel" aria-label="${isOauth ? 'Accounts' : 'API keys'}"><div class="kx-list">${rows}</div></div>`;
     }
 
     function keyRowsHTML(p) {

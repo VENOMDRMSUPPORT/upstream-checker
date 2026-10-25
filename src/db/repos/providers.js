@@ -6,9 +6,15 @@
 // only as a masked hint. A key whose ciphertext this machine can't open is
 // "locked": kept untouched and reported as such, never overwritten.
 const { ENC_PREFIX, revealCached } = require('../cipher');
+const { ulid } = require('../ulid');
 
 const KEY_PLACEHOLDER = 'venomkey:';
-const ANY_PLACEHOLDER = /^venom(?:key|secret):/;
+// The second secret of a signed-in account: the access token the OAuth flow
+// produced. It lives in its own column and never crosses the wire — the
+// renderer only ever sees this placeholder, and the resolver swaps in the
+// real token for the provider's own origin.
+const OAUTH_PLACEHOLDER = 'venomoauth:';
+const ANY_PLACEHOLDER = /^venom(?:key|secret|oauth):/;
 
 // The one place a key id's shape is defined. It must stay resolvable as a
 // venomkey:<id> placeholder (src/db/keys.js's TOKEN caps a run at the same 64
@@ -55,7 +61,42 @@ function createProvidersRepo(db, cipher, cache, log = console) {
     deleteKey: db.prepare('DELETE FROM provider_keys WHERE id = ?'),
   };
   const cacheKey = (id) => `key:${id}`;
+  const oauthCacheKey = (id) => `oauth:${id}`;
   const warnedLocked = new Set();
+
+  // The OAuth columns arrive in a late migration (v7), so they are prepared
+  // only once the database is known to have them. A file without them behaves
+  // like one that has no signed-in accounts.
+  let oauthColumns = null;
+  let oauthStmts = null;
+  function hasOAuthColumns() {
+    if (oauthColumns !== null) return oauthColumns;
+    try {
+      const cols = db.prepare('PRAGMA table_info(provider_keys)').all();
+      oauthColumns = cols.some((c) => c.name === 'oauth_cipher') && cols.some((c) => c.name === 'oauth_meta_json');
+    } catch (_) {
+      oauthColumns = false;
+    }
+    return oauthColumns;
+  }
+  function oauthStatements() {
+    if (oauthStmts) return oauthStmts;
+    oauthStmts = {
+      set: db.prepare(`UPDATE provider_keys SET oauth_cipher = @cipher, oauth_meta_json = @meta,
+        updated_at = @now WHERE id = @id`),
+      nextPosition: db.prepare('SELECT COALESCE(MAX(position), -1) + 1 AS p FROM provider_keys WHERE provider_id = ?'),
+    };
+    return oauthStmts;
+  }
+  function readMeta(value) {
+    if (typeof value !== 'string' || !value) return null;
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (_) {
+      return null;
+    }
+  }
   // Migration v6 columns (tier, quota_pool_id) do not exist on older files
   // opened in tests against a truncated migration list. Probe once; writes
   // fall back to the v5 shape when they are absent.
@@ -95,6 +136,19 @@ function createProvidersRepo(db, cipher, cache, log = console) {
       quotaPoolId: row.quota_pool_id != null ? String(row.quota_pool_id) : null,
     };
     if (row.quota_spent_json) out.quotaSpent = JSON.parse(row.quota_spent_json);
+    // A signed-in account: the renderer gets the access token's placeholder
+    // (never the token) and the account's public facts.
+    const accountMeta = readMeta(row.oauth_meta_json);
+    if (row.oauth_cipher) {
+      out.oauth = true;
+      out.oauthKey = OAUTH_PLACEHOLDER + row.id;
+      out.account = accountMeta;
+    } else if (accountMeta && accountMeta.oauthKind) {
+      // A web-session account: its credential IS the session, so there is no
+      // second secret to hand out — only the account's public facts.
+      out.oauth = true;
+      out.account = accountMeta;
+    }
     return out;
   }
 
@@ -262,6 +316,116 @@ function createProvidersRepo(db, cipher, cache, log = console) {
     return row ? reveal(row) : null;
   }
 
+  // The account's access token, decrypted once per session like every other
+  // secret. null when the row has none or this machine cannot open it.
+  function revealOauth(id) {
+    const row = q.key.get(id);
+    if (!row || !row.oauth_cipher) return null;
+    return revealCached(cipher, cache, oauthCacheKey(id), row.oauth_cipher);
+  }
+
+  // A signed-in account becomes a provider key: one row, the credential the
+  // API is called with in `cipher`, the access token in `oauth_cipher`, and
+  // the account's public facts beside them. Signing the same account in twice
+  // replaces its row instead of adding a second one.
+  const saveOAuthTx = db.transaction((account) => {
+    const providerId = account && account.providerId;
+    if (!providerId) throw new TypeError('An account needs a provider');
+    const provider = q.provider.get(providerId);
+    if (!provider) throw new Error('That provider is not saved');
+    if (!hasOAuthColumns()) throw new Error('This database has no room for signed-in accounts — update the app and reopen it');
+    const meta = account.meta && typeof account.meta === 'object' ? account.meta : {};
+    const rows = q.keysOf.all(providerId);
+    let existing = null;
+    if (meta.email) {
+      existing = rows.find((r) => {
+        const m = readMeta(r.oauth_meta_json);
+        return !!(m && m.email && m.email === meta.email);
+      }) || null;
+    }
+    const id = existing ? existing.id : `acct_${ulid()}`;
+    const now = Date.now();
+    const position = existing ? existing.position : oauthStatements().nextPosition.get(providerId).p;
+    const cipherValue = cipher.encrypt(String(account.secret || ''));
+    if (existing) {
+      q.updateKey.run({
+        id,
+        provider_id: providerId,
+        name: account.name || existing.name,
+        cipher: cipherValue,
+        active: 1,
+        position,
+        quota_spent_json: existing.quota_spent_json || null,
+        now,
+      });
+    } else {
+      q.insertKey.run({
+        id,
+        provider_id: providerId,
+        name: account.name || id,
+        cipher: cipherValue,
+        active: 1,
+        position,
+        quota_spent_json: null,
+        now,
+      });
+    }
+    oauthStatements().set.run({
+      id,
+      // A web-session account has one secret: the session itself. There is no
+      // access token beside it, so the column stays empty.
+      cipher: account.oauthSecret ? cipher.encrypt(String(account.oauthSecret)) : null,
+      meta: JSON.stringify(meta),
+      now,
+    });
+    cache.delete(cacheKey(id));
+    cache.delete(oauthCacheKey(id));
+    return id;
+  });
+
+  function saveOAuthAccount(account) {
+    const id = saveOAuthTx(account);
+    return { id, provider: get(account.providerId) };
+  }
+
+  // A signed-in account renews itself: the access token is replaced and the
+  // renewal token beside it may be too. Only the two secret columns and the
+  // account's own facts move — the row's name, position and enabled state
+  // belong to the person, not to the provider, so a renewal never switches a
+  // key back on that the person turned off.
+  const updateOAuthTx = db.transaction((account) => {
+    const row = q.key.get(account && account.id);
+    if (!row) throw new Error('That account is not in the database');
+    if (!hasOAuthColumns()) throw new Error('This database has no room for signed-in accounts — update the app and reopen it');
+    const now = Date.now();
+    const meta = account.meta && typeof account.meta === 'object' ? account.meta : (readMeta(row.oauth_meta_json) || {});
+    const cipherValue = account.secret ? cipher.encrypt(String(account.secret)) : row.cipher;
+    q.updateKey.run({
+      id: row.id,
+      provider_id: row.provider_id,
+      name: row.name,
+      cipher: cipherValue,
+      active: row.active,
+      position: row.position,
+      quota_spent_json: row.quota_spent_json || null,
+      now,
+    });
+    oauthStatements().set.run({
+      id: row.id,
+      cipher: account.oauthSecret ? cipher.encrypt(String(account.oauthSecret)) : row.oauth_cipher,
+      meta: JSON.stringify(meta),
+      now,
+    });
+    cache.delete(cacheKey(row.id));
+    cache.delete(oauthCacheKey(row.id));
+    return row.id;
+  });
+
+  function updateOAuthAccount(account) {
+    const id = updateOAuthTx(account);
+    return { id, provider: get(q.key.get(id).provider_id) };
+  }
+
   // Import only, inside the importer's transaction: rows exactly as given,
   // ciphertext included.
   function importProvider(p) {
@@ -284,14 +448,22 @@ function createProvidersRepo(db, cipher, cache, log = console) {
   function listAllActiveKeys() {
     const rows = db.prepare(`SELECT k.*, p.base_url AS base_url FROM provider_keys k
       JOIN providers p ON p.id = k.provider_id WHERE k.active = 1 ORDER BY k.position, k.id`).all();
-    return rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      providerId: row.provider_id,
-      baseUrl: row.base_url,
-      tier: normaliseTier(row.tier),
-      quotaPoolId: row.quota_pool_id != null ? String(row.quota_pool_id) : null,
-    }));
+    return rows.map((row) => {
+      // A signed-in account carries the project its requests are billed to.
+      // The gateway needs it: a provider that does not speak OpenAI names
+      // the project in the request itself.
+      let meta = null;
+      try { meta = readMeta(row.oauth_meta_json); } catch (_) { meta = null; }
+      return {
+        id: row.id,
+        name: row.name,
+        providerId: row.provider_id,
+        baseUrl: row.base_url,
+        tier: normaliseTier(row.tier),
+        quotaPoolId: row.quota_pool_id != null ? String(row.quota_pool_id) : null,
+        project: meta && meta.project ? String(meta.project) : null,
+      };
+    });
   }
 
   function setKeyTier(id, tier, quotaPoolId = null) {
@@ -301,8 +473,8 @@ function createProvidersRepo(db, cipher, cache, log = console) {
     return true;
   }
 
-  return { list, get, save, merge, remove, keyRecord, revealKey,
-    listAllActiveKeys, setKeyTier, importProvider };
+  return { list, get, save, merge, remove, keyRecord, revealKey, revealOauth,
+    saveOAuthAccount, updateOAuthAccount, listAllActiveKeys, setKeyTier, importProvider };
 }
 
-module.exports = { createProvidersRepo, maskKey, KEY_PLACEHOLDER, KEY_ID, KEY_TIERS, normaliseTier };
+module.exports = { createProvidersRepo, maskKey, KEY_PLACEHOLDER, OAUTH_PLACEHOLDER, KEY_ID, KEY_TIERS, normaliseTier };

@@ -1,10 +1,11 @@
 // ============================================
 // Placeholders → secrets, for outgoing requests
 // ============================================
-// The renderer never holds a key. It puts venomkey:<keyId> (a provider key) or
-// venomsecret:<name> (the Artificial Analysis key) where the key goes — a
-// header, the URL, a body — and main swaps in the secret just before sending,
-// only when the request goes to that secret's own origin.
+// The renderer never holds a key. It puts venomkey:<keyId> (a provider key),
+// venomsecret:<name> (the Artificial Analysis key) or venomoauth:<keyId> (the
+// access token of a signed-in account) where the key goes — a header, the
+// URL, a body — and main swaps in the secret just before sending, only when
+// the request goes to that secret's own origin.
 //
 // Defence in depth, not a wall: a compromised renderer could still repoint a
 // provider's base URL with save-provider. It stops a key reaching the wrong
@@ -15,8 +16,8 @@ const { SECRET_ORIGINS } = require('./repos/secrets');
 // on every save-provider and reused by the importer), so a token run is capped
 // at 64 too: an attacker-supplied header can't turn one substitution into
 // thousands of lookups, and an "unknown key" error can't quote megabytes.
-const TOKEN = /venom(key|secret):([A-Za-z0-9_.-]{1,64})/g;
-const HAS_TOKEN = /venom(?:key|secret):/;
+const TOKEN = /venom(key|secret|oauth):([A-Za-z0-9_.-]{1,64})/g;
+const HAS_TOKEN = /venom(?:key|secret|oauth):/;
 
 // Only http/https have a real origin. Every other scheme — no scheme at all
 // ("localhost:8080/v1"), a typo'd scheme ("htps://…"), or a deliberately
@@ -77,10 +78,16 @@ function createKeyResolver({ providers, secrets }) {
     for (let len = run.length; len > 0; len -= 1) {
       const record = providers.keyRecord(run.slice(0, len));
       if (!record) continue;
-      const ref = { kind: 'key', id: record.id, providerId: record.providerId };
+      const ref = { kind, id: record.id, providerId: record.providerId };
       if (!target || originOf(record.baseUrl) !== target) return { mismatch: true, ref };
-      const secret = providers.revealKey(record.id);
-      if (secret === null) return { error: `Key blocked: "${record.name}" can't be read on this machine`, ref };
+      // A signed-in account holds two secrets: the credential the API is
+      // called with, and the access token the sign-in produced. The
+      // placeholder says which one is wanted.
+      const secret = kind === 'oauth' ? providers.revealOauth(record.id) : providers.revealKey(record.id);
+      if (secret === null) {
+        const what = kind === 'oauth' ? 'The signed-in account' : 'Key';
+        return { error: `${what} "${record.name}" can't be read on this machine`, ref };
+      }
       return { secret, used: len, ref };
     }
     return { error: `Key blocked: unknown key "${run}"`, ref: { kind: 'key', id: run, providerId: null } };

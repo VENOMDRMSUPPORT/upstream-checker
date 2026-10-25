@@ -97,7 +97,24 @@ window.KEY_USAGE = (() => {
     rerender(pid, kid);
     const job = (async () => {
       try {
-        const usage = await adapterOf(p).fetchKeyUsage({ apiKey: k.key, baseUrl: p.baseUrl, apiRequest: taggedApiRequest('key_usage', p) });
+        // oauthKey is the access token of a signed-in account, as a
+        // placeholder: the module asks for it by name, main swaps the real
+        // token in. A plain key has none.
+        // readAccount reads an account that lives on a web page: the app
+        // opens that page with the stored session and hands back what it says.
+        const usage = await adapterOf(p).fetchKeyUsage({
+          apiKey: k.key,
+          oauthKey: k.oauthKey,
+          baseUrl: p.baseUrl,
+          apiRequest: taggedApiRequest('key_usage', p),
+          readAccount: () => readAccountUsage(p),
+          // The account's own facts: the plan it is on, for the badge and
+          // the drawer.
+          account: k.account || null,
+          // A provider that does not speak OpenAI asks for its own request
+          // through the app's wire.
+          wire: providerWire,
+        });
         cache.set(kid, { state: 'ok', usage, at: Date.now() });
         reconcileSpent(pid, kid, usage);
       } catch (err) {
@@ -370,13 +387,19 @@ window.KEY_USAGE = (() => {
       parts.push(`<span class="ku-inline-unlimited"><span class="ku-unlimited-badge">∞ Unlimited</span><span class="ku-inline-num">${escapeHtml(u.range)}</span></span>`);
       return `<button class="ku-inline" ${openAttrs(p, k, `${u.detail} — open usage details`)}>${parts.join('')}${ICON.panel}</button>`;
     }
-    const a = u.allowance;
-    if (a && a.usedPct != null) {
-      const left = (100 - a.usedPct) / 100;
-      parts.push(`<span class="ku-inline-quota"><span class="dt-rate-bar"><span class="${quotaTone(left)}" style="width:${Math.max(0, Math.min(100, left * 100))}%"></span></span><span class="ku-inline-num">${a.usedPct}% <span class="dt-muted">of ${escapeHtml(a.label.toLowerCase())} used</span></span></span>`);
-    }
-    if (a && a.resetsAt && !u.expiresAt) {
-      parts.push(`<span class="ku-expiry"><b>Resets in ${escapeHtml(untilText(a.resetsAt - Date.now()))}</b></span>`);
+    // One bar per group of limits, when the provider publishes more than one
+    // (a five-hour and a weekly allowance per group of models, say): each
+    // bar is that group's tightest window. A provider with a single
+    // allowance keeps the one bar it always had.
+    const bars = groupBars(u);
+    bars.forEach((bar) => {
+      const left = (100 - bar.usedPct) / 100;
+      const title = bar.title || bar.label;
+      parts.push(`<span class="ku-inline-quota" title="${escapeHtml(title)}"><span class="dt-rate-bar"><span class="${quotaTone(left)}" style="width:${Math.max(0, Math.min(100, left * 100))}%"></span></span><span class="ku-inline-num">${bar.usedPct}% <span class="dt-muted">of ${escapeHtml(String(bar.label).toLowerCase())} used</span></span></span>`);
+    });
+    const first = bars[0];
+    if (first && first.resetsAt && !u.expiresAt) {
+      parts.push(`<span class="ku-expiry"><b>Resets in ${escapeHtml(untilText(first.resetsAt - Date.now()))}</b></span>`);
     }
     if (u.quota) {
       const left = u.quota.remaining / u.quota.total;
@@ -453,13 +476,11 @@ window.KEY_USAGE = (() => {
     </section>`;
   }
 
-  function allowanceSectionHTML(u) {
-    const a = u.allowance;
-    if (!a || a.usedPct == null) return '';
+  function oneAllowanceSection(a, u) {
     const left = (100 - a.usedPct) / 100;
     return `<section class="ku-section">
-      <h4 class="ku-section-title">${escapeHtml(a.label)}</h4>
-      <div class="ku-quota-hero">
+    <h4 class="ku-section-title">${escapeHtml(a.label)}</h4>
+    <div class="ku-quota-hero">
         <span class="ku-quota-big">${a.usedPct}%</span>
         <span class="ku-quota-of">used${u.plan ? ` · ${escapeHtml(u.plan)} plan` : ''}</span>
         <span class="ku-quota-pct" data-tone="${quotaTone(left)}">${Math.round(left * 100)}% left</span>
@@ -470,6 +491,37 @@ window.KEY_USAGE = (() => {
         <span class="ku-expiry-date">${escapeHtml(fullDate(a.resetsAt))}</span>
       </div>` : ''}
     </section>`;
+    }
+
+  // One allowance, or several when the provider publishes more than one
+  // window (a session window and a weekly allowance, say). The first is
+  // the headline the row shows; the rest are listed here.
+  function allowanceSectionHTML(u) {
+    const list = (Array.isArray(u.allowances) && u.allowances.length) ? u.allowances : (u.allowance ? [u.allowance] : []);
+    return list.filter((a) => a && a.usedPct != null).map((a) => oneAllowanceSection(a, u)).join('');
+  }
+
+  // The bars a row shows: one per group of limits, each the tightest window
+  // of that group. A provider that publishes a single allowance gets a
+  // single bar, labelled the way it always was.
+  function groupBars(u) {
+    const list = (Array.isArray(u.allowances) && u.allowances.length)
+      ? u.allowances : (u.allowance ? [u.allowance] : []);
+    const byGroup = new Map();
+    list.forEach((entry) => {
+      if (!entry || entry.usedPct == null) return;
+      const key = entry.group || entry.label;
+      const current = byGroup.get(key);
+      if (!current || entry.usedPct > current.usedPct) {
+        byGroup.set(key, {
+          usedPct: entry.usedPct,
+          resetsAt: entry.resetsAt || null,
+          label: entry.group || entry.label,
+          title: entry.label,
+        });
+      }
+    });
+    return [...byGroup.values()].slice(0, 3);
   }
 
   function expirySectionHTML(u) {

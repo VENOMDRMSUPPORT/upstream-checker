@@ -26,7 +26,7 @@ function check(name, cond, detail = '') {
 }
 
 const PORT = 47837;
-const READY = "typeof PROVIDERS === 'object' && Object.keys(PROVIDERS).length === 11 && !!window.CATALOG && CATALOG.state.loaded";
+const READY = "typeof PROVIDERS === 'object' && Object.keys(PROVIDERS).length === 13 && !!window.CATALOG && CATALOG.state.loaded";
 
 // The eight tone classes the tiles are drawn with, in the order they must
 // appear. The tile's class list carries the icon's own class and its tone

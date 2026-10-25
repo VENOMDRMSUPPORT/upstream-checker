@@ -32,7 +32,7 @@ try {
   try {
     // The app lock is the front door: open it before waiting for the page.
     await app.unlockAndWait();
-    await app.waitFor("typeof PROVIDERS === 'object' && Object.keys(PROVIDERS).length === 11 && Boolean(window.CATALOG) && CATALOG.state.loaded", 45000);
+    await app.waitFor("typeof PROVIDERS === 'object' && Object.keys(PROVIDERS).length === 13 && Boolean(window.CATALOG) && CATALOG.state.loaded", 45000);
     
     // Open catalog page
     await app.evaluate(`

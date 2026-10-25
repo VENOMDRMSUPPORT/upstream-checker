@@ -226,3 +226,42 @@ test('no placeholders: no refs and no substitutions', async (t) => {
   const out = resolver.resolve({ url: `${NARA}/m`, headers: { A: 'plain' } });
   assert.deepStrictEqual([out.refs, out.substitutions], [[], []]);
 });
+
+// A signed-in account holds two secrets: the credential the API is called
+// with (venomkey:) and the access token the sign-in produced (venomoauth:).
+// The placeholder says which one is wanted.
+test('the account placeholder becomes the access token, for the provider own origin', async (t) => {
+  const store = await memoryStore(t);
+  const providers = store.repos.providers;
+  providers.save({ id: 'muse', name: 'Muse AI', baseUrl: 'https://api.meta.ai/v1', rpm: null, keys: [] });
+  const saved = providers.saveOAuthAccount({
+    providerId: 'muse',
+    name: 'person@example.com',
+    secret: 'muse-key-1',
+    oauthSecret: 'dca:abc',
+    meta: { email: 'person@example.com', tier: 'Everyday Usage' },
+  });
+  const resolver = createKeyResolver({ providers, secrets: store.repos.secrets });
+  const out = resolver.resolve({
+    url: 'https://api.meta.ai/muse-code/key',
+    headers: { Authorization: 'Bearer venomoauth:' + saved.id },
+  });
+  assert.strictEqual(out.headers.Authorization, 'Bearer dca:abc');
+  assert.deepStrictEqual(out.refs, [{ kind: 'oauth', id: saved.id, providerId: 'muse' }]);
+});
+
+test('the account placeholder is refused for another host, like any other secret', async (t) => {
+  const store = await memoryStore(t);
+  const providers = store.repos.providers;
+  providers.save({ id: 'muse', name: 'Muse AI', baseUrl: 'https://api.meta.ai/v1', rpm: null, keys: [] });
+  const saved = providers.saveOAuthAccount({
+    providerId: 'muse', name: 'person@example.com', secret: 'muse-key-1', oauthSecret: 'dca:abc', meta: {},
+  });
+  const resolver = createKeyResolver({ providers, secrets: store.repos.secrets });
+  const out = resolver.resolve({
+    url: 'https://evil.example/key',
+    headers: { Authorization: 'Bearer venomoauth:' + saved.id },
+  });
+  assert.strictEqual(out.blocked, true);
+  assert.strictEqual(out.headers, undefined);
+});

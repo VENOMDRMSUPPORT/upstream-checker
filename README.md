@@ -57,10 +57,27 @@ include:
 | Devora | `https://api.devora.my.id/v1` |
 | Apinex | `https://api.apinex.bond/v1` |
 | KiosAPI | `https://kiosapi.com/v1` |
+| Muse AI | `https://api.meta.ai/v1` |
+| Antigravity | `https://daily-cloudcode-pa.googleapis.com` |
 
 All adapters use the shared provider contract. Most expose OpenAI-compatible
 `GET /models` and `POST /chat/completions`; provider-specific hooks may change
 catalogue, classification, quota or endpoint behavior.
+
+Muse AI is served by a local bridge (MuseBridge) on `127.0.0.1:8787`: the
+bridge drives the muse.ai web client in a real browser, handles login
+automatically, and exposes an OpenAI-compatible API. The app talks to it
+like any other provider; the only special thing is that the usage comes
+from `/admin/usage` instead of a provider API. See
+[docs/integrations/MUSE.md](docs/integrations/MUSE.md).
+
+Antigravity is Google's Antigravity IDE entitlement. It signs in on a Google
+account in your own browser — the tab comes back to the app and closes
+itself — and several accounts may be connected at once, each with its own
+daily allowance. It does not speak OpenAI: the app talks to Google's Cloud
+Code Assist service in its own protocol, and the app's routing gateway
+speaks the same one. See
+[docs/integrations/ANTIGRAVITY.md](docs/integrations/ANTIGRAVITY.md).
 
 Detailed provider reference material lives in [docs/integrations/](docs/integrations/).
 Each file separates the probed provider facts from what the built-in adapter

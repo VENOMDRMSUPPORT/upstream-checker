@@ -13,7 +13,8 @@ done. If a step is missing, the tests will usually tell you which one.
 
 **Touch:** `src/renderer/providers/<id>.js` (new), `src/assets/providers/<id>.svg (or .png for raster logos)`
 (new), `src/renderer/index.html` (one script tag), `README.md` (the table),
-`scripts/live/fixture.mjs` + `scripts/live/verify-db.mjs` (the provider count).
+`scripts/live/verify-db.mjs` and the other live gates (the provider count).
+`scripts/live/fixture.mjs` only if the provider should answer the mock server.
 
 1. Create the module. It registers itself; nothing else imports it:
    ```js
@@ -25,8 +26,8 @@ done. If a step is missing, the tests will usually tell you which one.
        modelsEndpoint: '/models', chatEndpoint: '/chat/completions',
        // optional: rateLimits, website, auth, freeTier
      },
-     // optional hooks: fetchModels, classify(model), fetchKeyUsage,
-     // fetchKeyHistory, readQuotaError, readUsageHeaders
+     // optional hooks: fetchModels, classify(model), excludeModel(model),
+     // fetchKeyUsage, fetchKeyHistory, readQuotaError, readUsageHeaders
    };
    ```
 2. Add the logo file (SVG, or PNG if raster) next to the other provider logos.
@@ -35,10 +36,17 @@ done. If a step is missing, the tests will usually tell you which one.
 4. If the provider's usage API needs a request, tag it: every `apiRequest` call
    carries `source` (one of the `SOURCES` set in `src/logs/recorder.js`) so the
    Request Log can attribute it. An untagged call is recorded as `other`.
-5. Update the two live-check constants: `READY` in `scripts/live/verify-db.mjs`
-   asserts the built-in provider count, and the fixture writes providers for the
-   mock server. A new provider that is not in the fixture simply never connects.
+5. Update the live-check constants: `READY` in `scripts/live/verify-db.mjs`
+   (and the same count in `verify-provider-table.mjs`,
+   `verify-catalog-legend.mjs`, `verify-catalog-sidebar.mjs` and
+   `verify-renderer-modules.mjs`) asserts the built-in provider count. The
+   fixture writes providers for the mock server; a new provider that is not in
+   the fixture simply never connects.
 6. `npm run repo:map` (the new file must appear in CODE_MAP.md).
+
+**A provider that signs in on a web page** is not this recipe: it declares
+`auth: ['oauth']` and its flow in `meta.oauth`, and the OAuth plane drives it
+([OAUTH_PROVIDERS.md](OAUTH_PROVIDERS.md)).
 
 **Accept:** `npm test`, then the relevant live gate. The provider-count assertion
 must report the new total and the live run must use the mock provider on scratch

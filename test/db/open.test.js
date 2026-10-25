@@ -42,7 +42,7 @@ test('schema v2 added the two snapshot tables and touched models not at all — 
   ['summary_json', 'first_seen', 'last_seen', 'removed_at', 'is_new', 'updated_at'].forEach((name) => {
     assert.ok(cols.includes(name), `v3 keeps ${name}`);
   });
-  assert.strictEqual(store.db.pragma('user_version', { simple: true }), 6);
+  assert.strictEqual(store.db.pragma('user_version', { simple: true }), 7);
 });
 
 // v6 is the router plane: key tiers plus the persisted score/cooldown/session
@@ -56,7 +56,20 @@ test('schema v6 adds key tiers and the router tables without touching rows', asy
   for (const name of ['catalog_scores', 'router_cooldowns', 'router_sessions']) {
     assert.ok(tablesIn(store.db).includes(name), `${name} exists`);
   }
-  assert.strictEqual(store.db.pragma('user_version', { simple: true }), 6);
+  assert.strictEqual(store.db.pragma('user_version', { simple: true }), 7);
+});
+
+// v7 is the OAuth plane: the two columns a signed-in account needs beside its
+// credential. Both are nullable and both start empty on every row, so a
+// database that never signs in looks exactly as it did before.
+test('schema v7 adds the OAuth account columns and touches no row', async (t) => {
+  const store = await memoryStore(t);
+  const cols = store.db.prepare('PRAGMA table_info(provider_keys)').all().map((c) => c.name);
+  assert.ok(cols.includes('oauth_cipher'), 'provider_keys gains oauth_cipher');
+  assert.ok(cols.includes('oauth_meta_json'), 'provider_keys gains oauth_meta_json');
+  const row = store.db.prepare('SELECT COUNT(*) AS n FROM provider_keys').get();
+  assert.strictEqual(row.n, 0, 'the columns are added to the table, not to the rows');
+  assert.strictEqual(store.db.pragma('user_version', { simple: true }), 7);
 });
 
  // v3 is the irreversible one: it clears the legacy pool on the owner's data. The
@@ -183,27 +196,27 @@ test('reopening an up-to-date file runs nothing and makes no backup', async (t) 
   (await database.open(dir, opts())).close();
   const store = await database.open(dir, opts());
   try {
-    assert.deepStrictEqual(store.migration, { from: 6, to: 6, backup: null });
+    assert.deepStrictEqual(store.migration, { from: 7, to: 7, backup: null });
     assert.deepStrictEqual(fs.readdirSync(dir).filter((n) => n.includes('.bak-v')), []);
   } finally {
     store.close();
   }
 });
 
-// The newest shipped version is 6, so a pending migration here is a v7: these
+// The newest shipped version is 7, so a pending migration here is a v8: these
 // three cases are about the migration SEQUENCE, and they read the same whichever
 // version the plan has reached — but their fixtures must sit one above it.
 test('a pending migration backs up first, then runs and bumps user_version', async (t) => {
   const dir = tempDir(t);
   (await database.open(dir, opts())).close();
-  const withV7 = [...database.MIGRATIONS, { version: 7, up(db) { db.exec('CREATE TABLE extra_v7 (x INTEGER)'); } }];
-  const store = await database.open(dir, { ...opts(), migrations: withV7 });
+  const withV8 = [...database.MIGRATIONS, { version: 8, up(db) { db.exec('CREATE TABLE extra_v8 (x INTEGER)'); } }];
+  const store = await database.open(dir, { ...opts(), migrations: withV8 });
   try {
-    assert.strictEqual(store.migration.from, 6);
-    assert.strictEqual(store.migration.to, 7);
-    assert.strictEqual(store.migration.backup, path.join(dir, 'venom.db.bak-v6'));
+    assert.strictEqual(store.migration.from, 7);
+    assert.strictEqual(store.migration.to, 8);
+    assert.strictEqual(store.migration.backup, path.join(dir, 'venom.db.bak-v7'));
     assert.ok(fs.existsSync(store.migration.backup));
-    assert.strictEqual(store.db.pragma('user_version', { simple: true }), 7);
+    assert.strictEqual(store.db.pragma('user_version', { simple: true }), 8);
   } finally {
     store.close();
   }
@@ -213,13 +226,13 @@ test('a migration that throws rolls back and leaves the version', async (t) => {
   const dir = tempDir(t);
   (await database.open(dir, opts())).close();
   const broken = [...database.MIGRATIONS, {
-    version: 7,
+    version: 8,
     up(db) { db.exec('CREATE TABLE half_done (x INTEGER)'); throw new Error('migration bug'); },
   }];
   await assert.rejects(database.open(dir, { ...opts(), migrations: broken }), /migration bug/);
   const store = await database.open(dir, opts());
   try {
-    assert.strictEqual(store.db.pragma('user_version', { simple: true }), 6);
+    assert.strictEqual(store.db.pragma('user_version', { simple: true }), 7);
     assert.strictEqual(store.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'half_done'").get().n, 0);
   } finally {
     store.close();
@@ -230,12 +243,14 @@ test('keeps only the three newest backups', async (t) => {
   const dir = tempDir(t);
   (await database.open(dir, opts())).close();
   const steps = [...database.MIGRATIONS];
-  for (let v = 7; v <= 10; v += 1) {
+  for (let v = 8; v <= 11; v += 1) {
     steps.push({ version: v, up(db) { db.exec(`CREATE TABLE step_${v} (x INTEGER)`); } });
     (await database.open(dir, { ...opts(), migrations: [...steps] })).close();
   }
-  const backups = fs.readdirSync(dir).filter((n) => n.startsWith('venom.db.bak-v')).sort();
-  assert.deepStrictEqual(backups, ['venom.db.bak-v7', 'venom.db.bak-v8', 'venom.db.bak-v9']);
+  const backups = fs.readdirSync(dir)
+    .filter((n) => n.startsWith('venom.db.bak-v'))
+    .sort((a, b) => Number(a.slice('venom.db.bak-v'.length)) - Number(b.slice('venom.db.bak-v'.length)));
+  assert.deepStrictEqual(backups, ['venom.db.bak-v8', 'venom.db.bak-v9', 'venom.db.bak-v10']);
 });
 
 test('downgrade guard: a newer schema is refused and the file is not written', async (t) => {

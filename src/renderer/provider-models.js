@@ -6,7 +6,7 @@ window.VENOM_RENDERER.providerModels = {
     const {
       $, $$, electronAPI, getProviders, getActiveProvider, integratedProviders,
       usableKeys, setStatus, updateTestAllButton, updateStats, renderCostEstimate,
-      classifyModel, isMedia, escapeHtml, kindLabels, refreshActivity,
+      classifyModel, isMedia, escapeHtml, kindLabels, refreshActivity, wire,
     } = deps;
 
     function getModels(providerId = getActiveProvider()) {
@@ -153,6 +153,9 @@ window.VENOM_RENDERER.providerModels = {
         return adapter.fetchModels({
           apiKey, baseUrl: p.baseUrl, plansUrl: p.plansUrl, pricingUrl: p.pricingUrl,
           apiRequest: taggedApiRequest('discovery', p), formatContext, getFreeGroupName,
+          // A provider that does not speak OpenAI builds its own request
+          // through the app's wire.
+          wire,
         });
       }
       const response = await electronAPI.apiRequest({

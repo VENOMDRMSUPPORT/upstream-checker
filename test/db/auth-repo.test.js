@@ -9,7 +9,7 @@ const MIGRATIONS = require('../../src/db/migrations');
 
 test('migration v4 creates an empty app_lock table', async (t) => {
   const { db } = await memoryStore(t);
-  assert.strictEqual(db.pragma('user_version', { simple: true }), 6);
+  assert.strictEqual(db.pragma('user_version', { simple: true }), 7);
   assert.strictEqual(db.prepare('SELECT COUNT(*) AS n FROM app_lock').get().n, 0);
 });
 
