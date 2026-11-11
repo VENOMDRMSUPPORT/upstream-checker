@@ -140,22 +140,28 @@ export async function launch({ userDataDir, port = 9333, entry = '.', extraArgs 
     return code;
   }
 
-  // The password the app ships with, and the call that gets a driven session
-  // past the lock screen. Every gate needs this: the lock is the front door now,
-  // and a gate that waited for PROVIDERS without opening it would time out on
-  // the panel rather than on the page it came to measure.
+  // The call that gets a driven session past the lock screen. Every gate needs
+  // this: the lock is the front door now, and a gate that waited for PROVIDERS
+  // without opening it would time out on the panel rather than on the page it
+  // came to measure.
   //
-  // It resolves the same { ok, ... } value auth:unlock always does, so a gate can
-  // assert the unlock happened instead of assuming it. A session that is already
-  // unlocked (a reload) answers ok with no work.
-  async function unlock(password = '123456') {
+  // The app ships with no password, so a fresh scratch folder is in SETUP
+  // state: this creates the gate's own password there (the default argument —
+  // a harness choice, not an app credential) and unlocks with it on later
+  // launches of the same folder. It resolves the same { ok, ... } value the
+  // auth channels always do, so a gate can assert the unlock happened instead
+  // of assuming it. A session that is already unlocked (a reload) answers ok
+  // with no work.
+  async function unlock(password = 'lock-gate-password') {
     return evaluate(`(async () => {
       const before = await window.electronAPI.authStatus();
       if (before && before.locked === false) {
         if (window.LOCK && typeof window.LOCK.hide === 'function') window.LOCK.hide();
         return { ok: true, alreadyOpen: true };
       }
-      const reply = await window.electronAPI.authUnlock(${JSON.stringify(password)});
+      const reply = before && before.setupRequired
+        ? await window.electronAPI.authSetup(${JSON.stringify(password)})
+        : await window.electronAPI.authUnlock(${JSON.stringify(password)});
       if (reply && reply.ok && window.LOCK && typeof window.LOCK.hide === 'function') {
         window.LOCK.hide();
       }

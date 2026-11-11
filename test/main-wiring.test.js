@@ -62,7 +62,7 @@ test('api-request is gated by the app lock, and a gated call spends nothing', ()
 
 test('the app lock is built after the database opens and before the window', () => {
   const ready = block('app.whenReady().then(async () => {');
-  const steps = ['startDatabase()', 'startLogs()', 'createAuthLock(', 'auth.ensureDefault()', 'registerAuthIpc(', 'createWindow()'];
+  const steps = ['startDatabase()', 'startLogs()', 'createAuthLock(', 'registerAuthIpc(', 'createWindow()'];
   const at = steps.map((s) => ready.indexOf(s));
   at.forEach((i, n) => assert.ok(i >= 0, `${steps[n]} missing from whenReady`));
   assert.deepStrictEqual([...at].sort((x, y) => x - y), at,

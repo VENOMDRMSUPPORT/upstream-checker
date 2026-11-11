@@ -1,11 +1,13 @@
-// The auth IPC surface: five channels, every one of them resolving, and nothing
+// The auth IPC surface: six channels, every one of them resolving, and nothing
 // on the wire that carries the hash.
 const test = require('node:test');
 const assert = require('node:assert');
 const { registerAuthIpc } = require('../../src/auth/ipc');
 const { createAuthLock, MAX_FAILED, THROTTLE_MS } = require('../../src/auth');
-const { hashPassword, DEFAULT_PASSWORD } = require('../../src/auth/hash');
 const { quietLog } = require('../helpers');
+
+// The password these tests' owner creates at setup.
+const PASSWORD = 'the-owner-chose-this';
 
 function fakeIpcMain() {
   const handlers = new Map();
@@ -24,7 +26,7 @@ function fakeRepo() {
   return {
     state,
     get: () => (state.row ? { ...state.row } : null),
-    ensureDefault(hash, { now = 0, isDefault = true } = {}) {
+    insertRow(hash, { now = 0, isDefault = false } = {}) {
       if (state.row) return { ...state.row };
       state.row = { hash, is_default: isDefault ? 1 : 0, failed_attempts: 0, locked_until: 0, created_at: now };
       return { ...state.row };
@@ -40,12 +42,15 @@ function fakeRepo() {
   };
 }
 
-function setup({ idleMs = 0, withRow = true } = {}) {
+// withPassword: the owner has already created a password through the real
+// setup path, and the session starts closed, as it does at launch.
+function setup({ idleMs = 0, withPassword = true } = {}) {
   const clock = { t: 1_000_000 };
   const repo = fakeRepo();
   const auth = createAuthLock({ repo, log: quietLog, now: () => clock.t, idleMs });
-  if (withRow) {
-    repo.ensureDefault(hashPassword(DEFAULT_PASSWORD).value, { now: clock.t });
+  if (withPassword) {
+    assert.deepStrictEqual(auth.setup(PASSWORD), { ok: true });
+    auth.lock();
   }
   const ipc = fakeIpcMain();
   const announcements = [];
@@ -53,9 +58,9 @@ function setup({ idleMs = 0, withRow = true } = {}) {
   return { repo, auth, ipc, clock, announcements };
 }
 
-test('registers exactly the five auth channels', () => {
+test('registers exactly the six auth channels', () => {
   const { ipc } = setup();
-  assert.deepStrictEqual(ipc.channels(), ['auth:activity', 'auth:change', 'auth:lock', 'auth:status', 'auth:unlock']);
+  assert.deepStrictEqual(ipc.channels(), ['auth:activity', 'auth:change', 'auth:lock', 'auth:setup', 'auth:status', 'auth:unlock']);
 });
 
 test('auth:status reports the lock without ever carrying the hash', async () => {
@@ -63,11 +68,26 @@ test('auth:status reports the lock without ever carrying the hash', async () => 
   const reply = await ipc.invoke('auth:status');
   assert.strictEqual(reply.ok, true);
   assert.strictEqual(reply.locked, true);
-  assert.strictEqual(reply.isDefault, true);
+  assert.strictEqual(reply.setupRequired, false);
   assert.strictEqual(reply.hasRow, true);
   const serialised = JSON.stringify(reply);
   assert.ok(!serialised.includes('scrypt$'), 'no hash');
   assert.ok(!serialised.includes(repo.get().hash), 'and certainly not this one');
+});
+
+test('auth:setup creates the first password and opens the session', async () => {
+  const { ipc } = setup({ withPassword: false });
+  const before = await ipc.invoke('auth:status');
+  assert.strictEqual(before.setupRequired, true);
+  assert.strictEqual(before.hasRow, false);
+  const weak = await ipc.invoke('auth:setup', 'short');
+  assert.strictEqual(weak.code, 'WEAK_PASSWORD');
+  assert.deepStrictEqual(await ipc.invoke('auth:setup', PASSWORD), { ok: true });
+  const after = await ipc.invoke('auth:status');
+  assert.strictEqual(after.setupRequired, false);
+  assert.strictEqual(after.locked, false, 'setup opens the session it just protected');
+  const again = await ipc.invoke('auth:setup', 'a-different-password');
+  assert.strictEqual(again.code, 'ALREADY_SET');
 });
 
 test('auth:unlock resolves a verdict rather than rejecting', async () => {
@@ -75,31 +95,31 @@ test('auth:unlock resolves a verdict rather than rejecting', async () => {
   const bad = await ipc.invoke('auth:unlock', 'wrong');
   assert.strictEqual(bad.ok, false);
   assert.strictEqual(bad.code, 'WRONG_PASSWORD');
-  const good = await ipc.invoke('auth:unlock', DEFAULT_PASSWORD);
+  const good = await ipc.invoke('auth:unlock', PASSWORD);
   assert.deepStrictEqual(good, { ok: true });
   assert.strictEqual((await ipc.invoke('auth:status')).locked, false);
 });
 
-test('auth:unlock before the row exists is LOCK_NOT_READY, not a rejection', async () => {
-  const { ipc } = setup({ withRow: false });
-  const reply = await ipc.invoke('auth:unlock', DEFAULT_PASSWORD);
+test('auth:unlock before setup is SETUP_REQUIRED, not a rejection', async () => {
+  const { ipc } = setup({ withPassword: false });
+  const reply = await ipc.invoke('auth:unlock', PASSWORD);
   assert.strictEqual(reply.ok, false);
-  assert.strictEqual(reply.code, 'LOCK_NOT_READY');
+  assert.strictEqual(reply.code, 'SETUP_REQUIRED');
 });
 
 test('auth:change refuses a weak value with a code the UI can act on', async () => {
   const { ipc } = setup();
-  await ipc.invoke('auth:unlock', DEFAULT_PASSWORD);
-  const weak = await ipc.invoke('auth:change', DEFAULT_PASSWORD, 'short');
+  await ipc.invoke('auth:unlock', PASSWORD);
+  const weak = await ipc.invoke('auth:change', PASSWORD, 'short');
   assert.strictEqual(weak.code, 'WEAK_PASSWORD');
-  const ok = await ipc.invoke('auth:change', DEFAULT_PASSWORD, 'a-much-better-one');
+  const ok = await ipc.invoke('auth:change', PASSWORD, 'a-much-better-one');
   assert.strictEqual(ok.ok, true);
-  assert.strictEqual((await ipc.invoke('auth:status')).isDefault, false);
+  assert.strictEqual((await ipc.invoke('auth:status')).setupRequired, false);
 });
 
 test('auth:lock ends the session and tells the main process why', async () => {
   const { ipc, announcements } = setup();
-  await ipc.invoke('auth:unlock', DEFAULT_PASSWORD);
+  await ipc.invoke('auth:unlock', PASSWORD);
   assert.strictEqual((await ipc.invoke('auth:status')).locked, false);
   assert.deepStrictEqual(await ipc.invoke('auth:lock'), { ok: true });
   assert.deepStrictEqual(announcements, ['locked']);
@@ -108,7 +128,7 @@ test('auth:lock ends the session and tells the main process why', async () => {
 
 test('an idle expiry is announced once, through auth:status', async () => {
   const { ipc, clock, announcements } = setup({ idleMs: 1000 });
-  await ipc.invoke('auth:unlock', DEFAULT_PASSWORD);
+  await ipc.invoke('auth:unlock', PASSWORD);
   clock.t += 1000;
   assert.strictEqual((await ipc.invoke('auth:status')).locked, true);
   assert.deepStrictEqual(announcements, ['expired']);
@@ -119,14 +139,14 @@ test('an idle expiry is announced once, through auth:status', async () => {
 
 test('auth:activity is accepted and resolves', async () => {
   const { ipc } = setup();
-  await ipc.invoke('auth:unlock', DEFAULT_PASSWORD);
+  await ipc.invoke('auth:unlock', PASSWORD);
   assert.deepStrictEqual(await ipc.invoke('auth:activity'), { ok: true, locked: false });
 });
 
 test('an onLocked hook that throws does not take the channel down with it', async () => {
   const repo = fakeRepo();
-  repo.ensureDefault(hashPassword(DEFAULT_PASSWORD).value);
   const auth = createAuthLock({ repo, log: quietLog, idleMs: 0 });
+  assert.deepStrictEqual(auth.setup(PASSWORD), { ok: true });
   const ipc = fakeIpcMain();
   registerAuthIpc({ ipcMain: ipc, auth, log: quietLog, onLocked: () => { throw new Error('no window'); } });
   // The lock still happens; only the announcement is lost.

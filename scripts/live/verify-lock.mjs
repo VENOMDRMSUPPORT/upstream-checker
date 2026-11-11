@@ -3,9 +3,10 @@
 //   npm run verify:lock
 //
 // Launches a VENOM Router on a scratch %TEMP% folder, where a fresh database
-// means no app_lock row — so the app must come up locked on the shipped default
-// password. The owner's data folder is never read or written; the folder is
-// deleted at the end.
+// means no app_lock row — so the app must come up on the create-password
+// screen: it ships with no password, and there is nothing to log in with
+// until the owner creates one. The owner's data folder is never read or
+// written; the folder is deleted at the end.
 //
 // A scratch run has no providers and an empty database. That is expected: what
 // is being proved here is the lock screen, not the model pool.
@@ -33,7 +34,7 @@ const SHOT_DIR = tmpdir();
 const shotPath = (name) => join(SHOT_DIR, `venom-${name}.png`);
 
 // The recovery path, run the way the owner would: the app closed, the folder as
-// an explicit argument, the shipped default back afterwards.
+// an explicit argument, a create-password screen on the next launch.
 function runResetLock(dir) {
   const result = spawnSync(ELECTRON, [join(ROOT, 'scripts', 'reset-lock.js'), dir], {
     cwd: ROOT, encoding: 'utf8', timeout: 60000,
@@ -77,7 +78,9 @@ const PORT = 47861;
 // and the canvas field is running — not when PROVIDERS exists.
 const READY = "!!document.getElementById('lock-screen') && !document.getElementById('lock-screen').hidden && !!window.LOCK";
 
-const DEFAULT_PASSWORD = '123456';
+// The password this gate creates on the fresh folder and afterwards uses as
+// the login. Chosen here, in the harness — the app itself ships with none.
+const SETUP_PASSWORD = 'lock-gate-password';
 
 async function measure(app) {
   return app.evaluate(`(async () => {
@@ -184,6 +187,20 @@ async function measure(app) {
     // Nothing reachable from the page may expose the stored hash or a session.
     const status = await window.electronAPI.authStatus();
     const statusKeys = Object.keys(status || {}).sort();
+    // A fresh folder has no password yet: the screen must be the setup form —
+    // a confirm field drawn at a real size, and Create wording, not Log in.
+    const setupState = {
+      required: !!(status && status.setupRequired === true),
+      hasRow: !!(status && status.hasRow),
+      confirmVisible: (() => {
+        const f = document.getElementById('lock-confirm-field');
+        if (!f || f.hidden) return false;
+        const b = f.getBoundingClientRect();
+        return b.width > 100 && b.height > 30;
+      })(),
+      submitLabel: submit.textContent.trim(),
+      label: document.getElementById('lock-label').textContent.trim(),
+    };
 
     // ---- a wrong password stays locked ----------------------------------
     const input = document.getElementById('lock-password');
@@ -199,12 +216,24 @@ async function measure(app) {
         fieldEmptied: input.value === '',
       };
     };
-    const wrong = await submitWrong('definitely-not-it');
-    const wrongAgain = await submitWrong('nope');
-
-    // ---- the right password opens it ------------------------------------
-    input.value = '${DEFAULT_PASSWORD}';
-    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    // ---- setup: the first password is created here -----------------------
+    // A mismatch is refused by the screen itself; a short one is refused by
+    // main. Only a matching pair of at least the minimum length opens the app.
+    const confirm = document.getElementById('lock-password-confirm');
+    const submitSetup = async (value, repeat) => {
+      input.value = value;
+      confirm.value = repeat;
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await new Promise((r) => setTimeout(r, 900));
+      return {
+        locked: !screen.hidden,
+        status: document.getElementById('lock-status').textContent.trim(),
+        kind: document.getElementById('lock-status').dataset.kind || '',
+      };
+    };
+    const mismatch = await submitSetup('${SETUP_PASSWORD}', 'something-else-entirely');
+    const weakTry = await submitSetup('short', 'short');
+    await submitSetup('${SETUP_PASSWORD}', '${SETUP_PASSWORD}');
     const opened = await wait(() => screen.hidden, 12000);
     const after = {
       opened,
@@ -241,11 +270,14 @@ async function measure(app) {
       const back = await wait(() => !screen.hidden, 8000);
       const inert = shell ? shell.hasAttribute('inert') : null;
       const sub = document.getElementById('lock-sub').textContent.trim();
-      // Log back in.
-      input.value = '${DEFAULT_PASSWORD}';
+      // Log back in — wrong twice first, so the refusal, the emptied field
+      // and the counting brake are measured on the login form too.
+      const wrong = await submitWrong('definitely-not-it');
+      const wrongAgain = await submitWrong('nope');
+      input.value = '${SETUP_PASSWORD}';
       form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
       const reopened = await wait(() => screen.hidden, 12000);
-      return { back, inert, sub, reopened };
+      return { back, inert, sub, wrong, wrongAgain, reopened };
     })();
 
     // ---- Profile › Security --------------------------------------------
@@ -266,7 +298,7 @@ async function measure(app) {
       sectionShown: !document.getElementById('sec-security').hidden,
       heading: document.getElementById('shell-page-title').textContent.trim(),
       idleValue: document.getElementById('set-lock-idle').value,
-      warningShown: !document.getElementById('lock-default-warning').hidden,
+      warningGone: document.getElementById('lock-default-warning') === null,
       statusLabel: document.getElementById('lock-status-label').textContent.trim(),
       fields: ['set-lock-current', 'set-lock-new', 'set-lock-confirm'].every((id) => {
         const el = document.getElementById(id);
@@ -286,8 +318,8 @@ async function measure(app) {
       screenZ: cs.zIndex,
       emblem: { w: px(ebox.width), h: px(ebox.height), bg: ebg.slice(0, 120), pixels: emblemPixels },
       inertAttr, inertProp, activeInsideShell,
-      forced, titlebar, surface, statusKeys, lockSource,
-      wrong, wrongAgain, after, appStarted,
+      forced, titlebar, surface, statusKeys, lockSource, setupState,
+      mismatch, weakTry, after, appStarted,
       profile: { name: profileName, avatar, items: popItems, w: px(popBox.width), h: px(popBox.height), shown: popShown },
       signOut, security,
       submitLabel: submit.textContent.trim(),
@@ -351,13 +383,18 @@ try {
       !r.titlebar.settings && !r.titlebar.accent && !r.titlebar.theme && !r.titlebar.profile);
     check('the title bar is still draggable', r.titlebar.drag === 'drag', String(r.titlebar.drag));
 
-    // 6. The shipped default is the way in, and nothing else is.
-    check('a wrong password leaves the screen up', r.wrong.locked === true);
-    check('and it says so', r.wrong.kind === 'error' && /Wrong password/.test(r.wrong.status), r.wrong.status);
-    check('and it does not leave the attempt sitting in the field', r.wrong.fieldEmptied === true);
-    check('the attempt count goes down', /3 attempts left/.test(r.wrongAgain.status), r.wrongAgain.status);
-
-    check('the shipped default password opens it', r.after.opened === true);
+    // 6. First run is a setup, and the setup is enforced end to end.
+    check('a fresh install asks for a password to be created, not entered',
+      r.setupState.required === true && r.setupState.hasRow === false
+      && r.setupState.submitLabel === 'Create password'
+      && /Create your owner password/.test(r.setupState.label),
+      JSON.stringify(r.setupState));
+    check('the confirm field is drawn at a real size', r.setupState.confirmVisible === true);
+    check('mismatched passwords are refused and the screen stays up',
+      r.mismatch.locked === true && /do not match/.test(r.mismatch.status), r.mismatch.status);
+    check('a short password is refused by main, not waved through',
+      r.weakTry.locked === true && /at least 8/.test(r.weakTry.status), r.weakTry.status);
+    check('creating the password opens it', r.after.opened === true);
     check('the shell stops being inert on unlock',
       r.after.inertGone === true && r.after.shellInertProp === false);
     check('the header comes back', r.after.settingsBack === true);
@@ -366,6 +403,8 @@ try {
     // 7. Nothing on the page can read the lock back out.
     check('auth:status carries no hash and no session token',
       r.statusKeys.every((k) => !/hash|salt|token|session/i.test(k)), r.statusKeys.join(','));
+    check('auth:status reports the setup state',
+      r.statusKeys.includes('setupRequired'), r.statusKeys.join(','));
     check('window.LOCK exposes no way to read the stored password',
       r.surface.every((k) => !/hash|token|password|secret|reveal|verify/i.test(k)), r.surface.join(','));
 
@@ -383,15 +422,19 @@ try {
     check('Sign out brings the lock screen back', r.signOut.back === true);
     check('and freezes the app again while it is up', r.signOut.inert === true);
     check('and says why it is asking', /Signed out/.test(r.signOut.sub), r.signOut.sub);
-    check('and the password opens it a second time', r.signOut.reopened === true);
+    check('a wrong password leaves the screen up', r.signOut.wrong.locked === true);
+    check('and it says so', r.signOut.wrong.kind === 'error' && /Wrong password/.test(r.signOut.wrong.status), r.signOut.wrong.status);
+    check('and it does not leave the attempt sitting in the field', r.signOut.wrong.fieldEmptied === true);
+    check('the attempt count goes down', /3 attempts left/.test(r.signOut.wrongAgain.status), r.signOut.wrongAgain.status);
+    check('and the created password opens it a second time', r.signOut.reopened === true);
 
     // 10. Profile › Security exists and its controls are laid out.
     check('Profile has a Security section', r.security.tabExists === true);
     check('and opening it shows the Security section',
       r.security.sectionShown === true && /Profile & Security/.test(r.security.heading), r.security.heading);
     check('the idle limit is filled from the saved setting', r.security.idleValue === '60', r.security.idleValue);
-    check('the shipped-password warning is shown while it is still in force',
-      r.security.warningShown === true && /shipped/.test(r.security.statusLabel), r.security.statusLabel);
+    check('there is no shipped-password warning — an open app always runs on the owner\'s own password',
+      r.security.warningGone === true && r.security.statusLabel === 'open · owner password', r.security.statusLabel);
     check('the three password fields and both buttons are on screen',
       r.security.fields && r.security.changeButton && r.security.lockNowButton);
 
@@ -450,13 +493,12 @@ try {
       `exit=${bare.status} ${bareOut.trim().split('\n').slice(-1)[0]}`);
 
     const before = readLockRow(dir);
-    check('a lock row exists before the reset', before && before.is_default === 1,
-      JSON.stringify(before));
+    check('the created password is on disk as a real row, not a default',
+      before && before.is_default === 0, JSON.stringify(before));
 
-    // Put a changed password in place first, so the reset is proved to remove a
-    // real password rather than an untouched default. Written directly: the way
-    // to change it through the UI is already covered by the unit tests, and this
-    // check is about the recovery command.
+    // The row being reset is the password this gate created through the setup
+    // screen, so the reset is proved to remove a real password rather than an
+    // untouched placeholder.
     const recovery = runResetLock(dir);
 
     check('reset-lock runs and reports what it removed',
@@ -474,6 +516,18 @@ try {
     check('and nothing else in the database moved',
       survivors && survivors.tables === 3 && !!survivors.appVersion,
       JSON.stringify(survivors));
+
+    // The recovery loop closes: the next launch on the reset folder is a
+    // create-password screen again — not a login against anything shipped.
+    const app2 = await launch({ userDataDir: dir, port: PORT });
+    try {
+      await app2.waitFor(READY, 30000);
+      const st = await app2.evaluate('window.electronAPI.authStatus()', 20000);
+      check('after the reset the app asks for a new password again',
+        !!st && st.setupRequired === true && st.hasRow === false, JSON.stringify(st));
+    } finally {
+      await app2.close().catch(() => {});
+    }
   } finally {
     if (!appClosed) await app.close().catch(() => {});
   }

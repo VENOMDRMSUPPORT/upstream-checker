@@ -2897,10 +2897,11 @@ $('#btn-settings').addEventListener('click', openSettings);
 // ============================================
 // Security — the app lock from inside the app
 // ============================================
-// Three things the owner can do here, and the warning that says the shipped
-// password is still in force. Main owns all of it; this section asks for status
-// and shows what comes back.
-let lockStatus = { locked: false, isDefault: true, idleMs: 0 };
+// Three things the owner can do here. Main owns all of it; this section asks
+// for status and shows what comes back. The password in force is always the
+// owner's own — the app ships without one, so there is no default to warn
+// about once the app is open.
+let lockStatus = { locked: false, setupRequired: false, idleMs: 0 };
 
 function setChangeStatus(text, kind) {
   const el = $('#lock-change-status');
@@ -2924,13 +2925,11 @@ function renderSecuritySection() {
   if (label) {
     label.textContent = lockStatus.locked
       ? 'locked'
-      : lockStatus.isDefault ? 'open · shipped password' : 'open · password changed';
+      : lockStatus.setupRequired ? 'open · password not set' : 'open · owner password';
   }
-  const warn = $('#lock-default-warning');
-  if (warn) warn.hidden = !lockStatus.isDefault;
   const metaLock = $('#profile-meta-lock-status');
   if (metaLock) {
-    metaLock.textContent = lockStatus.isDefault ? 'Shipped PIN' : 'Master PIN Active';
+    metaLock.textContent = lockStatus.setupRequired ? 'Password Not Set' : 'Master PIN Active';
   }
   const kpiStatus = $('#profile-kpi-status');
   if (kpiStatus) {

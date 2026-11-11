@@ -11,6 +11,7 @@ interface ElectronAPI {
   close: (...args: any[]) => any;
   setWindowIcon: (...args: any[]) => any;
   authStatus: (...args: any[]) => any;
+  authSetup: (...args: any[]) => any;
   authUnlock: (...args: any[]) => any;
   authChange: (...args: any[]) => any;
   authLock: (...args: any[]) => any;

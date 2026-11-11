@@ -1,36 +1,40 @@
 // The owner password: scrypt hash and verify. Pure Node, no Electron.
 const test = require('node:test');
 const assert = require('node:assert');
-const { DEFAULT_PASSWORD, hashPassword, verifyPassword, isReadable } = require('../../src/auth/hash');
+const { hashPassword, verifyPassword, isReadable } = require('../../src/auth/hash');
+
+// Any password stands in for the owner's: the subject of this file is the hash
+// format, not the value. There is no shipped default left to round-trip.
+const SAMPLE = 'an-owner-password';
 
 // N=16384 costs ~50-70 ms per derivation, and these tests derive several times.
 // Everything uses one shared hash where a fresh one is not the point.
 const fast = { params: { N: 1024, r: 8, p: 1 } };
 
-test('the shipped default round-trips', () => {
-  const { value } = hashPassword(DEFAULT_PASSWORD, fast);
-  assert.strictEqual(verifyPassword(DEFAULT_PASSWORD, value), true);
+test('a password round-trips', () => {
+  const { value } = hashPassword(SAMPLE, fast);
+  assert.strictEqual(verifyPassword(SAMPLE, value), true);
 });
 
-test('the shipped default is not stored in a comparable form', () => {
-  const { value } = hashPassword(DEFAULT_PASSWORD, fast);
-  assert.ok(!value.includes(DEFAULT_PASSWORD), 'the password must not appear in the stored string');
+test('a password is not stored in a comparable form', () => {
+  const { value } = hashPassword(SAMPLE, fast);
+  assert.ok(!value.includes(SAMPLE), 'the password must not appear in the stored string');
   assert.ok(value.startsWith('scrypt$'), 'the algorithm and its parameters are written into the string');
 });
 
 test('a wrong password is refused', () => {
-  const { value } = hashPassword(DEFAULT_PASSWORD, fast);
-  for (const attempt of ['', '123457', '123456 ', ' 123456', 'x']) {
+  const { value } = hashPassword(SAMPLE, fast);
+  for (const attempt of ['', 'an-owner-passwore', 'an-owner-password ', ' an-owner-password', 'x']) {
     assert.strictEqual(verifyPassword(attempt, value), false, `"${attempt}" must not unlock`);
   }
 });
 
 test('two hashes of the same password differ (fresh salt each time)', () => {
-  const a = hashPassword(DEFAULT_PASSWORD, fast).value;
-  const b = hashPassword(DEFAULT_PASSWORD, fast).value;
+  const a = hashPassword(SAMPLE, fast).value;
+  const b = hashPassword(SAMPLE, fast).value;
   assert.notStrictEqual(a, b);
-  assert.strictEqual(verifyPassword(DEFAULT_PASSWORD, a), true);
-  assert.strictEqual(verifyPassword(DEFAULT_PASSWORD, b), true);
+  assert.strictEqual(verifyPassword(SAMPLE, a), true);
+  assert.strictEqual(verifyPassword(SAMPLE, b), true);
 });
 
 test('a string with its own parameters still verifies after the cost is raised', () => {
@@ -62,12 +66,12 @@ test('malformed strings return false rather than throwing', () => {
 });
 
 test('isReadable tells a wrong password apart from an unreadable lock', () => {
-  const { value } = hashPassword(DEFAULT_PASSWORD, fast);
+  const { value } = hashPassword(SAMPLE, fast);
   assert.strictEqual(isReadable(value), true);
   assert.strictEqual(isReadable('garbage'), false);
   // The verify still says false either way — the caller uses isReadable to pick
   // which message the owner sees.
-  assert.strictEqual(verifyPassword(DEFAULT_PASSWORD, 'garbage'), false);
+  assert.strictEqual(verifyPassword(SAMPLE, 'garbage'), false);
 });
 
 test('hashing nothing is a programming error, not a silent empty hash', () => {

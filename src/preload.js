@@ -10,9 +10,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // App lock (src/auth/ipc.js). Every call RESOLVES:
   // `{ ok: true, ... }` or `{ ok: false, code, message }` — WRONG_PASSWORD,
-  // THROTTLED, WEAK_PASSWORD, LOCK_NOT_READY. Test `reply.ok`, never `catch`.
+  // THROTTLED, WEAK_PASSWORD, LOCK_NOT_READY, SETUP_REQUIRED, ALREADY_SET.
+  // Test `reply.ok`, never `catch`.
   // The state itself is main's: nothing here reads the stored hash back out.
   authStatus: () => ipcRenderer.invoke('auth:status'),
+  authSetup: (next) => ipcRenderer.invoke('auth:setup', next),
   authUnlock: (candidate) => ipcRenderer.invoke('auth:unlock', candidate),
   authChange: (current, next) => ipcRenderer.invoke('auth:change', current, next),
   authLock: () => ipcRenderer.invoke('auth:lock'),

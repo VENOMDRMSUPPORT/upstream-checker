@@ -55,9 +55,13 @@ The order is deliberate; each step exists because doing it later caused a bug.
    and the app runs on.
 6. **`createAuthLock()`** — the app lock (`src/auth`). Built after the database,
    because its one row (`app_lock`, schema v4) lives in `venom.db`, and before
-   the window, because the request gate below consults it. `ensureDefault()`
-   writes the shipped default password when there is no row — a fresh install,
-   or one just reset by `npm run reset:lock`. The idle limit is read from
+   the window, because the request gate below consults it. Nothing is written
+   at boot: when there is no row — a fresh install, or one just reset by
+   `npm run reset:lock` — the lock screen opens in setup mode and the owner
+   creates the password (the `auth:setup` channel), which is the only way a
+   row comes to exist; no build ships a password. A legacy row an older build
+   wrote with its shipped default is flagged `is_default` and reads as setup
+   too, never as a login. The idle limit is read from
    `lockIdleMin` here and re-read on every `save-settings`; it is arithmetic in
    `isLocked()`, so there is no timer to reschedule.
 7. **IPC registration** — `registerDataIpc` (`copy-key` is gated on the lock),
@@ -419,7 +423,7 @@ the pass, then assert the actual rows; a new scratch database can be empty while
 | `npm test` | the complete current test suite under Electron's Node; the command output reports its current count | actual Electron UI visibility or real-provider behavior |
 | `npm run verify:live` | the real app, launched on a scratch folder over CDP against a **mock** provider: import, log, pages, drawdown geometry, restart, single instance | a real provider, a real key, a real 429, a real stream |
 | `npm run verify:catalog` | nothing downloads at boot; the sources fill on a click; the Models page opens on its own path | anything about a real provider or a keyed fetch |
-| `npm run verify:lock` | the lock screen covers the viewport, the emblem paints (its pixels are counted, not its URL read), the shell is `inert`, the colours ignore a forced theme and accent, and the shipped default opens it | that the lock resists anyone with code execution as this Windows user — it does not |
+| `npm run verify:lock` | the lock screen covers the viewport, the emblem paints (its pixels are counted, not its URL read), the shell is `inert`, the colours ignore a forced theme and accent, a fresh folder opens on the create-password screen, the created password opens it, and a reset returns it to setup | that the lock resists anyone with code execution as this Windows user — it does not |
 | `node scripts/live/verify-renderer-modules.mjs` | module composition, appearance, persistence and navigation end to end, plus the router-page geometry check | a real provider, key, stream or 429 |
 | `npm run reset:lock -- "<dir>"` | deletes the saved password and nothing else | anything about the rest of the data; it touches one row |
 | `npm run repo:map -- --check` | CODE_MAP.md matches the tree | nothing about behaviour |

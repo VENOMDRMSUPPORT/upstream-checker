@@ -13,12 +13,12 @@
 // src/db/cipher.js: pure functions over strings, testable under plain Node.
 const crypto = require('crypto');
 
-// The password the app ships with. It is written here in the repository, so it
-// is NOT a secret and nothing may treat it as one: anyone who can read the
-// source knows it. It exists so the first launch has a way in, and Settings
-// says so until it is changed. `is_default` on the stored row is what the UI
-// reads; this constant is only what gets hashed for that first row.
-const DEFAULT_PASSWORD = '123456';
+// There is deliberately no shipped default password. The owner creates the
+// password on first run (see setup() in src/auth/index.js); a build that
+// carried a known password in its source would hand that password to anyone
+// who can read the repository. A legacy row written by an older build is
+// flagged `is_default` and is treated as "no password yet", never as a
+// credential anyone may unlock with.
 
 const ALGO = 'scrypt';
 const N = 16384; // CPU/memory cost. ~50-70 ms per derivation on this machine.
@@ -85,4 +85,4 @@ function isReadable(stored) {
   return parse(stored) !== null;
 }
 
-module.exports = { DEFAULT_PASSWORD, hashPassword, verifyPassword, isReadable, ALGO };
+module.exports = { hashPassword, verifyPassword, isReadable, ALGO };

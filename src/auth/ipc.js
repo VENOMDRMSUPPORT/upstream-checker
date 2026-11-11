@@ -1,13 +1,14 @@
 // src/auth/ipc.js
 'use strict';
 
-// The renderer's only way to the lock. Five channels, one thing each.
+// The renderer's only way to the lock. Six channels, one thing each.
 //
 // THE CONTRACT, the same one src/preload.js states for catalog:*
 //
 //   Every channel RESOLVES. An outcome the UI has to act on is data of the
 //   shape `{ ok: false, code, message }` — WRONG_PASSWORD, THROTTLED,
-//   WEAK_PASSWORD, LOCK_NOT_READY. Only a genuine programmer error rejects.
+//   WEAK_PASSWORD, LOCK_NOT_READY, SETUP_REQUIRED, ALREADY_SET. Only a genuine
+//   programmer error rejects.
 //
 //   Why: `ipcMain.handle` resolves by STRUCTURE and turns a rejection into a new
 //   Error carrying only its `message`. An `err.code` set in main does not cross.
@@ -15,8 +16,8 @@
 //   the renderer never receives — so the verdict has to be in the value instead.
 //
 // Nothing here returns a hash, a salt or the stored row. `auth:status` reports
-// whether the shipped default is still in force and nothing about the value, and
-// there is no channel that reads the lock back out.
+// whether an owner password still has to be created and nothing about any
+// value, and there is no channel that reads the lock back out.
 //
 // `onLocked` is how main tells the window the session ended, and why: 'expired'
 // when the idle limit closed it, 'locked' when the owner asked. The idle check
@@ -55,6 +56,7 @@ function registerAuthIpc({ ipcMain, auth, log = console, onLocked = null }) {
     return { ok: true, ...status };
   });
 
+  handle('auth:setup', (next) => auth.setup(next));
   handle('auth:unlock', (candidate) => auth.unlock(candidate));
   handle('auth:change', (current, next) => auth.change(current, next));
   handle('auth:lock', () => {
@@ -70,7 +72,7 @@ function registerAuthIpc({ ipcMain, auth, log = console, onLocked = null }) {
   });
   handle('auth:activity', () => auth.noteActivity());
 
-  return { channels: ['auth:status', 'auth:unlock', 'auth:change', 'auth:lock', 'auth:activity'] };
+  return { channels: ['auth:status', 'auth:setup', 'auth:unlock', 'auth:change', 'auth:lock', 'auth:activity'] };
 }
 
 module.exports = { registerAuthIpc };

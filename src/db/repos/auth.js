@@ -6,9 +6,12 @@
 // what the idle limit is all live in src/auth/index.js, so the policy can
 // change without touching the table.
 //
-// No row means the default password. That is the state of a fresh database and
-// of a database the recovery script has just reset, and both should behave the
-// same way, so `get()` returning null is a normal answer rather than an error.
+// No row means no password has been created yet. That is the state of a fresh
+// database and of a database the recovery script has just reset, and both
+// should behave the same way — the create-password screen — so `get()`
+// returning null is a normal answer rather than an error. A row flagged
+// is_default is a legacy row written by an older build's shipped default; the
+// auth layer treats it exactly like no row until the owner replaces it.
 //
 // The hash is deliberately NOT wrapped in the enc:v1: DPAPI envelope the
 // provider keys use. Losing an account key is recoverable (the UI says "locked
@@ -30,9 +33,11 @@ function createAuthRepo(db) {
 
   const get = () => sql('get', 'SELECT * FROM app_lock WHERE id = 1').get() || null;
 
-  // Called at startup. The row exists from the first launch after migration v4
-  // and again after a reset; both paths land here and get the same default.
-  function ensureDefault(hashValue, { now = Date.now(), isDefault = true } = {}) {
+  // The one insert path, called only from the auth layer's setup() when the
+  // owner creates the first password. Nothing calls this at startup: a launch
+  // writes no lock row, so a fresh database legitimately has none. An
+  // existing row is returned untouched — replacing a password is setHash().
+  function insertRow(hashValue, { now = Date.now(), isDefault = false } = {}) {
     const existing = get();
     if (existing) return existing;
     sql('insert', `INSERT INTO app_lock (id, hash, is_default, failed_attempts, locked_until, changed_at, created_at)
@@ -70,7 +75,7 @@ function createAuthRepo(db) {
     return sql('remove', 'DELETE FROM app_lock WHERE id = 1').run().changes;
   }
 
-  return { get, ensureDefault, setHash, recordFailure, setLockedUntil, clearFailures, remove };
+  return { get, insertRow, setHash, recordFailure, setLockedUntil, clearFailures, remove };
 }
 
 module.exports = { createAuthRepo };

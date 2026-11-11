@@ -12,7 +12,7 @@
 // because the renderer never presents one: it is the same window on the same
 // channel, so a token would be ceremony around a variable. A restart drops both
 // the flag and the timestamp, which is what "unlock at every launch" means.
-const { DEFAULT_PASSWORD, hashPassword, verifyPassword, isReadable } = require('./hash');
+const { hashPassword, verifyPassword, isReadable } = require('./hash');
 
 // Five consecutive misses earn a brake; the counter is persisted, so closing
 // and reopening the app is not a way around it.
@@ -48,14 +48,36 @@ function createAuthLock({ repo, log = console, idleMs = 60 * 60 * 1000, now = Da
     message: `Too many attempts. Try again in ${Math.ceil(retryAfterMs / 1000)} s.`,
   });
 
-  // Called once at startup, after the database is open. Hashing the default is
-  // only paid when the row is actually missing — a fresh install or a reset.
-  function ensureDefault() {
-    if (repo.get()) return { created: false };
-    const { value } = hashPassword(DEFAULT_PASSWORD);
-    repo.ensureDefault(value, { now: now(), isDefault: true });
-    log.info('App lock created with the shipped default password; it is unchanged until the owner replaces it.');
-    return { created: true };
+  // Setup is required until the owner has created a password of their own:
+  // either there is no row at all (a fresh install, or a reset), or the row is
+  // a legacy one an older build wrote with its shipped default — flagged
+  // is_default, and never treated as a credential anyone may unlock with.
+  function setupRequired() {
+    const row = repo.get();
+    return !row || row.is_default === 1;
+  }
+
+  // First run (and the recovery path after a reset): the owner creates the
+  // password. This is the only way a lock row comes into existence — nothing
+  // is written at startup, and no build ships a password of its own. Creating
+  // the password also opens the session: the person who just chose it does
+  // not have to type it straight back in.
+  function setup(next) {
+    const row = repo.get();
+    if (row && row.is_default !== 1) {
+      return { ok: false, code: 'ALREADY_SET', message: 'An owner password is already set. Unlock and change it from the Profile page.' };
+    }
+    const value = typeof next === 'string' ? next : '';
+    if (value.length < MIN_PASSWORD_LENGTH) {
+      return { ok: false, code: 'WEAK_PASSWORD', message: `The password must be at least ${MIN_PASSWORD_LENGTH} characters.` };
+    }
+    const { value: hash } = hashPassword(value);
+    if (row) repo.setHash(hash, { isDefault: false, now: now() });
+    else repo.insertRow(hash, { now: now(), isDefault: false });
+    unlocked = true;
+    lastActivity = now();
+    log.info('Owner password created; the app lock is now the owner\'s own password.');
+    return { ok: true };
   }
 
   // Remaining brake, in ms. Reads the row each time so a second write path (the
@@ -86,10 +108,15 @@ function createAuthLock({ repo, log = console, idleMs = 60 * 60 * 1000, now = Da
   }
 
   function unlock(candidate) {
-    const row = repo.get();
-    if (!row) {
-      return { ok: false, code: 'LOCK_NOT_READY', message: 'The app lock has no password yet. Restart VENOM Router.' };
+    // No password of the owner's own yet — a fresh install, a reset, or a
+    // legacy row from a build that shipped a default. There is nothing to
+    // verify against; the answer is the setup screen, not a wrong password,
+    // and it is given before the throttle is consulted so a brake earned by
+    // guessing at the old default cannot block creating a real password.
+    if (setupRequired()) {
+      return { ok: false, code: 'SETUP_REQUIRED', message: 'Create an owner password to continue.' };
     }
+    const row = repo.get();
     // Refused before the KDF runs: a throttled guess must cost no CPU, which is
     // the whole point of the brake.
     const wait = throttleRemaining();
@@ -115,13 +142,17 @@ function createAuthLock({ repo, log = console, idleMs = 60 * 60 * 1000, now = Da
     return { ok: true };
   }
 
-  // change-settings. Refuses a weak or unchanged value: the point of the row is
-  // to leave the shipped default behind.
+  // change-settings. Refuses a weak or unchanged value. While setup is still
+  // required there is no current password to change from — that is setup()'s
+  // path, and it is refused here so there is exactly one door into a first
+  // password.
   function change(current, next) {
+    if (setupRequired()) {
+      return { ok: false, code: 'SETUP_REQUIRED', message: 'Create an owner password first.' };
+    }
     const wait = throttleRemaining();
     if (wait > 0) return throttled(wait);
     const row = repo.get();
-    if (!row) return { ok: false, code: 'LOCK_NOT_READY', message: 'The app lock has no password yet.' };
     if (!verifyPassword(current, row.hash)) {
       const attempts = Number(row.failed_attempts || 0) + 1;
       repo.recordFailure(attempts);
@@ -173,14 +204,15 @@ function createAuthLock({ repo, log = console, idleMs = 60 * 60 * 1000, now = Da
     const row = repo.get();
     return {
       locked: isLocked(),
-      // A missing row reads as the default, which is what it becomes on the
-      // next launch — the warning should not blink off in the meantime.
-      isDefault: row ? row.is_default === 1 : true,
+      // True on a fresh install, after a reset, and for a legacy row an older
+      // build wrote with its shipped default. The lock screen reads this to
+      // show the create-password form instead of a login.
+      setupRequired: !row || row.is_default === 1,
       idleMs: idleLimit,
       hasRow: !!row,
     };
   }
-  return { ensureDefault, isLocked, takeExpiry, unlock, change, lock, setIdleMs, noteActivity, status };
+  return { setup, setupRequired, isLocked, takeExpiry, unlock, change, lock, setIdleMs, noteActivity, status };
 }
 
 module.exports = { createAuthLock, MAX_FAILED, THROTTLE_MS, MIN_PASSWORD_LENGTH };

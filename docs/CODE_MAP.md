@@ -66,15 +66,15 @@ The architecture behind these files — boot order, IPC channels, the two databa
 
 Files of 700+ lines, with the section banners inside them. Open the window you need — do not read one of these whole. Line numbers are 1-based.
 
-### src/main.js — 1265 lines
+### src/main.js — 1267 lines
 
 | Line | Section |
 | --- | --- |
 | 446 | Local database — venom.db (src/db) |
 | 466 | Request log — venom-logs.db (src/logs) |
 | 553 | Model catalog engine — src/catalog |
-| 1141 | API requests (src/api-request.js) |
-| 1179 | Old request log file (requests.log) |
+| 1143 | API requests (src/api-request.js) |
+| 1181 | Old request log file (requests.log) |
 
 ### src/oauth/index.js — 717 lines
 
@@ -82,7 +82,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | --- | --- |
 | 2 | OAuth — the manager main keeps |
 
-### src/renderer/app.js — 3660 lines
+### src/renderer/app.js — 3659 lines
 
 | Line | Section |
 | --- | --- |
@@ -107,11 +107,11 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 2474 | Scheduled re-testing |
 | 2507 | Settings panel |
 | 2898 | Security — the app lock from inside the app |
-| 3129 | Breadcrumb — shared helper |
-| 3159 | Providers page |
-| 3206 | Providers page — key management panel (table rows and cards) |
-| 3226 | Action feedback — Recheck and key Test |
-| 3391 | Data toolbar — shared |
+| 3128 | Breadcrumb — shared helper |
+| 3158 | Providers page |
+| 3205 | Providers page — key management panel (table rows and cards) |
+| 3225 | Action feedback — Recheck and key Test |
+| 3390 | Data toolbar — shared |
 
 ### src/renderer/catalog.js — 2125 lines
 
@@ -158,21 +158,21 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 696 | settings: sec-data |
 | 700 | settings: sec-about |
 | 1839 | page: profile |
-| 2080 | overlay: response-modal |
-| 2100 | overlay: add-key-modal |
-| 2131 | overlay: oauth-modal |
-| 2143 | overlay: oauth-modal-code-box |
-| 2147 | overlay: oauth-modal-status-row |
-| 2149 | overlay: oauth-modal-status |
-| 2160 | overlay: add-provider-modal |
-| 2195 | overlay: update-modal |
-| 2212 | overlay: update-modal-notes |
-| 2254 | overlay: log-drawer |
-| 2255 | overlay: log-drawer-scrim |
-| 2261 | overlay: log-drawer-body |
-| 2265 | overlay: ku-drawer |
-| 2283 | overlay: mc-chat-drawer |
-| 2313 | overlay: mc-details-drawer |
+| 2072 | overlay: response-modal |
+| 2092 | overlay: add-key-modal |
+| 2123 | overlay: oauth-modal |
+| 2135 | overlay: oauth-modal-code-box |
+| 2139 | overlay: oauth-modal-status-row |
+| 2141 | overlay: oauth-modal-status |
+| 2152 | overlay: add-provider-modal |
+| 2187 | overlay: update-modal |
+| 2204 | overlay: update-modal-notes |
+| 2246 | overlay: log-drawer |
+| 2247 | overlay: log-drawer-scrim |
+| 2253 | overlay: log-drawer-body |
+| 2257 | overlay: ku-drawer |
+| 2275 | overlay: mc-chat-drawer |
+| 2305 | overlay: mc-details-drawer |
 
 ### src/renderer/styles.css — 13501 lines
 
@@ -246,7 +246,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
 | `boot-guard.cjs` | 93 | An Electron entry that arms a throwing network guard and then boots the real | REPORT, userDataFlag, SCRATCH, APPDATA, attempts, record, arm |
-| `cdp.mjs` | 187 | Launches a separate VENOM Router on a scratch data folder with remote | require, ROOT, sleep, assertScratchDir, appEnv, withTimeout, launch, spawnPlain |
+| `cdp.mjs` | 193 | Launches a separate VENOM Router on a scratch data folder with remote | require, ROOT, sleep, assertScratchDir, appEnv, withTimeout, launch, spawnPlain |
 | `fixture.mjs` | 111 | Synthetic legacy data folder for the live checks: config.json, catalog.json | FIXTURE, writeFixture |
 | `mock-provider.mjs` | 66 | A local stand-in for the fixture's providers: OpenAI-shaped /models and | startMock |
 | `verify-antigravity.mjs` | 521 | Live check of the Antigravity provider: the sign-in, the roster, the | sleep, failures, checks, check, ROSTER, LIMITS, ACCOUNT, idToken, startMock, fakeRepos, checkSignIn, checkApp, +1 more |
@@ -254,7 +254,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `verify-catalog-legend.mjs` | 235 | Live check of the Models page's capability legend, against the fixture folder. | failures, check, PORT, READY, TONES, toneClass, measureLegend, dir, mock |
 | `verify-catalog-sidebar.mjs` | 118 | Live check of the Models page's details drawer and its two tabs. | failures, check, dir, mock |
 | `verify-db.mjs` | 548 | Live check of the local database against a synthetic data folder. | failures, check, sleep, until, READY, checkImport, checkKeysStayInMain, saveForNextRun, queueSaveThenClose, checkFlushOnClose, checkPersistence, checkSingleInstance, +20 more |
-| `verify-lock.mjs` | 486 | Live check of the app lock, against a scratch data folder. | require, ROOT, SHOT_DIR, shotPath, runResetLock, readRow, readLockRow, readSurvivors, failures, check, PORT, READY, +4 more |
+| `verify-lock.mjs` | 540 | Live check of the app lock, against a scratch data folder. | require, ROOT, SHOT_DIR, shotPath, runResetLock, readRow, readLockRow, readSurvivors, failures, check, PORT, READY, +4 more |
 | `verify-provider-table.mjs` | 420 | Live check of the provider test table's reference columns, against the fixture | REAL_CACHE, seedRealCache, REAL_MODELS, startMockWithRealModels, failures, check, READY, freePort, measureTable, dir, mock, app |
 | `verify-renderer-modules.mjs` | 251 | Live acceptance for extracted renderer units: real DOM and scratch data only. | failures, check, dir |
 
@@ -265,17 +265,17 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `api-request.js` | 226 | api-request — every outbound request the renderer asks for | CONTENT_TOKEN, CANCEL_REASONS, CUT_OFF, createApiRequester |
 | `flush.js` | 38 | Close handshake with the renderer | DEFAULT_FLUSH_TIMEOUT_MS, requestFlush |
 | `keystore.js` | 74 | API keys at rest | decryptKeyEntry, encryptKeyEntry, eachStoredKey, countPlaintextKeys |
-| `main.js` | 1265 | Main process: data folder, boot order, IPC wiring, auto-updater | venomRouter, venomGateway, venomGatewayStarting, readRosterRowsForRouter, startVenomRouter, gatewayPort, upstreamSpec, buildVenomRouter, venomGatewayStarted, ensureVenomGateway, refreshVenomRouter, isPrimary, +36 more |
-| `preload.js` | 149 | contextBridge surface — the renderer's only door to main | minimize, maximize, close, setWindowIcon, authStatus, authUnlock, authChange, authLock, authActivity, onAuthLocked, apiRequest, cancelApiRequest, +59 more |
+| `main.js` | 1267 | Main process: data folder, boot order, IPC wiring, auto-updater | venomRouter, venomGateway, venomGatewayStarting, readRosterRowsForRouter, startVenomRouter, gatewayPort, upstreamSpec, buildVenomRouter, venomGatewayStarted, ensureVenomGateway, refreshVenomRouter, isPrimary, +36 more |
+| `preload.js` | 151 | contextBridge surface — the renderer's only door to main | minimize, maximize, close, setWindowIcon, authStatus, authSetup, authUnlock, authChange, authLock, authActivity, onAuthLocked, apiRequest, +60 more |
 | `user-data.js` | 40 | Where the app keeps its data. Electron names the userData folder after the | LEGACY_DIR, CURRENT_DIR, DEV_DIR, resolveUserDataDir |
 
 ### src/auth/
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
-| `hash.js` | 89 | The owner password — scrypt hash and verify | DEFAULT_PASSWORD, ALGO, N, R, P, KEYLEN, SALT_BYTES, parse, derive, hashPassword, verifyPassword, isReadable |
-| `index.js` | 187 | The app lock — session, idle and throttle | MAX_FAILED, THROTTLE_MS, MIN_PASSWORD_LENGTH, normaliseIdle, createAuthLock |
-| `ipc.js` | 77 | src/auth/ipc.js | registerAuthIpc |
+| `hash.js` | 89 | The owner password — scrypt hash and verify | ALGO, N, R, P, KEYLEN, SALT_BYTES, parse, derive, hashPassword, verifyPassword, isReadable |
+| `index.js` | 219 | The app lock — session, idle and throttle | MAX_FAILED, THROTTLE_MS, MIN_PASSWORD_LENGTH, normaliseIdle, createAuthLock |
+| `ipc.js` | 79 | src/auth/ipc.js | registerAuthIpc |
 
 ### src/catalog/
 
@@ -310,7 +310,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
-| `auth.js` | 77 | The app lock row — app_lock | createAuthRepo |
+| `auth.js` | 82 | The app lock row — app_lock | createAuthRepo |
 | `history.js` | 106 | Run history — test_runs + test_results | ULID, DEFAULT_MAX_RUNS, MAX_RUNS_CEILING, historyCap, num, createHistoryRepo |
 | `providers.js` | 481 | Providers and their API keys | KEY_PLACEHOLDER, OAUTH_PLACEHOLDER, ANY_PLACEHOLDER, KEY_ID, KEY_TIERS, normaliseTier, maskKey, createProvidersRepo |
 | `roster-events.js` | 123 | Roster change events — roster_events | EVENTS_KEPT, KINDS, createRosterEventsRepo |
@@ -351,13 +351,13 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
 | `activity.js` | 649 | Model activity — the notification center | PAGE_LIMIT, PAGE_STEP, PANEL_LIMIT, compactLayout, isCompact, acState, acShell, AC_TOOLBAR, AC_ICON, getProvider, providerName, safeProviderMark, +65 more |
-| `app.js` | 3660 | VENOM ROUTER — Application Logic v2 | DEFAULT_TEST_PROMPT, DEFAULT_EXPECTED, testPrompt, expectedAnswer, NA, RESPONSE_PREVIEW, truthy, KIND_LABELS, kindLimits, classifyModel, isMedia, isDecision, +274 more |
+| `app.js` | 3659 | VENOM ROUTER — Application Logic v2 | DEFAULT_TEST_PROMPT, DEFAULT_EXPECTED, testPrompt, expectedAnswer, NA, RESPONSE_PREVIEW, truthy, KIND_LABELS, kindLimits, classifyModel, isMedia, isDecision, +274 more |
 | `appearance.js` | 324 | Theme, accent and density controls; state is read through live getters. | VENOM_RENDERER |
 | `catalog-caps.js` | 217 | Model capabilities — what a catalogue row can do, read as three states | CAT_CAPABILITIES, hasModality, publishedBool, filesState, outputState, capabilityState, BOOLEAN_CAPS, capabilityOrigin, capabilitySet, capabilityCounts |
 | `catalog.js` | 2125 | Models Catalog — the merged reference, scored | state, chat, details, ui, keyOf, connectedIds, historyRuns, loadHistoryRuns, loadPromise, load, reload, applyRead, +242 more |
 | `database.js` | 319 | Read-only SQLite explorer. All SQL, identifier checks, and redaction happen | PAGE_SIZE, state, byId, escape, number, DB_ICON, sourceCounts, setNotice, box, updateSourceTabs, isApp, isLogs, +33 more |
 | `key-usage.js` | 659 | Key usage — quota, expiry and request history per API key | KEY_USAGE |
-| `lock.js` | 400 | The app lock screen — src/renderer/lock.js | MIN_IDLE_MIN, el, resolved, onUnlocked, particle, frame, running, activityBound, lastActivitySent, throttleTimer, reduceMotion, ACTIVITY_SEND_MS, +35 more |
+| `lock.js` | 492 | The app lock screen — src/renderer/lock.js | MIN_IDLE_MIN, el, mode, legacySetup, resolved, onUnlocked, particle, frame, running, activityBound, lastActivitySent, throttleTimer, +40 more |
 | `logs-format.js` | 132 | Log pages — pure formatting and mapping | LOGS_RANGES, logEscape, normalizeProvider, providerLabel, formatDuration, formatCost, formatTokens, logPad, formatWhen, statusTone, passRateText, rangePreset, +1 more |
 | `logs.js` | 1310 | Log pages — Runs, Requests and Monitoring | state, el, REDUCED_MOTION, drawerOpener, closeTimer, tabFromRoute, parts, loadInfo, LOG_ICONS, emptyState, loggingOffMarkup, why, +130 more |
 | `oauth-connect.js` | 205 | OAuth — the connect flow in the page | VENOM_RENDERER |
@@ -437,9 +437,9 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
-| `hash.test.js` | 83 | The owner password: scrypt hash and verify. Pure Node, no Electron. | the shipped default round-trips, the shipped default is not stored in a comparable form, a wrong password is refused, two hashes of the same password differ (fresh salt each time), a string with its own parameters still verifies after the cost is raised, malformed strings return false rather than throwing |
-| `ipc.test.js` | 147 | The auth IPC surface: five channels, every one of them resolving, and nothing | registers exactly the five auth channels, auth:status reports the lock without ever carrying the hash, auth:unlock resolves a verdict rather than rejecting, auth:unlock before the row exists is LOCK_NOT_READY, not a rejection, auth:change refuses a weak value with a code the UI can act on, auth:lock ends the session and tells the main process why |
-| `lock.test.js` | 317 | The app lock: session, idle expiry and throttle. Pure Node — the lock takes a | a fresh database is locked and carries the shipped default, ensureDefault never overwrites a row that already exists, status with no row reads as the default rather than as unlocked, the right password unlocks and the wrong one does not, unlocking with no row is LOCK_NOT_READY, not a wrong password, the throttle survives closing and reopening the app |
+| `hash.test.js` | 87 | The owner password: scrypt hash and verify. Pure Node, no Electron. | a password round-trips, a password is not stored in a comparable form, a wrong password is refused, two hashes of the same password differ (fresh salt each time), a string with its own parameters still verifies after the cost is raised, malformed strings return false rather than throwing |
+| `ipc.test.js` | 167 | The auth IPC surface: six channels, every one of them resolving, and nothing | registers exactly the six auth channels, auth:status reports the lock without ever carrying the hash, auth:setup creates the first password and opens the session, auth:unlock resolves a verdict rather than rejecting, auth:unlock before setup is SETUP_REQUIRED, not a rejection, auth:change refuses a weak value with a code the UI can act on |
+| `lock.test.js` | 378 | The app lock: session, idle expiry and throttle. Pure Node — the lock takes a | a fresh database is locked and setup is required, setup creates the password and opens the session, setup refuses a short password and writes nothing, setup a second time is ALREADY_SET and changes nothing, a legacy row from a shipped-default build is setup, not a login, the right password unlocks and the wrong one does not |
 
 ### test/catalog/
 
@@ -462,7 +462,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
-| `auth-repo.test.js` | 124 | The app_lock row: one row, enforced by the schema, and a fresh database reads | migration v4 creates an empty app_lock table, a fresh database has no row, so the default password applies, ensureDefault writes exactly one row and never replaces it, the schema refuses a second row, setHash clears is_default and the failure counters, setHash on a missing row throws rather than silently doing nothing |
+| `auth-repo.test.js` | 135 | The app_lock row: one row, enforced by the schema, and a fresh database reads | migration v4 creates an empty app_lock table, a fresh database has no row, so no password exists yet, insertRow writes exactly one row and never replaces it, the schema refuses a second row, setHash replaces a legacy default row and clears the failure counters, setHash on a missing row throws rather than silently doing nothing |
 | `cipher.test.js` | 54 |  | encrypt wraps in the enc:v1: envelope and decrypt opens it, encrypt refuses when OS encryption is unavailable (never plaintext), encrypt refuses an empty value, decrypt refuses a value without the envelope, decrypt of a value encrypted elsewhere throws, isEnvelope needs the prefix and a payload |
 | `explorer.test.js` | 37 |  |  |
 | `history.test.js` | 112 |  | append and read round-trip today\, runs come back in insertion order, not by time, append trims to the cap, results of trimmed runs go too, historyCap clamps to 5000 and falls back to 300, clear empties runs and results, a malformed run is refused and nothing is written |
@@ -565,7 +565,7 @@ Static relative imports only (`require`, `import … from`, `import()`). Builtin
 | `scripts/live/fixture.mjs` | `scripts/live/verify-catalog-legend.mjs`, `scripts/live/verify-catalog-sidebar.mjs`, `scripts/live/verify-db.mjs`, `scripts/live/verify-provider-table.mjs`, `scripts/live/verify-renderer-modules.mjs` |
 | `scripts/live/mock-provider.mjs` | `scripts/live/verify-catalog-legend.mjs`, `scripts/live/verify-catalog-sidebar.mjs`, `scripts/live/verify-db.mjs`, `scripts/live/verify-provider-table.mjs`, `scripts/live/verify-renderer-modules.mjs` |
 | `src/api-request.js` | `src/main.js`, `test/api-request.test.js`, `test/main-wiring.test.js` |
-| `src/auth/hash.js` | `src/auth/index.js`, `test/auth/hash.test.js`, `test/auth/ipc.test.js`, `test/auth/lock.test.js`, `test/db/auth-repo.test.js` |
+| `src/auth/hash.js` | `src/auth/index.js`, `test/auth/hash.test.js`, `test/auth/lock.test.js`, `test/db/auth-repo.test.js` |
 | `src/auth/index.js` | `src/main.js`, `test/auth/ipc.test.js`, `test/auth/lock.test.js` |
 | `src/auth/ipc.js` | `src/main.js`, `test/auth/ipc.test.js` |
 | `src/catalog/atomic.js` | `src/catalog/sources.js`, `test/catalog/atomic.test.js` |

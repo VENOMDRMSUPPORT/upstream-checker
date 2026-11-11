@@ -970,12 +970,14 @@ app.whenReady().then(async () => {
   startLogs();
   // The app lock. Its row is in venom.db, so it comes after startDatabase(); the
   // idle limit is a saved setting, read here and re-read on every save below.
+  // No lock row is written here: on a first launch the owner creates the
+  // password from the lock screen (auth.setup), so a fresh database has no
+  // app_lock row until then and nothing a build ships can open the app.
   auth = createAuthLock({
     repo: store.repos.auth,
     log,
     idleMs: idleLimitMs(),
   });
-  auth.ensureDefault();
   try {
     registerDataIpc({
       ipcMain,

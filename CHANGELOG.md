@@ -18,6 +18,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A sign-in this build does not know says so, and names the grant, instead
   of being reported as the wrong kind of sign-in.
 
+### Security
+
+- **The app no longer ships with a default password.** There is nothing to
+  log in with on a first launch: the lock screen opens in a setup mode where
+  the owner creates the password (with a confirmation field), and creating it
+  is the only way an app-lock row comes to exist — nothing is written at
+  startup. An install still carrying a legacy row written by an older build's
+  shipped default is treated the same way: setup, not a login, so the old
+  value opens nothing. `npm run reset:lock` now returns the app to the
+  create-password screen instead of to a known default, and the Profile ›
+  Security "shipped password" warning is gone — an open app always runs on
+  the owner's own password. New IPC channel `auth:setup`; `auth:status` now
+  reports `setupRequired` instead of `isDefault`.
+
 ### Added
 
 - **Antigravity** as the thirteenth built-in provider: Google's Antigravity

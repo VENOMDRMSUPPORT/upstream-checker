@@ -23,7 +23,15 @@
   const el = {
     screen: null, canvas: null, form: null, input: null, submit: null,
     status: null, reveal: null, note: null, sub: null,
+    label: null, confirmField: null, confirm: null,
   };
+
+  // 'login' normally; 'setup' while main reports no owner password exists yet
+  // (first run, after a reset, or a legacy install still on the password an
+  // old build shipped). Setup is a different form, not a different screen:
+  // same panel, a confirm field, and Create instead of Log in.
+  let mode = 'login';
+  let legacySetup = false; // setup because a shipped-default row exists
 
   let resolved = null;         // the pending waitForUnlock() promise held open
   let onUnlocked = null;
@@ -171,7 +179,28 @@
   function setBusy(busy) {
     if (el.submit) el.submit.disabled = busy;
     if (el.input) el.input.disabled = busy;
+    if (el.confirm) el.confirm.disabled = busy;
     if (el.screen) el.screen.classList.toggle('is-busy', busy);
+  }
+
+  // ---------- setup mode ----------
+  function applyMode(status) {
+    mode = status && status.setupRequired ? 'setup' : 'login';
+    legacySetup = mode === 'setup' && !!(status && status.hasRow);
+    if (el.confirmField) el.confirmField.hidden = mode !== 'setup';
+    if (el.label) el.label.textContent = mode === 'setup' ? 'Create your owner password' : 'Owner password';
+    if (el.submit) el.submit.textContent = mode === 'setup' ? 'Create password' : 'Log in';
+    if (el.input) {
+      el.input.setAttribute('autocomplete', mode === 'setup' ? 'new-password' : 'current-password');
+      el.input.setAttribute('placeholder', mode === 'setup' ? 'At least 8 characters' : 'Password');
+    }
+    if (el.sub) {
+      el.sub.textContent = mode === 'setup'
+        ? (legacySetup
+          ? 'This install still uses the password an older version shipped with. Create your own to continue.'
+          : 'Welcome. Create the password that locks this app on this device — there is no default to fall back on.')
+        : 'Enter your owner password to continue.';
+    }
   }
 
   // A throttle is a countdown the owner can watch, not a dead button. The brake
@@ -214,9 +243,56 @@
     el.reveal.setAttribute('title', label);
   }
 
+  // ---------- setup ----------
+  async function submitSetup() {
+    const candidate = el.input.value;
+    const repeated = el.confirm ? el.confirm.value : '';
+    if (!candidate) {
+      setStatus('Create a password to continue.', 'warn');
+      el.input.focus();
+      return;
+    }
+    if (candidate !== repeated) {
+      setStatus('The two passwords do not match.', 'error');
+      if (el.confirm) { el.confirm.value = ''; el.confirm.focus(); }
+      return;
+    }
+    setBusy(true);
+    setStatus('Creating…', '');
+    let reply;
+    try {
+      reply = await window.electronAPI.authSetup(candidate);
+    } catch (err) {
+      setBusy(false);
+      setStatus(`Could not create the password: ${err.message}`, 'error');
+      return;
+    }
+    if (reply && reply.ok) {
+      el.input.value = '';
+      if (el.confirm) el.confirm.value = '';
+      // The next time this screen appears — an idle lock, a sign-out — it is
+      // a login screen, labels included. Main already counts the password as
+      // set; mirror it here before the panel goes away.
+      applyMode({ setupRequired: false });
+      hide();
+      return;
+    }
+    setBusy(false);
+    if (reply && reply.code === 'ALREADY_SET') {
+      // Someone set a password while this screen was up. Fall back to login
+      // rather than insisting on a setup main no longer accepts.
+      applyMode({ setupRequired: false });
+      setStatus('A password is already set. Enter it to continue.', 'warn');
+      return;
+    }
+    setStatus((reply && reply.message) || 'That password cannot be used.', 'error');
+    if (el.input) el.input.focus();
+  }
+
   // ---------- unlock ----------
   async function submit() {
     if (!el.input) return;
+    if (mode === 'setup') { await submitSetup(); return; }
     const candidate = el.input.value;
     if (!candidate) {
       setStatus('Enter the owner password.', 'warn');
@@ -254,6 +330,13 @@
       setStatus(reply.message || 'This build cannot read the saved app lock.', 'error');
       return;
     }
+    if (code === 'SETUP_REQUIRED') {
+      // The screen thought this was a login; main says no password exists
+      // yet. Switch forms rather than calling the owner wrong.
+      applyMode({ setupRequired: true, hasRow: legacySetup });
+      setStatus('Create an owner password to continue.', 'warn');
+      return;
+    }
     const left = reply && typeof reply.attemptsLeft === 'number' ? reply.attemptsLeft : null;
     setStatus(`Wrong password.${left !== null ? ` ${left} attempt${left === 1 ? '' : 's'} left.` : ''}`, 'error');
     if (el.input) el.input.focus();
@@ -269,7 +352,11 @@
     const shell = document.querySelector('.shell');
     if (shell) shell.setAttribute('inert', '');
     unbindActivity();
-    if (reason === 'expired') {
+    if (mode === 'setup') {
+      // No session exists yet, so there is no expiry or sign-out to explain:
+      // the copy stays the setup copy applyMode() set.
+      setStatus('', '');
+    } else if (reason === 'expired') {
       setStatus('Locked after a period of inactivity.', 'warn');
       if (el.sub) el.sub.textContent = 'Your session expired. Enter your owner password to continue.';
     } else if (reason === 'locked') {
@@ -353,6 +440,11 @@
     el.reveal = document.getElementById('lock-reveal');
     el.note = document.getElementById('lock-note-text');
     el.sub = document.getElementById('lock-sub');
+    el.label = document.getElementById('lock-label');
+    el.confirmField = document.getElementById('lock-confirm-field');
+    el.confirm = document.getElementById('lock-password-confirm');
+
+    applyMode(status);
 
     if (el.note && status && status.idleMs > 0) {
       const minutes = Math.max(MIN_IDLE_MIN, Math.round(status.idleMs / 60000));

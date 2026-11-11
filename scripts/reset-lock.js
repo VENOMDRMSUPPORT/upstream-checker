@@ -74,7 +74,7 @@ app.whenReady().then(() => {
   console.log(`  database      ${REQUIRED}  (${size} bytes)`);
   console.log('\n  This deletes the saved owner password and nothing else.');
   console.log('  Providers, API keys, history, settings and the request log are not touched.');
-  console.log('  The next launch starts with the shipped default password.\n');
+  console.log('  The next launch asks you to create a new owner password.\n');
 
   let Database;
   try {
@@ -108,11 +108,11 @@ app.whenReady().then(() => {
     const removed = db.prepare('DELETE FROM app_lock WHERE id = 1').run().changes;
     db.close();
     if (removed === 0) {
-      console.log('  There was no saved password — the default already applies.');
+      console.log('  There was no saved password — nothing to remove.');
     } else {
       console.log('  Removed 1 row from app_lock.');
     }
-    console.log('\n  Done. Start VENOM Router and log in with 123456.\n');
+    console.log('\n  Done. Start VENOM Router and create a new owner password.\n');
     app.exit(0);
   } catch (err) {
     try { db.close(); } catch (_) { /* dying anyway */ }
