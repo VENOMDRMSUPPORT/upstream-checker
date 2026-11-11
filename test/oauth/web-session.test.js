@@ -16,8 +16,8 @@ const { memoryStore, quietLog } = require('../helpers');
 
 const DECL = {
   kind: 'web',
-  signInUrl: 'https://muse.ai/',
-  sessionUrl: 'https://muse.ai/api/session',
+  signInUrl: 'https://acme.example/',
+  sessionUrl: 'https://acme.example/api/session',
   sessionMarker: 'assigned',
   cookieNames: ['hatch_sess', 'hatch_gw'],
   usage: { steps: [{ read: 'dialog' }] },
@@ -28,7 +28,7 @@ test('a declaration that is not a web sign-in is refused', () => {
 });
 
 test('a non-https sign-in address is refused', () => {
-  assert.throws(() => web.normalise({ ...DECL, signInUrl: 'http://muse.ai/' }), /sign-in address/i);
+  assert.throws(() => web.normalise({ ...DECL, signInUrl: 'http://acme.example/' }), /sign-in address/i);
 });
 
 test('a session address on another origin is refused', () => {
@@ -41,7 +41,7 @@ test('a session address on another origin is refused', () => {
 test('the good declaration is accepted', () => {
   const cfg = web.normalise(DECL);
   assert.strictEqual(cfg.kind, 'web');
-  assert.strictEqual(cfg.origin, 'https://muse.ai');
+  assert.strictEqual(cfg.origin, 'https://acme.example');
   assert.deepStrictEqual(cfg.cookieNames, ['hatch_sess', 'hatch_gw']);
 });
 
@@ -80,7 +80,7 @@ function fakeBrowserWindow(window) {
 
 test('the sign-in window waits for the session and then the account is stored', async (t) => {
   const store = await memoryStore(t);
-  store.repos.providers.save({ id: 'muse', name: 'Muse AI', baseUrl: 'https://muse.ai', rpm: null, keys: [] });
+  store.repos.providers.save({ id: 'acme', name: 'Acme AI', baseUrl: 'https://acme.example', rpm: null, keys: [] });
   const win = fakeWindow({
     cookies: [
       { name: 'hatch_sess', value: 'sess-value' },
@@ -96,21 +96,21 @@ test('the sign-in window waits for the session and then the account is stored', 
     webSessionTimeoutMs: 300,
   });
 
-  const started = await oauth.start('muse', DECL);
+  const started = await oauth.start('acme', DECL);
   assert.strictEqual(started.ok, true);
   assert.strictEqual(started.inAppWindow, true);
 
   // The manager runs the flow in the background; wait for it to finish.
   let state = null;
   for (let i = 0; i < 50; i += 1) {
-    state = oauth.status('muse');
+    state = oauth.status('acme');
     if (state.state === 'done' || state.state === 'failed') break;
     await new Promise((r) => setTimeout(r, 20));
   }
   assert.strictEqual(state.state, 'done', JSON.stringify(state));
   assert.strictEqual(state.account.email, 'person@example.com');
 
-  const provider = store.repos.providers.get('muse');
+  const provider = store.repos.providers.get('acme');
   assert.strictEqual(provider.keys.length, 1);
   const key = provider.keys[0];
   assert.strictEqual(key.oauth, true);
@@ -127,7 +127,7 @@ test('the sign-in window waits for the session and then the account is stored', 
 
 test('a sign-in that never happens fails, and stores nothing', async (t) => {
   const store = await memoryStore(t);
-  store.repos.providers.save({ id: 'muse', name: 'Muse AI', baseUrl: 'https://muse.ai', rpm: null, keys: [] });
+  store.repos.providers.save({ id: 'acme', name: 'Acme AI', baseUrl: 'https://acme.example', rpm: null, keys: [] });
   const win = fakeWindow({ sessionAnswer: { status: 401, text: '' } });
   const oauth = createOAuthManager({
     repos: store.repos,
@@ -136,29 +136,29 @@ test('a sign-in that never happens fails, and stores nothing', async (t) => {
     // The wait gives up on its own instead of waiting for the full window.
     webSessionTimeoutMs: 300,
   });
-  const started = await oauth.start('muse', DECL);
+  const started = await oauth.start('acme', DECL);
   assert.strictEqual(started.ok, true);
   let state = null;
   for (let i = 0; i < 50; i += 1) {
-    state = oauth.status('muse');
+    state = oauth.status('acme');
     if (state.state === 'done' || state.state === 'failed') break;
     await new Promise((r) => setTimeout(r, 20));
   }
   // The wait gives up on its own; the session ends either way.
   assert.ok(['failed', 'pending'].includes(state.state), state.state);
-  assert.strictEqual(store.repos.providers.get('muse').keys.length, 0);
+  assert.strictEqual(store.repos.providers.get('acme').keys.length, 0);
 });
 
 test('a declaration main cannot use is refused before any window opens', async (t) => {
   const store = await memoryStore(t);
-  store.repos.providers.save({ id: 'muse', name: 'Muse AI', baseUrl: 'https://muse.ai', rpm: null, keys: [] });
+  store.repos.providers.save({ id: 'acme', name: 'Acme AI', baseUrl: 'https://acme.example', rpm: null, keys: [] });
   let opened = 0;
   const oauth = createOAuthManager({
     repos: store.repos,
     log: quietLog,
     BrowserWindow: function () { opened += 1; return fakeWindow(); },
   });
-  const out = await oauth.start('muse', { ...DECL, sessionUrl: 'https://elsewhere.example/s' });
+  const out = await oauth.start('acme', { ...DECL, sessionUrl: 'https://elsewhere.example/s' });
   assert.strictEqual(out.ok, false);
   assert.strictEqual(out.code, 'BAD_CONFIG');
   assert.strictEqual(opened, 0, 'nothing was opened');

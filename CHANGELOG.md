@@ -40,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it appears only while a step is missing, its Sync button runs roster
   discovery plus the reference sources, and it removes itself for good once a
   connected provider has models in the catalog.
-- **Antigravity** as the thirteenth built-in provider: Google's Antigravity
+- **Antigravity** as the twelfth built-in provider: Google's Antigravity
   IDE entitlement. It signs in on a Google account in the person's own
   browser — the consent page opens there, the answer comes back to a
   short-lived address on this machine, the tab closes itself and the app
@@ -64,12 +64,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   at a host of its choosing. An answer whose state does not match the
   sign-in is refused before any code is exchanged. Documented in
   `docs/OAUTH_PROVIDERS.md`.
-- **Muse AI** as the twelfth built-in provider. It is served by a local
-  bridge (MuseBridge) on 127.0.0.1:8787: the bridge drives the muse.ai web
-  client in a real browser, handles login automatically, and exposes an
-  OpenAI-compatible API. The app talks to it like any other provider; the
-  only special thing is that the usage comes from /admin/usage. Documented
-  in docs/integrations/MUSE.md.
 - **The OAuth plane** (`src/oauth/`): a signed-in account is a provider key
   with two secrets beside it — the credential the API is called with, and the
   access token the sign-in produced, each encrypted in its own column
@@ -79,6 +73,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   renderer only ever sees the code to type and the state of the sign-in. The
   provider declares its flow as plain data, and main checks it before it uses
   it. Documented in `docs/OAUTH_PROVIDERS.md`.
+
+### Removed
+
+- **The Muse AI provider is removed** (owner's decision): the adapter module,
+  its logo, its integration document and its dedicated test are gone, the
+  built-in count drops from thirteen to twelve, and the live checks assert
+  the new count. The generic OAuth engine it once exercised stays — it is
+  infrastructure other account providers use — with its test fixtures
+  renamed to a fictional provider. An install whose database still holds a
+  Muse row keeps the row on disk (the app never discards saved keys on its
+  own) but no longer loads or shows the provider.
 
 ### Fixed
 

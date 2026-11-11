@@ -343,7 +343,7 @@ async function checkApp(mock) {
     await app.waitFor("(function(){const s=document.getElementById('lock-screen');return !!s && !s.hidden;})()", 30000);
     await app.unlockAndWait();
     try {
-      await app.waitFor("typeof PROVIDERS === 'object' && Object.keys(PROVIDERS).length === 13 && !!window.CATALOG && CATALOG.state.loaded", 40000);
+      await app.waitFor("typeof PROVIDERS === 'object' && Object.keys(PROVIDERS).length === 12 && !!window.CATALOG && CATALOG.state.loaded", 40000);
     } catch (_) {
       // The gate below reports what the app looked like; the checks that need
       // a live app will fail with their own reason.

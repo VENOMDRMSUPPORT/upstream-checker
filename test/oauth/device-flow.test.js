@@ -13,10 +13,10 @@ const test = require('node:test');
 const assert = require('node:assert');
 const flow = require('../../src/oauth/device-flow');
 
-const BASE = 'https://api.meta.ai/v1';
-const DEVICE = 'https://auth.meta.com/oidc/device/authorization/';
-const TOKEN = 'https://auth.meta.com/oidc/device/token/';
-const EXCHANGE = 'https://api.meta.ai/muse-code/key';
+const BASE = 'https://api.acme.example/v1';
+const DEVICE = 'https://auth.acme.example/oidc/device/authorization/';
+const TOKEN = 'https://auth.acme.example/oidc/device/token/';
+const EXCHANGE = 'https://api.acme.example/acme-code/key';
 
 const CONFIG = {
   kind: 'device',
@@ -24,7 +24,7 @@ const CONFIG = {
   deviceEndpoint: DEVICE,
   tokenEndpoint: TOKEN,
   grantType: flow.DEVICE_CODE_GRANT,
-  userAgent: 'muse-code/1.0.2',
+  userAgent: 'acme-code/1.0.2',
   exchange: {
     url: EXCHANGE,
     method: 'POST',
@@ -71,7 +71,7 @@ test('a declaration that is not a device flow is refused', () => {
 });
 
 test('a non-https endpoint is refused', () => {
-  const bad = { ...CONFIG, deviceEndpoint: 'http://auth.meta.com/oidc/device/authorization/' };
+  const bad = { ...CONFIG, deviceEndpoint: 'http://auth.acme.example/oidc/device/authorization/' };
   assert.throws(() => flow.normalise(bad, { providerBaseUrl: BASE }), /device-authorization/i);
 });
 
@@ -95,15 +95,15 @@ test('the good declaration is accepted and completed with the defaults', () => {
 test('the device code request asks for a code and reads it', async () => {
   const http = fakeHttp([json(200, {
     device_code: 'dev-1', user_code: 'ABCD-1234',
-    verification_uri: 'https://auth.meta.com/oidc/device',
-    verification_uri_complete: 'https://auth.meta.com/oidc/device?user_code=ABCD-1234',
+    verification_uri: 'https://auth.acme.example/oidc/device',
+    verification_uri_complete: 'https://auth.acme.example/oidc/device?user_code=ABCD-1234',
     expires_in: 900, interval: 5,
   })]);
   const cfg = flow.normalise(CONFIG, { providerBaseUrl: BASE });
   const out = await flow.startDeviceFlow({ http, config: cfg });
   assert.strictEqual(out.deviceCode, 'dev-1');
   assert.strictEqual(out.userCode, 'ABCD-1234');
-  assert.strictEqual(out.verificationUriComplete, 'https://auth.meta.com/oidc/device?user_code=ABCD-1234');
+  assert.strictEqual(out.verificationUriComplete, 'https://auth.acme.example/oidc/device?user_code=ABCD-1234');
   assert.strictEqual(out.expiresIn, 900);
   assert.strictEqual(out.interval, 5);
   const call = http.calls[0];
@@ -156,8 +156,8 @@ test('a dropped poll is a wait, not an answer', async () => {
 
 test('the exchange sends the token in the header and in the body, and reads the account', async () => {
   const http = fakeHttp([json(200, {
-    api_key: 'muse-key-1',
-    base_url: 'https://api.meta.ai/v1',
+    api_key: 'acme-key-1',
+    base_url: 'https://api.acme.example/v1',
     user_email: 'person@example.com',
     user_full_name: 'A Person',
     subs_tier_name: 'Everyday Usage',
@@ -168,12 +168,12 @@ test('the exchange sends the token in the header and in the body, and reads the 
   const cfg = flow.normalise(CONFIG, { providerBaseUrl: BASE });
   const out = await flow.exchange({ http, config: cfg, accessToken: 'dca:abc' });
   assert.strictEqual(out.error, undefined);
-  assert.strictEqual(out.secret, 'muse-key-1');
+  assert.strictEqual(out.secret, 'acme-key-1');
   assert.strictEqual(out.account.email, 'person@example.com');
   assert.strictEqual(out.account.name, 'A Person');
   assert.strictEqual(out.account.tier, 'Everyday Usage');
   assert.strictEqual(out.account.subsActive, true);
-  assert.strictEqual(out.account.baseUrl, 'https://api.meta.ai/v1');
+  assert.strictEqual(out.account.baseUrl, 'https://api.acme.example/v1');
   assert.strictEqual(out.account.usage.weekly.used_percent, 5);
   const call = http.calls[0];
   assert.strictEqual(call.url, EXCHANGE);

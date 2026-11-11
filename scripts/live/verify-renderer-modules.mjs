@@ -50,7 +50,7 @@ try {
   // the button a person would click is on screen. The key one is not there —
   // an account is signed in, not pasted.
   const oauthProvider = await app.evaluate(`(() => {
-    openProviderPage('muse');
+    openProviderPage('antigravity');
     const connect = document.getElementById('btn-connect-account');
     const add = document.getElementById('btn-add-key');
     const rect = connect && connect.getBoundingClientRect();
@@ -65,17 +65,17 @@ try {
 
   // The provider's logo has to load, not merely point at a file: an image
   // that never decoded renders as a dead tile.
-  const museLogo = await app.evaluate(`(() => {
+  const darkLogo = await app.evaluate(`(() => {
     document.querySelector('.shell-nav-item[data-page="providers"]').click();
     document.querySelector('.pv-tab[data-tab="integrated"]').click();
     const cards = [...document.querySelectorAll('.pv-grid-compact .pv-card')];
-    const card = cards.find(c => (c.textContent || '').includes('Muse AI'));
+    const card = cards.find(c => (c.textContent || '').includes('Dark API'));
     const img = card && card.querySelector('img');
     const rect = img && img.getBoundingClientRect();
     return { card: !!card, img: !!img, complete: !!(img && img.complete), natural: img ? img.naturalWidth : 0,
       src: img ? img.getAttribute('src') : '', visible: !!rect && rect.width > 0 && rect.height > 0 };
   })()`);
-  check("the Muse logo file loads and draws in the integrated roster", museLogo.card && museLogo.img && museLogo.complete && museLogo.natural > 0 && museLogo.visible, JSON.stringify(museLogo));
+  check("the Dark API logo file loads and draws in the integrated roster", darkLogo.card && darkLogo.img && darkLogo.complete && darkLogo.natural > 0 && darkLogo.visible, JSON.stringify(darkLogo));
 
   const providerModels = await app.evaluate(`(() => {
     switchProvider('darkapi');
@@ -109,7 +109,7 @@ try {
     return { ...connected, integratedGridVisible: !!grid && gridRect.width > 0 && gridRect.height > 0,
       integratedCards: grid ? grid.querySelectorAll('.pv-card').length : 0 };
   })()`);
-  check('connected and integrated provider roster render visibly from live data', providerRoster.visible && providerRoster.count > 0 && providerRoster.integrated === 13 && providerRoster.results && providerRoster.rows === providerRoster.count && providerRoster.firstRowVisible && providerRoster.errors.length === 0 && providerRoster.integratedGridVisible && providerRoster.integratedCards > 0, JSON.stringify(providerRoster));
+  check('connected and integrated provider roster render visibly from live data', providerRoster.visible && providerRoster.count > 0 && providerRoster.integrated === 12 && providerRoster.results && providerRoster.rows === providerRoster.count && providerRoster.firstRowVisible && providerRoster.errors.length === 0 && providerRoster.integratedGridVisible && providerRoster.integratedCards > 0, JSON.stringify(providerRoster));
 
   const appearance = await app.evaluate(`(() => {
     document.querySelector('.shell-nav-item[data-page="settings"]').click();

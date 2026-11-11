@@ -19,8 +19,8 @@ const BASE = 'https://daily-cloudcode-pa.googleapis.com';
 
 test('only Antigravity has a wire; the rest speak OpenAI', () => {
   assert.strictEqual(wire.supports('antigravity'), true);
-  assert.strictEqual(wire.supports('muse'), false);
-  assert.strictEqual(wire.getWire('muse'), null);
+  assert.strictEqual(wire.supports('nexum'), false);
+  assert.strictEqual(wire.getWire('nexum'), null);
 });
 
 test('the request is the service\'s own shape', () => {

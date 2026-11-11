@@ -233,29 +233,29 @@ test('no placeholders: no refs and no substitutions', async (t) => {
 test('the account placeholder becomes the access token, for the provider own origin', async (t) => {
   const store = await memoryStore(t);
   const providers = store.repos.providers;
-  providers.save({ id: 'muse', name: 'Muse AI', baseUrl: 'https://api.meta.ai/v1', rpm: null, keys: [] });
+  providers.save({ id: 'acme', name: 'Acme AI', baseUrl: 'https://api.acme.example/v1', rpm: null, keys: [] });
   const saved = providers.saveOAuthAccount({
-    providerId: 'muse',
+    providerId: 'acme',
     name: 'person@example.com',
-    secret: 'muse-key-1',
+    secret: 'acme-key-1',
     oauthSecret: 'dca:abc',
     meta: { email: 'person@example.com', tier: 'Everyday Usage' },
   });
   const resolver = createKeyResolver({ providers, secrets: store.repos.secrets });
   const out = resolver.resolve({
-    url: 'https://api.meta.ai/muse-code/key',
+    url: 'https://api.acme.example/acme-code/key',
     headers: { Authorization: 'Bearer venomoauth:' + saved.id },
   });
   assert.strictEqual(out.headers.Authorization, 'Bearer dca:abc');
-  assert.deepStrictEqual(out.refs, [{ kind: 'oauth', id: saved.id, providerId: 'muse' }]);
+  assert.deepStrictEqual(out.refs, [{ kind: 'oauth', id: saved.id, providerId: 'acme' }]);
 });
 
 test('the account placeholder is refused for another host, like any other secret', async (t) => {
   const store = await memoryStore(t);
   const providers = store.repos.providers;
-  providers.save({ id: 'muse', name: 'Muse AI', baseUrl: 'https://api.meta.ai/v1', rpm: null, keys: [] });
+  providers.save({ id: 'acme', name: 'Acme AI', baseUrl: 'https://api.acme.example/v1', rpm: null, keys: [] });
   const saved = providers.saveOAuthAccount({
-    providerId: 'muse', name: 'person@example.com', secret: 'muse-key-1', oauthSecret: 'dca:abc', meta: {},
+    providerId: 'acme', name: 'person@example.com', secret: 'acme-key-1', oauthSecret: 'dca:abc', meta: {},
   });
   const resolver = createKeyResolver({ providers, secrets: store.repos.secrets });
   const out = resolver.resolve({

@@ -41,7 +41,6 @@ other sections when you want to know what the provider does.
 | Jerouter | [JEROUTER.md](./JEROUTER.md) | Built-in adapter reference: public roster and subscription behavior. |
 | Devora | [DEVORA.md](./DEVORA.md) | Built-in adapter reference: event/unlimited subscription behavior. |
 | Token Harbor | [TOKENHARBOR.md](./TOKENHARBOR.md) | Built-in adapter reference: `:free` routes and quota headers. |
-| Muse AI | [MUSE.md](./MUSE.md) | Built-in adapter reference: served by the MuseBridge on 127.0.0.1:8787 — the bridge drives the muse.ai web client, handles login automatically, and exposes an OpenAI-compatible API. |
 | Antigravity | [ANTIGRAVITY.md](./ANTIGRAVITY.md) | Built-in adapter reference: Google's Antigravity IDE entitlement — a browser sign-in (`loopback`), several accounts, and a service that does not speak OpenAI, so the app has a wire for it. |
 
 ## Evidence rules

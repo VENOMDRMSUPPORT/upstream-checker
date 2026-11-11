@@ -3,9 +3,9 @@
 How a provider that signs in on a web page is added to the app, and what the
 app does with the account afterwards.
 
-This is a **capability**, not a provider: the first provider that uses it is
-Muse AI ([docs/integrations/MUSE.md](./integrations/MUSE.md)). Everything below
-describes the code as it is now.
+This is a **capability**, not a provider: the provider that uses it today is
+Antigravity ([docs/integrations/ANTIGRAVITY.md](./integrations/ANTIGRAVITY.md)).
+Everything below describes the code as it is now.
 
 ## Why it exists
 
@@ -99,7 +99,7 @@ that act are gated on the app lock, like `copy-key` and `api-request`.
 
 | Kind | How the person signs in | Used by |
 |---|---|---|
-| `device` | a code to type on the provider's page | Muse AI |
+| `device` | a code to type on the provider's page | — |
 | `web` | a window the app owns (the account's session is the credential) | — |
 | `loopback` | the provider's own page in the person's own browser, and the answer comes back to a short-lived address on this machine | Antigravity |
 
@@ -219,7 +219,7 @@ its place and whether it is on belong to the person.
 | File | What it owns |
 |---|---|
 | `src/renderer/oauth-connect.js` | the Connect button's flow: start, show the code, wait, report |
-| `src/renderer/providers/muse.js` | the provider's own declaration and its hooks |
+| `src/renderer/providers/antigravity.js` | the provider's own declaration and its hooks |
 | `src/renderer/provider-detail.js` | the panel: "Accounts" instead of "API keys", Connect instead of Add |
 | `src/renderer/provider-keys.js` | the account's row: the plan as a badge beside the account's name |
 
@@ -257,6 +257,6 @@ because the account row was written by main.
 6. The built-in count in the live checks goes up by one (§7 of the cookbook).
 
 The declaration is checked by main's own validator, and
-`test/renderer/muse-provider.test.js` shows the shape: the module's
+`test/renderer/antigravity-provider.test.js` shows the shape: the module's
 declaration is run through `normalise` in the test, so a module and the
 validator cannot drift apart unnoticed.

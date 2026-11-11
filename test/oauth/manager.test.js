@@ -15,17 +15,17 @@ const assert = require('node:assert');
 const { createOAuthManager } = require('../../src/oauth');
 const { memoryStore, quietLog } = require('../helpers');
 
-const BASE = 'https://api.meta.ai/v1';
+const BASE = 'https://api.acme.example/v1';
 
 const CONFIG = {
   kind: 'device',
   clientId: '1031625952748946',
-  deviceEndpoint: 'https://auth.meta.com/oidc/device/authorization/',
-  tokenEndpoint: 'https://auth.meta.com/oidc/device/token/',
+  deviceEndpoint: 'https://auth.acme.example/oidc/device/authorization/',
+  tokenEndpoint: 'https://auth.acme.example/oidc/device/token/',
   grantType: 'urn:ietf:params:oauth:grant-type:device_code',
-  userAgent: 'muse-code/1.0.2',
+  userAgent: 'acme-code/1.0.2',
   exchange: {
-    url: 'https://api.meta.ai/muse-code/key',
+    url: 'https://api.acme.example/acme-code/key',
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer {access_token}' },
     body: { dca_token: '{access_token}' },
@@ -77,7 +77,7 @@ function fastTimers() {
 
 async function setup(t, answers) {
   const store = await memoryStore(t);
-  store.repos.providers.save({ id: 'muse', name: 'Muse AI', baseUrl: BASE, rpm: null, keys: [] });
+  store.repos.providers.save({ id: 'acme', name: 'Acme AI', baseUrl: BASE, rpm: null, keys: [] });
   const opened = [];
   const http = fakeHttp(answers);
   const timers = fastTimers();
@@ -95,13 +95,13 @@ async function setup(t, answers) {
 // The flow, from the first poll to the stored account.
 const DEVICE_ANSWER = json(200, {
   device_code: 'dev-1', user_code: 'ABCD-1234',
-  verification_uri: 'https://auth.meta.com/oidc/device',
-  verification_uri_complete: 'https://auth.meta.com/oidc/device?user_code=ABCD-1234',
+  verification_uri: 'https://auth.acme.example/oidc/device',
+  verification_uri_complete: 'https://auth.acme.example/oidc/device?user_code=ABCD-1234',
   expires_in: 900, interval: 5,
 });
 const TOKEN_ANSWER = json(200, { access_token: 'dca:abc', expires_in: 3600 });
 const EXCHANGE_ANSWER = json(200, {
-  api_key: 'muse-key-1',
+  api_key: 'acme-key-1',
   base_url: BASE,
   user_email: 'person@example.com',
   user_full_name: 'A Person',
@@ -122,21 +122,21 @@ async function until(oauth, providerId, wanted, tries = 50) {
 
 test('the sign-in page opens in the browser, at the address that carries the code', async (t) => {
   const { oauth, opened } = await setup(t, [DEVICE_ANSWER, TOKEN_ANSWER, EXCHANGE_ANSWER]);
-  const started = await oauth.start('muse', CONFIG);
+  const started = await oauth.start('acme', CONFIG);
   assert.strictEqual(started.ok, true);
   assert.strictEqual(started.userCode, 'ABCD-1234');
-  assert.deepStrictEqual(opened, ['https://auth.meta.com/oidc/device?user_code=ABCD-1234']);
+  assert.deepStrictEqual(opened, ['https://auth.acme.example/oidc/device?user_code=ABCD-1234']);
 });
 
 test('a finished sign-in becomes a provider key with the credential and the account', async (t) => {
   const { store, oauth } = await setup(t, [DEVICE_ANSWER, TOKEN_ANSWER, EXCHANGE_ANSWER]);
-  await oauth.start('muse', CONFIG);
-  const state = await until(oauth, 'muse', ['done']);
+  await oauth.start('acme', CONFIG);
+  const state = await until(oauth, 'acme', ['done']);
   assert.strictEqual(state.state, 'done');
   assert.strictEqual(state.account.email, 'person@example.com');
   assert.strictEqual(state.account.tier, 'Everyday Usage');
 
-  const provider = store.repos.providers.get('muse');
+  const provider = store.repos.providers.get('acme');
   assert.strictEqual(provider.keys.length, 1);
   const key = provider.keys[0];
   assert.strictEqual(key.oauth, true);
@@ -146,7 +146,7 @@ test('a finished sign-in becomes a provider key with the credential and the acco
   assert.strictEqual(key.account.usage.weekly.used_percent, 5);
   // The credential the API is called with, and the access token, are both
   // stored encrypted and never as plain text.
-  assert.strictEqual(store.repos.providers.revealKey(key.id), 'muse-key-1');
+  assert.strictEqual(store.repos.providers.revealKey(key.id), 'acme-key-1');
   assert.strictEqual(store.repos.providers.revealOauth(key.id), 'dca:abc');
   const row = store.db.prepare('SELECT cipher, oauth_cipher FROM provider_keys WHERE id = ?').get(key.id);
   assert.ok(row.cipher.startsWith('enc:v1:'), 'the credential is in the envelope');
@@ -159,13 +159,13 @@ test('the same account signed in twice replaces its row instead of adding a seco
     DEVICE_ANSWER, TOKEN_ANSWER, EXCHANGE_ANSWER,
     DEVICE_ANSWER, TOKEN_ANSWER, EXCHANGE_ANSWER,
   ]);
-  await oauth.start('muse', CONFIG);
-  await until(oauth, 'muse', ['done']);
-  await oauth.start('muse', CONFIG);
-  await until(oauth, 'muse', ['done']);
-  const provider = store.repos.providers.get('muse');
+  await oauth.start('acme', CONFIG);
+  await until(oauth, 'acme', ['done']);
+  await oauth.start('acme', CONFIG);
+  await until(oauth, 'acme', ['done']);
+  const provider = store.repos.providers.get('acme');
   assert.strictEqual(provider.keys.length, 1, 'one account, not two');
-  assert.strictEqual(store.repos.providers.revealKey(provider.keys[0].id), 'muse-key-1');
+  assert.strictEqual(store.repos.providers.revealKey(provider.keys[0].id), 'acme-key-1');
 });
 
 test('a refused sign-in stores nothing and says why', async (t) => {
@@ -173,19 +173,19 @@ test('a refused sign-in stores nothing and says why', async (t) => {
     DEVICE_ANSWER,
     json(400, { error: 'access_denied', error_description: 'The person said no' }),
   ]);
-  await oauth.start('muse', CONFIG);
-  const state = await until(oauth, 'muse', ['failed']);
+  await oauth.start('acme', CONFIG);
+  const state = await until(oauth, 'acme', ['failed']);
   assert.strictEqual(state.state, 'failed');
   assert.strictEqual(state.error.code, 'access_denied');
   assert.match(state.error.message, /said no/i);
-  assert.strictEqual(store.repos.providers.get('muse').keys.length, 0, 'no half-connected account');
+  assert.strictEqual(store.repos.providers.get('acme').keys.length, 0, 'no half-connected account');
   assert.strictEqual(opened.length, 1);
 });
 
 test('a declaration main cannot use is refused before the browser opens', async (t) => {
   const { oauth, opened } = await setup(t, []);
   const bad = { ...CONFIG, exchange: { ...CONFIG.exchange, url: 'https://evil.example/key' } };
-  const out = await oauth.start('muse', bad);
+  const out = await oauth.start('acme', bad);
   assert.strictEqual(out.ok, false);
   assert.strictEqual(out.code, 'BAD_CONFIG');
   assert.strictEqual(opened.length, 0, 'nothing was opened');
@@ -201,29 +201,29 @@ test('a provider that is not in the database is refused', async (t) => {
 
 test('cancelling stops the wait', async (t) => {
   const { oauth } = await setup(t, [DEVICE_ANSWER]);
-  await oauth.start('muse', CONFIG);
-  const cancelled = oauth.cancel('muse');
+  await oauth.start('acme', CONFIG);
+  const cancelled = oauth.cancel('acme');
   assert.strictEqual(cancelled.ok, true);
-  assert.strictEqual(oauth.status('muse').state, 'cancelled');
+  assert.strictEqual(oauth.status('acme').state, 'cancelled');
 });
 
 test('a page that does not open is a failed sign-in, not a wait for ever', async (t) => {
   const store = await memoryStore(t);
-  store.repos.providers.save({ id: 'muse', name: 'Muse AI', baseUrl: BASE, rpm: null, keys: [] });
+  store.repos.providers.save({ id: 'acme', name: 'Acme AI', baseUrl: BASE, rpm: null, keys: [] });
   const oauth = createOAuthManager({
     repos: store.repos,
     openExternal: async () => { throw new Error('Only http and https links open outside the app'); },
     log: quietLog,
     http: fakeHttp([DEVICE_ANSWER]),
   });
-  const out = await oauth.start('muse', CONFIG);
+  const out = await oauth.start('acme', CONFIG);
   assert.strictEqual(out.ok, false);
   assert.strictEqual(out.code, 'OPEN_FAILED');
-  assert.strictEqual(oauth.status('muse').state, 'failed');
-  assert.strictEqual(store.repos.providers.get('muse').keys.length, 0);
+  assert.strictEqual(oauth.status('acme').state, 'failed');
+  assert.strictEqual(store.repos.providers.get('acme').keys.length, 0);
 });
 
 test('the state of a provider with no sign-in is idle', async (t) => {
   const { oauth } = await setup(t, []);
-  assert.deepStrictEqual(oauth.status('muse'), { state: 'idle' });
+  assert.deepStrictEqual(oauth.status('acme'), { state: 'idle' });
 });

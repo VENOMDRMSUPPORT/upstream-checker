@@ -2,7 +2,7 @@
 
 > GENERATED FILE — do not edit by hand. Regenerate with: npm run repo:map
 
-215 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
+213 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
 
 The architecture behind these files — boot order, IPC channels, the two databases, the request lifecycle — is in [ARCHITECTURE.md](ARCHITECTURE.md). Task recipes are in [COOKBOOK.md](COOKBOOK.md).
 
@@ -133,7 +133,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 *(no section banners)*
 
-### src/renderer/index.html — 2478 lines
+### src/renderer/index.html — 2477 lines
 
 | Line | Section |
 | --- | --- |
@@ -386,7 +386,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `ui-stepper.js` | 114 | Design system — number input stepper | CHEVRON_UP, CHEVRON_DOWN, enhance, input, stepper, label, stepUnit, unit, repeatTimer, repeatInterval, stopRepeat, enhanceAll, +1 more |
 | `ulid.js` | 22 | Run ids — ULID, the same format as src/db/ulid.js | newUlid |
 | `updates.js` | 292 | Update badge, modal and inert release-note rendering; download state belongs to this controller. | VENOM_RENDERER |
-| `index.html` | 2478 | App shell markup: nav, every page, the drawers and modals |  |
+| `index.html` | 2477 | App shell markup: nav, every page, the drawers and modals |  |
 | `styles.css` | 13579 | The whole stylesheet: tokens, themes, accents, components |  |
 
 ### src/renderer/providers/
@@ -402,7 +402,6 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `jerouter.js` | 48 | JEROUTER — integrated provider module | INTEGRATED_PROVIDERS |
 | `kiosapi.js` | 43 | KIOSAPI — integrated provider module | INTEGRATED_PROVIDERS |
 | `mirai.js` | 160 | MIRAI API — integrated provider module | INTEGRATED_PROVIDERS |
-| `muse.js` | 118 | MUSE AI (muse.ai) — integrated provider module | INTEGRATED_PROVIDERS |
 | `nara.js` | 143 | NARA Router — integrated provider module | INTEGRATED_PROVIDERS |
 | `nexum.js` | 61 | NEXUM ROUTER — integrated provider module | INTEGRATED_PROVIDERS |
 | `tokenharbor.js` | 271 | Token Harbor — integrated provider module | INTEGRATED_PROVIDERS, TOKENHARBOR_VIRTUAL_OWNER, tokenharborIsZero, tokenharborIsFree, TOKENHARBOR_QUOTA_CODE, tokenharborResetAt, TOKENHARBOR_QUOTA_ATTEMPTS, TOKENHARBOR_QUOTA_MODELS, TOKENHARBOR_RETRY_BASE_MS, TOKENHARBOR_RETRY_AFTER_MAX_S, tokenharborLowerHeaders, tokenharborRetryAfterMs, +5 more |
@@ -515,7 +514,6 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `kiosapi-provider.test.js` | 87 | KiosAPI registers as the eleventh built-in provider. Its roster differs per | registers into window.INTEGRATED_PROVIDERS with the KiosAPI identity, meta is plain data — structuredClone-safe for the provider store, declares a free tier so the Providers legend shows the Free Tier dot, logo file exists at the path the meta declares, no fetchKeyUsage: sentinel billing numbers must not feed a quota bar, the default discovery mappers read a KiosAPI-shaped entry without harm |
 | `logs-format.test.js` | 140 | logs-format.js is a plain browser script of top-level function | logEscape: provider text cannot close a tag, toViewModel: escapes every string it puts on the page, formatCost: micros to dollars, small amounts kept visible, formatTokens: thousands separated, null is a dash, statusTone: one tone per outcome, passRateText: a fraction becomes a percentage, null stays unknown |
 | `module-loader.js` | 20 | Loads complete browser modules in a controlled VM; no source slicing. |  |
-| `muse-provider.test.js` | 112 | Muse AI is served by a local bridge (MuseBridge) on 127.0.0.1:8787. The | registers into window.INTEGRATED_PROVIDERS with the Muse AI identity, the account is a normal key, served by the bridge, meta is plain data — structuredClone-safe for the provider store, logo file exists at the path the meta declares, the bridge usage is mapped into the app allowance shape, a bridge that does not answer says so |
 | `page-router.test.js` | 60 | Hash routes belong to the page-router unit; page changes remain app callbacks. | deep links delegate page entry and subpage behavior to the app |
 | `profile-badges.test.js` | 51 | Profile badges: the pure classifier behind the fixed model color identity. | badge markup wears the fixed profile tone and nothing else, a missing bridge warms to empty instead of throwing |
 | `provider-actions.test.js` | 55 | Provider-key actions use injected persistence and the main request path. | key activation saves changes and locked keys remain unchanged |
