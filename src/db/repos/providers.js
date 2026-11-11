@@ -378,6 +378,17 @@ function createProvidersRepo(db, cipher, cache, log = console) {
       meta: JSON.stringify(meta),
       now,
     });
+    // A signed-in account is a subscription by definition: the router's
+    // waterfall drains subscription quota first and the lite pool's free
+    // gate counts subscription keys as zero marginal cost. Without this
+    // stamp the account lands as 'paid' and none of that ever engages.
+    if (hasTierColumns()) {
+      try {
+        db.prepare("UPDATE provider_keys SET tier = 'subscription' WHERE id = ?").run(id);
+      } catch (_) {
+        tierColumns = false;
+      }
+    }
     cache.delete(cacheKey(id));
     cache.delete(oauthCacheKey(id));
     return id;

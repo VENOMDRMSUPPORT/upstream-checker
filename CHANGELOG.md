@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A sign-in this build does not know says so, and names the grant, instead
   of being reported as the wrong kind of sign-in.
+- **Router key tiers are wired end to end.** The router's subscription →
+  free → cheap → paid waterfall and the venom-lite free gate read each
+  key's tier, but no code path ever assigned one — every key in every
+  install sat at the 'paid' default, so venom-lite could find no route
+  unless a provider published $0 pricing. A signed-in (OAuth) account is
+  now stamped 'subscription' when it is saved, and the renderer's save
+  payload derives and round-trips the tier (subscription for accounts,
+  free for keys on free-tier providers, an explicit tier always kept),
+  so saves no longer reset it either.
 
 ### Security
 

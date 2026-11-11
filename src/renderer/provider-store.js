@@ -22,7 +22,18 @@ window.VENOM_RENDERER.providerStore = {
         name: p.name,
         baseUrl: p.baseUrl,
         rpm: p.rpm ?? null,
-        keys: p.keys.map((k) => ({ id: k.id, name: k.name, key: k.key || '', active: k.active !== false, quotaSpent: k.quotaSpent || null })),
+        keys: p.keys.map((k) => ({
+          id: k.id, name: k.name, key: k.key || '', active: k.active !== false, quotaSpent: k.quotaSpent || null,
+          // Router tier (migration v6): the main-side save writes the tier
+          // the payload carries and 'paid' for a missing one, so the payload
+          // must say it outright or every save resets the router's
+          // subscription → free → cheap → paid waterfall to all-paid.
+          // A signed-in account is a subscription; an explicit non-default
+          // tier wins; a key on a free-tier provider is free.
+          tier: k.oauth ? 'subscription'
+            : (k.tier && k.tier !== 'paid' ? k.tier : (p.freeTier ? 'free' : (k.tier || 'paid'))),
+          quotaPoolId: k.quotaPoolId != null ? String(k.quotaPoolId) : null,
+        })),
       };
     }
 
@@ -39,6 +50,10 @@ window.VENOM_RENDERER.providerStore = {
         if (Object.hasOwn(s, 'oauth')) k.oauth = s.oauth;
         if (Object.hasOwn(s, 'oauthKey')) k.oauthKey = s.oauthKey;
         if (Object.hasOwn(s, 'account')) k.account = s.account;
+        // The router tier the save settled on, so the next save sends it
+        // back instead of re-deriving from scratch.
+        if (Object.hasOwn(s, 'tier')) k.tier = s.tier;
+        if (Object.hasOwn(s, 'quotaPoolId')) k.quotaPoolId = s.quotaPoolId;
         // Preserve live refusal state unless the save explicitly returned one.
         if (Object.hasOwn(s, 'quotaSpent')) k.quotaSpent = s.quotaSpent || null;
       });

@@ -265,3 +265,23 @@ test('the account placeholder is refused for another host, like any other secret
   assert.strictEqual(out.blocked, true);
   assert.strictEqual(out.headers, undefined);
 });
+
+// A signed-in account is a subscription: the router drains subscription
+// quota first and the lite pool counts it as zero marginal cost, so the
+// account's key must reach listAllActiveKeys stamped 'subscription' —
+// never the 'paid' default every unstamped key lands with.
+test('a signed-in account is stamped as a subscription key for the router', async (t) => {
+  const store = await memoryStore(t);
+  const providers = store.repos.providers;
+  providers.save({ id: 'acme', name: 'Acme AI', baseUrl: 'https://api.acme.example/v1', rpm: null, keys: [] });
+  const saved = providers.saveOAuthAccount({
+    providerId: 'acme', name: 'person@example.com', secret: 'acme-key-1', oauthSecret: 'dca:abc',
+    meta: { email: 'person@example.com' },
+  });
+  const active = providers.listAllActiveKeys();
+  assert.strictEqual(active.length, 1);
+  assert.strictEqual(active[0].id, saved.id);
+  assert.strictEqual(active[0].tier, 'subscription');
+  const record = providers.get('acme');
+  assert.strictEqual(record.keys[0].tier, 'subscription');
+});

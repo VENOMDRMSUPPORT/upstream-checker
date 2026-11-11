@@ -81,6 +81,59 @@ test('save reconciles stored key placeholders without erasing live key state', a
   assert.equal(writes.at(-1).label, 'save Alpha');
 });
 
+// The router's tier waterfall reads provider_keys.tier, and the main-side
+// save writes 'paid' for any key whose payload omits the tier — so the
+// payload must derive it: subscription for a signed-in account, free for a
+// key on a free-tier provider, an explicit tier always preserved.
+test('save payload carries the router tier for every key', async () => {
+  const payloads = [];
+  const api = {
+    readConfig: async () => ({ providers: {
+      gamma: { name: 'Gamma', baseUrl: 'https://gamma.test/v1', keys: [
+        { id: 'g1', key: 'venomkey:g1', hint: '', active: true, tier: 'paid' },
+        { id: 'g2', key: 'venomkey:g2', hint: '', active: true, tier: 'paid', oauth: true },
+      ] },
+      delta: { name: 'Delta', baseUrl: 'https://delta.test/v1', keys: [
+        { id: 'd1', key: 'venomkey:d1', hint: '', active: true, tier: 'paid' },
+        { id: 'd2', key: 'venomkey:d2', hint: '', active: true, tier: 'cheap', quotaPoolId: 'pool-9' },
+      ] },
+    } }),
+    saveProvider: async (payload) => {
+      payloads.push(payload);
+      return { keys: payload.keys.map((k) => ({ ...k, key: `venomkey:${k.id}`, hint: '', locked: false })) };
+    },
+    mergeProvider: async () => null,
+    deleteProvider: async () => true,
+  };
+  const store = loadRendererModules(['provider-store'], {
+    structuredClone,
+    window: { VENOM_RENDERER: {}, CATALOG: null },
+  }).providerStore.create({
+    builtinProviders: {
+      gamma: { id: 'gamma', name: 'Gamma', baseUrl: 'https://gamma.test/v1', freeTier: true },
+      delta: { id: 'delta', name: 'Delta', baseUrl: 'https://delta.test/v1' },
+    },
+    electronAPI: api,
+    persist: async (_, call) => call(),
+    quotaSpentExpired: () => false,
+    getCurrentPage: () => 'overview',
+    renderProvidersPage: () => {},
+    onProvidersChanged: () => {},
+  });
+  await store.loadAll();
+  await store.save('gamma');
+  await store.save('delta');
+  const byId = Object.fromEntries(payloads.flatMap((p) => p.keys.map((k) => [k.id, k])));
+  assert.equal(byId.g1.tier, 'free');
+  assert.equal(byId.g2.tier, 'subscription');
+  assert.equal(byId.d1.tier, 'paid');
+  assert.equal(byId.d2.tier, 'cheap');
+  assert.equal(byId.d2.quotaPoolId, 'pool-9');
+  // The settled tiers are adopted back into the live records.
+  assert.equal(store.providers.gamma.keys.find((k) => k.id === 'g1').tier, 'free');
+  assert.equal(store.providers.delta.keys.find((k) => k.id === 'd2').quotaPoolId, 'pool-9');
+});
+
 test('save invalidates catalog data and refreshes the visible providers page', async () => {
   const syncs = [];
   const catalog = { syncAll: (options) => syncs.push(options) };
