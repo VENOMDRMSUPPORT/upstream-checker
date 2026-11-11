@@ -34,6 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A Get started checklist on Overview** for the first-run journey: create
+  your password (done at the lock screen), connect your first provider, sync
+  the model catalog. The card is derived from live state rather than stored —
+  it appears only while a step is missing, its Sync button runs roster
+  discovery plus the reference sources, and it removes itself for good once a
+  connected provider has models in the catalog.
 - **Antigravity** as the thirteenth built-in provider: Google's Antigravity
   IDE entitlement. It signs in on a Google account in the person's own
   browser — the consent page opens there, the answer comes back to a

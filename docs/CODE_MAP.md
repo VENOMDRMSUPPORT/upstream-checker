@@ -133,48 +133,48 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 *(no section banners)*
 
-### src/renderer/index.html — 2441 lines
+### src/renderer/index.html — 2478 lines
 
 | Line | Section |
 | --- | --- |
 | 321 | page: overview |
-| 363 | page: providers |
-| 384 | page: database |
-| 440 | page: catalog |
-| 460 | page: activity |
-| 470 | page: provider |
-| 601 | page: history |
-| 625 | page: monitor |
-| 633 | page: router |
-| 646 | page: settings |
-| 664 | settings: sec-appearance |
-| 668 | settings: sec-test |
-| 672 | settings: sec-schedule |
-| 676 | settings: sec-speed |
-| 680 | settings: sec-reliability |
-| 684 | settings: sec-catalog |
-| 688 | settings: sec-history |
-| 692 | settings: sec-logs |
-| 696 | settings: sec-data |
-| 700 | settings: sec-about |
-| 1839 | page: profile |
-| 2072 | overlay: response-modal |
-| 2092 | overlay: add-key-modal |
-| 2123 | overlay: oauth-modal |
-| 2135 | overlay: oauth-modal-code-box |
-| 2139 | overlay: oauth-modal-status-row |
-| 2141 | overlay: oauth-modal-status |
-| 2152 | overlay: add-provider-modal |
-| 2187 | overlay: update-modal |
-| 2204 | overlay: update-modal-notes |
-| 2246 | overlay: log-drawer |
-| 2247 | overlay: log-drawer-scrim |
-| 2253 | overlay: log-drawer-body |
-| 2257 | overlay: ku-drawer |
-| 2275 | overlay: mc-chat-drawer |
-| 2305 | overlay: mc-details-drawer |
+| 400 | page: providers |
+| 421 | page: database |
+| 477 | page: catalog |
+| 497 | page: activity |
+| 507 | page: provider |
+| 638 | page: history |
+| 662 | page: monitor |
+| 670 | page: router |
+| 683 | page: settings |
+| 701 | settings: sec-appearance |
+| 705 | settings: sec-test |
+| 709 | settings: sec-schedule |
+| 713 | settings: sec-speed |
+| 717 | settings: sec-reliability |
+| 721 | settings: sec-catalog |
+| 725 | settings: sec-history |
+| 729 | settings: sec-logs |
+| 733 | settings: sec-data |
+| 737 | settings: sec-about |
+| 1876 | page: profile |
+| 2109 | overlay: response-modal |
+| 2129 | overlay: add-key-modal |
+| 2160 | overlay: oauth-modal |
+| 2172 | overlay: oauth-modal-code-box |
+| 2176 | overlay: oauth-modal-status-row |
+| 2178 | overlay: oauth-modal-status |
+| 2189 | overlay: add-provider-modal |
+| 2224 | overlay: update-modal |
+| 2241 | overlay: update-modal-notes |
+| 2283 | overlay: log-drawer |
+| 2284 | overlay: log-drawer-scrim |
+| 2290 | overlay: log-drawer-body |
+| 2294 | overlay: ku-drawer |
+| 2312 | overlay: mc-chat-drawer |
+| 2342 | overlay: mc-details-drawer |
 
-### src/renderer/styles.css — 13501 lines
+### src/renderer/styles.css — 13579 lines
 
 | Line | Section |
 | --- | --- |
@@ -192,42 +192,42 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 3899 | Tab footer notice — separator + plain text |
 | 3953 | About — Reorganized 3-Part Architecture |
 | 4260 | Pages — Overview placeholder |
-| 4340 | Shell header |
-| 4747 | Dark mode: pages share the nav's visual language |
-| 4774 | Provider page — one provider's keys, models and test runs |
-| 5021 | Light mode — page area only |
-| 5045 | Overview — live panels |
-| 5174 | Card headers — one accent-led treatment everywhere |
-| 5229 | Signature heart (nav footer) |
-| 5293 | Sidebar ambience — a living layer of stars |
-| 5367 | Breadcrumb — shared by every page that needs one |
-| 5410 | Providers page |
-| 6136 | Stat cards — shared (Overview, Providers, …) |
-| 6177 | Page toolbar — one card for every page that has one |
-| 6225 | Design system — form fields |
-| 6577 | Data table — shared |
-| 6864 | Provider types — legend and markers |
-| 7061 | Settings page — layout |
-| 7070 | Providers — expandable rows and the key panel |
-| 7094 | Providers — list of row cards |
-| 7874 | Settings — Unified 2-Column Design System |
-| 8620 | Settings content — one design language for every tab |
-| 9018 | Models Catalog |
-| 9504 | Key usage (key-usage.js) — quota and expiry in the key row, the rest in a |
-| 9677 | Catalog: live health badge + toast notifications |
-| 9750 | Model details drawer — a full-height sidebar sliding in from the right, |
-| 9906 | Model chat drawer — a full-height panel sliding in from the right, |
-| 10284 | Log pages — Runs, Requests, Monitoring |
-| 10867 | Monitoring Page |
-| 11012 | Database explorer — compact SQLite workbench |
-| 11018 | Model Activity — same page padding as every other page |
-| 11237 | App lock screen — the front door |
-| 11625 | Header profile menu |
-| 11810 | Profile Page — Universal Layout & Components |
-| 12136 | Security settings |
-| 12197 | Notifications bell + Model Activity |
-| 13183 | Venom Router page (.page-router) |
-| 13218 | Venom Profiles — fixed model color identity + dossiers |
+| 4418 | Shell header |
+| 4825 | Dark mode: pages share the nav's visual language |
+| 4852 | Provider page — one provider's keys, models and test runs |
+| 5099 | Light mode — page area only |
+| 5123 | Overview — live panels |
+| 5252 | Card headers — one accent-led treatment everywhere |
+| 5307 | Signature heart (nav footer) |
+| 5371 | Sidebar ambience — a living layer of stars |
+| 5445 | Breadcrumb — shared by every page that needs one |
+| 5488 | Providers page |
+| 6214 | Stat cards — shared (Overview, Providers, …) |
+| 6255 | Page toolbar — one card for every page that has one |
+| 6303 | Design system — form fields |
+| 6655 | Data table — shared |
+| 6942 | Provider types — legend and markers |
+| 7139 | Settings page — layout |
+| 7148 | Providers — expandable rows and the key panel |
+| 7172 | Providers — list of row cards |
+| 7952 | Settings — Unified 2-Column Design System |
+| 8698 | Settings content — one design language for every tab |
+| 9096 | Models Catalog |
+| 9582 | Key usage (key-usage.js) — quota and expiry in the key row, the rest in a |
+| 9755 | Catalog: live health badge + toast notifications |
+| 9828 | Model details drawer — a full-height sidebar sliding in from the right, |
+| 9984 | Model chat drawer — a full-height panel sliding in from the right, |
+| 10362 | Log pages — Runs, Requests, Monitoring |
+| 10945 | Monitoring Page |
+| 11090 | Database explorer — compact SQLite workbench |
+| 11096 | Model Activity — same page padding as every other page |
+| 11315 | App lock screen — the front door |
+| 11703 | Header profile menu |
+| 11888 | Profile Page — Universal Layout & Components |
+| 12214 | Security settings |
+| 12275 | Notifications bell + Model Activity |
+| 13261 | Venom Router page (.page-router) |
+| 13296 | Venom Profiles — fixed model color identity + dossiers |
 
 ### scripts/
 
@@ -376,7 +376,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `router-status.js` | 454 | Venom Profiles — routing dossiers page | MIN_EVIDENCE, rtState, esc, api, buildShell, crumbs, refresh, DOSSIERS, POLICY, median, sorted, mid, +61 more |
 | `settings-defaults.js` | 151 | Shipped settings defaults and appearance choices — no DOM or I/O. | VENOM_RENDERER |
 | `settings-panel.js` | 247 | General settings form binding, cost estimate and section navigation. | VENOM_RENDERER |
-| `shell.js` | 228 | App shell navigation, page lifecycle and Overview summaries. | VENOM_RENDERER |
+| `shell.js` | 295 | App shell navigation, page lifecycle and Overview summaries. | VENOM_RENDERER |
 | `sidebar-effects.js` | 83 | Deterministic sidebar stars and keyboard-accessible signature-heart effects. | VENOM_RENDERER |
 | `test-attempts.js` | 326 | Provider test requests — chat, media and decision routes through injected IPC only. | VENOM_RENDERER |
 | `test-policy.js` | 375 | Key eligibility, quota state and per-key pacing. Maps belong to each instance. | VENOM_RENDERER |
@@ -386,8 +386,8 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `ui-stepper.js` | 114 | Design system — number input stepper | CHEVRON_UP, CHEVRON_DOWN, enhance, input, stepper, label, stepUnit, unit, repeatTimer, repeatInterval, stopRepeat, enhanceAll, +1 more |
 | `ulid.js` | 22 | Run ids — ULID, the same format as src/db/ulid.js | newUlid |
 | `updates.js` | 292 | Update badge, modal and inert release-note rendering; download state belongs to this controller. | VENOM_RENDERER |
-| `index.html` | 2441 | App shell markup: nav, every page, the drawers and modals |  |
-| `styles.css` | 13501 | The whole stylesheet: tokens, themes, accents, components |  |
+| `index.html` | 2478 | App shell markup: nav, every page, the drawers and modals |  |
+| `styles.css` | 13579 | The whole stylesheet: tokens, themes, accents, components |  |
 
 ### src/renderer/providers/
 

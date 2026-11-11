@@ -39,6 +39,7 @@ window.VENOM_RENDERER.shell = {
         else el.removeAttribute('aria-current');
       });
       renderPageHeader(page);
+      if (page === 'overview') renderGettingStarted();
       if (page === 'provider') resetProviderPage();
       if (page === 'profile') renderProfilePage();
       if (page === 'settings') prepareSettingsPage();
@@ -131,6 +132,72 @@ window.VENOM_RENDERER.shell = {
       set('ov-online', testable ? `${states.filter((state) => state === 'ok').length}/${testable}` : '—');
       renderSystemLamp();
       renderOverviewPanels();
+      renderGettingStarted();
+    }
+
+    // The first-run journey, drawn from state rather than stored anywhere:
+    // the card exists exactly while a step is missing, and a finished install
+    // never sees it again. Step one is the password — being inside the app at
+    // all means it is done, because the lock screen is where it happens.
+    function renderGettingStarted() {
+      const card = document.getElementById('getting-started');
+      if (!card) return;
+      const providers = getProviders();
+      const connected = Object.values(providers)
+        .filter((p) => (typeof isConnected === 'function' ? isConnected(p) : !!(p && p.keys && p.keys.length))).length;
+      const cat = window.CATALOG ? window.CATALOG.state : null;
+      const catalogRows = cat && cat.models ? cat.models.size : 0;
+      const synced = catalogRows > 0;
+      const journeyDone = connected > 0 && synced;
+      card.hidden = journeyDone;
+      if (journeyDone) return;
+
+      const mark = (id, stateName) => {
+        const row = document.getElementById(id);
+        if (row) row.dataset.state = stateName;
+      };
+      mark('gs-step-password', 'done');
+      mark('gs-step-connect', connected > 0 ? 'done' : 'current');
+      mark('gs-step-sync', synced ? 'done' : (connected > 0 ? 'current' : 'pending'));
+      const doneCount = 1 + (connected > 0 ? 1 : 0) + (synced ? 1 : 0);
+      const meta = document.getElementById('gs-meta');
+      if (meta) meta.textContent = `${doneCount} of 3 done`;
+      const connectBtn = document.getElementById('gs-connect-btn');
+      if (connectBtn) connectBtn.hidden = connected > 0;
+      const syncBtn = document.getElementById('gs-sync-btn');
+      if (syncBtn) {
+        syncBtn.hidden = synced;
+        syncBtn.disabled = connected === 0 || !!(cat && cat.syncing);
+        syncBtn.textContent = cat && cat.syncing ? 'Syncing…' : 'Sync the catalog';
+        if (!syncBtn.dataset.bound && typeof syncBtn.addEventListener === 'function') {
+          syncBtn.dataset.bound = '1';
+          syncBtn.addEventListener('click', gettingStartedSync);
+        }
+      }
+    }
+
+    // The checklist's own sync: roster discovery for what is connected, plus
+    // the reference sources — the same two planes the Catalog page fills.
+    // Failures are said in words on the card, never swallowed.
+    async function gettingStartedSync() {
+      const note = document.getElementById('gs-note');
+      if (note) note.textContent = 'Syncing the catalog…';
+      try {
+        if (window.CATALOG && window.CATALOG.syncAll) await window.CATALOG.syncAll({ reason: 'getting-started' });
+      } catch (_) { /* the roster plane reports through its own state */ }
+      let failure = null;
+      try {
+        const reply = await window.electronAPI.catalogSources({ force: true });
+        if (reply && reply.ok === false) failure = reply.message || reply.code || 'the sync was refused';
+      } catch (err) {
+        failure = err.message;
+      }
+      if (note) {
+        note.textContent = failure
+          ? `The reference sources could not be fetched (${failure}). Models from your connected providers still arrive on their own.`
+          : '';
+      }
+      renderGettingStarted();
     }
 
     function renderOverviewPanels() {

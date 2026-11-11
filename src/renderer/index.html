@@ -319,6 +319,43 @@
 
       <div class="shell-pages">
         <section class="shell-page page-overview" data-page="overview">
+          <!-- First-run guidance (renderGettingStarted in shell.js). The card is
+               state-derived, not stored: it shows only while the journey is
+               incomplete and removes itself for good once a connected provider
+               has models in the catalog. -->
+          <div class="ov-panel gs-card" id="getting-started" hidden>
+            <div class="ov-panel-head">
+              <span>Get started</span>
+              <span class="ov-panel-meta" id="gs-meta"></span>
+            </div>
+            <div class="gs-steps">
+              <div class="gs-step" id="gs-step-password">
+                <span class="gs-dot" aria-hidden="true"></span>
+                <div class="gs-texts">
+                  <div class="gs-title">Create your password</div>
+                  <div class="gs-desc">This install is locked with a password only you know.</div>
+                </div>
+              </div>
+              <div class="gs-step" id="gs-step-connect">
+                <span class="gs-dot" aria-hidden="true"></span>
+                <div class="gs-texts">
+                  <div class="gs-title">Connect your first provider</div>
+                  <div class="gs-desc">Add an account or an API key — every subscription you hold, in one place.</div>
+                </div>
+                <button class="btn btn-accent btn-mini" type="button" id="gs-connect-btn" data-go="providers">Connect a provider</button>
+              </div>
+              <div class="gs-step" id="gs-step-sync">
+                <span class="gs-dot" aria-hidden="true"></span>
+                <div class="gs-texts">
+                  <div class="gs-title">Sync the model catalog</div>
+                  <div class="gs-desc">Fetch the reference sources and discover what your providers offer.</div>
+                </div>
+                <button class="btn btn-accent btn-mini" type="button" id="gs-sync-btn">Sync the catalog</button>
+              </div>
+            </div>
+            <p class="gs-note" id="gs-note" role="status" aria-live="polite"></p>
+          </div>
+
 <div class="ov-kpis">
             <div class="ov-kpi">
               <span class="ov-kpi-label">Providers</span>
