@@ -727,12 +727,15 @@ class VenomCascadeEngine {
     const liteCandidates = this.candidateRoutes(catalog.lite || [], 6);
     let picked = this.keyPool ? this.keyPool.pickKey(liteCandidates, { forTier: 'lite' }) : null;
     let candidates = liteCandidates;
-    if (!picked) {
+    if (!picked && !(payload && payload.background === true)) {
       // Fail-soft: an empty (or fully reserved/exhausted) lite pool
       // degrades to the pro efficient rung instead of answering 503 —
       // pro already falls down its rungs the same way. pickKey's
       // waterfall still drains subscription/free keys first, so the
-      // soft path spends the cheapest key available.
+      // soft path spends the cheapest key available. Background
+      // traffic (§2.3) is exempt: it is lite-pool-only by rule, so a
+      // soft landing on a Pro account's window is exactly what the
+      // rule exists to prevent.
       const softPool = firstNonEmpty(catalog.efficient || [], catalog.capable || []);
       const softCandidates = this.candidateRoutes(softPool || [], 6);
       if (softCandidates.length) {
@@ -888,6 +891,11 @@ class VenomCascadeEngine {
   }
 
   route(tier, payload = {}) {
+    // Background forcing (§2.3): traffic flagged background — scheduled
+    // jobs, monitoring, quick lookups — is served by the lite pool
+    // only, whatever tier it named. It never draws on the Pro
+    // accounts' quota windows.
+    if (payload && payload.background === true) return this.routeLite(payload);
     if (tier === 'venom-lite') return this.routeLite(payload);
     if (tier === 'venom-max') return this.routeMax(payload);
     return this.routePro(payload);
@@ -979,6 +987,15 @@ function writeAnthropicStream(res, tier, text, extra = {}) {
   res.end(event('message_stop', { type: 'message_stop' }));
 }
 
+// Background traffic (§2.3) flags itself: the x-venom-background
+// header (1/true) or a venom_background body field. Flagged requests
+// are forced to the lite pool by the gateway and the engine alike.
+function isBackgroundRequest(req, body) {
+  const header = req && req.headers ? String(req.headers['x-venom-background'] || '') : '';
+  if (header === '1' || header.toLowerCase() === 'true') return true;
+  return Boolean(body && body.venom_background === true);
+}
+
 function createVenomHttpGateway({ cascadeEngine = null, port = ROUTER_PORT, host = ROUTER_HOST, log = console } = {}) {
   let server = null;
   let boundPort = null;
@@ -1030,7 +1047,11 @@ function createVenomHttpGateway({ cascadeEngine = null, port = ROUTER_PORT, host
       let body;
       try { body = await readBody(req); } catch (_) { return sendJson(res, 400, { error: 'unparsable JSON body' }); }
       const requested = String(body.model || 'venom-pro');
-      const tier = requested.startsWith('venom-') ? requested : 'venom-pro';
+      // Background forcing (§2.3): a flagged request is served by the
+      // lite pool whatever model it named, so scheduled and monitoring
+      // traffic never draws on the Pro accounts' quota windows.
+      const background = isBackgroundRequest(req, body);
+      const tier = background ? 'venom-lite' : (requested.startsWith('venom-') ? requested : 'venom-pro');
       const messages = compressToolMessages(body.messages || [{ role: 'user', content: body.input || '' }]);
       // True SSE passthrough when a streaming dispatcher is wired (main):
       // the provider's bytes move chunk by chunk after its 200 OK, with
@@ -1042,7 +1063,7 @@ function createVenomHttpGateway({ cascadeEngine = null, port = ROUTER_PORT, host
         try {
           let headed = false;
           const outcome = await cascadeEngine.routeStream(tier,
-            { messages, body, sessionId: body.session_id || body.sessionId || null },
+            { messages, body, sessionId: body.session_id || body.sessionId || null, background },
             { clientRes: res,
               pipe: (stream, client, headers) => pipeUpstreamStream(stream, client, headers),
               onFirstUpstream: (route, upstream) => {
@@ -1063,7 +1084,7 @@ function createVenomHttpGateway({ cascadeEngine = null, port = ROUTER_PORT, host
         }
       }
       try {
-        const result = await cascadeEngine.route(tier, { messages, body, sessionId: body.session_id || body.sessionId || null });
+        const result = await cascadeEngine.route(tier, { messages, body, sessionId: body.session_id || body.sessionId || null, background });
         if (body.stream === true) {
           if (path === '/v1/messages') return writeAnthropicStream(res, tier, result.text || '', result);
           return writeOpenAiStream(res, tier, result.text || '', result);
@@ -1128,5 +1149,5 @@ module.exports = { ROUTER_PORT, ROUTER_HOST, normalizeGatewayPort, canonicalSlug
   createPoolLedger: poolLedger.createPoolLedger,
   rankPoolsByRemaining: poolLedger.rankPoolsByRemaining,
   POOL_WINDOWS: poolLedger.POOL_WINDOWS, poolIdOf: poolLedger.poolIdOf,
-  POOL_RESERVE_FRACTION, LITE_HEURISTIC_MIN_SCORE,
+  POOL_RESERVE_FRACTION, LITE_HEURISTIC_MIN_SCORE, isBackgroundRequest,
   readCatalogScores, VenomCascadeEngine, pipeUpstreamStream, createVenomHttpGateway };

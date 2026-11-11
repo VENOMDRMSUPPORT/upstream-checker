@@ -10,7 +10,7 @@ const {
   compressToolMessages, rescuePlainTextToolCalls, analyzeCascadeStage,
   buildSmartCatalog, KeyPoolManager, VenomCascadeEngine,
   createVenomHttpGateway, persistCatalogScores, readCatalogScores,
-  entitlementGate, isEntitlementBlocked,
+  entitlementGate, isEntitlementBlocked, isBackgroundRequest,
   ROUTER_PORT, normalizeGatewayPort,
 } = require('../../src/router');
 
@@ -403,4 +403,83 @@ test('lite admits a strongly signalled heuristic row; documented rows keep the f
   assert.ok(liteIds.includes('unmeasured'), 'heuristic 16 (tools + reasoning) enters lite');
   assert.ok(!liteIds.includes('weak'), 'heuristic 12 stays out');
   assert.ok(!liteIds.includes('documented-weak'), 'a documented 18 keeps the documented floor of 20');
+});
+
+// ---------------------------------------------------------------------------
+// Background forcing (tier design §2.3, build step 4)
+// ---------------------------------------------------------------------------
+
+test('isBackgroundRequest reads the header and the body field', () => {
+  assert.equal(isBackgroundRequest({ headers: { 'x-venom-background': '1' } }, {}), true);
+  assert.equal(isBackgroundRequest({ headers: { 'x-venom-background': 'true' } }, {}), true);
+  assert.equal(isBackgroundRequest({ headers: {} }, { venom_background: true }), true);
+  assert.equal(isBackgroundRequest({ headers: {} }, {}), false);
+  assert.equal(isBackgroundRequest({ headers: { 'x-venom-background': '0' } }, {}), false);
+});
+
+const BG_ROWS = [
+  { id: 'l', provider_id: 'groq', model_id: 'lite-m', score: 25, score_source: 'aa', cost_in_per_m: 0, tools: true },
+  { id: 's', provider_id: 'anthropic', model_id: 'strong', score: 38, score_source: 'aa', cost_in_per_m: 3, tools: true },
+];
+const BG_KEYS = [
+  { id: 'g', providerId: 'groq', tier: 'free' },
+  { id: 'a', providerId: 'anthropic', tier: 'paid' },
+];
+function bgEngine() {
+  return new VenomCascadeEngine({ smartCatalog: buildSmartCatalog(BG_ROWS, BG_KEYS),
+    keyPool: new KeyPoolManager({ keys: BG_KEYS }),
+    dispatchUpstream: async (route) => ({ text: `via ${route.modelId}` }) });
+}
+
+test('background traffic is forced to lite whatever tier it names', async () => {
+  const engine = bgEngine();
+  const out = await engine.route('venom-pro', { messages: [{ role: 'user', content: 'hi' }], body: {}, background: true });
+  assert.match(out.text, /lite-m/);
+  const foreground = await engine.route('venom-pro', { messages: [{ role: 'user', content: 'hi' }], body: {} });
+  assert.match(foreground.text, /strong/);
+});
+
+test('background lite never fails soft onto a pro rung', async () => {
+  const rows = [{ id: 'e', provider_id: 'groq', model_id: 'fast', score: 38, score_source: 'aa', cost_in_per_m: 5, tools: true }];
+  const keys = [{ id: 'g', providerId: 'groq', tier: 'paid' }];
+  const engine = new VenomCascadeEngine({ smartCatalog: buildSmartCatalog(rows, keys),
+    keyPool: new KeyPoolManager({ keys }),
+    dispatchUpstream: async (route) => ({ text: `via ${route.modelId}` }) });
+  // Foreground lite fails soft onto the efficient rung (step 3)…
+  const soft = await engine.route('venom-lite', { messages: [{ role: 'user', content: 'hi' }], body: {} });
+  assert.match(soft.text, /fast/);
+  // …background traffic refuses instead: its lite pool is empty and
+  // the rule forbids touching the pro rung's windows.
+  await assert.rejects(
+    engine.route('venom-lite', { messages: [{ role: 'user', content: 'hi' }], body: {}, background: true }),
+    (err) => err.code === 'NO_ROUTE');
+});
+
+test('the gateway forces flagged requests to lite (header and body field)', async () => {
+  const gateway = createVenomHttpGateway({ cascadeEngine: bgEngine(), port: 0, log: { warn() {}, info() {} } });
+  const { port } = await gateway.start();
+  const post = (payload, headers = {}) => new Promise((resolve, reject) => {
+    const data = JSON.stringify(payload);
+    const req = http.request({ host: '127.0.0.1', port, path: '/v1/chat/completions', method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data), ...headers } }, (res) => {
+      let buf = '';
+      res.on('data', (c) => { buf += c; });
+      res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(buf) }));
+    });
+    req.on('error', reject);
+    req.end(data);
+  });
+  try {
+    const plain = await post({ model: 'venom-pro', messages: [{ role: 'user', content: 'hi' }] });
+    assert.equal(plain.status, 200);
+    assert.match(plain.body.choices[0].message.content, /strong/);
+    const flagged = await post({ model: 'venom-pro', messages: [{ role: 'user', content: 'hi' }] }, { 'x-venom-background': '1' });
+    assert.equal(flagged.status, 200);
+    assert.match(flagged.body.choices[0].message.content, /lite-m/);
+    const bodyFlagged = await post({ model: 'venom-max', venom_background: true, messages: [{ role: 'user', content: 'hi' }] });
+    assert.equal(bodyFlagged.status, 200);
+    assert.match(bodyFlagged.body.choices[0].message.content, /lite-m/);
+  } finally {
+    await gateway.stop();
+  }
 });

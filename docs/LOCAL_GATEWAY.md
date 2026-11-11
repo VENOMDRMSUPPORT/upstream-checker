@@ -130,3 +130,18 @@ npm run check                      # map freshness + the full suite
 `npm run verify:live` still drives the app against a **mock** provider on
 scratch data. It has never seen a real key, a real 429 or a real stream, so
 cite it as proof of the app path, never as proof of routing.
+
+## 8. Background traffic is forced to Lite
+
+Callers that are not a person waiting for an answer — scheduled jobs,
+monitoring checks, quick lookups — flag their requests as background:
+
+- header `x-venom-background: 1` (or `true`), or
+- body field `"venom_background": true`.
+
+A flagged request is served by the venom-lite pool whatever model it
+named (venom-pro and venom-max included), and it never fails soft onto
+a pro rung: if the lite pool cannot serve it, the request refuses. The
+point of the rule is quota hygiene — background work must never draw on
+the subscription accounts' quota windows that foreground Pro/Max
+traffic depends on. Foreground requests (no flag) are unaffected.
