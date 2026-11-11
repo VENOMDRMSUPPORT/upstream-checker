@@ -50,6 +50,9 @@ function metaOf(args, cancelReason) {
   if (Number.isInteger(args.hedgeIndex) && args.hedgeIndex >= 0) m.hedgeIndex = args.hedgeIndex;
   const testGroup = shortString(args.testGroup, 64);
   if (testGroup) m.testGroup = testGroup;
+  // The Venom tier that ordered the request (gateway traffic only) —
+  // the stamp the per-tier usage panel groups by.
+  if (args.tier === 'venom-lite' || args.tier === 'venom-pro' || args.tier === 'venom-max') m.tier = args.tier;
   if (args.paramSwap === true) m.paramSwap = true;
   return Object.keys(m).length ? JSON.stringify(m) : null;
 }

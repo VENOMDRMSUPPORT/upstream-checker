@@ -226,3 +226,10 @@ test('meta_json.cancelReason is recorded for deadline (timeout) and stop (cancel
   assert.strictEqual(stop.status, 'cancelled');
   assert.strictEqual(JSON.parse(stop.meta_json).cancelReason, 'stop');
 });
+
+test('the Venom tier stamp reaches meta_json; unknown tiers are dropped', () => {
+  const stamped = buildRecord(done({ args: { tier: 'venom-pro' } }), opts).row;
+  assert.strictEqual(JSON.parse(stamped.meta_json).tier, 'venom-pro');
+  const bogus = buildRecord(done({ args: { tier: 'venom-ultra' } }), opts).row;
+  assert.ok(!bogus.meta_json || !('tier' in JSON.parse(bogus.meta_json)));
+});

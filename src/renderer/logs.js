@@ -1019,7 +1019,30 @@
          ${requestsChart(stats.series)}
          ${latencyChart(stats.series)}
          ${chartMarkup('Cost', stats.series, (p) => (p.costMicros || 0) / 1e6)}
-         ${state.monitor.groupBy === 'provider' ? providerUsageMarkup(stats.series) : ''}`;
+         ${state.monitor.groupBy === 'provider' ? providerUsageMarkup(stats.series) : ''}
+         ${tierUsageMarkup(stats.tierUsage)}`;
+  }
+
+  // Per-tier usage (§2.4): what each Venom tier actually served, from
+  // the tier stamp the gateway leaves in the request log's meta. Only
+  // stamped traffic appears — history logged before the stamp existed
+  // is not attributed after the fact.
+  function tierUsageMarkup(rows) {
+    if (!Array.isArray(rows) || !rows.length) return '';
+    const body = rows.map((r) => `<tr>
+        <td>${logEscape(r.tier)}</td>
+        <td>${formatTokens(r.requests || 0)}</td>
+        <td>${formatTokens(r.inputTokens || 0)}</td>
+        <td>${formatTokens(r.outputTokens || 0)}</td>
+        <td>${formatCost(r.costMicros || 0)}</td>
+      </tr>`).join('');
+    return `<div class="log-chart-panel">
+      <div class="log-chart-head"><div class="log-chart-head-info"><span class="log-chart-title">Usage by Venom tier</span></div></div>
+      <table class="dt-table log-table">
+        <thead><tr><th>Tier</th><th>Requests</th><th>Tokens in</th><th>Tokens out</th><th>Cost</th></tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>`;
   }
 
   // Class B quota visibility: what the router itself routed, per provider,

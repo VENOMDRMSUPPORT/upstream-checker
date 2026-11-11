@@ -180,6 +180,7 @@ function buildVenomRouter() {
         headers: spec.headers,
         body: spec.body,
         source: 'venom-router',
+        tier: payload && payload.venomTier,
         timeoutMs: 60000,
       });
       if (reply && (reply.networkError || reply.blocked)) {
@@ -223,7 +224,7 @@ function buildVenomRouter() {
       const plainArgs = { url: spec.url, method: spec.method,
         headers: spec.headers,
         body: spec.body,
-        source: 'venom-router', timeoutMs: 60000 };
+        source: 'venom-router', tier: payload && payload.venomTier, timeoutMs: 60000 };
       // A provider that streams in its own shape is translated into the one
       // the gateway's clients read; the rest is piped through untouched.
       const translator = spec.wire ? wire.stream(route.providerId, { model: route.modelId }) : null;

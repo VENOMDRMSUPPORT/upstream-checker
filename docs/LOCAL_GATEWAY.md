@@ -145,3 +145,17 @@ a pro rung: if the lite pool cannot serve it, the request refuses. The
 point of the rule is quota hygiene — background work must never draw on
 the subscription accounts' quota windows that foreground Pro/Max
 traffic depends on. Foreground requests (no flag) are unaffected.
+
+## 9. Max thinking levels
+
+venom-max takes a per-request thinking level:
+
+- header `x-venom-thinking: deep`, or
+- body field `"venom_thinking": "deep"`.
+
+`standard` (the default) is the panel fan-out with Lead Analyst
+synthesis. `deep` adds one verification pass: the lead route re-reads
+the final answer against the original request and returns the
+corrected text — one extra Max dispatch, spent only when asked. If the
+verification call itself fails, the pre-verification answer ships
+unchanged. Any other value, or no flag, means standard.

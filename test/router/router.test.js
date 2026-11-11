@@ -10,7 +10,7 @@ const {
   compressToolMessages, rescuePlainTextToolCalls, analyzeCascadeStage,
   buildSmartCatalog, KeyPoolManager, VenomCascadeEngine,
   createVenomHttpGateway, persistCatalogScores, readCatalogScores,
-  entitlementGate, isEntitlementBlocked, isBackgroundRequest,
+  entitlementGate, isEntitlementBlocked, isBackgroundRequest, maxThinkingLevel,
   ROUTER_PORT, normalizeGatewayPort,
 } = require('../../src/router');
 
@@ -479,6 +479,115 @@ test('the gateway forces flagged requests to lite (header and body field)', asyn
     const bodyFlagged = await post({ model: 'venom-max', venom_background: true, messages: [{ role: 'user', content: 'hi' }] });
     assert.equal(bodyFlagged.status, 200);
     assert.match(bodyFlagged.body.choices[0].message.content, /lite-m/);
+  } finally {
+    await gateway.stop();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Max thinking levels + pool-aware panel (tier design §2.4/§4 Q5, step 5)
+// ---------------------------------------------------------------------------
+
+test('maxThinkingLevel reads the header and body field, defaulting to standard', () => {
+  assert.equal(maxThinkingLevel({ headers: { 'x-venom-thinking': 'deep' } }, {}), 'deep');
+  assert.equal(maxThinkingLevel({ headers: {} }, { venom_thinking: 'deep' }), 'deep');
+  assert.equal(maxThinkingLevel({ headers: {} }, {}), 'standard');
+  assert.equal(maxThinkingLevel({ headers: { 'x-venom-thinking': 'ultra' } }, {}), 'standard');
+});
+
+const MAX_ROWS = [
+  { id: 'x1', provider_id: 'pa', model_id: 'mx-a', score: 50, score_source: 'aa', cost_in_per_m: 1, tools: true },
+  { id: 'x2', provider_id: 'pb', model_id: 'mx-b', score: 55, score_source: 'aa', cost_in_per_m: 1, tools: true },
+  { id: 'x3', provider_id: 'pc', model_id: 'mx-c', score: 60, score_source: 'aa', cost_in_per_m: 1, tools: true },
+];
+const MAX_KEYS = [
+  { id: 'ka', providerId: 'pa', tier: 'subscription', quotaPoolId: 'pool-a' },
+  { id: 'kb', providerId: 'pb', tier: 'subscription', quotaPoolId: 'pool-b' },
+  { id: 'kc', providerId: 'pc', tier: 'subscription', quotaPoolId: 'pool-c' },
+];
+function maxEngine(dispatchUpstream, keyPool) {
+  return new VenomCascadeEngine({ smartCatalog: buildSmartCatalog(MAX_ROWS, MAX_KEYS),
+    keyPool: keyPool || new KeyPoolManager({ keys: MAX_KEYS }), dispatchUpstream });
+}
+
+test('venom-max standard: panel drafts plus Lead Analyst synthesis', async () => {
+  let calls = 0;
+  const engine = maxEngine(async () => ({ text: `call${++calls}` }));
+  const out = await engine.route('venom-max', { messages: [{ role: 'user', content: 'q' }], body: {} });
+  assert.equal(calls, 4);
+  assert.equal(out.text, 'call4');
+  assert.equal(out.synthesis, 'lead-analyst');
+  assert.equal(out.thinking, 'standard');
+  assert.equal(out.panelSize, 3);
+});
+
+test('venom-max deep adds a verification pass over the merged answer', async () => {
+  let calls = 0;
+  const engine = maxEngine(async () => ({ text: `call${++calls}` }));
+  const out = await engine.route('venom-max', { messages: [{ role: 'user', content: 'q' }], body: {}, thinking: 'deep' });
+  assert.equal(calls, 5);
+  assert.equal(out.text, 'call5');
+  assert.equal(out.thinking, 'deep');
+  assert.equal(out.synthesis, 'lead-analyst+verify');
+});
+
+test('a failed deep verification keeps the synthesized answer', async () => {
+  let calls = 0;
+  const engine = maxEngine(async () => {
+    calls += 1;
+    if (calls === 5) throw new Error('verify boom');
+    return { text: `call${calls}` };
+  });
+  const out = await engine.route('venom-max', { messages: [{ role: 'user', content: 'q' }], body: {}, thinking: 'deep' });
+  assert.equal(out.text, 'call4');
+  assert.equal(out.thinking, 'deep');
+});
+
+test('venom-max panel keys come from pickKey: cooled keys drop out of the panel', async () => {
+  let calls = 0;
+  const keyPool = new KeyPoolManager({ keys: MAX_KEYS });
+  keyPool.reportResult({ keyId: 'kb', outcome: 'payment' });
+  const engine = maxEngine(async () => ({ text: `call${++calls}` }), keyPool);
+  const out = await engine.route('venom-max', { messages: [{ role: 'user', content: 'q' }], body: {} });
+  assert.equal(out.panelSize, 2);
+  assert.equal(calls, 3);
+});
+
+test('venom-max refuses with the reset time when every panel pool is exhausted', async () => {
+  const keyPool = new KeyPoolManager({ keys: MAX_KEYS });
+  for (const k of MAX_KEYS) keyPool.reportResult({ keyId: k.id, outcome: 'payment' });
+  const engine = maxEngine(async () => ({ text: 'never' }), keyPool);
+  await assert.rejects(
+    engine.route('venom-max', { messages: [{ role: 'user', content: 'q' }], body: {} }),
+    (err) => err.code === 'QUOTA_EXHAUSTED' && /quota exhausted until/.test(err.message));
+});
+
+test('the gateway passes the Max thinking level through (venom_thinking)', async () => {
+  let calls = 0;
+  const engine = new VenomCascadeEngine({ smartCatalog: buildSmartCatalog([MAX_ROWS[0]], [MAX_KEYS[0]]),
+    keyPool: new KeyPoolManager({ keys: [MAX_KEYS[0]] }),
+    dispatchUpstream: async () => ({ text: `call${++calls}` }) });
+  const gateway = createVenomHttpGateway({ cascadeEngine: engine, port: 0, log: { warn() {}, info() {} } });
+  const { port } = await gateway.start();
+  const post = (payload) => new Promise((resolve, reject) => {
+    const data = JSON.stringify(payload);
+    const req = http.request({ host: '127.0.0.1', port, path: '/v1/chat/completions', method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) } }, (res) => {
+      let buf = '';
+      res.on('data', (c) => { buf += c; });
+      res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(buf) }));
+    });
+    req.on('error', reject);
+    req.end(data);
+  });
+  try {
+    const standard = await post({ model: 'venom-max', messages: [{ role: 'user', content: 'q' }] });
+    assert.equal(standard.status, 200);
+    assert.match(standard.body.choices[0].message.content, /call1/);
+    const deep = await post({ model: 'venom-max', venom_thinking: 'deep', messages: [{ role: 'user', content: 'q' }] });
+    assert.equal(deep.status, 200);
+    assert.match(deep.body.choices[0].message.content, /call3/);
+    assert.equal(calls, 3);
   } finally {
     await gateway.stop();
   }

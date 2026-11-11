@@ -744,7 +744,7 @@ class VenomCascadeEngine {
       }
     }
     if (!picked) throw this.noRouteError('venom-lite', candidates);
-    return this.dispatch(picked, { ...payload, reasoningEffort: 'low' });
+    return this.dispatch(picked, { ...payload, reasoningEffort: 'low', venomTier: 'venom-lite' });
   }
 
   async routePro(payload) {
@@ -767,39 +767,81 @@ class VenomCascadeEngine {
     const handoff = (session && session.escalationLevel > 0)
       ? `\n\n[VENOM CASCADE HANDOFF: escalated to flagship tier after ${stage.consecutiveErrors} tool error(s). Continue the task, do not restart it.]`
       : '';
-    return this.dispatch(picked, { ...payload,
+    return this.dispatch(picked, { ...payload, venomTier: 'venom-pro',
       reasoningEffort: (escalated || stage.shouldEscalate) ? 'high' : 'medium', handoff });
   }
 
   async routeMax(payload) {
     const panel = ((this.smartCatalog && this.smartCatalog.max) || []).slice(0, 3);
-    const routes = this.keyPool ? panel.map((row, index) => {
-      const keys = [...this.keyPool.keys.values()].filter((k) => k.providerId === row.providerId);
-      const key = keys[index % Math.max(1, keys.length)] || keys[0];
-      return key ? { keyId: key.id, providerId: row.providerId, modelId: row.modelId, row } : null;
-    }).filter(Boolean) : [];
-    if (!routes.length) throw Object.assign(new Error('no venom-max route has a live key'), { code: 'NO_ROUTE' });
-    if (routes.length === 1) return this.dispatch(routes[0], { ...payload, reasoningEffort: 'high' });
-    const drafts = await Promise.allSettled(routes.map((route) => this.dispatch(route, { ...payload, reasoningEffort: 'high' })));
-    const fulfilled = drafts.filter((d) => d.status === 'fulfilled').map((d) => d.value);
-    if (!fulfilled.length) throw drafts.find((d) => d.status === 'rejected').reason;
-    if (fulfilled.length < 2) return { ...fulfilled[0], panelSize: 1, model: 'venom-max' };
-    // Lead Analyst synthesis: the first route merges the parallel drafts
-    // into one answer (consensus kept, contradictions resolved). A bare
-    // longest-draft pick is the fallback, never the plan.
-    const leadRoute = routes[0];
-    const brief = fulfilled.map((draft, index) =>
-      `--- Draft ${index + 1} (via ${draft.routedVia || 'unknown route'}) ---\n${String(draft.text || '').slice(0, 6000)}`)
-      .join('\n\n');
-    const mergeMessages = [...(Array.isArray(payload.messages) ? payload.messages : []),
-      { role: 'user', content: `You are the Lead Analyst. Merge the ${fulfilled.length} panel drafts below into one final answer: keep every point the drafts agree on, resolve contradictions by choosing the best-supported claim, and drop filler. Answer directly, no meta-commentary.\n\n${brief}` }];
+    // Pool-aware panel keys (§2.2): each row's key comes from pickKey,
+    // so cooled and exhausted pools are never probed and the reserve
+    // is Max's to spend; one key never serves two panel slots while
+    // another key of the same provider sits idle.
+    const usedKeyIds = new Set();
+    const routes = [];
+    const allCandidates = [];
+    for (const row of panel) {
+      const rowCandidates = this.keyPool ? this.candidateRoutes([row], 6) : [];
+      allCandidates.push(...rowCandidates);
+      const fresh = rowCandidates.filter((c) => !usedKeyIds.has(c.keyId));
+      const picked = this.keyPool
+        ? this.keyPool.pickKey(fresh.length ? fresh : rowCandidates, { forTier: 'max' })
+        : null;
+      if (picked) {
+        usedKeyIds.add(picked.keyId);
+        routes.push({ ...picked, row });
+      }
+    }
+    if (!routes.length) throw this.noRouteError('venom-max', allCandidates);
+    // Thinking levels (§4 Q5: two for v1). standard is the fan-out +
+    // Lead Analyst synthesis below; deep adds one verification pass
+    // over the final answer before it ships — one extra Max dispatch.
+    const thinking = payload && payload.thinking === 'deep' ? 'deep' : 'standard';
+    const stamped = { ...payload, venomTier: 'venom-max' };
+    let answer;
+    if (routes.length === 1) {
+      answer = { ...(await this.dispatch(routes[0], { ...stamped, reasoningEffort: 'high' })),
+        panelSize: 1, model: 'venom-max' };
+    } else {
+      const drafts = await Promise.allSettled(routes.map((route) => this.dispatch(route, { ...stamped, reasoningEffort: 'high' })));
+      const fulfilled = drafts.filter((d) => d.status === 'fulfilled').map((d) => d.value);
+      if (!fulfilled.length) throw drafts.find((d) => d.status === 'rejected').reason;
+      if (fulfilled.length < 2) {
+        answer = { ...fulfilled[0], panelSize: 1, model: 'venom-max' };
+      } else {
+        // Lead Analyst synthesis: the first route merges the parallel drafts
+        // into one answer (consensus kept, contradictions resolved). A bare
+        // longest-draft pick is the fallback, never the plan.
+        const leadRoute = routes[0];
+        const brief = fulfilled.map((draft, index) =>
+          `--- Draft ${index + 1} (via ${draft.routedVia || 'unknown route'}) ---\n${String(draft.text || '').slice(0, 6000)}`)
+          .join('\n\n');
+        const mergeMessages = [...(Array.isArray(payload.messages) ? payload.messages : []),
+          { role: 'user', content: `You are the Lead Analyst. Merge the ${fulfilled.length} panel drafts below into one final answer: keep every point the drafts agree on, resolve contradictions by choosing the best-supported claim, and drop filler. Answer directly, no meta-commentary.\n\n${brief}` }];
+        try {
+          const merged = await this.dispatch(leadRoute, { ...stamped,
+            messages: mergeMessages, reasoningEffort: 'high', synthesis: true });
+          answer = { ...merged, panelSize: fulfilled.length, model: 'venom-max', synthesis: 'lead-analyst' };
+        } catch (_) {
+          fulfilled.sort((a, b) => String(b.text || '').length - String(a.text || '').length);
+          answer = { ...fulfilled[0], panelSize: fulfilled.length, model: 'venom-max', synthesis: 'longest-draft-fallback' };
+        }
+      }
+    }
+    if (thinking !== 'deep') return { ...answer, thinking };
+    // Deep verification: the lead route re-reads the final answer
+    // against the original request and returns the corrected text. A
+    // failed verification never loses the answer it was checking.
     try {
-      const merged = await this.dispatch(leadRoute, { ...payload,
-        messages: mergeMessages, reasoningEffort: 'high', synthesis: true });
-      return { ...merged, panelSize: fulfilled.length, model: 'venom-max', synthesis: 'lead-analyst' };
+      const verifyMessages = [...(Array.isArray(payload.messages) ? payload.messages : []),
+        { role: 'assistant', content: String(answer.text || '') },
+        { role: 'user', content: 'Verify the answer above against the original request: fix any factual or reasoning error, fill any gap the request asked for, and remove anything unsupported. Return only the corrected final answer.' }];
+      const verified = await this.dispatch(routes[0], { ...stamped,
+        messages: verifyMessages, reasoningEffort: 'high', synthesis: true });
+      return { ...answer, ...verified, panelSize: answer.panelSize, model: 'venom-max',
+        synthesis: answer.synthesis ? `${answer.synthesis}+verify` : 'verify', thinking };
     } catch (_) {
-      fulfilled.sort((a, b) => String(b.text || '').length - String(a.text || '').length);
-      return { ...fulfilled[0], panelSize: fulfilled.length, model: 'venom-max', synthesis: 'longest-draft-fallback' };
+      return { ...answer, thinking };
     }
   }
 
@@ -840,7 +882,7 @@ class VenomCascadeEngine {
     for (const route of routes) {
       let upstream;
       try {
-        upstream = await this.streamUpstream(route, payload);
+        upstream = await this.streamUpstream(route, { ...payload, venomTier: tier });
       } catch (err) {
         lastError = err;
         failovers += 1;
@@ -996,6 +1038,15 @@ function isBackgroundRequest(req, body) {
   return Boolean(body && body.venom_background === true);
 }
 
+// Max thinking level (§4 Q5: standard / deep for v1), selected per
+// request: the x-venom-thinking header or a venom_thinking body field.
+// Anything but an explicit deep is standard.
+function maxThinkingLevel(req, body) {
+  const header = req && req.headers ? String(req.headers['x-venom-thinking'] || '') : '';
+  if (header.toLowerCase() === 'deep' || (body && body.venom_thinking === 'deep')) return 'deep';
+  return 'standard';
+}
+
 function createVenomHttpGateway({ cascadeEngine = null, port = ROUTER_PORT, host = ROUTER_HOST, log = console } = {}) {
   let server = null;
   let boundPort = null;
@@ -1052,6 +1103,7 @@ function createVenomHttpGateway({ cascadeEngine = null, port = ROUTER_PORT, host
       // traffic never draws on the Pro accounts' quota windows.
       const background = isBackgroundRequest(req, body);
       const tier = background ? 'venom-lite' : (requested.startsWith('venom-') ? requested : 'venom-pro');
+      const thinking = maxThinkingLevel(req, body);
       const messages = compressToolMessages(body.messages || [{ role: 'user', content: body.input || '' }]);
       // True SSE passthrough when a streaming dispatcher is wired (main):
       // the provider's bytes move chunk by chunk after its 200 OK, with
@@ -1063,7 +1115,7 @@ function createVenomHttpGateway({ cascadeEngine = null, port = ROUTER_PORT, host
         try {
           let headed = false;
           const outcome = await cascadeEngine.routeStream(tier,
-            { messages, body, sessionId: body.session_id || body.sessionId || null, background },
+            { messages, body, sessionId: body.session_id || body.sessionId || null, background, thinking },
             { clientRes: res,
               pipe: (stream, client, headers) => pipeUpstreamStream(stream, client, headers),
               onFirstUpstream: (route, upstream) => {
@@ -1084,7 +1136,7 @@ function createVenomHttpGateway({ cascadeEngine = null, port = ROUTER_PORT, host
         }
       }
       try {
-        const result = await cascadeEngine.route(tier, { messages, body, sessionId: body.session_id || body.sessionId || null, background });
+        const result = await cascadeEngine.route(tier, { messages, body, sessionId: body.session_id || body.sessionId || null, background, thinking });
         if (body.stream === true) {
           if (path === '/v1/messages') return writeAnthropicStream(res, tier, result.text || '', result);
           return writeOpenAiStream(res, tier, result.text || '', result);
@@ -1149,5 +1201,5 @@ module.exports = { ROUTER_PORT, ROUTER_HOST, normalizeGatewayPort, canonicalSlug
   createPoolLedger: poolLedger.createPoolLedger,
   rankPoolsByRemaining: poolLedger.rankPoolsByRemaining,
   POOL_WINDOWS: poolLedger.POOL_WINDOWS, poolIdOf: poolLedger.poolIdOf,
-  POOL_RESERVE_FRACTION, LITE_HEURISTIC_MIN_SCORE, isBackgroundRequest,
+  POOL_RESERVE_FRACTION, LITE_HEURISTIC_MIN_SCORE, isBackgroundRequest, maxThinkingLevel,
   readCatalogScores, VenomCascadeEngine, pipeUpstreamStream, createVenomHttpGateway };

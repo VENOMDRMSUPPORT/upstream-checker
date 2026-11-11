@@ -554,7 +554,34 @@ function createQuery(db, { file = null, meta, droppedRows = () => 0 } = {}) {
     }));
   }
 
-  return { list, get, stats, facets, runs, runSummary, exportTo, info, clear, keyWindowUsage };
+  // Per-tier routed usage (§2.4) from the raw log: the gateway stamps
+  // its tier into meta_json (see the recorder's allowlist), so this
+  // groups by that stamp. Rows logged before the stamp existed carry
+  // no tier and are not attributed after the fact.
+  function tierUsage(opts = {}) {
+    const f = opts && typeof opts === 'object' ? opts : {};
+    const where = ["json_extract(meta_json, '$.tier') IS NOT NULL"];
+    const params = [];
+    if (Number.isFinite(f.from)) { where.push('created_at >= ?'); params.push(f.from); }
+    if (Number.isFinite(f.to)) { where.push('created_at < ?'); params.push(f.to); }
+    return db.prepare(
+      `SELECT json_extract(meta_json, '$.tier') AS tier, COUNT(*) AS requests,
+              COALESCE(SUM(input_tokens), 0) AS input_tokens,
+              COALESCE(SUM(output_tokens), 0) AS output_tokens,
+              COALESCE(SUM(cost_micros), 0) AS cost_micros
+         FROM request_logs
+        WHERE ${where.join(' AND ')}
+        GROUP BY tier ORDER BY tier`,
+    ).all(...params).map((r) => ({
+      tier: r.tier,
+      requests: r.requests || 0,
+      inputTokens: r.input_tokens || 0,
+      outputTokens: r.output_tokens || 0,
+      costMicros: r.cost_micros || 0,
+    }));
+  }
+
+  return { list, get, stats, facets, runs, runSummary, exportTo, info, clear, keyWindowUsage, tierUsage };
 }
 
 module.exports = { createQuery, createMeta, emptyStats, emptyRunSummary, EXPORT_COLUMNS };

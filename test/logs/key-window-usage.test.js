@@ -49,3 +49,24 @@ test('empty key lists read as no usage; a bad sinceMs throws', (t) => {
   assert.deepStrictEqual(query.keyWindowUsage([''], T0), []);
   assert.throws(() => query.keyWindowUsage(['k1'], NaN), TypeError);
 });
+
+test('tierUsage groups stamped gateway rows by their Venom tier', (t) => {
+  const { query } = setup(t, [
+    logRow({ source: 'venom-router', meta_json: JSON.stringify({ tier: 'venom-lite' }), created_at: T0, input_tokens: 10, output_tokens: 5, cost_micros: 100 }),
+    logRow({ source: 'venom-router', meta_json: JSON.stringify({ tier: 'venom-lite' }), created_at: T0 + 1000, input_tokens: 1, output_tokens: 2, cost_micros: 3 }),
+    logRow({ source: 'venom-router', meta_json: JSON.stringify({ tier: 'venom-max' }), created_at: T0 + 2000, input_tokens: 100, output_tokens: 50, cost_micros: 999 }),
+    // Unstamped history is not attributed after the fact.
+    logRow({ source: 'venom-router', meta_json: null, created_at: T0, input_tokens: 777, output_tokens: 777 }),
+    logRow({ source: 'venom-router', meta_json: JSON.stringify({ requestId: 'x' }), created_at: T0, input_tokens: 555, output_tokens: 555 }),
+    // Outside the queried range.
+    logRow({ source: 'venom-router', meta_json: JSON.stringify({ tier: 'venom-pro' }), created_at: T0 - 10000, input_tokens: 9, output_tokens: 9 }),
+  ]);
+  const rows = query.tierUsage({ from: T0 - 1000, to: T0 + 5000 });
+  const byTier = Object.fromEntries(rows.map((r) => [r.tier, r]));
+  assert.deepStrictEqual(Object.keys(byTier).sort(), ['venom-lite', 'venom-max']);
+  assert.deepStrictEqual(
+    { requests: byTier['venom-lite'].requests, inputTokens: byTier['venom-lite'].inputTokens, outputTokens: byTier['venom-lite'].outputTokens, costMicros: byTier['venom-lite'].costMicros },
+    { requests: 2, inputTokens: 11, outputTokens: 7, costMicros: 103 });
+  assert.strictEqual(byTier['venom-max'].requests, 1);
+  assert.ok(query.tierUsage().some((r) => r.tier === 'venom-pro'), 'no range still reads');
+});

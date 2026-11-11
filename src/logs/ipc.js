@@ -39,7 +39,10 @@ function registerLogsIpc({ ipcMain, getState, dialog, getWindow = () => null, lo
 
   handle('logs-list', (q, filters, cursor, limit, sort) => q.list(filters, cursor, limit, sort), () => ({ rows: [], nextCursor: null }));
   handle('logs-get', (q, id) => q.get(id), () => null);
-  handle('logs-stats', (q, filters, bucket, groupBy) => q.stats(filters, bucket, groupBy), () => emptyStats());
+  handle('logs-stats', (q, filters, bucket, groupBy) => ({
+    ...q.stats(filters, bucket, groupBy),
+    tierUsage: typeof q.tierUsage === 'function' ? q.tierUsage(filters) : [],
+  }), () => ({ ...emptyStats(), tierUsage: [] }));
   handle('logs-facets', (q, range) => q.facets(range), () => ({ providers: [], models: [], sources: [] }));
   handle('logs-runs', (q, filters, cursor, limit) => q.runs(filters, cursor, limit), () => ({ rows: [], nextCursor: null }));
   handle('logs-run-summary', (q, runId) => q.runSummary(runId), (_error, runId) => emptyRunSummary(runId));

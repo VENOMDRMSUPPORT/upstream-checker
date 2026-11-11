@@ -66,15 +66,15 @@ The architecture behind these files — boot order, IPC channels, the two databa
 
 Files of 700+ lines, with the section banners inside them. Open the window you need — do not read one of these whole. Line numbers are 1-based.
 
-### src/main.js — 1291 lines
+### src/main.js — 1292 lines
 
 | Line | Section |
 | --- | --- |
-| 470 | Local database — venom.db (src/db) |
-| 490 | Request log — venom-logs.db (src/logs) |
-| 577 | Model catalog engine — src/catalog |
-| 1167 | API requests (src/api-request.js) |
-| 1205 | Old request log file (requests.log) |
+| 471 | Local database — venom.db (src/db) |
+| 491 | Request log — venom-logs.db (src/logs) |
+| 578 | Model catalog engine — src/catalog |
+| 1168 | API requests (src/api-request.js) |
+| 1206 | Old request log file (requests.log) |
 
 ### src/oauth/index.js — 717 lines
 
@@ -119,13 +119,13 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | --- | --- |
 | 2 | Models Catalog — the merged reference, scored |
 
-### src/renderer/logs.js — 1348 lines
+### src/renderer/logs.js — 1371 lines
 
 | Line | Section |
 | --- | --- |
 | 2 | Log pages — Runs, Requests and Monitoring |
 
-### src/router/index.js — 1154 lines
+### src/router/index.js — 1206 lines
 
 *(no section banners)*
 
@@ -265,7 +265,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `api-request.js` | 226 | api-request — every outbound request the renderer asks for | CONTENT_TOKEN, CANCEL_REASONS, CUT_OFF, createApiRequester |
 | `flush.js` | 38 | Close handshake with the renderer | DEFAULT_FLUSH_TIMEOUT_MS, requestFlush |
 | `keystore.js` | 74 | API keys at rest | decryptKeyEntry, encryptKeyEntry, eachStoredKey, countPlaintextKeys |
-| `main.js` | 1291 | Main process: data folder, boot order, IPC wiring, auto-updater | venomRouter, venomGateway, venomGatewayStarting, readRosterRowsForRouter, startVenomRouter, gatewayPort, upstreamSpec, attachPoolLedger, buildVenomRouter, venomGatewayStarted, ensureVenomGateway, refreshVenomRouter, +37 more |
+| `main.js` | 1292 | Main process: data folder, boot order, IPC wiring, auto-updater | venomRouter, venomGateway, venomGatewayStarting, readRosterRowsForRouter, startVenomRouter, gatewayPort, upstreamSpec, attachPoolLedger, buildVenomRouter, venomGatewayStarted, ensureVenomGateway, refreshVenomRouter, +37 more |
 | `preload.js` | 151 | contextBridge surface — the renderer's only door to main | minimize, maximize, close, setWindowIcon, authStatus, authSetup, authUnlock, authChange, authLock, authActivity, onAuthLocked, apiRequest, +60 more |
 | `user-data.js` | 40 | Where the app keeps its data. Electron names the userData folder after the | LEGACY_DIR, CURRENT_DIR, DEV_DIR, resolveUserDataDir |
 
@@ -324,11 +324,11 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | --- | --- | --- | --- |
 | `classify.js` | 283 | Request classification — pure, no I/O | QUOTA_CODES, JSON_PARSE_LIMIT, SCAN_WINDOW, MODEL_MAX, RETURNED_MODEL_MAX, LATENCY_EDGES, clipped, tokens, endpointOf, bodyText, parseObject, modelRequested, +13 more |
 | `index.js` | 107 | Request log — venom-logs.db | LOGS_FILE, LogsTooNewError, latestVersion, migrate, open, tryOpen |
-| `ipc.js` | 64 | Request log IPC — what the log pages (sub-project C) call | LOGS_CHANNELS, NOT_SAVED, offInfo, registerLogsIpc |
+| `ipc.js` | 67 | Request log IPC — what the log pages (sub-project C) call | LOGS_CHANNELS, NOT_SAVED, offInfo, registerLogsIpc |
 | `lookups.js` | 54 | venom.db lookups for the request log | createProviderLookup, readPrice, createPriceBook |
 | `migrations.js` | 111 | Request log schema migrations (venom-logs.db) |  |
-| `query.js` | 561 | Request log queries — what the log pages (sub-project C) read | HOUR, MAX_LIMIT, DEFAULT_LIMIT, MAX_FILTER_ITEMS, EXPORT_CHUNK, EVERYTHING, EXPORT_COLUMNS, LIKE, CLASS_COUNTERS, GROUP_COLUMNS, SORT_COLUMNS, MAX_SORT_RANGE_MS, +22 more |
-| `recorder.js` | 190 | Request record — what one finished request becomes in the log | SOURCES, CANCEL_REASONS, TRIGGERS, BODY_MAX, REDACTED_HEADERS, shortString, whole, clip, redactHeaders, metaOf, originOf, whoFor, +3 more |
+| `query.js` | 588 | Request log queries — what the log pages (sub-project C) read | HOUR, MAX_LIMIT, DEFAULT_LIMIT, MAX_FILTER_ITEMS, EXPORT_CHUNK, EVERYTHING, EXPORT_COLUMNS, LIKE, CLASS_COUNTERS, GROUP_COLUMNS, SORT_COLUMNS, MAX_SORT_RANGE_MS, +22 more |
+| `recorder.js` | 193 | Request record — what one finished request becomes in the log | SOURCES, CANCEL_REASONS, TRIGGERS, BODY_MAX, REDACTED_HEADERS, shortString, whole, clip, redactHeaders, metaOf, originOf, whoFor, +3 more |
 | `retention.js` | 157 | Request log retention — chunked purge, stepped vacuum | DAY, CHUNK, VACUUM_PAGES, defaultYield, neverBusy, inChunks, purgeLogsBefore, purgeBodiesBefore, purgeRollupsBefore, stepVacuum, monthsAgo, purge, +1 more |
 | `scrub.js` | 39 | Scrub substituted secrets out of stored log text | formsOf, scrub |
 | `settings.js` | 27 | Request log settings, read by main from the settings row | LOG_LEVELS, LOG_DEFAULTS, wholeIn, readLogSettings |
@@ -359,7 +359,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `key-usage.js` | 659 | Key usage — quota, expiry and request history per API key | KEY_USAGE |
 | `lock.js` | 492 | The app lock screen — src/renderer/lock.js | MIN_IDLE_MIN, el, mode, legacySetup, resolved, onUnlocked, particle, frame, running, activityBound, lastActivitySent, throttleTimer, +40 more |
 | `logs-format.js` | 132 | Log pages — pure formatting and mapping | LOGS_RANGES, logEscape, normalizeProvider, providerLabel, formatDuration, formatCost, formatTokens, logPad, formatWhen, statusTone, passRateText, rangePreset, +1 more |
-| `logs.js` | 1348 | Log pages — Runs, Requests and Monitoring | state, el, REDUCED_MOTION, drawerOpener, closeTimer, tabFromRoute, parts, loadInfo, LOG_ICONS, emptyState, loggingOffMarkup, why, +132 more |
+| `logs.js` | 1371 | Log pages — Runs, Requests and Monitoring | state, el, REDUCED_MOTION, drawerOpener, closeTimer, tabFromRoute, parts, loadInfo, LOG_ICONS, emptyState, loggingOffMarkup, why, +133 more |
 | `oauth-connect.js` | 205 | OAuth — the connect flow in the page | VENOM_RENDERER |
 | `page-router.js` | 51 | Hash-route parsing and synchronization for the renderer shell. | VENOM_RENDERER |
 | `profile-badges.js` | 95 | Venom Profiles — shared profile badges | SHORT, indexProfiles, map, add, classify, badgeHTML, label, state, warm, bridge, badgeFor, profile |
@@ -416,7 +416,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
-| `index.js` | 1154 | Venom router plane: multi-account smart routing behind one local endpoint. | ROUTER_PORT, ROUTER_HOST, normalizeGatewayPort, TIER_DRAIN_ORDER, TIER_RANK, canonicalSlug, upstreamModelId, evaluateModelCapabilities, compressToolMessages, rescuePlainTextToolCalls, analyzeCascadeStage, PRO_MIN_SCORE, +36 more |
+| `index.js` | 1206 | Venom router plane: multi-account smart routing behind one local endpoint. | ROUTER_PORT, ROUTER_HOST, normalizeGatewayPort, TIER_DRAIN_ORDER, TIER_RANK, canonicalSlug, upstreamModelId, evaluateModelCapabilities, compressToolMessages, rescuePlainTextToolCalls, analyzeCascadeStage, PRO_MIN_SCORE, +37 more |
 | `pool-ledger.js` | 141 | Pool window ledger (tier design §2.1, build step 2): how much of | HOUR_MS, POOL_WINDOWS, poolIdOf, emptyWindow, addRow, createPoolLedger, rankPoolsByRemaining |
 
 ### src/wire/
@@ -487,11 +487,11 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | --- | --- | --- | --- |
 | `classify.test.js` | 197 |  | endpointOf keeps origin and path, drops the query, endpointOf caps a very long http(s) origin+path at 500 characters too, bodyText and modelRequested read the model from a JSON body, isStreamRequest: stream true in the body, or an event-stream reply, Anthropic JSON: input counts cache reads and writes, OpenAI SSE: usage from the final chunk, model from the chunks |
 | `ipc.test.js` | 104 |  | registers exactly the log channels, with logging on, the reads answer from the database, a failing query rejects the call and is logged |
-| `key-window-usage.test.js` | 52 | keyWindowUsage is the SQL half of the router's pool window ledger: | sums tokens per key and model since the given moment, empty key lists read as no usage; a bad sinceMs throws |
+| `key-window-usage.test.js` | 73 | keyWindowUsage is the SQL half of the router's pool window ledger: | sums tokens per key and model since the given moment, empty key lists read as no usage; a bad sinceMs throws, tierUsage groups stamped gateway rows by their Venom tier |
 | `lookups.test.js` | 81 | The engine's row shape, as repos.snapshots stores it: provider facts only, | a missing, half-stated or malformed price is null, the price book never reads the retired models table, the provider lookup lists id, name and base URL |
 | `open.test.js` | 132 |  | open(":memory:") wires the writer, meta and the query API on schema v1, reopening an up-to-date file runs no migration, a migration that throws rolls back and leaves the version, downgrade guard: a newer schema is refused and the file is not written, tryOpen: a corrupt file turns logging off and is left as it was, tryOpen: a newer schema turns logging off with the reason |
 | `query.test.js` | 604 | entries: a row, or { row, body }. | list: limit defaults to 50 and is capped at 200, list filters: time range, source, provider, model, status, run id, list text search: uid, run id and error message; % and _ are literal, filter arrays are capped at 50 items, afterId returns only newer rows (live tail), get: the row with its body, or null |
-| `recorder.test.js` | 229 |  | a successful chat: identity, tags, model, usage, cost and meta, the local gateway tag is kept as its own source, not folded into other, cost: a free model costs 0; an unknown price or no usage is NULL, TTFT is kept for streams only, bodies: Off, Failed only and All, and what counts as failed, no form of a substituted secret reaches a queued record |
+| `recorder.test.js` | 236 |  | a successful chat: identity, tags, model, usage, cost and meta, the local gateway tag is kept as its own source, not folded into other, cost: a free model costs 0; an unknown price or no usage is NULL, TTFT is kept for streams only, bodies: Off, Failed only and All, and what counts as failed, no form of a substituted secret reaches a queued record |
 | `retention.test.js` | 198 |  | rows older than the limit go with their bodies, a chunk at a time, bodies older than their limit go and has_body is cleared; the rows stay, roll-ups older than the stats limit go, last_purge_at is recorded and the freed pages are handed back, purge lets other work run between chunks, closing the database mid-purge ends it without throwing |
 | `schema.test.js` | 62 |  | schema v1 creates the four tables and six indexes, a row with only the required columns gets the defaults, request_uid is unique, usage_hourly has one row per hour, provider, model and source, readLogSettings: stored values are used as they are |
 | `scrub.test.js` | 44 | sk-"quote\slash/7: needs escaping in JSON and in a URL. | replaces the raw secret with its placeholder, replaces the JSON-escaped, \\/-escaped and URL-encoded forms, nothing to scrub: the text comes back as it was |
@@ -560,7 +560,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | --- | --- | --- | --- |
 | `pool-ledger.test.js` | 152 | The pool window ledger (tier design §2.1, build step 2): per-pool | poolIdOf prefers the shared pool id and falls back to the key itself, the ledger needs a reader, snapshot groups keys into pools and sums each rolling window, a shared pool sums its keys once, under one pool id, rows for unknown keys are ignored, and custom windows are honoured, ranking prefers the fullest window when budgets are known |
 | `profiles.test.js` | 261 | Venom Profiles: tier differentiation, heuristic scoring, lead-analyst | lite admits free rows at VQ >= 20 only, pro and max stay distinct, frontier VQ 56-58 rows reach venom-max and the pro capable rung, fake and non-text rows never enter any tier or the counts, formatModelDisplayName strips routing prefixes, upstream id stays raw, unscored rows read an est-heuristic score but stay below the lite floor, buildProfilesPayload carries per-profile target lists with key counts |
-| `router.test.js` | 486 | Router plane: smart catalog split, three-level key isolation, cascade | gateway port falls back to the default outside 1024..65535, identity keeps the raw upstream address apart from the match key, capability read never invents a measured score, smart catalog preserves upstream ids and splits three tiers, key pool isolates a model-on-key failure from the rest of the key, key pool drains subscription before free before paid |
+| `router.test.js` | 595 | Router plane: smart catalog split, three-level key isolation, cascade | gateway port falls back to the default outside 1024..65535, identity keeps the raw upstream address apart from the match key, capability read never invents a measured score, smart catalog preserves upstream ids and splits three tiers, key pool isolates a model-on-key failure from the rest of the key, key pool drains subscription before free before paid |
 
 ### test/wire/
 
