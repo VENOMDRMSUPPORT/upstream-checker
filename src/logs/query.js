@@ -523,7 +523,38 @@ function createQuery(db, { file = null, meta, droppedRows = () => 0 } = {}) {
     return { rows: logs.rows, bodies: logs.bodies, rollups: rollups.rollups };
   }
 
-  return { list, get, stats, facets, runs, runSummary, exportTo, info, clear };
+  // Per-key token sums since a moment, for the router's pool window
+  // ledger (src/router/pool-ledger.js): one row per (key, model) over
+  // the requests that actually reached a provider — cancelled and
+  // gateway-blocked rows never left the app, so they are not
+  // consumption. Tokens are summed exactly as recorded; a provider
+  // that meters differently (Antigravity's percentages, ApiNex's
+  // per-model weights) is reconciled through its own usage channel,
+  // not by bending this sum.
+  function keyWindowUsage(keyIds, sinceMs) {
+    if (!Array.isArray(keyIds) || keyIds.length === 0) return [];
+    if (!Number.isFinite(sinceMs)) throw new TypeError('keyWindowUsage(keyIds, sinceMs) needs a finite sinceMs');
+    const ids = [...new Set(keyIds.map((id) => String(id || '')).filter(Boolean))];
+    if (ids.length === 0) return [];
+    const marks = ids.map(() => '?').join(', ');
+    return db.prepare(
+      `SELECT key_id, model_requested AS model_id, COUNT(*) AS requests,
+              COALESCE(SUM(input_tokens), 0) AS input_tokens,
+              COALESCE(SUM(output_tokens), 0) AS output_tokens
+         FROM request_logs
+        WHERE key_id IN (${marks}) AND created_at >= ?
+          AND status NOT IN ('cancelled', 'blocked')
+        GROUP BY key_id, model_requested`,
+    ).all(...ids, sinceMs).map((r) => ({
+      keyId: r.key_id,
+      modelId: r.model_id || '',
+      requests: r.requests || 0,
+      inputTokens: r.input_tokens || 0,
+      outputTokens: r.output_tokens || 0,
+    }));
+  }
+
+  return { list, get, stats, facets, runs, runSummary, exportTo, info, clear, keyWindowUsage };
 }
 
 module.exports = { createQuery, createMeta, emptyStats, emptyRunSummary, EXPORT_COLUMNS };

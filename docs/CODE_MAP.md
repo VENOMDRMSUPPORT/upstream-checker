@@ -2,7 +2,7 @@
 
 > GENERATED FILE — do not edit by hand. Regenerate with: npm run repo:map
 
-226 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
+229 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
 
 The architecture behind these files — boot order, IPC channels, the two databases, the request lifecycle — is in [ARCHITECTURE.md](ARCHITECTURE.md). Task recipes are in [COOKBOOK.md](COOKBOOK.md).
 
@@ -125,7 +125,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | --- | --- |
 | 2 | Log pages — Runs, Requests and Monitoring |
 
-### src/router/index.js — 970 lines
+### src/router/index.js — 974 lines
 
 *(no section banners)*
 
@@ -327,7 +327,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `ipc.js` | 64 | Request log IPC — what the log pages (sub-project C) call | LOGS_CHANNELS, NOT_SAVED, offInfo, registerLogsIpc |
 | `lookups.js` | 54 | venom.db lookups for the request log | createProviderLookup, readPrice, createPriceBook |
 | `migrations.js` | 111 | Request log schema migrations (venom-logs.db) |  |
-| `query.js` | 530 | Request log queries — what the log pages (sub-project C) read | HOUR, MAX_LIMIT, DEFAULT_LIMIT, MAX_FILTER_ITEMS, EXPORT_CHUNK, EVERYTHING, EXPORT_COLUMNS, LIKE, CLASS_COUNTERS, GROUP_COLUMNS, SORT_COLUMNS, MAX_SORT_RANGE_MS, +22 more |
+| `query.js` | 561 | Request log queries — what the log pages (sub-project C) read | HOUR, MAX_LIMIT, DEFAULT_LIMIT, MAX_FILTER_ITEMS, EXPORT_CHUNK, EVERYTHING, EXPORT_COLUMNS, LIKE, CLASS_COUNTERS, GROUP_COLUMNS, SORT_COLUMNS, MAX_SORT_RANGE_MS, +22 more |
 | `recorder.js` | 190 | Request record — what one finished request becomes in the log | SOURCES, CANCEL_REASONS, TRIGGERS, BODY_MAX, REDACTED_HEADERS, shortString, whole, clip, redactHeaders, metaOf, originOf, whoFor, +3 more |
 | `retention.js` | 157 | Request log retention — chunked purge, stepped vacuum | DAY, CHUNK, VACUUM_PAGES, defaultYield, neverBusy, inChunks, purgeLogsBefore, purgeBodiesBefore, purgeRollupsBefore, stepVacuum, monthsAgo, purge, +1 more |
 | `scrub.js` | 39 | Scrub substituted secrets out of stored log text | formsOf, scrub |
@@ -416,7 +416,8 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
-| `index.js` | 970 | Venom router plane: multi-account smart routing behind one local endpoint. | ROUTER_PORT, ROUTER_HOST, normalizeGatewayPort, TIER_DRAIN_ORDER, TIER_RANK, canonicalSlug, upstreamModelId, evaluateModelCapabilities, compressToolMessages, rescuePlainTextToolCalls, analyzeCascadeStage, PRO_MIN_SCORE, +33 more |
+| `index.js` | 974 | Venom router plane: multi-account smart routing behind one local endpoint. | ROUTER_PORT, ROUTER_HOST, normalizeGatewayPort, TIER_DRAIN_ORDER, TIER_RANK, canonicalSlug, upstreamModelId, evaluateModelCapabilities, compressToolMessages, rescuePlainTextToolCalls, analyzeCascadeStage, PRO_MIN_SCORE, +33 more |
+| `pool-ledger.js` | 131 | Pool window ledger (tier design §2.1, build step 2): how much of | HOUR_MS, POOL_WINDOWS, poolIdOf, emptyWindow, addRow, createPoolLedger, rankPoolsByRemaining |
 
 ### src/wire/
 
@@ -486,6 +487,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | --- | --- | --- | --- |
 | `classify.test.js` | 197 |  | endpointOf keeps origin and path, drops the query, endpointOf caps a very long http(s) origin+path at 500 characters too, bodyText and modelRequested read the model from a JSON body, isStreamRequest: stream true in the body, or an event-stream reply, Anthropic JSON: input counts cache reads and writes, OpenAI SSE: usage from the final chunk, model from the chunks |
 | `ipc.test.js` | 104 |  | registers exactly the log channels, with logging on, the reads answer from the database, a failing query rejects the call and is logged |
+| `key-window-usage.test.js` | 52 | keyWindowUsage is the SQL half of the router's pool window ledger: | sums tokens per key and model since the given moment, empty key lists read as no usage; a bad sinceMs throws |
 | `lookups.test.js` | 81 | The engine's row shape, as repos.snapshots stores it: provider facts only, | a missing, half-stated or malformed price is null, the price book never reads the retired models table, the provider lookup lists id, name and base URL |
 | `open.test.js` | 132 |  | open(":memory:") wires the writer, meta and the query API on schema v1, reopening an up-to-date file runs no migration, a migration that throws rolls back and leaves the version, downgrade guard: a newer schema is refused and the file is not written, tryOpen: a corrupt file turns logging off and is left as it was, tryOpen: a newer schema turns logging off with the reason |
 | `query.test.js` | 604 | entries: a row, or { row, body }. | list: limit defaults to 50 and is capped at 200, list filters: time range, source, provider, model, status, run id, list text search: uid, run id and error message; % and _ are literal, filter arrays are capped at 50 items, afterId returns only newer rows (live tail), get: the row with its body, or null |
@@ -556,6 +558,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
+| `pool-ledger.test.js` | 142 | The pool window ledger (tier design §2.1, build step 2): per-pool | poolIdOf prefers the shared pool id and falls back to the key itself, the ledger needs a reader, snapshot groups keys into pools and sums each rolling window, a shared pool sums its keys once, under one pool id, rows for unknown keys are ignored, and custom windows are honoured, ranking prefers the fullest window when budgets are known |
 | `profiles.test.js` | 261 | Venom Profiles: tier differentiation, heuristic scoring, lead-analyst | lite admits free rows at VQ >= 20 only, pro and max stay distinct, frontier VQ 56-58 rows reach venom-max and the pro capable rung, fake and non-text rows never enter any tier or the counts, formatModelDisplayName strips routing prefixes, upstream id stays raw, unscored rows read an est-heuristic score but stay below the lite floor, buildProfilesPayload carries per-profile target lists with key counts |
 | `router.test.js` | 272 | Router plane: smart catalog split, three-level key isolation, cascade | gateway port falls back to the default outside 1024..65535, identity keeps the raw upstream address apart from the match key, capability read never invents a measured score, smart catalog preserves upstream ids and splits three tiers, key pool isolates a model-on-key failure from the rest of the key, key pool drains subscription before free before paid |
 
@@ -612,12 +615,12 @@ Static relative imports only (`require`, `import … from`, `import()`). Builtin
 | `src/logs/ipc.js` | `src/main.js`, `test/logs/ipc.test.js` |
 | `src/logs/lookups.js` | `src/main.js`, `test/logs/lookups.test.js` |
 | `src/logs/migrations.js` | `src/logs/index.js`, `test/helpers.js`, `test/logs/retention.test.js` |
-| `src/logs/query.js` | `src/logs/index.js`, `src/logs/ipc.js`, `test/logs/query.test.js` |
+| `src/logs/query.js` | `src/logs/index.js`, `src/logs/ipc.js`, `test/logs/key-window-usage.test.js`, `test/logs/query.test.js` |
 | `src/logs/recorder.js` | `src/main.js`, `test/logs/recorder.test.js` |
 | `src/logs/retention.js` | `src/logs/query.js`, `src/main.js`, `test/logs/retention.test.js` |
 | `src/logs/scrub.js` | `src/logs/recorder.js`, `test/logs/scrub.test.js` |
 | `src/logs/settings.js` | `src/main.js`, `test/logs/schema.test.js` |
-| `src/logs/writer.js` | `src/logs/index.js`, `src/logs/query.js`, `test/logs/query.test.js`, `test/logs/retention.test.js`, `test/logs/writer.test.js` |
+| `src/logs/writer.js` | `src/logs/index.js`, `src/logs/query.js`, `test/logs/key-window-usage.test.js`, `test/logs/query.test.js`, `test/logs/retention.test.js`, `test/logs/writer.test.js` |
 | `src/oauth/device-flow.js` | `src/oauth/index.js`, `test/oauth/device-flow.test.js` |
 | `src/oauth/http.js` | `src/oauth/device-flow.js`, `src/oauth/index.js`, `src/oauth/loopback.js` |
 | `src/oauth/index.js` | `scripts/live/verify-antigravity.mjs`, `src/main.js`, `test/oauth/loopback.test.js`, `test/oauth/manager.test.js`, `test/oauth/web-session.test.js` |
@@ -627,10 +630,11 @@ Static relative imports only (`require`, `import … from`, `import()`). Builtin
 | `src/oauth/web-session.js` | `src/oauth/index.js`, `test/oauth/web-session.test.js` |
 | `src/renderer/ui-stepper.js` | `test/renderer/ui-stepper.test.js` |
 | `src/router/index.js` | `src/main.js`, `test/router/profiles.test.js`, `test/router/router.test.js` |
+| `src/router/pool-ledger.js` | `src/router/index.js`, `test/router/pool-ledger.test.js` |
 | `src/user-data.js` | `src/main.js`, `test/user-data.test.js` |
 | `src/wire/antigravity.js` | `src/wire/index.js`, `test/wire/antigravity.test.js` |
 | `src/wire/index.js` | `scripts/live/verify-antigravity.mjs`, `src/main.js`, `src/oauth/index.js`, `test/renderer/antigravity-provider.test.js`, `test/wire/antigravity.test.js` |
-| `test/helpers.js` | `test/api-request.test.js`, `test/auth/ipc.test.js`, `test/auth/lock.test.js`, `test/catalog/engine.test.js`, `test/catalog/ipc.test.js`, `test/catalog/snapshot.test.js`, `test/catalog/sources.test.js`, `test/check-import-counts.test.js`, `test/db/auth-repo.test.js`, `test/db/cipher.test.js`, `test/db/explorer.test.js`, `test/db/history.test.js`, `test/db/import-json.test.js`, `test/db/ipc.test.js`, `test/db/keys.test.js`, `test/db/open.test.js`, `test/db/providers.test.js`, `test/db/roster-events.test.js`, `test/db/settings-secrets.test.js`, `test/db/snapshots.test.js`, `test/logs/ipc.test.js`, `test/logs/lookups.test.js`, `test/logs/open.test.js`, `test/logs/query.test.js`, `test/logs/retention.test.js`, `test/logs/schema.test.js`, `test/logs/writer.test.js`, `test/oauth/loopback.test.js`, `test/oauth/manager.test.js`, `test/oauth/web-session.test.js`, `test/renderer-ulid.test.js`, `test/repo-map.test.js` |
+| `test/helpers.js` | `test/api-request.test.js`, `test/auth/ipc.test.js`, `test/auth/lock.test.js`, `test/catalog/engine.test.js`, `test/catalog/ipc.test.js`, `test/catalog/snapshot.test.js`, `test/catalog/sources.test.js`, `test/check-import-counts.test.js`, `test/db/auth-repo.test.js`, `test/db/cipher.test.js`, `test/db/explorer.test.js`, `test/db/history.test.js`, `test/db/import-json.test.js`, `test/db/ipc.test.js`, `test/db/keys.test.js`, `test/db/open.test.js`, `test/db/providers.test.js`, `test/db/roster-events.test.js`, `test/db/settings-secrets.test.js`, `test/db/snapshots.test.js`, `test/logs/ipc.test.js`, `test/logs/key-window-usage.test.js`, `test/logs/lookups.test.js`, `test/logs/open.test.js`, `test/logs/query.test.js`, `test/logs/retention.test.js`, `test/logs/schema.test.js`, `test/logs/writer.test.js`, `test/oauth/loopback.test.js`, `test/oauth/manager.test.js`, `test/oauth/web-session.test.js`, `test/renderer-ulid.test.js`, `test/repo-map.test.js` |
 | `test/renderer/appearance-dom.js` | `test/renderer/appearance.test.js`, `test/renderer/settings-appearance.test.js` |
 | `test/renderer/module-loader.js` | `test/renderer/appearance-dom.js`, `test/renderer/decision-probe.test.js`, `test/renderer/key-budget-free.test.js`, `test/renderer/key-quota-state.test.js`, `test/renderer/page-router.test.js`, `test/renderer/profile-badges.test.js`, `test/renderer/provider-actions.test.js`, `test/renderer/provider-detail.test.js`, `test/renderer/provider-keys.test.js`, `test/renderer/provider-models.test.js`, `test/renderer/provider-roster.test.js`, `test/renderer/provider-store.test.js`, `test/renderer/results-table.test.js`, `test/renderer/retry-after-parse.test.js`, `test/renderer/router-status.test.js`, `test/renderer/settings-panel.test.js`, `test/renderer/shell.test.js`, `test/renderer/sidebar-effects.test.js`, `test/renderer/test-attempts.test.js`, `test/renderer/test-model-budget.test.js`, `test/renderer/test-policy.test.js`, `test/renderer/test-response.test.js`, `test/renderer/test-runner.test.js`, `test/renderer/updates.test.js` |
 

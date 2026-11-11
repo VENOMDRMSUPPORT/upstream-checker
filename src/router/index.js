@@ -9,6 +9,7 @@
 // (src/db/keys.js + src/api-request.js), exactly like the renderer flow.
 
 const http = require('http');
+const poolLedger = require('./pool-ledger');
 
 const ROUTER_PORT = 28228;
 const ROUTER_HOST = '127.0.0.1';
@@ -966,4 +967,7 @@ module.exports = { ROUTER_PORT, ROUTER_HOST, normalizeGatewayPort, canonicalSlug
   entitlementGate, isEntitlementBlocked,
   buildSmartCatalog, buildProfilesPayload,
   KeyPoolManager, persistCatalogScores,
+  createPoolLedger: poolLedger.createPoolLedger,
+  rankPoolsByRemaining: poolLedger.rankPoolsByRemaining,
+  POOL_WINDOWS: poolLedger.POOL_WINDOWS, poolIdOf: poolLedger.poolIdOf,
   readCatalogScores, VenomCascadeEngine, pipeUpstreamStream, createVenomHttpGateway };
