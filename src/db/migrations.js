@@ -338,4 +338,28 @@ module.exports = [
       `);
     },
   },
+  {
+    version: 9,
+    up(db) {
+      // First-party benchmark scores (model-information rebuild,
+      // 2026-11-11): one row per (provider, model) holding the LATEST
+      // run of the app's own benchmark suite — a fixed set of small
+      // deterministic tasks dispatched through the app's own keys, so
+      // every callable model carries a quality number this app
+      // measured itself, minutes after the model first appears, with
+      // no dependence on an external catalog learning about it first.
+      db.exec(`
+        CREATE TABLE model_benchmarks (
+          provider_id TEXT NOT NULL,
+          model_id TEXT NOT NULL,
+          score REAL NOT NULL,
+          passed INTEGER NOT NULL,
+          total INTEGER NOT NULL,
+          detail_json TEXT,
+          measured_at INTEGER NOT NULL,
+          PRIMARY KEY (provider_id, model_id)
+        );
+      `);
+    },
+  },
 ];

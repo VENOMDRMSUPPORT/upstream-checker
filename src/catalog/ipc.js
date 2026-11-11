@@ -43,6 +43,7 @@
 // rather than dropped from the reply (ref §9 readConnected, NO_SNAPSHOT).
 
 const { providerRow, matchIds, qualityProxyIds, rosterProxyIds } = require('./row');
+const { assignDenseRank } = require('./scoring');
 const { syncSnapshot, dropNonText, validateProviderRows, providerRowSnapshot,
   restoreLastGoodRows, REMOVED_WINDOW_DAYS } = require('./snapshot');
 
@@ -393,7 +394,14 @@ function createCatalogIpc({ ipcMain, repos, engine, log = console, onRosterWritt
     // to the reference score. Best-effort — a facts failure never
     // fails the read.
     if (factStamper) {
-      try { factStamper(rows); } catch (_) { /* the read stands on its own */ }
+      try {
+        factStamper(rows);
+        // The stamper can change a row's score (a first-party
+        // benchmark outranks the reference number), so the dense
+        // rank is recomputed over the final scores — the rank a row
+        // displays must belong to the score it displays.
+        assignDenseRank(rows);
+      } catch (_) { /* the read stands on its own */ }
     }
     return { ok: true, rows, providers, readAt: now, oldestFetch: oldest, stale: anyStale, warning,
       lastSyncAt: engine.state.lastSyncAt, catalogCount: engine.state.catalog.rows.length };

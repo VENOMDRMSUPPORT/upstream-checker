@@ -82,4 +82,39 @@ function attachProbeFacts(rows, probeRows) {
   return rows;
 }
 
-module.exports = { measuredKey, buildMeasuredCards, rowMeasuredCard, attachMeasured, attachProbeFacts };
+// Benchmark scores (model-information rebuild, 2026-11-11): the
+// latest run of the app's own benchmark suite per model, folded from
+// the model_benchmarks rows. Stamping one onto a row makes it the
+// row's SCORE — first-party measurement outranks every external
+// index for this app's own decisions, because it was measured on the
+// owner's own lane. The displaced external number is preserved as
+// reference_score / reference_source so nothing is hidden: the page
+// can show both, labeled as what they are.
+function attachBenchmarks(rows, benchRows) {
+  const byModel = new Map();
+  for (const b of benchRows || []) {
+    if (!b || !b.providerId || !b.modelId || !Number.isFinite(b.score)) continue;
+    byModel.set(measuredKey(b.providerId, b.modelId), {
+      score: b.score, passed: b.passed, total: b.total, measuredAt: b.measuredAt,
+    });
+  }
+  for (const row of rows || []) {
+    if (!row) continue;
+    const providerId = row.providerId || row.provider_id;
+    const modelId = row.modelId || row.model_id;
+    const bench = providerId && modelId
+      ? byModel.get(measuredKey(providerId, modelId)) || null : null;
+    row.benchmark = bench;
+    if (bench) {
+      if (row.score != null && row.score_source !== 'benchmark') {
+        row.reference_score = row.score;
+        row.reference_source = row.score_source || null;
+      }
+      row.score = bench.score;
+      row.score_source = 'benchmark';
+    }
+  }
+  return rows;
+}
+
+module.exports = { measuredKey, buildMeasuredCards, rowMeasuredCard, attachMeasured, attachProbeFacts, attachBenchmarks };

@@ -31,7 +31,7 @@ const SPEC_AGE_CAP_MONTHS = 36;
 // Lower is better: a measured AA index beats an estimate inherited from the
 // reference, which beats an estimate from the row's own declared facts, which
 // beats having no score at all.
-const SCORE_QUALITY = { aa: 0, est: 1, proxy: 1, local: 2 };
+const SCORE_QUALITY = { aa: 0, benchmark: 0, est: 1, proxy: 1, local: 2 };
 
 function scoreQuality(row) {
   if (row.score == null) return 3;

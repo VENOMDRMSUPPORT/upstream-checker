@@ -1199,7 +1199,14 @@
   // Never a fourth value and never a guess.
   function scoreTip(e) {
     if (e.score == null) {
-      return 'Unrated — no entry in the sources describes this model, so no score is given.';
+      return 'Unrated — not yet measured here, and no entry in the sources describes this model.';
+    }
+    if (e.score_source === 'benchmark') {
+      const when = e.benchmark && e.benchmark.measuredAt
+        ? ` on ${new Date(e.benchmark.measuredAt).toISOString().slice(0, 10)}` : '';
+      const ref = e.reference_score != null
+        ? ` Reference index: ${e.reference_score} (${e.reference_source || 'external'}).` : '';
+      return `measured by Venom Router — its own benchmark suite, run on this app's keys${when}.${ref}`;
     }
     if (e.score_source === 'aa') return 'measured — Artificial Analysis index, used as published';
     if (e.score_source === 'proxy') {

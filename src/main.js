@@ -163,6 +163,13 @@ function attachMeasurements(scoredRows) {
     if (store && store.repos && store.repos.modelProbes) {
       measured.attachProbeFacts(scoredRows, store.repos.modelProbes.latest());
     }
+    // Model-information rebuild: a first-party benchmark score, when
+    // one exists, becomes the row's score (the external number is
+    // kept as a labeled reference). Measured here outranks published
+    // elsewhere for this app's own routing decisions.
+    if (store && store.repos && store.repos.modelBenchmarks) {
+      measured.attachBenchmarks(scoredRows, store.repos.modelBenchmarks.latest());
+    }
   } catch (err) {
     log.warn('venom-router: measurement attach failed:', err.message);
   }
@@ -239,6 +246,71 @@ async function scheduleCatalogProbes() {
     log.warn('venom-router: catalog probes failed:', err.message);
   } finally {
     probeRunInFlight = false;
+  }
+}
+
+// Model-information rebuild (2026-11-11): bounded auto-benchmarking.
+// After each catalog build/refresh — which is also what a roster
+// write triggers — the models the router can actually call that have
+// no fresh benchmark get the app's own suite dispatched through their
+// own lane: six tiny deterministic tasks plus a tool call, scored
+// programmatically, stored in model_benchmarks. A provider's new
+// model therefore carries a measured quality score within one
+// refresh cycle of appearing, instead of waiting for an external
+// catalog to learn its name. Fire-and-forget, best-effort, capped.
+let benchmarkRunInFlight = false;
+
+async function scheduleBenchmarks() {
+  if (benchmarkRunInFlight || !venomRouter || !venomProbeContext) return;
+  if (!store || !store.repos || !store.repos.modelBenchmarks) return;
+  benchmarkRunInFlight = true;
+  try {
+    const benchmark = require('./catalog/benchmark');
+    const repo = store.repos.modelBenchmarks;
+    const latestByModel = new Map();
+    for (const b of repo.latest()) {
+      latestByModel.set(`${b.providerId}::${b.modelId}`, b.measuredAt || 0);
+    }
+    const catalog = venomRouter.smartCatalog || {};
+    const seen = new Set();
+    const candidates = [];
+    for (const poolName of ['lite', 'efficient', 'capable', 'max']) {
+      for (const row of catalog[poolName] || []) {
+        const key = `${row.providerId}::${row.modelId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        candidates.push(row);
+      }
+    }
+    for (const slim of catalog.probeCandidates || []) {
+      const key = `${slim.providerId}::${slim.modelId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      candidates.push(slim);
+    }
+    const staleBefore = Date.now() - benchmark.BENCH_STALE_MS;
+    let ran = 0;
+    for (const row of candidates) {
+      if (ran >= benchmark.BENCH_MAX_PER_RUN) break;
+      const key = `${row.providerId}::${row.modelId}`;
+      if ((latestByModel.get(key) || 0) >= staleBefore) continue;
+      const routes = venomRouter.candidateRoutes([row], 1);
+      if (!routes.length) continue;
+      ran += 1;
+      await benchmark.runBenchmark({
+        dispatch: venomProbeContext.dispatchUpstream,
+        route: routes[0],
+        record: (verdict) => repo.record({
+          providerId: row.providerId, modelId: row.modelId,
+          score: verdict.score, passed: verdict.passed, total: verdict.total,
+          detail: verdict.detail,
+        }),
+      });
+    }
+  } catch (err) {
+    log.warn('venom-router: benchmarks failed:', err.message);
+  } finally {
+    benchmarkRunInFlight = false;
   }
 }
 
@@ -430,6 +502,7 @@ function buildVenomRouter() {
     venomRouter = new router.VenomCascadeEngine({ smartCatalog, keyPool, dispatchUpstream, streamUpstream });
     venomProbeContext = { dispatchUpstream };
     void scheduleCatalogProbes();
+    void scheduleBenchmarks();
     // The gateway object exists from boot so router:status has something to
     // report, but it binds no socket yet: ensureVenomGateway() listens on the
     // first roster data or the first explicit status/refresh query.
@@ -525,6 +598,7 @@ function refreshVenomRouter() {
     venomRouter.keyPool.refresh(keys);
     attachPoolLedger(venomRouter.keyPool, keys);
     void scheduleCatalogProbes();
+    void scheduleBenchmarks();
     try { router.persistCatalogScores(store.db, scored); } catch (_) { /* next refresh */ }
     // Real roster data just landed: this is demand, not a window opening.
     if (scored.length) void ensureVenomGateway();
