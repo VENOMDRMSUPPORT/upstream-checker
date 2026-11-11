@@ -1,7 +1,7 @@
 # Google AI Studio — Provider Reference
 
-Catalog provider (data entry in `src/renderer/providers/catalog-providers.js`,
-no hand-written module). Evidence: Google's Gemini API documentation
+Integrated provider module: `src/renderer/providers/googleaistudio.js`
+(standard contract, no custom code). Evidence: Google's Gemini API documentation
 (OpenAI compatibility, pricing, rate limits) and the Gemini API terms, read
 2026-11-11. Keys: `https://aistudio.google.com` (Get API key).
 

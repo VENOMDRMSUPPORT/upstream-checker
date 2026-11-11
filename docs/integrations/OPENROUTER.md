@@ -1,7 +1,7 @@
 # OpenRouter — Provider Reference
 
-Catalog provider (data entry in `src/renderer/providers/catalog-providers.js`,
-no hand-written module). Evidence: OpenRouter's limits documentation, read
+Integrated provider module: `src/renderer/providers/openrouter.js`
+(standard contract, no custom code). Evidence: OpenRouter's limits documentation, read
 2026-11-11, plus a live keyless probe of `GET /api/v1/models` the same day
 (200, `:free` variants present). Site: `https://openrouter.ai`.
 

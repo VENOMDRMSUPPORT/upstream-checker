@@ -1,7 +1,7 @@
 # GitHub Models — Provider Reference
 
-Catalog provider (data entry in `src/renderer/providers/catalog-providers.js`,
-no hand-written module). Evidence: GitHub's GitHub Models documentation
+Integrated provider module: `src/renderer/providers/githubmodels.js`
+(standard contract, no custom code). Evidence: GitHub's GitHub Models documentation
 (rate limits, REST endpoints), read 2026-11-11. Site:
 `https://github.com/marketplace/models`.
 

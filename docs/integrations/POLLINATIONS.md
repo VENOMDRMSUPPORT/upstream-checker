@@ -1,7 +1,7 @@
 # Pollinations — Provider Reference
 
-Catalog provider (data entry in `src/renderer/providers/catalog-providers.js`,
-no hand-written module). Evidence: Pollinations' published API material,
+Integrated provider module: `src/renderer/providers/pollinations.js`
+(standard contract, no custom code). Evidence: Pollinations' published API material,
 read 2026-11-11, plus live keyless probes the same day: `GET
 https://gen.pollinations.ai/v1/models` answered 200 in OpenAI shape, and the
 legacy `https://text.pollinations.ai/models` listed a single anonymous-tier

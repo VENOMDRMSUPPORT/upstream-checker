@@ -1,7 +1,7 @@
 # Cerebras — Provider Reference
 
-Catalog provider (data entry in `src/renderer/providers/catalog-providers.js`,
-no hand-written module). Evidence: Cerebras inference documentation
+Integrated provider module: `src/renderer/providers/cerebras.js`
+(standard contract, no custom code). Evidence: Cerebras inference documentation
 (rate limits / free-trial FAQ), read 2026-11-11. Site:
 `https://cloud.cerebras.ai`.
 

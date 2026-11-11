@@ -1,7 +1,7 @@
 # Groq — Provider Reference
 
-Catalog provider (data entry in `src/renderer/providers/catalog-providers.js`,
-no hand-written module). Evidence: Groq's published rate-limits and models
+Integrated provider module: `src/renderer/providers/groq.js`
+(standard contract, no custom code). Evidence: Groq's published rate-limits and models
 documentation, read 2026-11-11. Site: `https://console.groq.com`.
 
 ## 0. Summary

@@ -2,7 +2,7 @@
 
 > GENERATED FILE — do not edit by hand. Regenerate with: npm run repo:map
 
-215 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
+225 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
 
 The architecture behind these files — boot order, IPC channels, the two databases, the request lifecycle — is in [ARCHITECTURE.md](ARCHITECTURE.md). Task recipes are in [COOKBOOK.md](COOKBOOK.md).
 
@@ -133,7 +133,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 *(no section banners)*
 
-### src/renderer/index.html — 2478 lines
+### src/renderer/index.html — 2483 lines
 
 | Line | Section |
 | --- | --- |
@@ -386,7 +386,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `ui-stepper.js` | 114 | Design system — number input stepper | CHEVRON_UP, CHEVRON_DOWN, enhance, input, stepper, label, stepUnit, unit, repeatTimer, repeatInterval, stopRepeat, enhanceAll, +1 more |
 | `ulid.js` | 22 | Run ids — ULID, the same format as src/db/ulid.js | newUlid |
 | `updates.js` | 292 | Update badge, modal and inert release-note rendering; download state belongs to this controller. | VENOM_RENDERER |
-| `index.html` | 2478 | App shell markup: nav, every page, the drawers and modals |  |
+| `index.html` | 2483 | App shell markup: nav, every page, the drawers and modals |  |
 | `styles.css` | 13579 | The whole stylesheet: tokens, themes, accents, components |  |
 
 ### src/renderer/providers/
@@ -395,16 +395,21 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | --- | --- | --- | --- |
 | `antigravity.js` | 225 | ANTIGRAVITY — integrated provider module | INTEGRATED_PROVIDERS, ANTIGRAVITY_BASE, familyOf, accountFamilies, familyAllowed |
 | `apinex.js` | 157 | APINEX — integrated provider module | INTEGRATED_PROVIDERS, APINEX_WEB_BASE |
-| `catalog-providers.js` | 165 | Catalog providers — the generic adapter | INTEGRATED_PROVIDERS, FREE_CATALOG |
+| `cerebras.js` | 43 | Cerebras — integrated provider module | INTEGRATED_PROVIDERS |
 | `darkapi.js` | 54 | DARK API — integrated provider module | INTEGRATED_PROVIDERS |
 | `devora.js` | 61 | DEVORA — integrated provider module | INTEGRATED_PROVIDERS |
 | `experiential.js` | 129 | Experiential Labs — integrated provider module | INTEGRATED_PROVIDERS |
+| `githubmodels.js` | 47 | GitHub Models — integrated provider module | INTEGRATED_PROVIDERS |
+| `googleaistudio.js` | 48 | Google AI Studio — integrated provider module | INTEGRATED_PROVIDERS |
+| `groq.js` | 45 | Groq — integrated provider module | INTEGRATED_PROVIDERS |
 | `inception.js` | 60 | INCEPTION LABS — integrated provider module | INTEGRATED_PROVIDERS |
 | `jerouter.js` | 48 | JEROUTER — integrated provider module | INTEGRATED_PROVIDERS |
 | `kiosapi.js` | 43 | KIOSAPI — integrated provider module | INTEGRATED_PROVIDERS |
 | `mirai.js` | 160 | MIRAI API — integrated provider module | INTEGRATED_PROVIDERS |
 | `nara.js` | 143 | NARA Router — integrated provider module | INTEGRATED_PROVIDERS |
 | `nexum.js` | 61 | NEXUM ROUTER — integrated provider module | INTEGRATED_PROVIDERS |
+| `openrouter.js` | 45 | OpenRouter — integrated provider module | INTEGRATED_PROVIDERS |
+| `pollinations.js` | 45 | Pollinations — integrated provider module | INTEGRATED_PROVIDERS |
 | `tokenharbor.js` | 271 | Token Harbor — integrated provider module | INTEGRATED_PROVIDERS, TOKENHARBOR_VIRTUAL_OWNER, tokenharborIsZero, tokenharborIsFree, TOKENHARBOR_QUOTA_CODE, tokenharborResetAt, TOKENHARBOR_QUOTA_ATTEMPTS, TOKENHARBOR_QUOTA_MODELS, TOKENHARBOR_RETRY_BASE_MS, TOKENHARBOR_RETRY_AFTER_MAX_S, tokenharborLowerHeaders, tokenharborRetryAfterMs, +5 more |
 
 ### src/router/
@@ -509,14 +514,19 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `appearance-dom.js` | 39 | Minimal DOM boundary for production appearance controls; live gates prove geometry. |  |
 | `appearance.test.js` | 56 | Appearance factory behavior with a small DOM boundary; production functions are not copied. | system theme changes only apply while following the system, unknown accents are refused without changing or saving appearance |
 | `catalog-caps.test.js` | 139 | catalog-caps.js is a plain browser script of top-level consts and function | a published modality list that omits a token answers no, vision and audio are read from the input modalities, case-insensitively, only a real boolean counts as a published flag, files prefers the published flag and falls back to the modality list, a declared generator answers yes with no modality published, capabilityOrigin names where each answer was read from |
-| `catalog-providers.test.js` | 92 | The catalog providers are the generic adapter's proof: six real providers | all six catalog providers register, free-tier labelling is honest: five free, Cerebras is a trial |
+| `cerebras-provider.test.js` | 59 | Cerebras registers as a built-in provider through the standard contract: | registers into window.INTEGRATED_PROVIDERS with the Cerebras identity, meta is plain data — structuredClone-safe for the provider store, the entry is data only — no behaviour hooks, logo file exists at the path the meta declares, carries its verified free-tier facts |
 | `decision-probe.test.js` | 126 | The TypeSafe /systemone decision wire protocol — the `noul` probe body and | nara declares the TypeSafe decision hooks at adapter level, nara decisionProbe builds the noul question body, experiential declares the same hooks at adapter level, readDecisionAnswer scores an object answer, named in the row, readDecisionAnswer scores a bare numeric answer, readDecisionAnswer returns null when no probability comes back |
+| `githubmodels-provider.test.js` | 57 | GitHub Models registers as a built-in provider through the standard contract: | meta is plain data — structuredClone-safe for the provider store, the entry is data only — no behaviour hooks, logo file exists at the path the meta declares, carries its verified free-tier facts |
+| `googleaistudio-provider.test.js` | 57 | Google AI Studio registers as a built-in provider through the standard contract: | meta is plain data — structuredClone-safe for the provider store, the entry is data only — no behaviour hooks, logo file exists at the path the meta declares, carries its verified free-tier facts |
+| `groq-provider.test.js` | 57 | Groq registers as a built-in provider through the standard contract: | registers into window.INTEGRATED_PROVIDERS with the Groq identity, meta is plain data — structuredClone-safe for the provider store, the entry is data only — no behaviour hooks, logo file exists at the path the meta declares, carries its verified free-tier facts |
 | `key-budget-free.test.js` | 38 | Free-budget checks through the same production pacing used by test attempts. | a key under its cap has a free slot, a key at its cap is not free, slots older than a minute do not count against the cap, no configured cap means no constraint (always free) |
 | `key-quota-state.test.js` | 54 | The complete key-policy factory owns these quota predicates. Evaluating it | a per-model refusal is a partial spend, never a spent key, a model-less record spends the whole key, a reset-less record expires after the TTL, a dated record is untouched by the TTL |
 | `kiosapi-provider.test.js` | 87 | KiosAPI registers as the eleventh built-in provider. Its roster differs per | registers into window.INTEGRATED_PROVIDERS with the KiosAPI identity, meta is plain data — structuredClone-safe for the provider store, declares a free tier so the Providers legend shows the Free Tier dot, logo file exists at the path the meta declares, no fetchKeyUsage: sentinel billing numbers must not feed a quota bar, the default discovery mappers read a KiosAPI-shaped entry without harm |
 | `logs-format.test.js` | 140 | logs-format.js is a plain browser script of top-level function | logEscape: provider text cannot close a tag, toViewModel: escapes every string it puts on the page, formatCost: micros to dollars, small amounts kept visible, formatTokens: thousands separated, null is a dash, statusTone: one tone per outcome, passRateText: a fraction becomes a percentage, null stays unknown |
 | `module-loader.js` | 20 | Loads complete browser modules in a controlled VM; no source slicing. |  |
+| `openrouter-provider.test.js` | 57 | OpenRouter registers as a built-in provider through the standard contract: | registers into window.INTEGRATED_PROVIDERS with the OpenRouter identity, meta is plain data — structuredClone-safe for the provider store, the entry is data only — no behaviour hooks, logo file exists at the path the meta declares, carries its verified free-tier facts |
 | `page-router.test.js` | 60 | Hash routes belong to the page-router unit; page changes remain app callbacks. | deep links delegate page entry and subpage behavior to the app |
+| `pollinations-provider.test.js` | 57 | Pollinations registers as a built-in provider through the standard contract: | meta is plain data — structuredClone-safe for the provider store, the entry is data only — no behaviour hooks, logo file exists at the path the meta declares, carries its verified free-tier facts |
 | `profile-badges.test.js` | 51 | Profile badges: the pure classifier behind the fixed model color identity. | badge markup wears the fixed profile tone and nothing else, a missing bridge warms to empty instead of throwing |
 | `provider-actions.test.js` | 55 | Provider-key actions use injected persistence and the main request path. | key activation saves changes and locked keys remain unchanged |
 | `provider-detail.test.js` | 81 | Provider detail UI: the complete production module receives app behavior through callbacks. | key list escapes provider text and routes key actions through callbacks, empty key list shows the connect hint without binding stale actions |
