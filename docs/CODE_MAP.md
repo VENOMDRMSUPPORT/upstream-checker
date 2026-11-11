@@ -66,15 +66,15 @@ The architecture behind these files — boot order, IPC channels, the two databa
 
 Files of 700+ lines, with the section banners inside them. Open the window you need — do not read one of these whole. Line numbers are 1-based.
 
-### src/main.js — 1376 lines
+### src/main.js — 1385 lines
 
 | Line | Section |
 | --- | --- |
-| 555 | Local database — venom.db (src/db) |
-| 575 | Request log — venom-logs.db (src/logs) |
-| 662 | Model catalog engine — src/catalog |
-| 1252 | API requests (src/api-request.js) |
-| 1290 | Old request log file (requests.log) |
+| 564 | Local database — venom.db (src/db) |
+| 584 | Request log — venom-logs.db (src/logs) |
+| 671 | Model catalog engine — src/catalog |
+| 1261 | API requests (src/api-request.js) |
+| 1299 | Old request log file (requests.log) |
 
 ### src/oauth/index.js — 717 lines
 
@@ -125,7 +125,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | --- | --- |
 | 2 | Log pages — Runs, Requests and Monitoring |
 
-### src/router/index.js — 1209 lines
+### src/router/index.js — 1194 lines
 
 *(no section banners)*
 
@@ -265,7 +265,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `api-request.js` | 226 | api-request — every outbound request the renderer asks for | CONTENT_TOKEN, CANCEL_REASONS, CUT_OFF, createApiRequester |
 | `flush.js` | 38 | Close handshake with the renderer | DEFAULT_FLUSH_TIMEOUT_MS, requestFlush |
 | `keystore.js` | 74 | API keys at rest | decryptKeyEntry, encryptKeyEntry, eachStoredKey, countPlaintextKeys |
-| `main.js` | 1376 | Main process: data folder, boot order, IPC wiring, auto-updater | venomRouter, venomGateway, venomGatewayStarting, readRosterRowsForRouter, startVenomRouter, gatewayPort, upstreamSpec, attachPoolLedger, attachMeasurements, venomProbeContext, probeRunInFlight, scheduleCatalogProbes, +41 more |
+| `main.js` | 1385 | Main process: data folder, boot order, IPC wiring, auto-updater | venomRouter, venomGateway, venomGatewayStarting, readRosterRowsForRouter, startVenomRouter, gatewayPort, upstreamSpec, attachPoolLedger, attachMeasurements, venomProbeContext, probeRunInFlight, scheduleCatalogProbes, +41 more |
 | `preload.js` | 151 | contextBridge surface — the renderer's only door to main | minimize, maximize, close, setWindowIcon, authStatus, authSetup, authUnlock, authChange, authLock, authActivity, onAuthLocked, apiRequest, +60 more |
 | `user-data.js` | 40 | Where the app keeps its data. Electron names the userData folder after the | LEGACY_DIR, CURRENT_DIR, DEV_DIR, resolveUserDataDir |
 
@@ -396,12 +396,12 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
-| `antigravity.js` | 225 | ANTIGRAVITY — integrated provider module | INTEGRATED_PROVIDERS, ANTIGRAVITY_BASE, familyOf, accountFamilies, familyAllowed |
+| `antigravity.js` | 229 | ANTIGRAVITY — integrated provider module | INTEGRATED_PROVIDERS, ANTIGRAVITY_BASE, familyOf, accountFamilies, familyAllowed |
 | `apinex.js` | 157 | APINEX — integrated provider module | INTEGRATED_PROVIDERS, APINEX_WEB_BASE |
 | `cerebras.js` | 43 | Cerebras — integrated provider module | INTEGRATED_PROVIDERS |
 | `darkapi.js` | 54 | DARK API — integrated provider module | INTEGRATED_PROVIDERS |
 | `devora.js` | 61 | DEVORA — integrated provider module | INTEGRATED_PROVIDERS |
-| `experiential.js` | 129 | Experiential Labs — integrated provider module | INTEGRATED_PROVIDERS |
+| `experiential.js` | 131 | Experiential Labs — integrated provider module | INTEGRATED_PROVIDERS |
 | `githubmodels.js` | 126 | GitHub Models — integrated provider module | INTEGRATED_PROVIDERS, githubmodelsResetMs |
 | `googleaistudio.js` | 48 | Google AI Studio — integrated provider module | INTEGRATED_PROVIDERS |
 | `groq.js` | 123 | Groq — integrated provider module | INTEGRATED_PROVIDERS, groqResetMs |
@@ -413,13 +413,13 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `nexum.js` | 67 | NEXUM ROUTER — integrated provider module | INTEGRATED_PROVIDERS |
 | `openrouter.js` | 78 | OpenRouter — integrated provider module | INTEGRATED_PROVIDERS |
 | `pollinations.js` | 45 | Pollinations — integrated provider module | INTEGRATED_PROVIDERS |
-| `tokenharbor.js` | 271 | Token Harbor — integrated provider module | INTEGRATED_PROVIDERS, TOKENHARBOR_VIRTUAL_OWNER, tokenharborIsZero, tokenharborIsFree, TOKENHARBOR_QUOTA_CODE, tokenharborResetAt, TOKENHARBOR_QUOTA_ATTEMPTS, TOKENHARBOR_QUOTA_MODELS, TOKENHARBOR_RETRY_BASE_MS, TOKENHARBOR_RETRY_AFTER_MAX_S, tokenharborLowerHeaders, tokenharborRetryAfterMs, +5 more |
+| `tokenharbor.js` | 274 | Token Harbor — integrated provider module | INTEGRATED_PROVIDERS, TOKENHARBOR_VIRTUAL_OWNER, tokenharborIsZero, tokenharborIsFree, TOKENHARBOR_QUOTA_CODE, tokenharborResetAt, TOKENHARBOR_QUOTA_ATTEMPTS, TOKENHARBOR_QUOTA_MODELS, TOKENHARBOR_RETRY_BASE_MS, TOKENHARBOR_RETRY_AFTER_MAX_S, tokenharborLowerHeaders, tokenharborRetryAfterMs, +5 more |
 
 ### src/router/
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
-| `index.js` | 1209 | Venom router plane: multi-account smart routing behind one local endpoint. | ROUTER_PORT, ROUTER_HOST, normalizeGatewayPort, TIER_DRAIN_ORDER, TIER_RANK, canonicalSlug, upstreamModelId, evaluateModelCapabilities, compressToolMessages, rescuePlainTextToolCalls, analyzeCascadeStage, PRO_MIN_SCORE, +37 more |
+| `index.js` | 1194 | Venom router plane: multi-account smart routing behind one local endpoint. | ROUTER_PORT, ROUTER_HOST, normalizeGatewayPort, TIER_DRAIN_ORDER, TIER_RANK, canonicalSlug, upstreamModelId, compressToolMessages, rescuePlainTextToolCalls, analyzeCascadeStage, PRO_MIN_SCORE, PRO_EFFICIENT_MAX, +32 more |
 | `pool-ledger.js` | 141 | Pool window ledger (tier design §2.1, build step 2): how much of | HOUR_MS, POOL_WINDOWS, poolIdOf, emptyWindow, addRow, createPoolLedger, rankPoolsByRemaining |
 
 ### src/wire/
@@ -518,7 +518,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
 | `activity.test.js` | 231 |  | activity module initializes and exports window.ACTIVITY |
-| `antigravity-provider.test.js` | 234 | Antigravity is Google's Antigravity IDE entitlement: the sign-in is a | registers into window.INTEGRATED_PROVIDERS with the Antigravity identity, the account is the key: there is no key to paste, meta is plain data — structuredClone-safe for the provider store, logo file exists at the path the meta declares, the roster comes from the service\, a model of a family the account has no allowance for is not offered |
+| `antigravity-provider.test.js` | 236 | Antigravity is Google's Antigravity IDE entitlement: the sign-in is a | registers into window.INTEGRATED_PROVIDERS with the Antigravity identity, the account is the key: there is no key to paste, meta is plain data — structuredClone-safe for the provider store, logo file exists at the path the meta declares, the roster comes from the service\, a model of a family the account has no allowance for is not offered |
 | `apinex-provider.test.js` | 151 | Apinex discovery is tier-aware: a free key may call only the ids the public | a free key sees only allowFree ids, tagged FREE, a subscription key sees the full roster, none tagged FREE, an unreadable subscription answer is treated as free, not as paid, a 401 roster is an error naming the status, not an empty list, a free key reads its daily quota and the 00:00 UTC reset as expiry, a subscription key reads its plan quota and the plan expiry |
 | `appearance-dom.js` | 39 | Minimal DOM boundary for production appearance controls; live gates prove geometry. |  |
 | `appearance.test.js` | 56 | Appearance factory behavior with a small DOM boundary; production functions are not copied. | system theme changes only apply while following the system, unknown accents are refused without changing or saving appearance |
@@ -566,8 +566,8 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
 | `pool-ledger.test.js` | 152 | The pool window ledger (tier design §2.1, build step 2): per-pool | poolIdOf prefers the shared pool id and falls back to the key itself, the ledger needs a reader, snapshot groups keys into pools and sums each rolling window, a shared pool sums its keys once, under one pool id, rows for unknown keys are ignored, and custom windows are honoured, ranking prefers the fullest window when budgets are known |
-| `profiles.test.js` | 261 | Venom Profiles: tier differentiation, heuristic scoring, lead-analyst | lite admits free rows at VQ >= 20 only, pro and max stay distinct, frontier VQ 56-58 rows reach venom-max and the pro capable rung, fake and non-text rows never enter any tier or the counts, formatModelDisplayName strips routing prefixes, upstream id stays raw, unscored rows read an est-heuristic score but stay below the lite floor, buildProfilesPayload carries per-profile target lists with key counts |
-| `router.test.js` | 608 | Router plane: smart catalog split, three-level key isolation, cascade | gateway port falls back to the default outside 1024..65535, identity keeps the raw upstream address apart from the match key, capability read never invents a measured score, smart catalog preserves upstream ids and splits three tiers, key pool isolates a model-on-key failure from the rest of the key, key pool drains subscription before free before paid |
+| `profiles.test.js` | 267 | Venom Profiles: tier differentiation, heuristic scoring, lead-analyst | frontier VQ 56-58 rows reach venom-max and the pro capable rung, fake and non-text rows never enter any tier or the counts, formatModelDisplayName strips routing prefixes, upstream id stays raw, unscored rows stay unscored: no invented number, and the counts say so, buildProfilesPayload carries per-profile target lists with key counts, venom-max falls back to the longest draft when synthesis fails |
+| `router.test.js` | 650 | Router plane: smart catalog split, three-level key isolation, cascade | gateway port falls back to the default outside 1024..65535, identity keeps the raw upstream address apart from the match key, tier admission reads evidence, not invention (foundation rebuild R3), lite orders by measured speed before score (foundation rebuild R3), smart catalog preserves upstream ids and splits three tiers, key pool isolates a model-on-key failure from the rest of the key |
 
 ### test/wire/
 

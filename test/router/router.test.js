@@ -6,7 +6,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const http = require('node:http');
 const {
-  canonicalSlug, upstreamModelId, evaluateModelCapabilities,
+  canonicalSlug, upstreamModelId,
   compressToolMessages, rescuePlainTextToolCalls, analyzeCascadeStage,
   buildSmartCatalog, KeyPoolManager, VenomCascadeEngine,
   createVenomHttpGateway, persistCatalogScores, readCatalogScores,
@@ -29,13 +29,52 @@ test('identity keeps the raw upstream address apart from the match key', () => {
   assert.notEqual(upstreamModelId('a', 'm:free'), canonicalSlug('a', 'm:free'));
 });
 
-test('capability read never invents a measured score', () => {
-  const measured = evaluateModelCapabilities({ score: 42, score_source: 'aa' });
-  assert.equal(measured.score, 42);
-  assert.equal(measured.estimated, false);
-  const unknown = evaluateModelCapabilities({ id: 'brand-new-model', tools: false });
-  assert.equal(unknown.scoreSource, 'est-heuristic');
-  assert.equal(unknown.estimated, true);
+test('tier admission reads evidence, not invention (foundation rebuild R3)', () => {
+  const rows = [
+    // The Opus case: a frontier model on a subscription key, priced —
+    // the old provider-level pass put it in Lite; the per-model gate
+    // keeps it out, and its documented score puts it in Pro/Max.
+    { id: 'opus', provider_id: 'antigravity', model_id: 'claude-opus-4.6', score: 58, score_source: 'aa', cost_in_per_m: 5, tools: true },
+    // A documented frontier model that IS free: still not Lite.
+    { id: 'freefrontier', provider_id: 'relay', model_id: 'frontier-free', score: 52, score_source: 'aa', cost_in_per_m: 0, cost_kind: 'free', tools: true },
+    // An unscored free row: Lite on its price fact alone.
+    { id: 'unknownfree', provider_id: 'relay', model_id: 'mystery-free', score: null, score_source: null, cost_in_per_m: 0, cost_kind: 'free' },
+    // An unscored priced row with no probe proof: no tier at all.
+    { id: 'unknownpaid', provider_id: 'relay', model_id: 'mystery-paid', score: null, score_source: null, cost_in_per_m: 3, tools: true },
+    // The same shape, but this app probed it: answered + tool observed.
+    { id: 'proven', provider_id: 'relay', model_id: 'proven-one', score: null, score_source: null, cost_in_per_m: 3, tools: true,
+      probeFacts: { chatOk: true, toolsObserved: true, probedAt: 1 } },
+  ];
+  const keys = [
+    { id: 'ag', providerId: 'antigravity', tier: 'subscription' },
+    { id: 'rl', providerId: 'relay', tier: 'paid' },
+  ];
+  const catalog = buildSmartCatalog(rows, keys);
+  const liteIds = catalog.lite.map((r) => r.modelId);
+  assert.ok(!liteIds.includes('claude-opus-4.6'), 'a subscription key no longer waves a priced frontier model into lite');
+  assert.ok(!liteIds.includes('frontier-free'), 'documented frontier quality is never lite material');
+  assert.ok(liteIds.includes('mystery-free'), 'a free unscored row sits in lite on its price fact');
+  assert.ok(catalog.max.some((r) => r.modelId === 'claude-opus-4.6'), 'the frontier model is visible to max');
+  const proIds = [...catalog.efficient, ...catalog.capable].map((r) => r.modelId);
+  assert.ok(proIds.includes('proven-one'), 'first-party probe proof admits to pro without a reference score');
+  assert.ok(!proIds.includes('mystery-paid'), 'an unscored, unproven row enters no quality tier');
+  assert.deepStrictEqual(catalog.probeCandidates.map((c) => c.modelId), ['mystery-paid']);
+  assert.equal(catalog.counts.unscored, 3);
+  for (const pool of [catalog.lite, catalog.efficient, catalog.capable, catalog.max]) {
+    for (const r of pool) assert.notEqual(r.score_source, 'est-heuristic', 'no pool row carries an invented score');
+  }
+});
+
+test('lite orders by measured speed before score (foundation rebuild R3)', () => {
+  const rows = [
+    { id: 'slow', provider_id: 'relay', model_id: 'slow-free', score: 40, score_source: 'aa', cost_in_per_m: 0, cost_kind: 'free',
+      measured: { attempts: 5, passed: 5, successRate: 1, avgLatencyMs: 900, avgTtftMs: null, outputTps: 30, lastSeenAt: 1 } },
+    { id: 'fast', provider_id: 'relay', model_id: 'fast-free', score: 25, score_source: 'aa', cost_in_per_m: 0, cost_kind: 'free',
+      measured: { attempts: 5, passed: 5, successRate: 1, avgLatencyMs: 300, avgTtftMs: null, outputTps: 140, lastSeenAt: 1 } },
+  ];
+  const keys = [{ id: 'rl', providerId: 'relay', tier: 'paid' }];
+  const lite = buildSmartCatalog(rows, keys).lite;
+  assert.deepStrictEqual(lite.map((r) => r.modelId), ['fast-free', 'slow-free']);
 });
 
 test('smart catalog preserves upstream ids and splits three tiers', () => {
@@ -52,7 +91,7 @@ test('smart catalog preserves upstream ids and splits three tiers', () => {
   ];
   const catalog = buildSmartCatalog(rows, keys);
   assert.equal(catalog.counts.total, 4);
-  assert.equal(catalog.counts.unscored, 0, 'heuristic scoring leaves no row outside the tiers');
+  assert.equal(catalog.counts.unscored, 1, 'the reference-less row is counted as unscored, not given an invented number');
   for (const pool of [catalog.lite, catalog.efficient, catalog.capable, catalog.max]) {
     for (const row of pool) {
       assert.ok(row.upstream_id.includes('::'), 'dispatch address survives the merge');
@@ -60,7 +99,7 @@ test('smart catalog preserves upstream ids and splits three tiers', () => {
     }
   }
   assert.ok(catalog.lite[0].cost_in_per_m === 0, 'lite drains free quota first');
-  assert.ok(!catalog.lite.some((r) => r.model_id === 'mystery'), 'a heuristic below 20 never clears the lite floor');
+  assert.ok(catalog.lite.some((r) => r.model_id === 'mystery'), 'a free unscored row sits in lite on its price fact alone');
   assert.ok(catalog.max.every((r) => r.score >= 45), 'max keeps frontier scores only');
   assert.ok(catalog.max.length >= 1, 'max is non-empty here');
 });
@@ -392,17 +431,20 @@ test('venom-lite names quota exhaustion with its reset time', async () => {
     (err) => err.code === 'QUOTA_EXHAUSTED' && /quota exhausted until/.test(err.message));
 });
 
-test('lite admits a strongly signalled heuristic row; documented rows keep the floor', () => {
+test('a provider key tier alone admits nothing to lite (foundation rebuild R3)', () => {
+  // Every row here is priced and scoreless; the provider's key is a
+  // FREE-tier key. The old gate waved all three into lite on the key's
+  // tier plus a router-invented heuristic. The per-model gate admits
+  // none of them: no price fact, no admission.
   const rows = [
-    { id: 'h', provider_id: 'groq', model_id: 'unmeasured', tools: true, reasoning: true },
-    { id: 'w', provider_id: 'groq', model_id: 'weak', tools: true },
-    { id: 'd', provider_id: 'groq', model_id: 'documented-weak', score: 18, score_source: 'aa', tools: true },
+    { id: 'h', provider_id: 'groq', model_id: 'unmeasured', tools: true, reasoning: true, cost_in_per_m: 2 },
+    { id: 'w', provider_id: 'groq', model_id: 'weak', tools: true, cost_in_per_m: 2 },
+    { id: 'd', provider_id: 'groq', model_id: 'documented-weak', score: 18, score_source: 'aa', tools: true, cost_in_per_m: 2 },
   ];
   const keys = [{ id: 'g', providerId: 'groq', tier: 'free' }];
-  const liteIds = buildSmartCatalog(rows, keys).lite.map((r) => r.modelId);
-  assert.ok(liteIds.includes('unmeasured'), 'heuristic 16 (tools + reasoning) enters lite');
-  assert.ok(!liteIds.includes('weak'), 'heuristic 12 stays out');
-  assert.ok(!liteIds.includes('documented-weak'), 'a documented 18 keeps the documented floor of 20');
+  const catalog = buildSmartCatalog(rows, keys);
+  assert.deepStrictEqual(catalog.lite, []);
+  assert.equal(catalog.counts.unscored, 2);
 });
 
 // ---------------------------------------------------------------------------
@@ -491,12 +533,12 @@ test('the gateway forces flagged requests to lite (header and body field)', asyn
 test('pool entries carry the row\u2019s first-party measured card (foundation rebuild R1)', () => {
   const card = { attempts: 9, passed: 9, successRate: 1, avgLatencyMs: 700, avgTtftMs: 120, outputTps: 88, lastSeenAt: 42 };
   const smart = buildSmartCatalog([
-    { id: 'm1', providerId: 'fr', modelId: 'lite-m', name: 'Lite', is_free: true, score: 25, score_source: 'aa', tools: false, measured: card },
+    { id: 'm1', providerId: 'fr', modelId: 'lite-m', name: 'Lite', cost_in_per_m: 0, cost_kind: 'free', score: 25, score_source: 'aa', tools: false, measured: card },
   ], [{ id: 'fk', providerId: 'fr', tier: 'free' }]);
   assert.equal(smart.lite.length, 1);
   assert.deepStrictEqual(smart.lite[0].measured, card);
   const unmeasured = buildSmartCatalog([
-    { id: 'm2', providerId: 'fr', modelId: 'lite-m2', name: 'Lite2', is_free: true, score: 25, score_source: 'aa', tools: false },
+    { id: 'm2', providerId: 'fr', modelId: 'lite-m2', name: 'Lite2', cost_in_per_m: 0, cost_kind: 'free', score: 25, score_source: 'aa', tools: false },
   ], [{ id: 'fk', providerId: 'fr', tier: 'free' }]);
   assert.strictEqual(unmeasured.lite[0].measured, null);
 });

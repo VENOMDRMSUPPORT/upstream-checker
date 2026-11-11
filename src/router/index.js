@@ -44,26 +44,13 @@ function upstreamModelId(providerId, modelId) {
   return `${String(providerId)}::${String(modelId)}`;
 }
 
-// Router-internal capability read. This never invents a catalog score: when
-// the reference has no measurement the row carries an explicit heuristic
-// estimate (score_source 'est-heuristic') so it ranks last instead of staying
-// outside every tier. The Models page still shows measured vs estimated from
-// the catalog's own score_source; this value only orders router pools.
-function evaluateModelCapabilities(row) {
-  const source = row && row.score_source;
-  if (row && row.score != null && (source === 'aa' || source === 'est' || source === 'proxy' || source === 'local')) {
-    return { score: row.score, scoreSource: source, estimated: source !== 'aa' };
-  }
-  let score = 8;
-  if (row && row.tools === true) score += 4;
-  if (row && row.reasoning === true) score += 4;
-  const context = Number(row && row.context_tokens);
-  if (Number.isFinite(context) && context >= 128000) score += 3;
-  else if (Number.isFinite(context) && context >= 32000) score += 1;
-  const cost = Number(row && row.cost_in_per_m);
-  if (Number.isFinite(cost) && cost > 0 && cost <= 0.5) score += 1;
-  return { score: Math.round(score * 10) / 10, scoreSource: 'est-heuristic', estimated: true };
-}
+// Foundation rebuild R3: the router invents NO scores. A row the
+// catalog could not score carries score null into the pools, and the
+// tier gates in buildSmartCatalog admit rows on evidence — a
+// documented reference score, a per-model price fact, or this app's
+// own first-party measurements and probe verdicts — never on a number
+// made up to fill the gap. (The est-heuristic that used to score
+// every unscored row was removed, not adjusted.)
 
 // ---------------------------------------------------------------------------
 // Tool-output compression (RTK-style, lossless trimming)
@@ -123,9 +110,10 @@ function analyzeCascadeStage(messages) {
 // Tier boundaries live on the catalog's real VQ scale (Artificial Analysis
 // intelligence index, top ~57.6 here), so the three policy cards never show
 // the same number:
-//   venom-lite  free or near-free text rows at score >= 20 (zero marginal
-//               cost priority), including rows served under free/subscription
-//               keys, ordered free-first then cheapest then highest VQ.
+//   venom-lite  models that are themselves free or near-free (a
+//               per-model price fact, never a provider-level key pass)
+//               and not documented frontier quality, ordered free-first
+//               then by measured speed, cheapest, highest score.
 //   venom-pro   hybrid cascade rung: tool-capable rows (tools !== false) at
 //               score >= 30, split into efficient (30..45, starts fast) and
 //               capable (>= 45, escalation target on tool errors).
@@ -135,14 +123,9 @@ const PRO_MIN_SCORE = 30;
 const PRO_EFFICIENT_MAX = 45;
 const PRO_CAPABLE_MIN = 45;
 const MAX_MIN_SCORE = 45;
-const LITE_MIN_SCORE = 20;
-// The router's own heuristic estimate caps at exactly LITE_MIN_SCORE
-// (a fully signalled row reaches 20; most land under it), so lite also
-// admits an unmeasured row carrying two strong capability signals
-// (heuristic >= 16: tools + reasoning, or tools + a 128k context).
-// Pro and Max stay documented-only: their promises are quality claims
-// a guess cannot back.
-const LITE_HEURISTIC_MIN_SCORE = 16;
+// (No Lite score floor remains: admission is the per-model free fact
+// plus the frontier exclusion in buildSmartCatalog. The old floor —
+// and the router heuristic invented to reach it — are gone.)
 // Pool reserve (tier design §2.2 rule 2): a pool whose known remaining
 // window falls under this fraction is held for Max demand only.
 const POOL_RESERVE_FRACTION = 0.15;
@@ -200,20 +183,6 @@ function firstNonEmpty(...pools) {
     if (Array.isArray(pool) && pool.length) return pool;
   }
   return [];
-}
-
-function tiersByProvider(keys = []) {
-  const map = new Map();
-  for (const key of keys) {
-    if (!key || !key.providerId) continue;
-    if (!map.has(key.providerId)) map.set(key.providerId, new Set());
-    map.get(key.providerId).add(key.tier || 'paid');
-  }
-  return map;
-}
-
-function scoredCopy(row, heuristic) {
-  return { ...row, score: heuristic.score, score_source: 'est-heuristic' };
 }
 
 function targetEntry(row, keyCount) {
@@ -284,7 +253,6 @@ function buildSmartCatalog(scoredRows, keys = []) {
   });
   const keyList = Array.isArray(keys) ? keys.filter((k) => k && k.id) : [];
   const keySet = new Set(keyList.map((k) => k.id));
-  const providerTiers = tiersByProvider(keyList);
   const keysByProvider = new Map();
   for (const k of keyList) {
     keysByProvider.set(k.providerId, (keysByProvider.get(k.providerId) || 0) + 1);
@@ -294,39 +262,51 @@ function buildSmartCatalog(scoredRows, keys = []) {
   const usable = rows.filter((row) => (row.modelId && row.providerId)
     && (keySet.size === 0 || keyList.some((k) => k.providerId === row.providerId))
     && isRoutableTextRow(row) && !isEntitlementBlocked(row));
-  // Every row gets a number: measured rows keep theirs, the rest read an
-  // explicit est-heuristic so no roster row stays outside the tiers.
-  const scored = usable.map((row) => {
-    if (row.score != null) return row;
-    return scoredCopy(row, evaluateModelCapabilities(row));
-  });
-  // Documented means the catalog measured or estimated it (aa/est/proxy/
-  // local) — never the router's own est-heuristic fallback invented above.
-  const documented = (row) => row.score != null
-    && Boolean(row.score_source) && row.score_source !== 'est-heuristic';
+  // Rows pass through UNSCORED when the catalog could not score them:
+  // admission below reads evidence, not a fabricated number.
+  const scored = usable;
+  // Documented means the catalog carries a reference score for the row
+  // (aa measured, or est/proxy/local estimates — all labeled as such).
+  const documented = (row) => row.score != null && Boolean(row.score_source);
 
-  const hasFreeOrSubKey = (row) => {
-    const tiers = providerTiers.get(row.providerId);
-    return Boolean(tiers && (tiers.has('free') || tiers.has('subscription')));
-  };
-  const freeGate = (row) => isFreeRow(row) || hasFreeOrSubKey(row)
+  // Lite's gate is a fact about the MODEL, never about its provider's
+  // keys: the model itself is free, or its own input price is nominal.
+  // (The old provider-level pass — any row of a provider holding a
+  // free/subscription key — is what let frontier subscription models
+  // like Claude Opus land in Lite. Key tiers still drive drain ORDER
+  // inside pickKey, where they belong.)
+  const freeGate = (row) => isFreeRow(row)
     || (rowCost(row) != null && rowCost(row) <= LITE_NOMINAL_COST);
   const liteCandidates = scored.filter(freeGate);
-  const lite = liteCandidates.filter((row) => (row.score || 0) >= LITE_MIN_SCORE
-    || (row.score_source === 'est-heuristic' && (row.score || 0) >= LITE_HEURISTIC_MIN_SCORE)).sort((a, b) => {
+  // A documented-frontier model is never Lite material, whatever its
+  // lane: frontier quality belongs to Pro/Max. Ordering: free first,
+  // then fastest MEASURED generation speed (the first-party cards —
+  // the first routing decision speed has ever informed here), then
+  // cheapest, then highest documented score.
+  const lite = liteCandidates.filter((row) => !(documented(row) && (row.score || 0) >= MAX_MIN_SCORE)).sort((a, b) => {
     const free = Number(isFreeRow(b)) - Number(isFreeRow(a));
     if (free) return free;
+    const tpsA = a.measured && a.measured.outputTps;
+    const tpsB = b.measured && b.measured.outputTps;
+    if (tpsA != null && tpsB != null && tpsA !== tpsB) return tpsB - tpsA;
+    if ((tpsA != null) !== (tpsB != null)) return tpsA != null ? -1 : 1;
     const costA = rowCost(a);
     const costB = rowCost(b);
     if (costA != null && costB != null && costA !== costB) return costA - costB;
     return (b.score || 0) - (a.score || 0);
   }).slice(0, POOL_CAP);
 
-  const proCandidates = scored.filter((row) => row.tools !== false && (row.score || 0) >= PRO_MIN_SCORE);
-  const efficient = proCandidates.filter((row) => row.score < PRO_EFFICIENT_MAX)
-    .sort((a, b) => b.score - a.score).slice(0, POOL_CAP);
-  const capable = proCandidates.filter((row) => row.score >= PRO_CAPABLE_MIN)
-    .sort((a, b) => b.score - a.score).slice(0, POOL_CAP);
+  // Pro admits on documented quality, or on first-party proof: a model
+  // this app itself heard answer AND saw call a tool has demonstrated
+  // the two things Pro promises, whatever the reference knows of it.
+  const probeProven = (row) => Boolean(row.probeFacts
+    && row.probeFacts.chatOk === true && row.probeFacts.toolsObserved === true);
+  const proCandidates = scored.filter((row) => row.tools !== false
+    && ((row.score || 0) >= PRO_MIN_SCORE || probeProven(row)));
+  const efficient = proCandidates.filter((row) => (row.score || 0) < PRO_EFFICIENT_MAX)
+    .sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, POOL_CAP);
+  const capable = proCandidates.filter((row) => (row.score || 0) >= PRO_CAPABLE_MIN)
+    .sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, POOL_CAP);
 
   const maxCandidates = scored.filter(documented);
   const frontier = maxCandidates.filter((row) => (row.score || 0) >= MAX_MIN_SCORE)
@@ -346,8 +326,13 @@ function buildSmartCatalog(scoredRows, keys = []) {
     max.push(row);
   }
 
-  return { builtAt: new Date().toISOString(), lite, efficient, capable, max, unscored: [],
-    counts: { total: usable.length, scored: scored.length, unscored: 0,
+  const inPools = new Set([...lite, ...efficient, ...capable, ...max]);
+  const probeCandidates = usable.filter((row) => !inPools.has(row))
+    .map((row) => ({ providerId: row.providerId, modelId: row.modelId }));
+  const unscoredRows = usable.filter((row) => !documented(row));
+  return { builtAt: new Date().toISOString(), lite, efficient, capable, max,
+    unscored: unscoredRows.map((row) => row.id), probeCandidates,
+    counts: { total: usable.length, scored: usable.length - unscoredRows.length, unscored: unscoredRows.length,
       liteCandidates: liteCandidates.length, proCandidates: proCandidates.length,
       maxCandidates: maxCandidates.length } };
 }
@@ -1196,7 +1181,7 @@ function createVenomHttpGateway({ cascadeEngine = null, port = ROUTER_PORT, host
 }
 
 module.exports = { ROUTER_PORT, ROUTER_HOST, normalizeGatewayPort, canonicalSlug, upstreamModelId,
-  evaluateModelCapabilities, compressToolMessages, rescuePlainTextToolCalls,
+  compressToolMessages, rescuePlainTextToolCalls,
   analyzeCascadeStage, rowCost, formatModelDisplayName, isRoutableTextRow,
   entitlementGate, isEntitlementBlocked,
   buildSmartCatalog, buildProfilesPayload,
@@ -1204,5 +1189,5 @@ module.exports = { ROUTER_PORT, ROUTER_HOST, normalizeGatewayPort, canonicalSlug
   createPoolLedger: poolLedger.createPoolLedger,
   rankPoolsByRemaining: poolLedger.rankPoolsByRemaining,
   POOL_WINDOWS: poolLedger.POOL_WINDOWS, poolIdOf: poolLedger.poolIdOf,
-  POOL_RESERVE_FRACTION, LITE_HEURISTIC_MIN_SCORE, isBackgroundRequest, maxThinkingLevel,
+  POOL_RESERVE_FRACTION, isBackgroundRequest, maxThinkingLevel,
   readCatalogScores, VenomCascadeEngine, pipeUpstreamStream, createVenomHttpGateway };

@@ -108,7 +108,9 @@ window.INTEGRATED_PROVIDERS.experiential = {
         id: callableBySlug.get(slug),
         supports_decisions: decisionOnly,
         name: m.display_name || slug,
-        isFree: true,
+        // Callable on the account is not the same as free: no per-model
+        // price is published, so none is stamped free (rebuild R3).
+        isFree: false,
         isFreeForPaid: false,
         noPlans: false,
         groupName: getFreeGroupName('free'),

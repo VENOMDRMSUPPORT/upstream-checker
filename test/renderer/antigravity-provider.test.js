@@ -142,7 +142,9 @@ test('the roster comes from the service\'s own route, through the wire', async (
   const gemini = models.find((m) => m.id === 'gemini-3-pro-high');
   assert.strictEqual(gemini.name, 'Gemini 3 Pro');
   assert.strictEqual(gemini.hasReasoning, true);
-  assert.strictEqual(gemini.isFree, true);
+  // Quota-window models are counted, not free: no Antigravity model
+  // carries a free stamp (foundation rebuild R3).
+  assert.strictEqual(gemini.isFree, false);
   assert.strictEqual(gemini.groupName, 'FREE');
   assert.strictEqual(gemini.maxOutputTokens, 64000);
   // The retired model is not offered, and the one that replaced it is.

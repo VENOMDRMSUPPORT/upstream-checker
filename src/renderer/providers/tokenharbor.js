@@ -175,7 +175,10 @@ window.INTEGRATED_PROVIDERS.tokenharbor = {
       .map((m) => ({
         id: m.id,
         name: m.label || m.id,
-        isFree: true,
+        // Only the ':free' variants are free models; the rest of the
+        // roster is priced, and a paid model must not wear a free stamp
+        // (foundation rebuild R3).
+        isFree: String(m.id || '').includes(':free'),
         isFreeForPaid: false,
         noPlans: false,
         groupName: getFreeGroupName('free'),

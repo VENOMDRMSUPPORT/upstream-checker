@@ -192,13 +192,22 @@ async function scheduleCatalogProbes() {
     const catalog = venomRouter.smartCatalog || {};
     const seen = new Set();
     const candidates = [];
-    for (const poolName of ['lite', 'pro', 'max']) {
+    for (const poolName of ['lite', 'efficient', 'capable', 'max']) {
       for (const row of catalog[poolName] || []) {
         const key = `${row.providerId}::${row.modelId}`;
         if (seen.has(key)) continue;
         seen.add(key);
         candidates.push(row);
       }
+    }
+    // Rows in NO pool are probe candidates too (rebuild R3): an
+    // unscored, unproven row can only earn its way into a tier through
+    // first-party evidence, and probing is how it gets some.
+    for (const slim of catalog.probeCandidates || []) {
+      const key = `${slim.providerId}::${slim.modelId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      candidates.push(slim);
     }
     const staleBefore = Date.now() - probe.PROBE_STALE_MS;
     let ran = 0;

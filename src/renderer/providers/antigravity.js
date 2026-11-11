@@ -139,8 +139,12 @@ window.INTEGRATED_PROVIDERS.antigravity = {
           id: m.id,
           name: m.name || m.id,
           // The allowance is the account's, not a plan's: every model is
-          // reachable and every model is counted.
-          isFree: true,
+          // reachable and every model is counted against the account's
+          // quota windows. Counted is not free: no model here carries a
+          // zero price, so none is stamped free (foundation rebuild R3 —
+          // the blanket stamp is what let frontier models read as free
+          // rows and land in venom-lite).
+          isFree: false,
           isFreeForPaid: false,
           noPlans: false,
           groupName: getFreeGroupName('free'),

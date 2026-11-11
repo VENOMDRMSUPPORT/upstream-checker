@@ -5,7 +5,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  evaluateModelCapabilities,
   buildSmartCatalog,
   buildProfilesPayload,
   KeyPoolManager,
@@ -46,23 +45,25 @@ function mixedRows() {
   ];
 }
 
-test('lite admits free rows at VQ >= 20 only, pro and max stay distinct', () => {
+test('lite admits per-model free rows only; frontier and paid rows stay out (rebuild R3)', () => {
   const catalog = buildSmartCatalog(mixedRows(), KEYS);
   assert.ok(catalog.lite.length > 0, 'lite is non-empty');
   for (const r of catalog.lite) {
-    assert.ok((r.score || 0) >= 20, `lite keeps VQ >= 20 only, saw ${r.modelId}=${r.score}`);
     const cost = Number(r.cost_in_per_m);
     const freeOrNominal = cost === 0 || (Number.isFinite(cost) && cost <= 0.5)
       || String(r.cost_kind || '').toLowerCase() === 'free';
-    const servedByFreeOrSubKey = r.providerId === 'groq' || r.providerId === 'anthropic';
-    assert.ok(freeOrNominal || servedByFreeOrSubKey,
-      `lite holds zero-cost or free/subscription-served rows only, saw ${r.providerId}/${r.modelId}`);
+    assert.ok(freeOrNominal,
+      `lite holds per-model free or nominal rows only, saw ${r.providerId}/${r.modelId}`);
+    assert.ok(!(r.score != null && r.score >= 45),
+      `documented frontier quality never lands in lite, saw ${r.modelId}=${r.score}`);
   }
   const liteIds = new Set(catalog.lite.map((r) => r.modelId));
   assert.ok(!liteIds.has('gpt-5.5'),
-    'a paid-only row with no free/subscription key never lands in lite');
-  assert.ok(liteIds.has('claude-opus-5.5'),
-    'a frontier row served under a subscription key is admitted to lite');
+    'a paid-only row never lands in lite');
+  assert.ok(!liteIds.has('claude-opus-5.5'),
+    'a frontier row on a subscription key is NOT admitted to lite — the key tier is not a model fact');
+  assert.ok(liteIds.has('mystery-free'),
+    'an unscored free row sits in lite on its price fact alone');
   assert.ok(!liteIds.has('cat-jam'), 'the fake audio listing never lands in lite');
   for (const r of catalog.efficient) {
     assert.ok(r.score >= 30 && r.score < 45, `efficient spans 30..45, saw ${r.score}`);
@@ -120,15 +121,19 @@ test('formatModelDisplayName strips routing prefixes, upstream id stays raw', ()
   assert.equal(found.upstream_id, 'devora-01::xiaomi-mimo/mimo-v2.6-flash', 'dispatch keeps the raw upstream id');
 });
 
-test('unscored rows read an est-heuristic score but stay below the lite floor', () => {
-  const read = evaluateModelCapabilities({ id: 'brand-new', tools: false });
-  assert.equal(read.scoreSource, 'est-heuristic');
-  assert.equal(read.estimated, true);
+test('unscored rows stay unscored: no invented number, and the counts say so', () => {
   const catalog = buildSmartCatalog(mixedRows(), KEYS);
-  assert.equal(catalog.counts.unscored, 0, 'no row stays unscored');
-  assert.equal(catalog.counts.scored, catalog.counts.total);
-  const mystery = catalog.lite.find((r) => r.modelId === 'mystery-free');
-  assert.ok(!mystery, 'a heuristic score below 20 never clears the lite floor');
+  assert.equal(catalog.counts.unscored, 1, 'the one reference-less row is counted as what it is');
+  assert.equal(catalog.counts.scored, catalog.counts.total - 1);
+  assert.deepStrictEqual(catalog.unscored, ['f2']);
+  for (const pool of [catalog.lite, catalog.efficient, catalog.capable, catalog.max]) {
+    for (const r of pool) assert.notEqual(r.score_source, 'est-heuristic', 'no pool row carries an invented score');
+  }
+  // The unscored row is free, so it may sit in Lite on its price fact
+  // alone — Lite claims it is free, never that it is good.
+  assert.ok(catalog.lite.some((r) => r.modelId === 'mystery-free'));
+  assert.ok(![...catalog.efficient, ...catalog.capable, ...catalog.max].some((r) => r.modelId === 'mystery-free'),
+    'quality tiers never admit an unscored row on a guess');
 });
 
 test('buildProfilesPayload carries per-profile target lists with key counts', () => {
@@ -149,7 +154,8 @@ test('buildProfilesPayload carries per-profile target lists with key counts', ()
     assert.equal(profile.count, profile.eligible.length, `${name} count matches its list`);
     for (const target of profile.eligible) {
       assert.ok(target.providerId && target.modelId, 'target names its route');
-      assert.ok(Number.isFinite(target.score), 'target carries a score');
+      assert.ok(target.score === null || Number.isFinite(target.score),
+        'target carries a score or an honest null — never an invented number');
       assert.ok(Number.isInteger(target.activeKeys), 'target counts live keys');
     }
   }
