@@ -488,6 +488,19 @@ test('the gateway forces flagged requests to lite (header and body field)', asyn
 // Max thinking levels + pool-aware panel (tier design §2.4/§4 Q5, step 5)
 // ---------------------------------------------------------------------------
 
+test('pool entries carry the row\u2019s first-party measured card (foundation rebuild R1)', () => {
+  const card = { attempts: 9, passed: 9, successRate: 1, avgLatencyMs: 700, avgTtftMs: 120, outputTps: 88, lastSeenAt: 42 };
+  const smart = buildSmartCatalog([
+    { id: 'm1', providerId: 'fr', modelId: 'lite-m', name: 'Lite', is_free: true, score: 25, score_source: 'aa', tools: false, measured: card },
+  ], [{ id: 'fk', providerId: 'fr', tier: 'free' }]);
+  assert.equal(smart.lite.length, 1);
+  assert.deepStrictEqual(smart.lite[0].measured, card);
+  const unmeasured = buildSmartCatalog([
+    { id: 'm2', providerId: 'fr', modelId: 'lite-m2', name: 'Lite2', is_free: true, score: 25, score_source: 'aa', tools: false },
+  ], [{ id: 'fk', providerId: 'fr', tier: 'free' }]);
+  assert.strictEqual(unmeasured.lite[0].measured, null);
+});
+
 test('maxThinkingLevel reads the header and body field, defaulting to standard', () => {
   assert.equal(maxThinkingLevel({ headers: { 'x-venom-thinking': 'deep' } }, {}), 'deep');
   assert.equal(maxThinkingLevel({ headers: {} }, { venom_thinking: 'deep' }), 'deep');

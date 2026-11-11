@@ -581,7 +581,46 @@ function createQuery(db, { file = null, meta, droppedRows = () => 0 } = {}) {
     }));
   }
 
-  return { list, get, stats, facets, runs, runSummary, exportTo, info, clear, keyWindowUsage, tierUsage };
+  // First-party measurement (foundation rebuild R1): what this app
+  // itself observed per provider + model from real traffic — attempts,
+  // successes, latency, time-to-first-token and generation speed. The
+  // model that ANSWERED is the measured one (model_returned, falling
+  // back to the requested id); cancelled/blocked rows were never sent
+  // and do not count as attempts.
+  function modelMeasurements(opts = {}) {
+    const f = opts && typeof opts === 'object' ? opts : {};
+    const where = ["status NOT IN ('cancelled', 'blocked')", 'provider_id IS NOT NULL'];
+    const params = [];
+    if (Number.isFinite(f.from)) { where.push('created_at >= ?'); params.push(f.from); }
+    if (Number.isFinite(f.to)) { where.push('created_at < ?'); params.push(f.to); }
+    return db.prepare(
+      `SELECT provider_id AS providerId,
+              COALESCE(NULLIF(model_returned, ''), model_requested) AS modelId,
+              COUNT(*) AS attempts,
+              COALESCE(SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END), 0) AS passed,
+              AVG(CASE WHEN status = 'ok' THEN latency_ms END) AS avgLatencyMs,
+              AVG(CASE WHEN status = 'ok' THEN ttft_ms END) AS avgTtftMs,
+              COALESCE(SUM(CASE WHEN status = 'ok' THEN output_tokens ELSE 0 END), 0) AS outTokens,
+              COALESCE(SUM(CASE WHEN status = 'ok' THEN latency_ms ELSE 0 END), 0) AS okLatencyMs,
+              MAX(created_at) AS lastSeenAt
+         FROM request_logs
+        WHERE ${where.join(' AND ')}
+        GROUP BY provider_id, modelId`,
+    ).all(...params).filter((r) => r.modelId).map((r) => ({
+      providerId: r.providerId,
+      modelId: r.modelId,
+      attempts: r.attempts || 0,
+      passed: r.passed || 0,
+      successRate: r.attempts ? (r.passed || 0) / r.attempts : null,
+      avgLatencyMs: r.avgLatencyMs == null ? null : Math.round(r.avgLatencyMs),
+      avgTtftMs: r.avgTtftMs == null ? null : Math.round(r.avgTtftMs),
+      outputTps: r.okLatencyMs > 0 && r.outTokens > 0
+        ? Math.round((r.outTokens / (r.okLatencyMs / 1000)) * 10) / 10 : null,
+      lastSeenAt: r.lastSeenAt || null,
+    }));
+  }
+
+  return { list, get, stats, facets, runs, runSummary, exportTo, info, clear, keyWindowUsage, tierUsage, modelMeasurements };
 }
 
 module.exports = { createQuery, createMeta, emptyStats, emptyRunSummary, EXPORT_COLUMNS };

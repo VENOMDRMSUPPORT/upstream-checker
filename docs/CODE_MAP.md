@@ -2,7 +2,7 @@
 
 > GENERATED FILE — do not edit by hand. Regenerate with: npm run repo:map
 
-229 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
+232 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
 
 The architecture behind these files — boot order, IPC channels, the two databases, the request lifecycle — is in [ARCHITECTURE.md](ARCHITECTURE.md). Task recipes are in [COOKBOOK.md](COOKBOOK.md).
 
@@ -66,15 +66,15 @@ The architecture behind these files — boot order, IPC channels, the two databa
 
 Files of 700+ lines, with the section banners inside them. Open the window you need — do not read one of these whole. Line numbers are 1-based.
 
-### src/main.js — 1292 lines
+### src/main.js — 1312 lines
 
 | Line | Section |
 | --- | --- |
-| 471 | Local database — venom.db (src/db) |
-| 491 | Request log — venom-logs.db (src/logs) |
-| 578 | Model catalog engine — src/catalog |
-| 1168 | API requests (src/api-request.js) |
-| 1206 | Old request log file (requests.log) |
+| 491 | Local database — venom.db (src/db) |
+| 511 | Request log — venom-logs.db (src/logs) |
+| 598 | Model catalog engine — src/catalog |
+| 1188 | API requests (src/api-request.js) |
+| 1226 | Old request log file (requests.log) |
 
 ### src/oauth/index.js — 717 lines
 
@@ -125,7 +125,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | --- | --- |
 | 2 | Log pages — Runs, Requests and Monitoring |
 
-### src/router/index.js — 1206 lines
+### src/router/index.js — 1208 lines
 
 *(no section banners)*
 
@@ -265,7 +265,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `api-request.js` | 226 | api-request — every outbound request the renderer asks for | CONTENT_TOKEN, CANCEL_REASONS, CUT_OFF, createApiRequester |
 | `flush.js` | 38 | Close handshake with the renderer | DEFAULT_FLUSH_TIMEOUT_MS, requestFlush |
 | `keystore.js` | 74 | API keys at rest | decryptKeyEntry, encryptKeyEntry, eachStoredKey, countPlaintextKeys |
-| `main.js` | 1292 | Main process: data folder, boot order, IPC wiring, auto-updater | venomRouter, venomGateway, venomGatewayStarting, readRosterRowsForRouter, startVenomRouter, gatewayPort, upstreamSpec, attachPoolLedger, buildVenomRouter, venomGatewayStarted, ensureVenomGateway, refreshVenomRouter, +37 more |
+| `main.js` | 1312 | Main process: data folder, boot order, IPC wiring, auto-updater | venomRouter, venomGateway, venomGatewayStarting, readRosterRowsForRouter, startVenomRouter, gatewayPort, upstreamSpec, attachPoolLedger, attachMeasurements, buildVenomRouter, venomGatewayStarted, ensureVenomGateway, +38 more |
 | `preload.js` | 151 | contextBridge surface — the renderer's only door to main | minimize, maximize, close, setWindowIcon, authStatus, authSetup, authUnlock, authChange, authLock, authActivity, onAuthLocked, apiRequest, +60 more |
 | `user-data.js` | 40 | Where the app keeps its data. Electron names the userData folder after the | LEGACY_DIR, CURRENT_DIR, DEV_DIR, resolveUserDataDir |
 
@@ -287,6 +287,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `fetch.js` | 78 | The one JSON fetch helper for every upstream call the catalog makes. Sends | DEFAULT_TIMEOUT_MS, RETRY_DELAY_MS, DEFAULT_CACHE_TTL_MS, friendlyMessage, createFetcher |
 | `ipc.js` | 527 | src/catalog/ipc.js | LATENCY_SAMPLES_KEPT, DATA_CODES, readPurgeWindowDays, purgeWindowDays, catalogError, COMPARE_FIELDS, same, diffRow, publishedOnly, readHealth, appendLatency, CHECKS_SAMPLES_KEPT, +3 more |
 | `keys.js` | 311 | Model-name normalization. The same model shows up under different names in | MATCH_AMBIGUOUS, LAB_PROVIDERS, PRICING_MODIFIERS, QUALITY_MODIFIERS, BUILD_SUFFIX_RE, VARIANT_MODIFIERS, PARAM_SIZE_RE, QUANT_TOKENS, cleanModelId, modelSlug, identityKey, normalizeName, +15 more |
+| `measured.js` | 60 | First-party measured model cards (foundation rebuild, step R1). | measuredKey, buildMeasuredCards, rowMeasuredCard, attachMeasured |
 | `row.js` | 348 | One adapter's model object → the shared provider row the reference merge | ROW_FIELDS, firstNumber, positive, pick, dedupe, LAB_TOKENS, labTokenOf, familyOf, costKind, readPricing, readsTools, readsReasoning, +7 more |
 | `scoring.js` | 593 | Score estimation, dense ranking, and the lookup that gives provider rows their | MIN_FIT_SAMPLES, MIN_FIT_R2, SPEC_AGE_CAP_MONTHS, SCORE_QUALITY, scoreQuality, fitLinear, solveLinear, specFeatures, fitSpec, hasSpecSignal, specModelCache, specModelFor, +15 more |
 | `snapshot.js` | 269 | src/catalog/snapshot.js | NEW_WINDOW_DAYS, REMOVED_WINDOW_DAYS, DROP_CONFIRMATION_MS, DROP_MIN_PREVIOUS, DROP_MIN_LOSS, invalidPayload, suspiciousDrop, daysBetween, validateProviderRows, cloneRows, DERIVED_FIELDS, BLANK_STRING_FIELDS, +7 more |
@@ -327,7 +328,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `ipc.js` | 67 | Request log IPC — what the log pages (sub-project C) call | LOGS_CHANNELS, NOT_SAVED, offInfo, registerLogsIpc |
 | `lookups.js` | 54 | venom.db lookups for the request log | createProviderLookup, readPrice, createPriceBook |
 | `migrations.js` | 111 | Request log schema migrations (venom-logs.db) |  |
-| `query.js` | 588 | Request log queries — what the log pages (sub-project C) read | HOUR, MAX_LIMIT, DEFAULT_LIMIT, MAX_FILTER_ITEMS, EXPORT_CHUNK, EVERYTHING, EXPORT_COLUMNS, LIKE, CLASS_COUNTERS, GROUP_COLUMNS, SORT_COLUMNS, MAX_SORT_RANGE_MS, +22 more |
+| `query.js` | 627 | Request log queries — what the log pages (sub-project C) read | HOUR, MAX_LIMIT, DEFAULT_LIMIT, MAX_FILTER_ITEMS, EXPORT_CHUNK, EVERYTHING, EXPORT_COLUMNS, LIKE, CLASS_COUNTERS, GROUP_COLUMNS, SORT_COLUMNS, MAX_SORT_RANGE_MS, +22 more |
 | `recorder.js` | 193 | Request record — what one finished request becomes in the log | SOURCES, CANCEL_REASONS, TRIGGERS, BODY_MAX, REDACTED_HEADERS, shortString, whole, clip, redactHeaders, metaOf, originOf, whoFor, +3 more |
 | `retention.js` | 157 | Request log retention — chunked purge, stepped vacuum | DAY, CHUNK, VACUUM_PAGES, defaultYield, neverBusy, inChunks, purgeLogsBefore, purgeBodiesBefore, purgeRollupsBefore, stepVacuum, monthsAgo, purge, +1 more |
 | `scrub.js` | 39 | Scrub substituted secrets out of stored log text | formsOf, scrub |
@@ -416,7 +417,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
-| `index.js` | 1206 | Venom router plane: multi-account smart routing behind one local endpoint. | ROUTER_PORT, ROUTER_HOST, normalizeGatewayPort, TIER_DRAIN_ORDER, TIER_RANK, canonicalSlug, upstreamModelId, evaluateModelCapabilities, compressToolMessages, rescuePlainTextToolCalls, analyzeCascadeStage, PRO_MIN_SCORE, +37 more |
+| `index.js` | 1208 | Venom router plane: multi-account smart routing behind one local endpoint. | ROUTER_PORT, ROUTER_HOST, normalizeGatewayPort, TIER_DRAIN_ORDER, TIER_RANK, canonicalSlug, upstreamModelId, evaluateModelCapabilities, compressToolMessages, rescuePlainTextToolCalls, analyzeCascadeStage, PRO_MIN_SCORE, +37 more |
 | `pool-ledger.js` | 141 | Pool window ledger (tier design §2.1, build step 2): how much of | HOUR_MS, POOL_WINDOWS, poolIdOf, emptyWindow, addRow, createPoolLedger, rankPoolsByRemaining |
 
 ### src/wire/
@@ -457,6 +458,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `fetch.test.js` | 165 |  | an answer comes back parsed with accept: application/json added, a caller header survives, and a caller-set accept wins, exactly one retry on any failure, and the answer still arrives, the retry waits one full RETRY_DELAY_MS before the second attempt, a non-2xx is a failure even though the transport worked, unparsable JSON fails and retries: a truncated payload is not a source |
 | `ipc.test.js` | 946 | The seven catalog channels, the single-flight door and the read/write split. | registers exactly the seven channels spec §6 names, purge window reads the saved setting, clamped, defaulting to thirty days, two overlapping ingests for one provider cost one snapshot write, catalog:health keeps only the last 20 samples, catalog:sources syncs when forced and reports without the TTL otherwise, catalog:sources answers with the engine summary, not with a bare ok |
 | `keys.test.js` | 144 | lib/keys.js is where every cross-source model match happens. These cases are |  |
+| `measured.test.js` | 40 | Measured cards (foundation rebuild R1): first-party observations | buildMeasuredCards keys cards by provider::model and skips unusable rows |
 | `non-text.test.js` | 288 |  | a published non-text output is proof; silence is not, output_modalities reaches the row at all, a video model never enters the catalog, a row that publishes no modality is kept, the dropped rows are gone BEFORE the fits are computed, any one of the three proofs drops the row, and none of them keeps it |
 | `row.test.js` | 374 |  | the row is exactly the reference shape, with nothing invented, an absent capability is null, never false — the rule the port rests on, today\, eight price spellings all land on cost per million, the preferred spelling wins when a provider co-publishes both spellings, a negative published price reads as null, and the kind says unknown |
 | `scoring.test.js` | 558 | lib/scoring.js turns catalog rows into score + rank. Fits run on synthetic | a provider row reaches a measured catalog row through its alias alone |
@@ -489,6 +491,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `ipc.test.js` | 104 |  | registers exactly the log channels, with logging on, the reads answer from the database, a failing query rejects the call and is logged |
 | `key-window-usage.test.js` | 73 | keyWindowUsage is the SQL half of the router's pool window ledger: | sums tokens per key and model since the given moment, empty key lists read as no usage; a bad sinceMs throws, tierUsage groups stamped gateway rows by their Venom tier |
 | `lookups.test.js` | 81 | The engine's row shape, as repos.snapshots stores it: provider facts only, | a missing, half-stated or malformed price is null, the price book never reads the retired models table, the provider lookup lists id, name and base URL |
+| `model-measurements.test.js` | 63 | modelMeasurements is the SQL half of the first-party measurement | the from bound excludes older traffic |
 | `open.test.js` | 132 |  | open(":memory:") wires the writer, meta and the query API on schema v1, reopening an up-to-date file runs no migration, a migration that throws rolls back and leaves the version, downgrade guard: a newer schema is refused and the file is not written, tryOpen: a corrupt file turns logging off and is left as it was, tryOpen: a newer schema turns logging off with the reason |
 | `query.test.js` | 604 | entries: a row, or { row, body }. | list: limit defaults to 50 and is capped at 200, list filters: time range, source, provider, model, status, run id, list text search: uid, run id and error message; % and _ are literal, filter arrays are capped at 50 items, afterId returns only newer rows (live tail), get: the row with its body, or null |
 | `recorder.test.js` | 236 |  | a successful chat: identity, tags, model, usage, cost and meta, the local gateway tag is kept as its own source, not folded into other, cost: a free model costs 0; an unknown price or no usage is NULL, TTFT is kept for streams only, bodies: Off, Failed only and All, and what counts as failed, no form of a substituted secret reaches a queued record |
@@ -560,7 +563,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | --- | --- | --- | --- |
 | `pool-ledger.test.js` | 152 | The pool window ledger (tier design §2.1, build step 2): per-pool | poolIdOf prefers the shared pool id and falls back to the key itself, the ledger needs a reader, snapshot groups keys into pools and sums each rolling window, a shared pool sums its keys once, under one pool id, rows for unknown keys are ignored, and custom windows are honoured, ranking prefers the fullest window when budgets are known |
 | `profiles.test.js` | 261 | Venom Profiles: tier differentiation, heuristic scoring, lead-analyst | lite admits free rows at VQ >= 20 only, pro and max stay distinct, frontier VQ 56-58 rows reach venom-max and the pro capable rung, fake and non-text rows never enter any tier or the counts, formatModelDisplayName strips routing prefixes, upstream id stays raw, unscored rows read an est-heuristic score but stay below the lite floor, buildProfilesPayload carries per-profile target lists with key counts |
-| `router.test.js` | 595 | Router plane: smart catalog split, three-level key isolation, cascade | gateway port falls back to the default outside 1024..65535, identity keeps the raw upstream address apart from the match key, capability read never invents a measured score, smart catalog preserves upstream ids and splits three tiers, key pool isolates a model-on-key failure from the rest of the key, key pool drains subscription before free before paid |
+| `router.test.js` | 608 | Router plane: smart catalog split, three-level key isolation, cascade | gateway port falls back to the default outside 1024..65535, identity keeps the raw upstream address apart from the match key, capability read never invents a measured score, smart catalog preserves upstream ids and splits three tiers, key pool isolates a model-on-key failure from the rest of the key, key pool drains subscription before free before paid |
 
 ### test/wire/
 
@@ -588,6 +591,7 @@ Static relative imports only (`require`, `import … from`, `import()`). Builtin
 | `src/catalog/fetch.js` | `src/main.js`, `test/catalog/engine.test.js`, `test/catalog/fetch.test.js`, `test/catalog/sources.test.js` |
 | `src/catalog/ipc.js` | `src/main.js`, `test/catalog/ipc.test.js` |
 | `src/catalog/keys.js` | `src/catalog/build.js`, `src/catalog/row.js`, `src/catalog/scoring.js`, `test/catalog/keys.test.js` |
+| `src/catalog/measured.js` | `src/main.js`, `test/catalog/measured.test.js` |
 | `src/catalog/row.js` | `src/catalog/ipc.js`, `test/catalog/ipc.test.js`, `test/catalog/row.test.js` |
 | `src/catalog/scoring.js` | `src/catalog/build.js`, `src/catalog/engine.js`, `test/catalog/non-text.test.js`, `test/catalog/scoring.test.js` |
 | `src/catalog/snapshot.js` | `src/catalog/ipc.js`, `test/catalog/non-text.test.js`, `test/catalog/snapshot.test.js` |
@@ -615,12 +619,12 @@ Static relative imports only (`require`, `import … from`, `import()`). Builtin
 | `src/logs/ipc.js` | `src/main.js`, `test/logs/ipc.test.js` |
 | `src/logs/lookups.js` | `src/main.js`, `test/logs/lookups.test.js` |
 | `src/logs/migrations.js` | `src/logs/index.js`, `test/helpers.js`, `test/logs/retention.test.js` |
-| `src/logs/query.js` | `src/logs/index.js`, `src/logs/ipc.js`, `test/logs/key-window-usage.test.js`, `test/logs/query.test.js` |
+| `src/logs/query.js` | `src/logs/index.js`, `src/logs/ipc.js`, `test/logs/key-window-usage.test.js`, `test/logs/model-measurements.test.js`, `test/logs/query.test.js` |
 | `src/logs/recorder.js` | `src/main.js`, `test/logs/recorder.test.js` |
 | `src/logs/retention.js` | `src/logs/query.js`, `src/main.js`, `test/logs/retention.test.js` |
 | `src/logs/scrub.js` | `src/logs/recorder.js`, `test/logs/scrub.test.js` |
 | `src/logs/settings.js` | `src/main.js`, `test/logs/schema.test.js` |
-| `src/logs/writer.js` | `src/logs/index.js`, `src/logs/query.js`, `test/logs/key-window-usage.test.js`, `test/logs/query.test.js`, `test/logs/retention.test.js`, `test/logs/writer.test.js` |
+| `src/logs/writer.js` | `src/logs/index.js`, `src/logs/query.js`, `test/logs/key-window-usage.test.js`, `test/logs/model-measurements.test.js`, `test/logs/query.test.js`, `test/logs/retention.test.js`, `test/logs/writer.test.js` |
 | `src/oauth/device-flow.js` | `src/oauth/index.js`, `test/oauth/device-flow.test.js` |
 | `src/oauth/http.js` | `src/oauth/device-flow.js`, `src/oauth/index.js`, `src/oauth/loopback.js` |
 | `src/oauth/index.js` | `scripts/live/verify-antigravity.mjs`, `src/main.js`, `test/oauth/loopback.test.js`, `test/oauth/manager.test.js`, `test/oauth/web-session.test.js` |
@@ -634,7 +638,7 @@ Static relative imports only (`require`, `import … from`, `import()`). Builtin
 | `src/user-data.js` | `src/main.js`, `test/user-data.test.js` |
 | `src/wire/antigravity.js` | `src/wire/index.js`, `test/wire/antigravity.test.js` |
 | `src/wire/index.js` | `scripts/live/verify-antigravity.mjs`, `src/main.js`, `src/oauth/index.js`, `test/renderer/antigravity-provider.test.js`, `test/wire/antigravity.test.js` |
-| `test/helpers.js` | `test/api-request.test.js`, `test/auth/ipc.test.js`, `test/auth/lock.test.js`, `test/catalog/engine.test.js`, `test/catalog/ipc.test.js`, `test/catalog/snapshot.test.js`, `test/catalog/sources.test.js`, `test/check-import-counts.test.js`, `test/db/auth-repo.test.js`, `test/db/cipher.test.js`, `test/db/explorer.test.js`, `test/db/history.test.js`, `test/db/import-json.test.js`, `test/db/ipc.test.js`, `test/db/keys.test.js`, `test/db/open.test.js`, `test/db/providers.test.js`, `test/db/roster-events.test.js`, `test/db/settings-secrets.test.js`, `test/db/snapshots.test.js`, `test/logs/ipc.test.js`, `test/logs/key-window-usage.test.js`, `test/logs/lookups.test.js`, `test/logs/open.test.js`, `test/logs/query.test.js`, `test/logs/retention.test.js`, `test/logs/schema.test.js`, `test/logs/writer.test.js`, `test/oauth/loopback.test.js`, `test/oauth/manager.test.js`, `test/oauth/web-session.test.js`, `test/renderer-ulid.test.js`, `test/repo-map.test.js` |
+| `test/helpers.js` | `test/api-request.test.js`, `test/auth/ipc.test.js`, `test/auth/lock.test.js`, `test/catalog/engine.test.js`, `test/catalog/ipc.test.js`, `test/catalog/snapshot.test.js`, `test/catalog/sources.test.js`, `test/check-import-counts.test.js`, `test/db/auth-repo.test.js`, `test/db/cipher.test.js`, `test/db/explorer.test.js`, `test/db/history.test.js`, `test/db/import-json.test.js`, `test/db/ipc.test.js`, `test/db/keys.test.js`, `test/db/open.test.js`, `test/db/providers.test.js`, `test/db/roster-events.test.js`, `test/db/settings-secrets.test.js`, `test/db/snapshots.test.js`, `test/logs/ipc.test.js`, `test/logs/key-window-usage.test.js`, `test/logs/lookups.test.js`, `test/logs/model-measurements.test.js`, `test/logs/open.test.js`, `test/logs/query.test.js`, `test/logs/retention.test.js`, `test/logs/schema.test.js`, `test/logs/writer.test.js`, `test/oauth/loopback.test.js`, `test/oauth/manager.test.js`, `test/oauth/web-session.test.js`, `test/renderer-ulid.test.js`, `test/repo-map.test.js` |
 | `test/renderer/appearance-dom.js` | `test/renderer/appearance.test.js`, `test/renderer/settings-appearance.test.js` |
 | `test/renderer/module-loader.js` | `test/renderer/appearance-dom.js`, `test/renderer/decision-probe.test.js`, `test/renderer/key-budget-free.test.js`, `test/renderer/key-quota-state.test.js`, `test/renderer/page-router.test.js`, `test/renderer/profile-badges.test.js`, `test/renderer/provider-actions.test.js`, `test/renderer/provider-detail.test.js`, `test/renderer/provider-keys.test.js`, `test/renderer/provider-models.test.js`, `test/renderer/provider-roster.test.js`, `test/renderer/provider-store.test.js`, `test/renderer/results-table.test.js`, `test/renderer/retry-after-parse.test.js`, `test/renderer/router-status.test.js`, `test/renderer/settings-panel.test.js`, `test/renderer/shell.test.js`, `test/renderer/sidebar-effects.test.js`, `test/renderer/test-attempts.test.js`, `test/renderer/test-model-budget.test.js`, `test/renderer/test-policy.test.js`, `test/renderer/test-response.test.js`, `test/renderer/test-runner.test.js`, `test/renderer/updates.test.js` |
 

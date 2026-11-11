@@ -224,6 +224,7 @@ function targetEntry(row, keyCount) {
     upstreamId: row.upstream_id,
     score: row.score,
     scoreSource: row.score_source || null,
+    measured: row.measured || null,
     tools: row.tools === true,
     costInPerM: rowCost(row),
     activeKeys: Number.isInteger(keyCount) ? keyCount : 0,
@@ -275,6 +276,7 @@ function buildSmartCatalog(scoredRows, keys = []) {
       ...row,
       providerId,
       modelId,
+      measured: row.measured || null,
       upstream_id: upstreamModelId(providerId, modelId),
       canonical_slug: canonicalSlug(providerId, modelId),
     };

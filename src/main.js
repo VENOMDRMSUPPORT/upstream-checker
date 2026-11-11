@@ -147,6 +147,24 @@ function attachPoolLedger(keyPool, keys) {
   }
 }
 
+// Foundation rebuild R1: stamp first-party measured cards (derived
+// from the request log's last 30 days) onto the scored catalog rows
+// before the smart catalog is built, so the router's pools carry what
+// this app actually observed about each model. Best-effort by design:
+// routing never depends on the measurement layer.
+function attachMeasurements(scoredRows) {
+  try {
+    if (!Array.isArray(scoredRows) || !scoredRows.length) return;
+    if (!logs || !logs.repos || !logs.repos.query) return;
+    const measured = require('./catalog/measured');
+    const since = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const cards = measured.buildMeasuredCards(logs.repos.query.modelMeasurements({ from: since }));
+    measured.attachMeasured(scoredRows, cards);
+  } catch (err) {
+    log.warn('venom-router: measurement attach failed:', err.message);
+  }
+}
+
 function buildVenomRouter() {
   try {
     const router = require('./router');
@@ -160,6 +178,7 @@ function buildVenomRouter() {
     } catch (err) {
       log.warn('venom-router: scoring failed, routing unscored:', err.message);
     }
+    attachMeasurements(scored);
     const smartCatalog = router.buildSmartCatalog(scored, keys);
     // Persist measured/estimated scores for 0ms values at the next boot.
     // Rows the reference cannot score stay null here by design (a guess is
@@ -418,6 +437,7 @@ function refreshVenomRouter() {
     const router = require('./router');
     const keys = store.repos.providers.listAllActiveKeys();
     const scored = catalogEngine ? catalogEngine.scoreRows(readRosterRowsForRouter(store.repos)) : [];
+    attachMeasurements(scored);
     venomRouter.refresh({ smartCatalog: router.buildSmartCatalog(scored, keys) });
     venomRouter.keyPool.refresh(keys);
     attachPoolLedger(venomRouter.keyPool, keys);
