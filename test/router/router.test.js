@@ -309,6 +309,34 @@ test('gated rows never enter a tier pool until the entitlement is met', () => {
   assert.ok(met.max.some((r) => r.modelId === 'gemini-4-argon'), 'a met entitlement routes at the frontier');
 });
 
+test('the engine diets the dispatched body at its door (step 6)', async () => {
+  const catalog = buildSmartCatalog([
+    { id: 'l1', provider_id: 'groq', model_id: 'lite-m', score: 25, score_source: 'aa', cost_in_per_m: 0, cost_kind: 'free', tools: true },
+  ], [{ id: 'k1', providerId: 'groq', tier: 'free' }]);
+  let seen = null;
+  const engine = new VenomCascadeEngine({
+    smartCatalog: catalog,
+    keyPool: new KeyPoolManager({ keys: [{ id: 'k1', providerId: 'groq', tier: 'free' }] }),
+    dispatchUpstream: async (route, payload) => { seen = payload; return { text: 'ok' }; },
+  });
+  const fatTool = 'x'.repeat(40000);
+  const messages = [
+    { role: 'system', content: 'You are an agent.' },
+    { role: 'user', content: 'start' },
+    { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'c1', content: fatTool },
+    { role: 'user', content: 'continue' },
+  ];
+  const payload = { messages, body: { messages, model: 'venom-lite' } };
+  await engine.route('venom-lite', payload);
+  assert.ok(seen, 'the request was dispatched');
+  const toolMsg = seen.body.messages.find((m) => m.role === 'tool');
+  assert.ok(toolMsg.content.length < fatTool.length, 'the wire body carries the dieted tool result, not the original');
+  assert.match(toolMsg.content, /venom-router: trimmed/);
+  assert.equal(seen.body.messages[0].content, 'You are an agent.', 'the pinned prefix is byte-identical on the wire');
+  assert.ok(payload.contextDiet && payload.contextDiet.trimmedTools >= 1, 'the diet report rides on the payload');
+});
+
 // ---------------------------------------------------------------------------
 // Pool-aware picking (tier design §2.2, build step 3)
 // ---------------------------------------------------------------------------

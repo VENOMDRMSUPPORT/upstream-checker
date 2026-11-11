@@ -2,7 +2,7 @@
 
 > GENERATED FILE — do not edit by hand. Regenerate with: npm run repo:map
 
-236 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
+238 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
 
 The architecture behind these files — boot order, IPC channels, the two databases, the request lifecycle — is in [ARCHITECTURE.md](ARCHITECTURE.md). Task recipes are in [COOKBOOK.md](COOKBOOK.md).
 
@@ -125,7 +125,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | --- | --- |
 | 2 | Log pages — Runs, Requests and Monitoring |
 
-### src/router/index.js — 1194 lines
+### src/router/index.js — 1218 lines
 
 *(no section banners)*
 
@@ -419,7 +419,8 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
-| `index.js` | 1194 | Venom router plane: multi-account smart routing behind one local endpoint. | ROUTER_PORT, ROUTER_HOST, normalizeGatewayPort, TIER_DRAIN_ORDER, TIER_RANK, canonicalSlug, upstreamModelId, compressToolMessages, rescuePlainTextToolCalls, analyzeCascadeStage, PRO_MIN_SCORE, PRO_EFFICIENT_MAX, +32 more |
+| `context-diet.js` | 165 | Gateway context diet (tier design §2.8, step 6) | CHARS_PER_TOKEN, DEFAULT_MAX_TOKENS, TOOL_CAPS_CHARS, TOOL_FLOOR_CHARS, DEFAULT_KEEP_RECENT, estimateTextTokens, messageText, estimateMessageTokens, trimText, pinnedIndices, toUnits, applyContextDiet |
+| `index.js` | 1218 | Venom router plane: multi-account smart routing behind one local endpoint. | ROUTER_PORT, ROUTER_HOST, normalizeGatewayPort, TIER_DRAIN_ORDER, TIER_RANK, canonicalSlug, upstreamModelId, compressToolMessages, rescuePlainTextToolCalls, analyzeCascadeStage, PRO_MIN_SCORE, PRO_EFFICIENT_MAX, +32 more |
 | `pool-ledger.js` | 141 | Pool window ledger (tier design §2.1, build step 2): how much of | HOUR_MS, POOL_WINDOWS, poolIdOf, emptyWindow, addRow, createPoolLedger, rankPoolsByRemaining |
 
 ### src/wire/
@@ -565,9 +566,10 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
+| `context-diet.test.js` | 105 | Step 6 (§2.8): the gateway context diet. What is resent on every | a small conversation passes through untouched, tool results diet by recency: the newest keeps the most, the static prefix is pinned byte-for-byte, even under elision pressure, the window cap elides whole turns and says so, once, the most recent messages are never elided, even past the cap, non-string content is counted, never mangled |
 | `pool-ledger.test.js` | 152 | The pool window ledger (tier design §2.1, build step 2): per-pool | poolIdOf prefers the shared pool id and falls back to the key itself, the ledger needs a reader, snapshot groups keys into pools and sums each rolling window, a shared pool sums its keys once, under one pool id, rows for unknown keys are ignored, and custom windows are honoured, ranking prefers the fullest window when budgets are known |
 | `profiles.test.js` | 267 | Venom Profiles: tier differentiation, heuristic scoring, lead-analyst | frontier VQ 56-58 rows reach venom-max and the pro capable rung, fake and non-text rows never enter any tier or the counts, formatModelDisplayName strips routing prefixes, upstream id stays raw, unscored rows stay unscored: no invented number, and the counts say so, buildProfilesPayload carries per-profile target lists with key counts, venom-max falls back to the longest draft when synthesis fails |
-| `router.test.js` | 650 | Router plane: smart catalog split, three-level key isolation, cascade | gateway port falls back to the default outside 1024..65535, identity keeps the raw upstream address apart from the match key, tier admission reads evidence, not invention (foundation rebuild R3), lite orders by measured speed before score (foundation rebuild R3), smart catalog preserves upstream ids and splits three tiers, key pool isolates a model-on-key failure from the rest of the key |
+| `router.test.js` | 678 | Router plane: smart catalog split, three-level key isolation, cascade | gateway port falls back to the default outside 1024..65535, identity keeps the raw upstream address apart from the match key, tier admission reads evidence, not invention (foundation rebuild R3), lite orders by measured speed before score (foundation rebuild R3), smart catalog preserves upstream ids and splits three tiers, key pool isolates a model-on-key failure from the rest of the key |
 
 ### test/wire/
 
@@ -639,6 +641,7 @@ Static relative imports only (`require`, `import … from`, `import()`). Builtin
 | `src/oauth/profiles.js` | `scripts/live/verify-antigravity.mjs`, `src/oauth/index.js`, `test/oauth/loopback.test.js` |
 | `src/oauth/web-session.js` | `src/oauth/index.js`, `test/oauth/web-session.test.js` |
 | `src/renderer/ui-stepper.js` | `test/renderer/ui-stepper.test.js` |
+| `src/router/context-diet.js` | `src/router/index.js`, `test/router/context-diet.test.js` |
 | `src/router/index.js` | `src/main.js`, `test/router/profiles.test.js`, `test/router/router.test.js` |
 | `src/router/pool-ledger.js` | `src/router/index.js`, `test/router/pool-ledger.test.js` |
 | `src/user-data.js` | `src/main.js`, `test/user-data.test.js` |

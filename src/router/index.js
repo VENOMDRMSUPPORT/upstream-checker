@@ -10,6 +10,7 @@
 
 const http = require('http');
 const poolLedger = require('./pool-ledger');
+const { applyContextDiet } = require('./context-diet');
 
 const ROUTER_PORT = 28228;
 const ROUTER_HOST = '127.0.0.1';
@@ -862,6 +863,7 @@ class VenomCascadeEngine {
     if (typeof pipe !== 'function') {
       throw Object.assign(new Error('no stream pipe wired'), { code: 'NO_STREAM' });
     }
+    this.applyDiet(payload);
     const pool = this.streamPool(tier);
     const routes = this.orderedRoutes(this.candidateRoutes(pool, 6));
     if (!routes.length) throw Object.assign(new Error(`no ${tier} route has a live key`), { code: 'NO_ROUTE' });
@@ -920,7 +922,27 @@ class VenomCascadeEngine {
     }
   }
 
+  // Context diet (§2.8, step 6): shrink what is resent, once per
+  // client request, on the exact arrays that will be dispatched —
+  // payload.messages AND body.messages, because the body is what
+  // reaches the wire. (The gateway's older tool trim edited only the
+  // engine's private copy; the dispatched body carried the full
+  // history.) The diet report rides on the payload.
+  applyDiet(payload) {
+    if (!payload || typeof payload !== 'object') return;
+    const source = Array.isArray(payload.messages) ? payload.messages
+      : (payload.body && Array.isArray(payload.body.messages) ? payload.body.messages : null);
+    if (!source) return;
+    const { messages, report } = applyContextDiet(source);
+    payload.messages = messages;
+    if (payload.body && Array.isArray(payload.body.messages)) {
+      payload.body = { ...payload.body, messages };
+    }
+    payload.contextDiet = report;
+  }
+
   route(tier, payload = {}) {
+    this.applyDiet(payload);
     // Background forcing (§2.3): traffic flagged background — scheduled
     // jobs, monitoring, quick lookups — is served by the lite pool
     // only, whatever tier it named. It never draws on the Pro
@@ -1092,7 +1114,9 @@ function createVenomHttpGateway({ cascadeEngine = null, port = ROUTER_PORT, host
       const background = isBackgroundRequest(req, body);
       const tier = background ? 'venom-lite' : (requested.startsWith('venom-') ? requested : 'venom-pro');
       const thinking = maxThinkingLevel(req, body);
-      const messages = compressToolMessages(body.messages || [{ role: 'user', content: body.input || '' }]);
+      // The engine applies the context diet (§2.8) at its own door to
+      // the arrays it dispatches — including this body's messages.
+      const messages = body.messages || [{ role: 'user', content: body.input || '' }];
       // True SSE passthrough when a streaming dispatcher is wired (main):
       // the provider's bytes move chunk by chunk after its 200 OK, with
       // automatic failover to the next route only before the first chunk.
@@ -1181,7 +1205,7 @@ function createVenomHttpGateway({ cascadeEngine = null, port = ROUTER_PORT, host
 }
 
 module.exports = { ROUTER_PORT, ROUTER_HOST, normalizeGatewayPort, canonicalSlug, upstreamModelId,
-  compressToolMessages, rescuePlainTextToolCalls,
+  compressToolMessages, applyContextDiet, rescuePlainTextToolCalls,
   analyzeCascadeStage, rowCost, formatModelDisplayName, isRoutableTextRow,
   entitlementGate, isEntitlementBlocked,
   buildSmartCatalog, buildProfilesPayload,
