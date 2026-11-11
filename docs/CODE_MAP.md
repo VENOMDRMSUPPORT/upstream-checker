@@ -2,7 +2,7 @@
 
 > GENERATED FILE — do not edit by hand. Regenerate with: npm run repo:map
 
-213 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
+215 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
 
 The architecture behind these files — boot order, IPC channels, the two databases, the request lifecycle — is in [ARCHITECTURE.md](ARCHITECTURE.md). Task recipes are in [COOKBOOK.md](COOKBOOK.md).
 
@@ -133,7 +133,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 *(no section banners)*
 
-### src/renderer/index.html — 2477 lines
+### src/renderer/index.html — 2478 lines
 
 | Line | Section |
 | --- | --- |
@@ -386,7 +386,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `ui-stepper.js` | 114 | Design system — number input stepper | CHEVRON_UP, CHEVRON_DOWN, enhance, input, stepper, label, stepUnit, unit, repeatTimer, repeatInterval, stopRepeat, enhanceAll, +1 more |
 | `ulid.js` | 22 | Run ids — ULID, the same format as src/db/ulid.js | newUlid |
 | `updates.js` | 292 | Update badge, modal and inert release-note rendering; download state belongs to this controller. | VENOM_RENDERER |
-| `index.html` | 2477 | App shell markup: nav, every page, the drawers and modals |  |
+| `index.html` | 2478 | App shell markup: nav, every page, the drawers and modals |  |
 | `styles.css` | 13579 | The whole stylesheet: tokens, themes, accents, components |  |
 
 ### src/renderer/providers/
@@ -395,6 +395,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | --- | --- | --- | --- |
 | `antigravity.js` | 225 | ANTIGRAVITY — integrated provider module | INTEGRATED_PROVIDERS, ANTIGRAVITY_BASE, familyOf, accountFamilies, familyAllowed |
 | `apinex.js` | 157 | APINEX — integrated provider module | INTEGRATED_PROVIDERS, APINEX_WEB_BASE |
+| `catalog-providers.js` | 165 | Catalog providers — the generic adapter | INTEGRATED_PROVIDERS, FREE_CATALOG |
 | `darkapi.js` | 54 | DARK API — integrated provider module | INTEGRATED_PROVIDERS |
 | `devora.js` | 61 | DEVORA — integrated provider module | INTEGRATED_PROVIDERS |
 | `experiential.js` | 129 | Experiential Labs — integrated provider module | INTEGRATED_PROVIDERS |
@@ -508,6 +509,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `appearance-dom.js` | 39 | Minimal DOM boundary for production appearance controls; live gates prove geometry. |  |
 | `appearance.test.js` | 56 | Appearance factory behavior with a small DOM boundary; production functions are not copied. | system theme changes only apply while following the system, unknown accents are refused without changing or saving appearance |
 | `catalog-caps.test.js` | 139 | catalog-caps.js is a plain browser script of top-level consts and function | a published modality list that omits a token answers no, vision and audio are read from the input modalities, case-insensitively, only a real boolean counts as a published flag, files prefers the published flag and falls back to the modality list, a declared generator answers yes with no modality published, capabilityOrigin names where each answer was read from |
+| `catalog-providers.test.js` | 92 | The catalog providers are the generic adapter's proof: six real providers | all six catalog providers register, free-tier labelling is honest: five free, Cerebras is a trial |
 | `decision-probe.test.js` | 126 | The TypeSafe /systemone decision wire protocol — the `noul` probe body and | nara declares the TypeSafe decision hooks at adapter level, nara decisionProbe builds the noul question body, experiential declares the same hooks at adapter level, readDecisionAnswer scores an object answer, named in the row, readDecisionAnswer scores a bare numeric answer, readDecisionAnswer returns null when no probability comes back |
 | `key-budget-free.test.js` | 38 | Free-budget checks through the same production pacing used by test attempts. | a key under its cap has a free slot, a key at its cap is not free, slots older than a minute do not count against the cap, no configured cap means no constraint (always free) |
 | `key-quota-state.test.js` | 54 | The complete key-policy factory owns these quota predicates. Evaluating it | a per-model refusal is a partial spend, never a spent key, a model-less record spends the whole key, a reset-less record expires after the TTL, a dated record is untouched by the TTL |

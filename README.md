@@ -10,7 +10,7 @@ installs migrate their data folder in place.
 
 ## Features
 
-- **Provider and key management** — connect twelve integrated provider adapters,
+- **Provider and key management** — connect eighteen integrated provider adapters,
   keep key values encrypted by Windows DPAPI, and never expose plaintext keys to
   the renderer.
 - **Multi-key discovery** — ask every active key for its roster and retain which
@@ -58,6 +58,12 @@ include:
 | Apinex | `https://api.apinex.bond/v1` |
 | KiosAPI | `https://kiosapi.com/v1` |
 | Antigravity | `https://daily-cloudcode-pa.googleapis.com` |
+| Groq | `https://api.groq.com/openai/v1` |
+| Cerebras | `https://api.cerebras.ai/v1` |
+| Google AI Studio | `https://generativelanguage.googleapis.com/v1beta/openai` |
+| OpenRouter | `https://openrouter.ai/api/v1` |
+| GitHub Models | `https://models.github.ai/inference` |
+| Pollinations | `https://gen.pollinations.ai/v1` |
 
 All adapters use the shared provider contract. Most expose OpenAI-compatible
 `GET /models` and `POST /chat/completions`; provider-specific hooks may change

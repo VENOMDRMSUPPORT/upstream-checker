@@ -42,6 +42,12 @@ other sections when you want to know what the provider does.
 | Devora | [DEVORA.md](./DEVORA.md) | Built-in adapter reference: event/unlimited subscription behavior. |
 | Token Harbor | [TOKENHARBOR.md](./TOKENHARBOR.md) | Built-in adapter reference: `:free` routes and quota headers. |
 | Antigravity | [ANTIGRAVITY.md](./ANTIGRAVITY.md) | Built-in adapter reference: Google's Antigravity IDE entitlement — a browser sign-in (`loopback`), several accounts, and a service that does not speak OpenAI, so the app has a wire for it. |
+| Groq | [GROQ.md](./GROQ.md) | Catalog provider (generic adapter): Free Plan with per-model, organization-wide limits. |
+| Cerebras | [CEREBRAS.md](./CEREBRAS.md) | Catalog provider (generic adapter): no renewing free tier — a one-time $5 trial behind a payment method; labelled as paid. |
+| Google AI Studio | [GOOGLEAISTUDIO.md](./GOOGLEAISTUDIO.md) | Catalog provider (generic adapter): Gemini API key over Google's OpenAI-compatible layer; free tier with the terms' data-use note. |
+| OpenRouter | [OPENROUTER.md](./OPENROUTER.md) | Catalog provider (generic adapter): `:free` models at 20 req/min, 50 req/day per account (1,000 after $10 lifetime credits). |
+| GitHub Models | [GITHUBMODELS.md](./GITHUBMODELS.md) | Catalog provider (generic adapter): free prototyping tier per account and model; a retirement claim is recorded as uncorroborated in the doc. |
+| Pollinations | [POLLINATIONS.md](./POLLINATIONS.md) | Catalog provider (generic adapter): keyed Pollen API on gen.pollinations.ai; the keyless legacy lane is deprecated. |
 
 ## Evidence rules
 
