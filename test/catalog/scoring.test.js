@@ -191,6 +191,34 @@ test("attachScores: no match leaves score/rank null instead of guessing", () => 
   assert.equal(providerRows[0].matched_id, null);
 });
 
+test("attachScores: a spec-rich unmatched row stays unscored even when a spec fit exists (no local fabrication)", () => {
+  // A catalog rich enough to fit the old spec regression: 90 measured
+  // rows whose intelligence is a clean function of price. The old
+  // attachScores estimated any unmatched row from its declared spec
+  // sheet and pinned dozens of unrelated models at the fit's floor —
+  // the same 3.1 for a Flash, a guard classifier and an embedding.
+  const catalogRows = [];
+  for (let i = 0; i < 90; i += 1) {
+    const cost = 0.1 * (1.08 ** i);
+    catalogRows.push({
+      id: `ref-${i}`, name: `Ref ${i}`,
+      aa_intelligence: Math.round((10 + 12 * Math.log10(cost + 0.05)) * 10) / 10,
+      cost_in_per_m: cost, context_tokens: 128000,
+      release_date: "2026-01-01", reasoning: true, tools: true,
+    });
+  }
+  assignScores(catalogRows);
+  const providerRows = [{
+    id: "brand-new-flash", name: "Brand New Flash",
+    cost_in_per_m: 0.3, context_tokens: 1000000,
+    release_date: "2026-06-01", reasoning: true, tools: true,
+  }];
+  attachScores(providerRows, catalogRows);
+  assert.equal(providerRows[0].score, null, "unknown stays unknown — no score is invented from a spec sheet");
+  assert.equal(providerRows[0].score_source, null);
+  assert.equal(providerRows[0].rank, null);
+});
+
 test("attachScores keeps low/high/thinking/max model identities distinct", () => {
   const catalogRows = [
     { id: "openai/gpt-5-low", name: "GPT-5 Low", score: 40, score_source: "aa", score_basis: ["aa"], rank: 4 },

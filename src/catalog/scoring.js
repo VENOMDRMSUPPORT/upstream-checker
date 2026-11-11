@@ -156,58 +156,6 @@ function fitSpec(rows) {
   return { n: train.length, r2, predict: (row) => dot(specFeatures(row, defaults)) };
 }
 
-// Only a row that declared something is estimated. With no cost, no context, no
-// release date and no capabilities, the fit would answer from the training
-// medians alone — a number describing the market, not the model.
-// An empty string is not a declaration. The adapters hand back `release_date: ""`
-// for a model they know nothing about, and `"" != null` is true — so every thin
-// row used to pass this test and take the training mean as its score.
-function hasSpecSignal(row) {
-  if (typeof row.cost_in_per_m === "number" && row.cost_in_per_m > 0) return true;
-  if (typeof row.context_tokens === "number" && row.context_tokens > 0) return true;
-  if (typeof row.release_date === "string" && row.release_date.trim() !== "") return true;
-  return row.reasoning === true || row.tools === true;
-}
-
-// The spec fit lives in a WeakMap keyed by the catalog row array, because
-// attachScores is handed the same array on every render: one sync pays for one
-// fit and every render after it is free.
-const specModelCache = new WeakMap();
-
-/**
- * The local estimator, fitted on the catalog and cached against it.
- *
- * This is what scores a row the reference does not carry. A provider that adds a
- * model tomorrow cannot be matched against a catalog that has never heard of it,
- * but it can still declare a price, a context window and its capabilities — and
- * those are exactly the features the fit regressed onto the AA scale. So the
- * score comes out of arithmetic over metadata already on hand: no request, no
- * key, no quota, and nothing to wait for.
- *
- * Returns null when the catalog is too thin to fit.
- */
-function specModelFor(catalogRows) {
-  if (!catalogRows || !catalogRows.length) return null;
-  const cached = specModelCache.get(catalogRows);
-  if (cached !== undefined) return cached;
-  const fit = fitSpec(catalogRows);
-  let model = null;
-  if (fit) {
-    const measured = catalogRows.filter((r) => r.aa_intelligence != null);
-    const lowest = measured.reduce((min, r) => Math.min(min, r.aa_intelligence), Infinity);
-    const highest = measured.reduce((max, r) => Math.max(max, r.aa_intelligence), 0);
-    model = {
-      predict: fit.predict,
-      r2: fit.r2,
-      n: fit.n,
-      floor: Number.isFinite(lowest) ? lowest * 0.9 : 0,
-      ceiling: highest * 1.1 || 100,
-    };
-  }
-  specModelCache.set(catalogRows, model);
-  return model;
-}
-
 /**
  * Set score / score_source / score_basis on every row.
  * Returns a summary of the fits ({ n, r2 } per estimator, or null) for /api/health.
@@ -552,21 +500,14 @@ function attachScores(rows, catalogRows) {
       row.score_proxy_for = row.id;
       continue;
     }
-    // Nothing in the reference carries this model. Rather than leave the row
-    // blank, estimate it from the facts the provider declared, using the same
-    // fit that scores the reference's own unmeasured rows — flagged "local" so
-    // the number is never mistaken for a borrowed or measured one.
-    const local = specModelFor(catalogRows);
-    if (local && hasSpecSignal(row)) {
-      row.score = Math.round(clamp(local.predict(row), local.floor, local.ceiling) * 10) / 10;
-      row.score_source = "local";
-      row.score_basis = ["spec"];
-      row.catalog_rank = null;
-      row.matched_id = null;
-      row.bench_id = null;
-      delete row.score_proxy_for;
-      continue;
-    }
+    // Nothing in the reference carries this model, and no proxy route
+    // borrows for it: the row is UNSCORED. An earlier version estimated
+    // a "local" score from the declared spec sheet (price, context,
+    // age) — a guess that pinned dozens of unrelated models at the
+    // fit's floor (the same 3.1 for a Flash, a guard classifier and an
+    // embedding alike) and ranked them as if measured. Unknown stays
+    // unknown (foundation rebuild doctrine): the row can still enter
+    // Lite on its price fact and Pro on this app's own probe proof.
     row.score = null;
     row.score_source = null;
     row.score_basis = [];
@@ -587,6 +528,4 @@ module.exports = {
   buildMatchIndex,
   lookupCatalogRow,
   attachScores,
-  specModelFor,
-  hasSpecSignal,
 };
