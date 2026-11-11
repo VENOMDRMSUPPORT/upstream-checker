@@ -56,4 +56,30 @@ function attachMeasured(rows, cards) {
   return rows;
 }
 
-module.exports = { measuredKey, buildMeasuredCards, rowMeasuredCard, attachMeasured };
+// Probe facts (foundation rebuild R2): the latest capability verdicts
+// this app measured for the row's model, folded from the model_probes
+// rows ({ providerId, modelId, kind, ok, measuredAt }). A row with no
+// probe rows gets probeFacts: null — never probed is its own state,
+// distinct from a probe that ran and failed.
+function attachProbeFacts(rows, probeRows) {
+  const byModel = new Map();
+  for (const p of probeRows || []) {
+    if (!p || !p.providerId || !p.modelId) continue;
+    const key = measuredKey(p.providerId, p.modelId);
+    const facts = byModel.get(key) || { chatOk: null, toolsObserved: null, probedAt: null };
+    if (p.kind === 'chat') facts.chatOk = p.ok === true;
+    if (p.kind === 'tools') facts.toolsObserved = p.ok === true;
+    if (p.measuredAt && (!facts.probedAt || p.measuredAt > facts.probedAt)) facts.probedAt = p.measuredAt;
+    byModel.set(key, facts);
+  }
+  for (const row of rows || []) {
+    if (!row) continue;
+    const providerId = row.providerId || row.provider_id;
+    const modelId = row.modelId || row.model_id;
+    row.probeFacts = providerId && modelId
+      ? byModel.get(measuredKey(providerId, modelId)) || null : null;
+  }
+  return rows;
+}
+
+module.exports = { measuredKey, buildMeasuredCards, rowMeasuredCard, attachMeasured, attachProbeFacts };

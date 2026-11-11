@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { buildMeasuredCards, attachMeasured, rowMeasuredCard } = require('../../src/catalog/measured');
+const { buildMeasuredCards, attachMeasured, attachProbeFacts, rowMeasuredCard } = require('../../src/catalog/measured');
 
 // Measured cards (foundation rebuild R1): first-party observations
 // stamped onto catalog rows. Unmeasured rows carry null — the absence
@@ -36,4 +36,21 @@ test('attachMeasured stamps snake_case and camelCase rows; unmeasured rows get n
   assert.strictEqual(rows[3].measured, null);
   assert.strictEqual(rowMeasuredCard(null, cards), null);
   assert.strictEqual(rowMeasuredCard(rows[0], null), null);
+});
+
+test('attachProbeFacts folds probe verdicts per model; unprobed rows get null', () => {
+  const probeRows = [
+    { providerId: 'apinex', modelId: 'free/kimi-k3', kind: 'chat', ok: true, measuredAt: 100 },
+    { providerId: 'apinex', modelId: 'free/kimi-k3', kind: 'tools', ok: true, measuredAt: 120 },
+    { providerId: 'groq', modelId: 'gpt-oss-120b', kind: 'chat', ok: false, measuredAt: 90 },
+  ];
+  const rows = [
+    { provider_id: 'apinex', model_id: 'free/kimi-k3' },
+    { providerId: 'groq', modelId: 'gpt-oss-120b' },
+    { provider_id: 'nara', model_id: 'agnes-2.5-flash' },
+  ];
+  attachProbeFacts(rows, probeRows);
+  assert.deepStrictEqual(rows[0].probeFacts, { chatOk: true, toolsObserved: true, probedAt: 120 });
+  assert.deepStrictEqual(rows[1].probeFacts, { chatOk: false, toolsObserved: null, probedAt: 90 });
+  assert.strictEqual(rows[2].probeFacts, null);
 });

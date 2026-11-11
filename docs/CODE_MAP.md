@@ -2,7 +2,7 @@
 
 > GENERATED FILE — do not edit by hand. Regenerate with: npm run repo:map
 
-232 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
+236 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
 
 The architecture behind these files — boot order, IPC channels, the two databases, the request lifecycle — is in [ARCHITECTURE.md](ARCHITECTURE.md). Task recipes are in [COOKBOOK.md](COOKBOOK.md).
 
@@ -66,15 +66,15 @@ The architecture behind these files — boot order, IPC channels, the two databa
 
 Files of 700+ lines, with the section banners inside them. Open the window you need — do not read one of these whole. Line numbers are 1-based.
 
-### src/main.js — 1312 lines
+### src/main.js — 1376 lines
 
 | Line | Section |
 | --- | --- |
-| 491 | Local database — venom.db (src/db) |
-| 511 | Request log — venom-logs.db (src/logs) |
-| 598 | Model catalog engine — src/catalog |
-| 1188 | API requests (src/api-request.js) |
-| 1226 | Old request log file (requests.log) |
+| 555 | Local database — venom.db (src/db) |
+| 575 | Request log — venom-logs.db (src/logs) |
+| 662 | Model catalog engine — src/catalog |
+| 1252 | API requests (src/api-request.js) |
+| 1290 | Old request log file (requests.log) |
 
 ### src/oauth/index.js — 717 lines
 
@@ -125,7 +125,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | --- | --- |
 | 2 | Log pages — Runs, Requests and Monitoring |
 
-### src/router/index.js — 1208 lines
+### src/router/index.js — 1209 lines
 
 *(no section banners)*
 
@@ -265,7 +265,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `api-request.js` | 226 | api-request — every outbound request the renderer asks for | CONTENT_TOKEN, CANCEL_REASONS, CUT_OFF, createApiRequester |
 | `flush.js` | 38 | Close handshake with the renderer | DEFAULT_FLUSH_TIMEOUT_MS, requestFlush |
 | `keystore.js` | 74 | API keys at rest | decryptKeyEntry, encryptKeyEntry, eachStoredKey, countPlaintextKeys |
-| `main.js` | 1312 | Main process: data folder, boot order, IPC wiring, auto-updater | venomRouter, venomGateway, venomGatewayStarting, readRosterRowsForRouter, startVenomRouter, gatewayPort, upstreamSpec, attachPoolLedger, attachMeasurements, buildVenomRouter, venomGatewayStarted, ensureVenomGateway, +38 more |
+| `main.js` | 1376 | Main process: data folder, boot order, IPC wiring, auto-updater | venomRouter, venomGateway, venomGatewayStarting, readRosterRowsForRouter, startVenomRouter, gatewayPort, upstreamSpec, attachPoolLedger, attachMeasurements, venomProbeContext, probeRunInFlight, scheduleCatalogProbes, +41 more |
 | `preload.js` | 151 | contextBridge surface — the renderer's only door to main | minimize, maximize, close, setWindowIcon, authStatus, authSetup, authUnlock, authChange, authLock, authActivity, onAuthLocked, apiRequest, +60 more |
 | `user-data.js` | 40 | Where the app keeps its data. Electron names the userData folder after the | LEGACY_DIR, CURRENT_DIR, DEV_DIR, resolveUserDataDir |
 
@@ -287,7 +287,8 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `fetch.js` | 78 | The one JSON fetch helper for every upstream call the catalog makes. Sends | DEFAULT_TIMEOUT_MS, RETRY_DELAY_MS, DEFAULT_CACHE_TTL_MS, friendlyMessage, createFetcher |
 | `ipc.js` | 527 | src/catalog/ipc.js | LATENCY_SAMPLES_KEPT, DATA_CODES, readPurgeWindowDays, purgeWindowDays, catalogError, COMPARE_FIELDS, same, diffRow, publishedOnly, readHealth, appendLatency, CHECKS_SAMPLES_KEPT, +3 more |
 | `keys.js` | 311 | Model-name normalization. The same model shows up under different names in | MATCH_AMBIGUOUS, LAB_PROVIDERS, PRICING_MODIFIERS, QUALITY_MODIFIERS, BUILD_SUFFIX_RE, VARIANT_MODIFIERS, PARAM_SIZE_RE, QUANT_TOKENS, cleanModelId, modelSlug, identityKey, normalizeName, +15 more |
-| `measured.js` | 60 | First-party measured model cards (foundation rebuild, step R1). | measuredKey, buildMeasuredCards, rowMeasuredCard, attachMeasured |
+| `measured.js` | 86 | First-party measured model cards (foundation rebuild, step R1). | measuredKey, buildMeasuredCards, rowMeasuredCard, attachMeasured, attachProbeFacts |
+| `probe.js` | 72 | Capability probes (foundation rebuild, step R2). | PROBE_STALE_MS, PROBE_MAX_PER_RUN, PROBE_TOOL, probeModel |
 | `row.js` | 348 | One adapter's model object → the shared provider row the reference merge | ROW_FIELDS, firstNumber, positive, pick, dedupe, LAB_TOKENS, labTokenOf, familyOf, costKind, readPricing, readsTools, readsReasoning, +7 more |
 | `scoring.js` | 593 | Score estimation, dense ranking, and the lookup that gives provider rows their | MIN_FIT_SAMPLES, MIN_FIT_R2, SPEC_AGE_CAP_MONTHS, SCORE_QUALITY, scoreQuality, fitLinear, solveLinear, specFeatures, fitSpec, hasSpecSignal, specModelCache, specModelFor, +15 more |
 | `snapshot.js` | 269 | src/catalog/snapshot.js | NEW_WINDOW_DAYS, REMOVED_WINDOW_DAYS, DROP_CONFIRMATION_MS, DROP_MIN_PREVIOUS, DROP_MIN_LOSS, invalidPayload, suspiciousDrop, daysBetween, validateProviderRows, cloneRows, DERIVED_FIELDS, BLANK_STRING_FIELDS, +7 more |
@@ -301,10 +302,10 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `cipher.js` | 49 | Secrets at rest — the enc:v1: envelope | ENC_PREFIX, isEnvelope, createCipher, revealCached |
 | `explorer.js` | 53 | Read-only, bounded database inspection. Identifiers are taken only from | MAX_LIMIT, REDACTED_COLUMN, quoteIdentifier, inspectDatabase |
 | `import-json.js` | 405 | One-shot import of the legacy JSON files | FILES, READ_ATTEMPTS, READ_GAP_MS, ImportAbort, isObject, renamedAs, plural, listImportedFiles, readWithRetry, parse, normaliseConfig, normaliseHistory, +4 more |
-| `index.js` | 160 | Local database — venom.db | DB_FILE, BACKUPS_KEPT, DbTooNewError, applyPragmas, latestVersion, backupBeforeMigrate, migrate, getMeta, setMeta, createRepos, close, open |
+| `index.js` | 162 | Local database — venom.db | DB_FILE, BACKUPS_KEPT, DbTooNewError, applyPragmas, latestVersion, backupBeforeMigrate, migrate, getMeta, setMeta, createRepos, close, open |
 | `ipc.js` | 103 | Data IPC — the renderer's only way to the database | readConfig, registerDataIpc |
 | `keys.js` | 168 | Placeholders → secrets, for outgoing requests | TOKEN, HAS_TOKEN, originOf, collector, createKeyResolver |
-| `migrations.js` | 320 | Schema migrations |  |
+| `migrations.js` | 342 | Schema migrations |  |
 | `ulid.js` | 23 | ULID: 48-bit millisecond time + 80 random bits in Crockford base32. Sorts by | ALPHABET, ulid |
 
 ### src/db/repos/
@@ -313,6 +314,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | --- | --- | --- | --- |
 | `auth.js` | 82 | The app lock row — app_lock | createAuthRepo |
 | `history.js` | 106 | Run history — test_runs + test_results | ULID, DEFAULT_MAX_RUNS, MAX_RUNS_CEILING, historyCap, num, createHistoryRepo |
+| `model-probes.js` | 51 | First-party capability probes — model_probes | PROBE_KINDS, createModelProbesRepo |
 | `providers.js` | 492 | Providers and their API keys | KEY_PLACEHOLDER, OAUTH_PLACEHOLDER, ANY_PLACEHOLDER, KEY_ID, KEY_TIERS, normaliseTier, maskKey, createProvidersRepo |
 | `roster-events.js` | 123 | Roster change events — roster_events | EVENTS_KEPT, KINDS, createRosterEventsRepo |
 | `secrets.js` | 70 | Named secrets — the OpenRouter key | SECRET_ORIGINS, createSecretsRepo |
@@ -417,7 +419,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
-| `index.js` | 1208 | Venom router plane: multi-account smart routing behind one local endpoint. | ROUTER_PORT, ROUTER_HOST, normalizeGatewayPort, TIER_DRAIN_ORDER, TIER_RANK, canonicalSlug, upstreamModelId, evaluateModelCapabilities, compressToolMessages, rescuePlainTextToolCalls, analyzeCascadeStage, PRO_MIN_SCORE, +37 more |
+| `index.js` | 1209 | Venom router plane: multi-account smart routing behind one local endpoint. | ROUTER_PORT, ROUTER_HOST, normalizeGatewayPort, TIER_DRAIN_ORDER, TIER_RANK, canonicalSlug, upstreamModelId, evaluateModelCapabilities, compressToolMessages, rescuePlainTextToolCalls, analyzeCascadeStage, PRO_MIN_SCORE, +37 more |
 | `pool-ledger.js` | 141 | Pool window ledger (tier design §2.1, build step 2): how much of | HOUR_MS, POOL_WINDOWS, poolIdOf, emptyWindow, addRow, createPoolLedger, rankPoolsByRemaining |
 
 ### src/wire/
@@ -458,8 +460,9 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `fetch.test.js` | 165 |  | an answer comes back parsed with accept: application/json added, a caller header survives, and a caller-set accept wins, exactly one retry on any failure, and the answer still arrives, the retry waits one full RETRY_DELAY_MS before the second attempt, a non-2xx is a failure even though the transport worked, unparsable JSON fails and retries: a truncated payload is not a source |
 | `ipc.test.js` | 946 | The seven catalog channels, the single-flight door and the read/write split. | registers exactly the seven channels spec §6 names, purge window reads the saved setting, clamped, defaulting to thirty days, two overlapping ingests for one provider cost one snapshot write, catalog:health keeps only the last 20 samples, catalog:sources syncs when forced and reports without the TTL otherwise, catalog:sources answers with the engine summary, not with a bare ok |
 | `keys.test.js` | 144 | lib/keys.js is where every cross-source model match happens. These cases are |  |
-| `measured.test.js` | 40 | Measured cards (foundation rebuild R1): first-party observations | buildMeasuredCards keys cards by provider::model and skips unusable rows |
+| `measured.test.js` | 57 | Measured cards (foundation rebuild R1): first-party observations | buildMeasuredCards keys cards by provider::model and skips unusable rows, attachProbeFacts folds probe verdicts per model; unprobed rows get null |
 | `non-text.test.js` | 288 |  | a published non-text output is proof; silence is not, output_modalities reaches the row at all, a video model never enters the catalog, a row that publishes no modality is kept, the dropped rows are gone BEFORE the fits are computed, any one of the three proofs drops the row, and none of them keeps it |
+| `probe.test.js` | 54 | Capability probes (foundation rebuild R2): verdicts come from real | a model that answers and calls the tool earns both verdicts, a failed chat probe records the failure and never runs the tools probe, a tools call that itself errors records nothing for tools |
 | `row.test.js` | 374 |  | the row is exactly the reference shape, with nothing invented, an absent capability is null, never false — the rule the port rests on, today\, eight price spellings all land on cost per million, the preferred spelling wins when a provider co-publishes both spellings, a negative published price reads as null, and the kind says unknown |
 | `scoring.test.js` | 558 | lib/scoring.js turns catalog rows into score + rank. Fits run on synthetic | a provider row reaches a measured catalog row through its alias alone |
 | `snapshot.test.js` | 575 | src/catalog/snapshot.js diffs each sync against a store seam and reports which | one provider\, baseline sync: nothing is flagged new or removed, a model appearing after the baseline is flagged added and is_new, removed models are purged past REMOVED_WINDOW_DAYS, a custom purge window is honored instead of the default, moved reports the edge, not the window a change is still inside |
@@ -477,7 +480,8 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `import-json.test.js` | 480 |  | imports every file in one go and renames them, an I/O error that clears on a retry imports normally, a plaintext legacy key is encrypted on the way in, a legacy custom provider is imported as stored, flagged custom, keys without an id, with a duplicate id or an unusable id get fresh ids, a key with no value is skipped and reported |
 | `ipc.test.js` | 225 | The catalogue left this surface: the model pool moved to repos.snapshots and | registers exactly the data channels, read-config on an empty database, read-config hands out placeholders and hints, never keys, no reply hands a secret to the renderer, copy-key writes the clipboard in main and refuses a key it cannot read, copy-key works again once the app is unlocked |
 | `keys.test.js` | 288 | Needs escaping in JSON and in a URL. | a header placeholder becomes the key for its own provider, a placeholder in the URL is replaced URL-encoded, inside a JSON body the key is inserted JSON-escaped, a non-JSON string body gets the raw key, an object body is sent as JSON with the key inside, the longest matching key id wins |
-| `open.test.js` | 296 | Migration v2 is additive, so v1's own shape is worth pinning on its own — and it | schema v1: every table it shipped with, and install_id, schema v6 adds key tiers and the router tables without touching rows, schema v7 adds the OAuth account columns and touches no row, v3 is the irreversible one: backed up first, the legacy pool empty after, a v1 file upgrades to v2 with every row it held, pragmas on a file: WAL, NORMAL, foreign keys, busy timeout, temp store |
+| `model-probes.test.js` | 38 | model_probes (migration v8): the latest first-party capability | record upserts the latest verdict per kind and latest() maps it back, unknown kinds and missing ids are refused, never stored |
+| `open.test.js` | 308 | Migration v2 is additive, so v1's own shape is worth pinning on its own — and it | schema v1: every table it shipped with, and install_id, schema v6 adds key tiers and the router tables without touching rows, schema v7 adds the OAuth account columns and touches no row, schema v8 adds the model_probes table and touches no row, v3 is the irreversible one: backed up first, the legacy pool empty after, a v1 file upgrades to v2 with every row it held |
 | `providers.test.js` | 253 |  | the placeholder of the same key keeps the stored cipher, a new value replaces the secret and the next read sees it, sending the same plaintext back keeps the stored cipher, keys missing from the payload are deleted, a key id that another provider owns is refused, created_at survives updates and position follows payload order |
 | `roster-events.test.js` | 92 | Roster change events: one row per model arrival and departure, read by the | an empty store lists nothing and owes no unread, recorded arrivals and departures list newest-first with their facts, list filters by provider, kind and read state, with a clamped limit, markRead takes ids or everything, and concurrent arrivals stay unread, counts totals each kind under the current filter, record refuses an unknown kind and an empty batch writes nothing |
 | `settings-secrets.test.js` | 106 |  | settings rows round-trip JS types exactly, saveSettings rejects anything but an object, saveTest stores the test row as given, secrets: unknown names are refused, openRouterApiKey is a known secret bound to openrouter.ai, secrets: with OS encryption unavailable nothing is stored |
@@ -592,6 +596,7 @@ Static relative imports only (`require`, `import … from`, `import()`). Builtin
 | `src/catalog/ipc.js` | `src/main.js`, `test/catalog/ipc.test.js` |
 | `src/catalog/keys.js` | `src/catalog/build.js`, `src/catalog/row.js`, `src/catalog/scoring.js`, `test/catalog/keys.test.js` |
 | `src/catalog/measured.js` | `src/main.js`, `test/catalog/measured.test.js` |
+| `src/catalog/probe.js` | `src/main.js`, `test/catalog/probe.test.js` |
 | `src/catalog/row.js` | `src/catalog/ipc.js`, `test/catalog/ipc.test.js`, `test/catalog/row.test.js` |
 | `src/catalog/scoring.js` | `src/catalog/build.js`, `src/catalog/engine.js`, `test/catalog/non-text.test.js`, `test/catalog/scoring.test.js` |
 | `src/catalog/snapshot.js` | `src/catalog/ipc.js`, `test/catalog/non-text.test.js`, `test/catalog/snapshot.test.js` |
@@ -603,9 +608,10 @@ Static relative imports only (`require`, `import … from`, `import()`). Builtin
 | `src/db/index.js` | `src/main.js`, `test/check-import-counts.test.js`, `test/db/open.test.js`, `test/helpers.js` |
 | `src/db/ipc.js` | `src/main.js`, `test/db/explorer.test.js`, `test/db/ipc.test.js` |
 | `src/db/keys.js` | `src/main.js`, `test/db/keys.test.js` |
-| `src/db/migrations.js` | `src/db/index.js`, `test/db/auth-repo.test.js` |
+| `src/db/migrations.js` | `src/db/index.js`, `test/db/auth-repo.test.js`, `test/db/model-probes.test.js` |
 | `src/db/repos/auth.js` | `src/db/index.js`, `test/db/auth-repo.test.js` |
 | `src/db/repos/history.js` | `src/db/index.js`, `test/db/history.test.js` |
+| `src/db/repos/model-probes.js` | `src/db/index.js`, `test/db/model-probes.test.js` |
 | `src/db/repos/providers.js` | `src/db/import-json.js`, `src/db/index.js`, `test/db/providers.test.js` |
 | `src/db/repos/roster-events.js` | `src/db/index.js`, `test/db/roster-events.test.js` |
 | `src/db/repos/secrets.js` | `src/db/index.js`, `src/db/keys.js`, `test/db/settings-secrets.test.js` |

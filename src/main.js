@@ -160,8 +160,65 @@ function attachMeasurements(scoredRows) {
     const since = Date.now() - 30 * 24 * 60 * 60 * 1000;
     const cards = measured.buildMeasuredCards(logs.repos.query.modelMeasurements({ from: since }));
     measured.attachMeasured(scoredRows, cards);
+    if (store && store.repos && store.repos.modelProbes) {
+      measured.attachProbeFacts(scoredRows, store.repos.modelProbes.latest());
+    }
   } catch (err) {
     log.warn('venom-router: measurement attach failed:', err.message);
+  }
+}
+
+// Foundation rebuild R2: bounded capability probing. After each
+// catalog build/refresh, the models the router would actually route
+// to (the smart catalog's pools) that were never probed here — or not
+// probed in the stale window — get two tiny real calls through the
+// app's own dispatch path, and the verdicts land in model_probes.
+// Fire-and-forget and best-effort: probing never blocks routing.
+let venomProbeContext = null;
+let probeRunInFlight = false;
+
+async function scheduleCatalogProbes() {
+  if (probeRunInFlight || !venomRouter || !venomProbeContext) return;
+  if (!store || !store.repos || !store.repos.modelProbes) return;
+  probeRunInFlight = true;
+  try {
+    const probe = require('./catalog/probe');
+    const repo = store.repos.modelProbes;
+    const latestByModel = new Map();
+    for (const p of repo.latest()) {
+      const key = `${p.providerId}::${p.modelId}`;
+      latestByModel.set(key, Math.max(latestByModel.get(key) || 0, p.measuredAt || 0));
+    }
+    const catalog = venomRouter.smartCatalog || {};
+    const seen = new Set();
+    const candidates = [];
+    for (const poolName of ['lite', 'pro', 'max']) {
+      for (const row of catalog[poolName] || []) {
+        const key = `${row.providerId}::${row.modelId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        candidates.push(row);
+      }
+    }
+    const staleBefore = Date.now() - probe.PROBE_STALE_MS;
+    let ran = 0;
+    for (const row of candidates) {
+      if (ran >= probe.PROBE_MAX_PER_RUN) break;
+      const key = `${row.providerId}::${row.modelId}`;
+      if ((latestByModel.get(key) || 0) >= staleBefore) continue;
+      const routes = venomRouter.candidateRoutes([row], 1);
+      if (!routes.length) continue;
+      ran += 1;
+      await probe.probeModel({
+        dispatch: venomProbeContext.dispatchUpstream,
+        route: routes[0],
+        record: (entry) => repo.record({ providerId: row.providerId, modelId: row.modelId, ...entry }),
+      });
+    }
+  } catch (err) {
+    log.warn('venom-router: catalog probes failed:', err.message);
+  } finally {
+    probeRunInFlight = false;
   }
 }
 
@@ -208,6 +265,7 @@ function buildVenomRouter() {
         throw err;
       }
       let text = '';
+      let toolCalls = null;
       try {
         if (spec.wire) {
           // The answer is in the provider's own shape: the wire reads it.
@@ -217,6 +275,9 @@ function buildVenomRouter() {
           const parsed = JSON.parse(String((reply && reply.body) || '{}'));
           const choice = (parsed.choices || [])[0] || {};
           text = String((choice.message && choice.message.content) || choice.text || '');
+          if (choice.message && Array.isArray(choice.message.tool_calls) && choice.message.tool_calls.length) {
+            toolCalls = choice.message.tool_calls;
+          }
         }
         if (!text && reply && reply.body) text = String(reply.body).slice(0, 4000);
       } catch (_) {
@@ -227,7 +288,7 @@ function buildVenomRouter() {
         err.status = reply.status;
         throw err;
       }
-      return { text, status: reply.status, model: route.modelId };
+      return { text, status: reply.status, model: route.modelId, toolCalls };
     };
     // Streaming dispatcher for true SSE passthrough: opens the provider
     // request with stream:true and hands the live byte stream back without
@@ -347,6 +408,8 @@ function buildVenomRouter() {
       }
     });
     venomRouter = new router.VenomCascadeEngine({ smartCatalog, keyPool, dispatchUpstream, streamUpstream });
+    venomProbeContext = { dispatchUpstream };
+    void scheduleCatalogProbes();
     // The gateway object exists from boot so router:status has something to
     // report, but it binds no socket yet: ensureVenomGateway() listens on the
     // first roster data or the first explicit status/refresh query.
@@ -441,6 +504,7 @@ function refreshVenomRouter() {
     venomRouter.refresh({ smartCatalog: router.buildSmartCatalog(scored, keys) });
     venomRouter.keyPool.refresh(keys);
     attachPoolLedger(venomRouter.keyPool, keys);
+    void scheduleCatalogProbes();
     try { router.persistCatalogScores(store.db, scored); } catch (_) { /* next refresh */ }
     // Real roster data just landed: this is demand, not a window opening.
     if (scored.length) void ensureVenomGateway();

@@ -277,6 +277,7 @@ function buildSmartCatalog(scoredRows, keys = []) {
       providerId,
       modelId,
       measured: row.measured || null,
+      probeFacts: row.probeFacts || null,
       upstream_id: upstreamModelId(providerId, modelId),
       canonical_slug: canonicalSlug(providerId, modelId),
     };

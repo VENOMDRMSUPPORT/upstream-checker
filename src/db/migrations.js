@@ -316,4 +316,26 @@ module.exports = [
       `);
     },
   },
+  {
+    version: 8,
+    up(db) {
+      // First-party capability probes (foundation rebuild R2): one row
+      // per (provider, model, probe kind) holding the LATEST verdict
+      // this app measured itself — 'chat' (the model answered a real
+      // call) and 'tools' (a real tool call was observed in its reply).
+      // A missing row means "never probed here", which is a different
+      // fact from a failed probe and is kept distinct on purpose.
+      db.exec(`
+        CREATE TABLE model_probes (
+          provider_id TEXT NOT NULL,
+          model_id TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          ok INTEGER NOT NULL,
+          detail TEXT,
+          measured_at INTEGER NOT NULL,
+          PRIMARY KEY (provider_id, model_id, kind)
+        );
+      `);
+    },
+  },
 ];
