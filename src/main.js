@@ -125,12 +125,35 @@ function upstreamSpec(route, keyEntry, payload, key) {
   };
 }
 
+// Pool window ledger for the router (tier design §2.1): once the
+// request log is open, hand the key pool a ledger over the active
+// keys so pickKey can prefer the fullest pool window and hold the
+// reserve. Best-effort — routing must never depend on the log being
+// available, so any failure leaves plain routing in place.
+function attachPoolLedger(keyPool, keys) {
+  try {
+    if (!keyPool || !logs || !logs.repos || !logs.repos.query) return;
+    const router = require('./router');
+    if (keyPool.poolLedger) {
+      keyPool.poolLedger.refresh(keys);
+    } else {
+      keyPool.poolLedger = router.createPoolLedger({
+        keys,
+        readWindowUsage: (keyIds, sinceMs) => logs.repos.query.keyWindowUsage(keyIds, sinceMs),
+      });
+    }
+  } catch (err) {
+    log.warn('venom-router: pool ledger attach failed:', err.message);
+  }
+}
+
 function buildVenomRouter() {
   try {
     const router = require('./router');
     const keys = typeof store.repos.providers.listAllActiveKeys === 'function'
       ? store.repos.providers.listAllActiveKeys() : [];
     const keyPool = new router.KeyPoolManager({ keys });
+    attachPoolLedger(keyPool, keys);
     let scored = [];
     try {
       scored = catalogEngine ? catalogEngine.scoreRows(readRosterRowsForRouter(store.repos)) : [];
@@ -396,6 +419,7 @@ function refreshVenomRouter() {
     const scored = catalogEngine ? catalogEngine.scoreRows(readRosterRowsForRouter(store.repos)) : [];
     venomRouter.refresh({ smartCatalog: router.buildSmartCatalog(scored, keys) });
     venomRouter.keyPool.refresh(keys);
+    attachPoolLedger(venomRouter.keyPool, keys);
     try { router.persistCatalogScores(store.db, scored); } catch (_) { /* next refresh */ }
     // Real roster data just landed: this is demand, not a window opening.
     if (scored.length) void ensureVenomGateway();

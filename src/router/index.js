@@ -136,6 +136,16 @@ const PRO_EFFICIENT_MAX = 45;
 const PRO_CAPABLE_MIN = 45;
 const MAX_MIN_SCORE = 45;
 const LITE_MIN_SCORE = 20;
+// The router's own heuristic estimate caps at exactly LITE_MIN_SCORE
+// (a fully signalled row reaches 20; most land under it), so lite also
+// admits an unmeasured row carrying two strong capability signals
+// (heuristic >= 16: tools + reasoning, or tools + a 128k context).
+// Pro and Max stay documented-only: their promises are quality claims
+// a guess cannot back.
+const LITE_HEURISTIC_MIN_SCORE = 16;
+// Pool reserve (tier design §2.2 rule 2): a pool whose known remaining
+// window falls under this fraction is held for Max demand only.
+const POOL_RESERVE_FRACTION = 0.15;
 const LITE_NOMINAL_COST = 0.5;
 const POOL_CAP = 50;
 
@@ -299,7 +309,8 @@ function buildSmartCatalog(scoredRows, keys = []) {
   const freeGate = (row) => isFreeRow(row) || hasFreeOrSubKey(row)
     || (rowCost(row) != null && rowCost(row) <= LITE_NOMINAL_COST);
   const liteCandidates = scored.filter(freeGate);
-  const lite = liteCandidates.filter((row) => (row.score || 0) >= LITE_MIN_SCORE).sort((a, b) => {
+  const lite = liteCandidates.filter((row) => (row.score || 0) >= LITE_MIN_SCORE
+    || (row.score_source === 'est-heuristic' && (row.score || 0) >= LITE_HEURISTIC_MIN_SCORE)).sort((a, b) => {
     const free = Number(isFreeRow(b)) - Number(isFreeRow(a));
     if (free) return free;
     const costA = rowCost(a);
@@ -400,7 +411,92 @@ class KeyPoolManager {
     this.keys = new Map(keys.map((k) => [k.id, { ...k }]));
     this.cooldowns = new Map();
     this.providerFailures = new Map();
+    // Pool exhaustion marks (tier design §2.2 rule 4): poolId -> until
+    // ms. Set by quota errors in reportResult, cleared by a success.
+    this.poolExhausted = new Map();
+    // Pool window ledger + budgets, attached by main once the request
+    // log is open (src/router/pool-ledger.js). Absent = routing behaves
+    // exactly as it did before pool awareness existed.
+    this.poolLedger = null;
+    this.poolBudgets = null;
     this.now = now;
+  }
+
+  poolExhaustedUntil(poolId) {
+    const until = this.poolExhausted.get(poolId);
+    return until && until > this.now() ? until : 0;
+  }
+
+  // Pools ordered fullest-window-first from the ledger, or null when
+  // no ledger is attached or it cannot answer. Never throws: a ledger
+  // fault must not break routing.
+  poolRanking() {
+    if (!this.poolLedger) return null;
+    try {
+      return poolLedger.rankPoolsByRemaining(this.poolLedger.snapshot(), '5h', this.poolBudgets || null);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // §2.2 rules 1-2, applied to one drain tier's candidates. Rule 1:
+  // keep only the fullest pool present. Rule 2: for lite/pro callers a
+  // pool under the reserve fraction is held for Max — when that
+  // empties the set the tier is skipped (the engine's own fallbacks
+  // decide what happens next), it is never silently overridden here.
+  narrowByPools(candidates, ranking, forTier) {
+    if (!ranking || !candidates.length) return candidates;
+    const byPool = new Map(ranking.map((r) => [r.poolId, r]));
+    let kept = candidates;
+    if (forTier === 'lite' || forTier === 'pro') {
+      kept = kept.filter((c) => {
+        const r = byPool.get(poolLedger.poolIdOf(this.keys.get(c.keyId)));
+        return !r || r.remainingFraction == null || r.remainingFraction >= POOL_RESERVE_FRACTION;
+      });
+      if (!kept.length) return kept;
+    }
+    let best = Infinity;
+    for (const c of kept) {
+      const r = byPool.get(poolLedger.poolIdOf(this.keys.get(c.keyId)));
+      if (r && ranking.indexOf(r) < best) best = ranking.indexOf(r);
+    }
+    if (Number.isFinite(best)) {
+      const bestPoolId = ranking[best].poolId;
+      const only = kept.filter((c) => poolLedger.poolIdOf(this.keys.get(c.keyId)) === bestPoolId);
+      if (only.length) kept = only;
+    }
+    return kept;
+  }
+
+  // When a pick fails, was it quota exhaustion — and if so, when does
+  // the earliest pool reset? (§2.2 rule 3: refuse with the reset time
+  // instead of silently spending a budget the user did not choose.)
+  quotaRefusal(candidates = []) {
+    const list = (Array.isArray(candidates) ? candidates : [])
+      .map((c) => (typeof c === 'string' ? { keyId: c } : c))
+      .filter((c) => c && this.keys.has(c.keyId));
+    if (!list.length) return { exhausted: false, resetAt: null };
+    const ranking = this.poolRanking();
+    const byPool = new Map((ranking || []).map((r) => [r.poolId, r]));
+    const poolIds = [...new Set(list.map((c) => poolLedger.poolIdOf(this.keys.get(c.keyId))))];
+    let earliest = null;
+    for (const poolId of poolIds) {
+      const marked = this.poolExhaustedUntil(poolId);
+      if (marked) {
+        earliest = earliest == null ? marked : Math.min(earliest, marked);
+        continue;
+      }
+      const r = byPool.get(poolId);
+      if (r && r.budget != null && r.remaining != null && r.remaining <= 0) {
+        // Budget spent inside the governing window: the window's own
+        // span is the honest reset estimate without a provider time.
+        const reset = this.now() + poolLedger.POOL_WINDOWS['5h'];
+        earliest = earliest == null ? reset : Math.min(earliest, reset);
+        continue;
+      }
+      return { exhausted: false, resetAt: null };
+    }
+    return { exhausted: earliest != null, resetAt: earliest };
   }
 
   refresh(keys = []) {
@@ -429,7 +525,10 @@ class KeyPoolManager {
   // Waterfall: subscription, then free, then cheap, then paid. Within a tier,
   // power-of-two-choices over the least-recently-failed keys; keys sharing a
   // quota_pool_id count once so a shared bucket is not read as spare room.
-  pickKey(candidates = []) {
+  // With a pool ledger attached the choice is pool-aware first (§2.2):
+  // exhausted pools are a hard stop, lite/pro skip pools under the
+  // reserve, and the fullest pool present wins the tier.
+  pickKey(candidates = [], { forTier = null } = {}) {
     const live = (Array.isArray(candidates) ? candidates : [])
       .map((c) => (typeof c === 'string' ? { keyId: c } : c))
       .filter((c) => c && this.keys.has(c.keyId) && this.isCool('key', c.keyId)
@@ -442,12 +541,25 @@ class KeyPoolManager {
       if (!byTier.has(tier)) byTier.set(tier, []);
       byTier.get(tier).push(candidate);
     }
+    const ranking = this.poolRanking();
     for (const tier of TIER_DRAIN_ORDER) {
-      const pool = (byTier.get(tier) || []).filter((c) => {
+      const tierCandidates = byTier.get(tier) || [];
+      if (!tierCandidates.length) continue;
+      // Pool exhaustion is a hard stop, never resurrected by the
+      // pool-cool fallback below: a spent bucket stays spent until
+      // its reset (§2.2 rules 3-4).
+      const unspent = tierCandidates.filter((c) => {
+        const key = this.keys.get(c.keyId);
+        const poolId = key && (key.quotaPoolId || key.id);
+        return !poolId || !this.poolExhaustedUntil(poolId);
+      });
+      if (!unspent.length) continue;
+      const pool = unspent.filter((c) => {
         const key = this.keys.get(c.keyId);
         return !key.quotaPoolId || this.isCool('pool', key.quotaPoolId);
       });
-      const usable = pool.length ? pool : (byTier.get(tier) || []);
+      let usable = pool.length ? pool : unspent;
+      usable = this.narrowByPools(usable, ranking, forTier);
       if (!usable.length) continue;
       if (usable.length === 1) return usable[0];
       const a = usable[Math.floor(Math.random() * usable.length)];
@@ -465,16 +577,29 @@ class KeyPoolManager {
     const provider = providerId || (key && key.providerId);
     if (outcome === 'ok') {
       if (modelId) this.cooldowns.delete(cooldownKey(`model:${modelId}`, keyId));
+      // A pool that answers again is not exhausted, whatever an
+      // earlier mark said (marks can overshoot, e.g. an RPM limit).
+      if (key && key.quotaPoolId) this.poolExhausted.delete(key.quotaPoolId);
       return;
     }
     if (outcome === 'rate_limit') {
       if (modelId) this.coolDown(`model:${modelId}`, keyId, retryAfterMs || 60 * 1000, persist);
       else this.coolDown('key', keyId, retryAfterMs || 60 * 1000, persist);
+      // §2.2 rule 4: a key-level limit (or one carrying the provider's
+      // own reset) is a bucket signal — mark the pool exhausted until
+      // that reset so the router stops probing a spent account. A
+      // model-scoped limit without a stated reset stays model-scoped.
+      if (key && key.quotaPoolId && (!modelId || retryAfterMs > 0)) {
+        this.poolExhausted.set(key.quotaPoolId, this.now() + Math.max(0, retryAfterMs || 60 * 1000));
+      }
       return;
     }
     if (outcome === 'payment' || outcome === 'auth') {
       this.coolDown('key', keyId, 10 * 60 * 1000, persist);
-      if (key && key.quotaPoolId) this.coolDown('pool', key.quotaPoolId, 60 * 1000, persist);
+      if (key && key.quotaPoolId) {
+        this.coolDown('pool', key.quotaPoolId, 60 * 1000, persist);
+        this.poolExhausted.set(key.quotaPoolId, this.now() + Math.max(0, retryAfterMs || 10 * 60 * 1000));
+      }
       return;
     }
     if (outcome === 'server' && provider) {
@@ -494,6 +619,9 @@ class KeyPoolManager {
       cooldowns: [...this.cooldowns.entries()]
         .filter(([, until]) => until > now)
         .map(([scopeKey, until]) => ({ scopeKey, untilInMs: until - now })),
+      poolExhausted: [...this.poolExhausted.entries()]
+        .filter(([, until]) => until > now)
+        .map(([poolId, until]) => ({ poolId, untilInMs: until - now })),
     };
   }
 }
@@ -580,10 +708,39 @@ class VenomCascadeEngine {
     return routes;
   }
 
+  // A failed pick is a quota refusal when every candidate pool is
+  // exhausted: the answer names the earliest reset (§2.2 rule 3,
+  // Venom's §4 decision) instead of a bare "no route".
+  noRouteError(tier, candidates) {
+    const refusal = this.keyPool && typeof this.keyPool.quotaRefusal === 'function'
+      ? this.keyPool.quotaRefusal(candidates) : null;
+    if (refusal && refusal.exhausted && refusal.resetAt) {
+      return Object.assign(
+        new Error(`quota exhausted until ${new Date(refusal.resetAt).toISOString()}`),
+        { code: 'QUOTA_EXHAUSTED' });
+    }
+    return Object.assign(new Error(`no ${tier} route has a live key`), { code: 'NO_ROUTE' });
+  }
+
   async routeLite(payload) {
-    const pool = (this.smartCatalog && this.smartCatalog.lite) || [];
-    const picked = this.keyPool ? this.keyPool.pickKey(this.candidateRoutes(pool, 6)) : null;
-    if (!picked) throw Object.assign(new Error('no venom-lite route has a live key'), { code: 'NO_ROUTE' });
+    const catalog = this.smartCatalog || {};
+    const liteCandidates = this.candidateRoutes(catalog.lite || [], 6);
+    let picked = this.keyPool ? this.keyPool.pickKey(liteCandidates, { forTier: 'lite' }) : null;
+    let candidates = liteCandidates;
+    if (!picked) {
+      // Fail-soft: an empty (or fully reserved/exhausted) lite pool
+      // degrades to the pro efficient rung instead of answering 503 —
+      // pro already falls down its rungs the same way. pickKey's
+      // waterfall still drains subscription/free keys first, so the
+      // soft path spends the cheapest key available.
+      const softPool = firstNonEmpty(catalog.efficient || [], catalog.capable || []);
+      const softCandidates = this.candidateRoutes(softPool || [], 6);
+      if (softCandidates.length) {
+        candidates = softCandidates;
+        picked = this.keyPool.pickKey(softCandidates, { forTier: 'lite' });
+      }
+    }
+    if (!picked) throw this.noRouteError('venom-lite', candidates);
     return this.dispatch(picked, { ...payload, reasoningEffort: 'low' });
   }
 
@@ -597,8 +754,9 @@ class VenomCascadeEngine {
     const pool = (escalated || stage.shouldEscalate)
       ? firstNonEmpty(catalog.capable, catalog.efficient, catalog.lite)
       : firstNonEmpty(catalog.efficient, catalog.lite);
-    const picked = this.keyPool ? this.keyPool.pickKey(this.candidateRoutes(pool, 6)) : null;
-    if (!picked) throw Object.assign(new Error('no venom-pro route has a live key'), { code: 'NO_ROUTE' });
+    const candidates = this.candidateRoutes(pool, 6);
+    const picked = this.keyPool ? this.keyPool.pickKey(candidates, { forTier: 'pro' }) : null;
+    if (!picked) throw this.noRouteError('venom-pro', candidates);
     if (session && stage.shouldEscalate) {
       session.escalationLevel += 1;
       session.consecutiveToolErrors = stage.consecutiveErrors;
@@ -900,7 +1058,7 @@ function createVenomHttpGateway({ cascadeEngine = null, port = ROUTER_PORT, host
           record('STREAM', `${path} -> ${outcome.routedVia} (${outcome.chunks} chunks, ${outcome.failovers} failovers)`);
           return;
         } catch (err) {
-          const code = err && err.code === 'NO_ROUTE' ? 503 : 502;
+          const code = err && (err.code === 'NO_ROUTE' || err.code === 'QUOTA_EXHAUSTED') ? 503 : 502;
           return sendJson(res, code, { error: (err && err.message) || 'upstream failed' });
         }
       }
@@ -920,7 +1078,7 @@ function createVenomHttpGateway({ cascadeEngine = null, port = ROUTER_PORT, host
           created: Math.floor(Date.now() / 1000), model: tier,
           choices: [{ index: 0, message: { role: 'assistant', content: text, ...(rescued ? { tool_calls: rescued } : {}) }, finish_reason: rescued ? 'tool_calls' : 'stop' }] }, result);
       } catch (err) {
-        const code = err && err.code === 'NO_ROUTE' ? 503 : 502;
+        const code = err && (err.code === 'NO_ROUTE' || err.code === 'QUOTA_EXHAUSTED') ? 503 : 502;
         return sendJson(res, code, { error: (err && err.message) || 'upstream failed' });
       }
     }
@@ -970,4 +1128,5 @@ module.exports = { ROUTER_PORT, ROUTER_HOST, normalizeGatewayPort, canonicalSlug
   createPoolLedger: poolLedger.createPoolLedger,
   rankPoolsByRemaining: poolLedger.rankPoolsByRemaining,
   POOL_WINDOWS: poolLedger.POOL_WINDOWS, poolIdOf: poolLedger.poolIdOf,
+  POOL_RESERVE_FRACTION, LITE_HEURISTIC_MIN_SCORE,
   readCatalogScores, VenomCascadeEngine, pipeUpstreamStream, createVenomHttpGateway };

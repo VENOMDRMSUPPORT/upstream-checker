@@ -269,3 +269,138 @@ test('gated rows never enter a tier pool until the entitlement is met', () => {
   const met = buildSmartCatalog([{ ...gated, entitlement_met: true }, open], keys);
   assert.ok(met.max.some((r) => r.modelId === 'gemini-4-argon'), 'a met entitlement routes at the frontier');
 });
+
+// ---------------------------------------------------------------------------
+// Pool-aware picking (tier design §2.2, build step 3)
+// ---------------------------------------------------------------------------
+
+function ledgerStub(poolsUsage) {
+  return {
+    snapshot: () => ({
+      at: 0,
+      pools: Object.entries(poolsUsage).map(([poolId, u]) => ({
+        poolId,
+        keyIds: u.keyIds,
+        windows: { '5h': { requests: 0, inputTokens: u.used || 0, outputTokens: 0, totalTokens: u.used || 0, byModel: {} } },
+      })),
+    }),
+    refresh() {},
+  };
+}
+
+const POOL_KEYS = [
+  { id: 'k1', providerId: 'p', tier: 'free', quotaPoolId: 'pool-a' },
+  { id: 'k2', providerId: 'p', tier: 'free', quotaPoolId: 'pool-b' },
+];
+
+test('pool-aware pickKey prefers the pool with the fullest window', () => {
+  const pool = new KeyPoolManager({ keys: POOL_KEYS });
+  pool.poolLedger = ledgerStub({ 'pool-a': { keyIds: ['k1'], used: 900 }, 'pool-b': { keyIds: ['k2'], used: 100 } });
+  for (let i = 0; i < 5; i += 1) {
+    assert.equal(pool.pickKey([{ keyId: 'k1' }, { keyId: 'k2' }]).keyId, 'k2');
+  }
+});
+
+test('without a ledger, picking behaves exactly as before', () => {
+  const pool = new KeyPoolManager({ keys: POOL_KEYS });
+  const picked = pool.pickKey([{ keyId: 'k1' }, { keyId: 'k2' }]);
+  assert.ok(['k1', 'k2'].includes(picked.keyId));
+});
+
+test('a pool under the reserve is held for Max: lite and pro skip it', () => {
+  const pool = new KeyPoolManager({ keys: POOL_KEYS });
+  pool.poolLedger = ledgerStub({ 'pool-a': { keyIds: ['k1'], used: 960 }, 'pool-b': { keyIds: ['k2'], used: 100 } });
+  pool.poolBudgets = { 'pool-a': 1000, 'pool-b': 1000 };
+  // pool-a is at 4% remaining (under the 15% reserve); pool-b serves.
+  assert.equal(pool.pickKey([{ keyId: 'k1' }, { keyId: 'k2' }], { forTier: 'lite' }).keyId, 'k2');
+  assert.equal(pool.pickKey([{ keyId: 'k1' }, { keyId: 'k2' }], { forTier: 'pro' }).keyId, 'k2');
+});
+
+test('when every pool is under the reserve, lite/pro get nothing and Max still draws', () => {
+  const pool = new KeyPoolManager({ keys: POOL_KEYS });
+  pool.poolLedger = ledgerStub({ 'pool-a': { keyIds: ['k1'], used: 960 }, 'pool-b': { keyIds: ['k2'], used: 970 } });
+  pool.poolBudgets = { 'pool-a': 1000, 'pool-b': 1000 };
+  assert.equal(pool.pickKey([{ keyId: 'k1' }, { keyId: 'k2' }], { forTier: 'lite' }), null);
+  assert.equal(pool.pickKey([{ keyId: 'k1' }, { keyId: 'k2' }], { forTier: 'pro' }), null);
+  // Max takes the fuller of the two reserved pools (4% over 3%).
+  assert.equal(pool.pickKey([{ keyId: 'k1' }, { keyId: 'k2' }], { forTier: 'max' }).keyId, 'k1');
+});
+
+test('a key-level rate limit marks its pool exhausted until the reset; success clears it', () => {
+  const NOW = 1000000;
+  const pool = new KeyPoolManager({ keys: [POOL_KEYS[0]], now: () => NOW });
+  pool.reportResult({ keyId: 'k1', outcome: 'rate_limit', retryAfterMs: 30 * 60 * 1000 });
+  assert.equal(pool.poolExhaustedUntil('pool-a'), NOW + 30 * 60 * 1000);
+  assert.equal(pool.pickKey([{ keyId: 'k1' }]), null);
+  assert.deepStrictEqual(pool.quotaRefusal([{ keyId: 'k1' }]),
+    { exhausted: true, resetAt: NOW + 30 * 60 * 1000 });
+  assert.equal(pool.status().poolExhausted.length, 1);
+  pool.reportResult({ keyId: 'k1', outcome: 'ok' });
+  assert.equal(pool.poolExhaustedUntil('pool-a'), 0);
+});
+
+test('a model-scoped rate limit without a stated reset does not mark the pool', () => {
+  const pool = new KeyPoolManager({ keys: [POOL_KEYS[0]], now: () => 1000000 });
+  pool.reportResult({ keyId: 'k1', modelId: 'm', outcome: 'rate_limit' });
+  assert.equal(pool.poolExhaustedUntil('pool-a'), 0);
+});
+
+test('a payment failure marks the pool exhausted for the key cooldown span', () => {
+  const NOW = 1000000;
+  const pool = new KeyPoolManager({ keys: [POOL_KEYS[0]], now: () => NOW });
+  pool.reportResult({ keyId: 'k1', outcome: 'payment' });
+  assert.equal(pool.poolExhaustedUntil('pool-a'), NOW + 10 * 60 * 1000);
+});
+
+test('a spent budget refuses lite and reports the window reset', () => {
+  const NOW = 2000000;
+  const pool = new KeyPoolManager({ keys: [POOL_KEYS[0]], now: () => NOW });
+  pool.poolLedger = ledgerStub({ 'pool-a': { keyIds: ['k1'], used: 1000 } });
+  pool.poolBudgets = { 'pool-a': 1000 };
+  assert.equal(pool.pickKey([{ keyId: 'k1' }], { forTier: 'lite' }), null);
+  assert.deepStrictEqual(pool.quotaRefusal([{ keyId: 'k1' }]),
+    { exhausted: true, resetAt: NOW + 5 * 3600 * 1000 });
+  // Not every failure is exhaustion: an unspent pool reads as room.
+  const roomy = new KeyPoolManager({ keys: [POOL_KEYS[0]], now: () => NOW });
+  roomy.poolLedger = ledgerStub({ 'pool-a': { keyIds: ['k1'], used: 10 } });
+  roomy.poolBudgets = { 'pool-a': 1000 };
+  assert.equal(roomy.quotaRefusal([{ keyId: 'k1' }]).exhausted, false);
+});
+
+test('venom-lite fails soft to the efficient rung instead of answering 503', async () => {
+  const rows = [{ id: 'e', provider_id: 'groq', model_id: 'fast', score: 38, score_source: 'aa', cost_in_per_m: 5, tools: true }];
+  const keys = [{ id: 'g', providerId: 'groq', tier: 'paid' }];
+  const engine = new VenomCascadeEngine({ smartCatalog: buildSmartCatalog(rows, keys),
+    keyPool: new KeyPoolManager({ keys }),
+    dispatchUpstream: async (route) => ({ text: `via ${route.modelId}` }) });
+  // Cost 5/M behind a paid key fails lite's free gate, so the lite pool
+  // is empty — the request still answers, from the efficient rung.
+  const out = await engine.route('venom-lite', { messages: [{ role: 'user', content: 'hi' }], body: {} });
+  assert.match(out.text, /fast/);
+});
+
+test('venom-lite names quota exhaustion with its reset time', async () => {
+  const NOW = 2000000;
+  const rows = [{ id: 'e', provider_id: 'p', model_id: 'm', score: 38, score_source: 'aa', cost_in_per_m: 0, tools: true }];
+  const keyPool = new KeyPoolManager({ keys: POOL_KEYS.slice(0, 1), now: () => NOW });
+  keyPool.poolLedger = ledgerStub({ 'pool-a': { keyIds: ['k1'], used: 1000 } });
+  keyPool.poolBudgets = { 'pool-a': 1000 };
+  const engine = new VenomCascadeEngine({ smartCatalog: buildSmartCatalog(rows, POOL_KEYS.slice(0, 1)),
+    keyPool, dispatchUpstream: async () => ({ text: 'never' }) });
+  await assert.rejects(
+    engine.route('venom-lite', { messages: [{ role: 'user', content: 'hi' }], body: {} }),
+    (err) => err.code === 'QUOTA_EXHAUSTED' && /quota exhausted until/.test(err.message));
+});
+
+test('lite admits a strongly signalled heuristic row; documented rows keep the floor', () => {
+  const rows = [
+    { id: 'h', provider_id: 'groq', model_id: 'unmeasured', tools: true, reasoning: true },
+    { id: 'w', provider_id: 'groq', model_id: 'weak', tools: true },
+    { id: 'd', provider_id: 'groq', model_id: 'documented-weak', score: 18, score_source: 'aa', tools: true },
+  ];
+  const keys = [{ id: 'g', providerId: 'groq', tier: 'free' }];
+  const liteIds = buildSmartCatalog(rows, keys).lite.map((r) => r.modelId);
+  assert.ok(liteIds.includes('unmeasured'), 'heuristic 16 (tools + reasoning) enters lite');
+  assert.ok(!liteIds.includes('weak'), 'heuristic 12 stays out');
+  assert.ok(!liteIds.includes('documented-weak'), 'a documented 18 keeps the documented floor of 20');
+});

@@ -57,9 +57,15 @@ function createPoolLedger({ keys = [], readWindowUsage, windows = POOL_WINDOWS, 
   if (typeof readWindowUsage !== 'function') {
     throw new TypeError('createPoolLedger needs a readWindowUsage(keyIds, sinceMs) reader');
   }
-  const keyList = (Array.isArray(keys) ? keys : []).filter((k) => k && k.id);
-  const keyIds = keyList.map((k) => String(k.id));
-  const poolOfKey = new Map(keyList.map((k) => [String(k.id), poolIdOf(k)]));
+  let keyList = [];
+  let keyIds = [];
+  let poolOfKey = new Map();
+  function setKeys(next) {
+    keyList = (Array.isArray(next) ? next : []).filter((k) => k && k.id);
+    keyIds = keyList.map((k) => String(k.id));
+    poolOfKey = new Map(keyList.map((k) => [String(k.id), poolIdOf(k)]));
+  }
+  setKeys(keys);
   const entries = Object.entries(windows || {});
   const windowEntries = entries.length ? entries : Object.entries(POOL_WINDOWS);
 
@@ -88,7 +94,11 @@ function createPoolLedger({ keys = [], readWindowUsage, windows = POOL_WINDOWS, 
     return { at, pools: [...pools.values()] };
   }
 
-  return { snapshot, poolIds: [...new Set(keyList.map(poolIdOf))] };
+  return {
+    snapshot,
+    refresh: setKeys,
+    get poolIds() { return [...new Set(keyList.map(poolIdOf))]; },
+  };
 }
 
 // Rank pools for one window, fullest first — the data behind §2.2
