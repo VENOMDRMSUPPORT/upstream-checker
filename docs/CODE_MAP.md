@@ -66,15 +66,15 @@ The architecture behind these files — boot order, IPC channels, the two databa
 
 Files of 700+ lines, with the section banners inside them. Open the window you need — do not read one of these whole. Line numbers are 1-based.
 
-### src/main.js — 1385 lines
+### src/main.js — 1396 lines
 
 | Line | Section |
 | --- | --- |
-| 564 | Local database — venom.db (src/db) |
-| 584 | Request log — venom-logs.db (src/logs) |
-| 671 | Model catalog engine — src/catalog |
-| 1261 | API requests (src/api-request.js) |
-| 1299 | Old request log file (requests.log) |
+| 575 | Local database — venom.db (src/db) |
+| 595 | Request log — venom-logs.db (src/logs) |
+| 682 | Model catalog engine — src/catalog |
+| 1272 | API requests (src/api-request.js) |
+| 1310 | Old request log file (requests.log) |
 
 ### src/oauth/index.js — 717 lines
 
@@ -113,7 +113,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | 3225 | Action feedback — Recheck and key Test |
 | 3390 | Data toolbar — shared |
 
-### src/renderer/catalog.js — 2125 lines
+### src/renderer/catalog.js — 2147 lines
 
 | Line | Section |
 | --- | --- |
@@ -129,7 +129,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 *(no section banners)*
 
-### test/catalog/ipc.test.js — 946 lines
+### test/catalog/ipc.test.js — 972 lines
 
 *(no section banners)*
 
@@ -265,7 +265,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `api-request.js` | 226 | api-request — every outbound request the renderer asks for | CONTENT_TOKEN, CANCEL_REASONS, CUT_OFF, createApiRequester |
 | `flush.js` | 38 | Close handshake with the renderer | DEFAULT_FLUSH_TIMEOUT_MS, requestFlush |
 | `keystore.js` | 74 | API keys at rest | decryptKeyEntry, encryptKeyEntry, eachStoredKey, countPlaintextKeys |
-| `main.js` | 1385 | Main process: data folder, boot order, IPC wiring, auto-updater | venomRouter, venomGateway, venomGatewayStarting, readRosterRowsForRouter, startVenomRouter, gatewayPort, upstreamSpec, attachPoolLedger, attachMeasurements, venomProbeContext, probeRunInFlight, scheduleCatalogProbes, +41 more |
+| `main.js` | 1396 | Main process: data folder, boot order, IPC wiring, auto-updater | venomRouter, venomGateway, venomGatewayStarting, readRosterRowsForRouter, startVenomRouter, gatewayPort, upstreamSpec, attachPoolLedger, attachMeasurements, stampCatalogFacts, venomProbeContext, probeRunInFlight, +42 more |
 | `preload.js` | 151 | contextBridge surface — the renderer's only door to main | minimize, maximize, close, setWindowIcon, authStatus, authSetup, authUnlock, authChange, authLock, authActivity, onAuthLocked, apiRequest, +60 more |
 | `user-data.js` | 40 | Where the app keeps its data. Electron names the userData folder after the | LEGACY_DIR, CURRENT_DIR, DEV_DIR, resolveUserDataDir |
 
@@ -285,7 +285,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `build.js` | 624 | The scoring catalog: merges the four upstream sources into one row per model | IMAGE_SLUG_RE, deriveCostKind, deriveCreateImages, usableNumber, pickNumber, indexModelsDev, indexOpenRouterModels, emptyBench, BENCH_VALUES, isBetter, rememberBench, indexBenchmarks, +10 more |
 | `engine.js` | 277 | Owns the in-memory copy of the four sources and the reference built from them, | SOURCE_SYNC_MIN_AGE_MS, emptySource, createEngine |
 | `fetch.js` | 78 | The one JSON fetch helper for every upstream call the catalog makes. Sends | DEFAULT_TIMEOUT_MS, RETRY_DELAY_MS, DEFAULT_CACHE_TTL_MS, friendlyMessage, createFetcher |
-| `ipc.js` | 527 | src/catalog/ipc.js | LATENCY_SAMPLES_KEPT, DATA_CODES, readPurgeWindowDays, purgeWindowDays, catalogError, COMPARE_FIELDS, same, diffRow, publishedOnly, readHealth, appendLatency, CHECKS_SAMPLES_KEPT, +3 more |
+| `ipc.js` | 535 | src/catalog/ipc.js | LATENCY_SAMPLES_KEPT, DATA_CODES, readPurgeWindowDays, purgeWindowDays, catalogError, COMPARE_FIELDS, same, diffRow, publishedOnly, readHealth, appendLatency, CHECKS_SAMPLES_KEPT, +3 more |
 | `keys.js` | 311 | Model-name normalization. The same model shows up under different names in | MATCH_AMBIGUOUS, LAB_PROVIDERS, PRICING_MODIFIERS, QUALITY_MODIFIERS, BUILD_SUFFIX_RE, VARIANT_MODIFIERS, PARAM_SIZE_RE, QUANT_TOKENS, cleanModelId, modelSlug, identityKey, normalizeName, +15 more |
 | `measured.js` | 86 | First-party measured model cards (foundation rebuild, step R1). | measuredKey, buildMeasuredCards, rowMeasuredCard, attachMeasured, attachProbeFacts |
 | `probe.js` | 72 | Capability probes (foundation rebuild, step R2). | PROBE_STALE_MS, PROBE_MAX_PER_RUN, PROBE_TOOL, probeModel |
@@ -357,7 +357,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `app.js` | 3659 | VENOM ROUTER — Application Logic v2 | DEFAULT_TEST_PROMPT, DEFAULT_EXPECTED, testPrompt, expectedAnswer, NA, RESPONSE_PREVIEW, truthy, KIND_LABELS, kindLimits, classifyModel, isMedia, isDecision, +274 more |
 | `appearance.js` | 324 | Theme, accent and density controls; state is read through live getters. | VENOM_RENDERER |
 | `catalog-caps.js` | 217 | Model capabilities — what a catalogue row can do, read as three states | CAT_CAPABILITIES, hasModality, publishedBool, filesState, outputState, capabilityState, BOOLEAN_CAPS, capabilityOrigin, capabilitySet, capabilityCounts |
-| `catalog.js` | 2125 | Models Catalog — the merged reference, scored | state, chat, details, ui, keyOf, connectedIds, historyRuns, loadHistoryRuns, loadPromise, load, reload, applyRead, +242 more |
+| `catalog.js` | 2147 | Models Catalog — the merged reference, scored | state, chat, details, ui, keyOf, connectedIds, historyRuns, loadHistoryRuns, loadPromise, load, reload, applyRead, +243 more |
 | `database.js` | 319 | Read-only SQLite explorer. All SQL, identifier checks, and redaction happen | PAGE_SIZE, state, byId, escape, number, DB_ICON, sourceCounts, setNotice, box, updateSourceTabs, isApp, isLogs, +33 more |
 | `key-usage.js` | 659 | Key usage — quota, expiry and request history per API key | KEY_USAGE |
 | `lock.js` | 492 | The app lock screen — src/renderer/lock.js | MIN_IDLE_MIN, el, mode, legacySetup, resolved, onUnlocked, particle, frame, running, activityBound, lastActivitySent, throttleTimer, +40 more |
@@ -371,7 +371,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `provider-detail.js` | 76 | The single-provider page header and API-key list. | VENOM_RENDERER |
 | `provider-facts.js` | 288 | Reference facts for the Providers test table. | TEST_INPUTS, FILE_TOKENS, MIN_SAMPLES_FOR_LATENCY, resolveContext, resolveScore, resolveCost, resolveCapabilityRow, resolveInputs, readsToken, filesState, modalityParts, fmtPrice, +8 more |
 | `provider-keys.js` | 205 | Shared provider-key status and rendering for cards and connected rows. | VENOM_RENDERER |
-| `provider-models.js` | 293 | Provider model discovery, roster ownership and catalog ingestion. | VENOM_RENDERER |
+| `provider-models.js` | 311 | Provider model discovery, roster ownership and catalog ingestion. | VENOM_RENDERER |
 | `provider-roster.js` | 298 | Connected and integrated providers page controller. | VENOM_RENDERER |
 | `provider-store.js` | 142 | Runtime provider data and its persistence boundary. | VENOM_RENDERER |
 | `provider-view.js` | 557 | Shared provider presentation and card/row markup. | VENOM_RENDERER, isConnected, providerWebsite, websiteLinkHTML, providerHost, providerStats, providerCapabilities, providerTags, RL_ICON, rlPopOpener, rateLimitPopHTML, openRateLimitPop, +23 more |
@@ -396,7 +396,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
-| `antigravity.js` | 229 | ANTIGRAVITY — integrated provider module | INTEGRATED_PROVIDERS, ANTIGRAVITY_BASE, familyOf, accountFamilies, familyAllowed |
+| `antigravity.js` | 251 | ANTIGRAVITY — integrated provider module | INTEGRATED_PROVIDERS, ANTIGRAVITY_BASE, familyOf, accountFamilies, familyAllowed |
 | `apinex.js` | 157 | APINEX — integrated provider module | INTEGRATED_PROVIDERS, APINEX_WEB_BASE |
 | `cerebras.js` | 43 | Cerebras — integrated provider module | INTEGRATED_PROVIDERS |
 | `darkapi.js` | 54 | DARK API — integrated provider module | INTEGRATED_PROVIDERS |
@@ -426,7 +426,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
-| `antigravity.js` | 505 | Wire — Antigravity's own protocol | API_VERSION, USER_AGENT, API_CLIENT, CLIENT_METADATA, DEFAULT_PROJECT, SYSTEM_INSTRUCTION, headers, requestId, textOf, parseArgs, toContents, generationConfig, +18 more |
+| `antigravity.js` | 508 | Wire — Antigravity's own protocol | API_VERSION, USER_AGENT, API_CLIENT, CLIENT_METADATA, DEFAULT_PROJECT, SYSTEM_INSTRUCTION, headers, requestId, textOf, parseArgs, toContents, generationConfig, +18 more |
 | `index.js` | 77 | Wire — the providers that do not speak OpenAI | WIRES, getWire, supports, build, parse, discover, stream |
 
 ### test/
@@ -458,7 +458,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `build.test.js` | 366 |  | a negative published price reads as null, never as -1000000 (§16.4), a sentinel price loses to the other source, not to nothing (§16.4), output_modalities is unioned across listings of one identity (§16.6) |
 | `engine.test.js` | 432 | A sources stand-in backed by two Maps. It keeps the disk out of the test while | loadCache rebuilds from what is already cached, with no fetch at all, syncAll stores every payload that arrived and rebuilds, a source that fails after succeeding keeps its payload and reads stale, a second syncAll while one is in flight is refused with SYNC_IN_PROGRESS, syncAll resolves to one shape on either path, with the sync already over, syncIfUnscored syncs once for an unknown row, then gives up on it |
 | `fetch.test.js` | 165 |  | an answer comes back parsed with accept: application/json added, a caller header survives, and a caller-set accept wins, exactly one retry on any failure, and the answer still arrives, the retry waits one full RETRY_DELAY_MS before the second attempt, a non-2xx is a failure even though the transport worked, unparsable JSON fails and retries: a truncated payload is not a source |
-| `ipc.test.js` | 946 | The seven catalog channels, the single-flight door and the read/write split. | registers exactly the seven channels spec §6 names, purge window reads the saved setting, clamped, defaulting to thirty days, two overlapping ingests for one provider cost one snapshot write, catalog:health keeps only the last 20 samples, catalog:sources syncs when forced and reports without the TTL otherwise, catalog:sources answers with the engine summary, not with a bare ok |
+| `ipc.test.js` | 972 | The seven catalog channels, the single-flight door and the read/write split. | registers exactly the seven channels spec §6 names, purge window reads the saved setting, clamped, defaulting to thirty days, a throwing fact stamper never fails the read (rebuild R4), two overlapping ingests for one provider cost one snapshot write, catalog:health keeps only the last 20 samples, catalog:sources syncs when forced and reports without the TTL otherwise |
 | `keys.test.js` | 144 | lib/keys.js is where every cross-source model match happens. These cases are |  |
 | `measured.test.js` | 57 | Measured cards (foundation rebuild R1): first-party observations | buildMeasuredCards keys cards by provider::model and skips unusable rows, attachProbeFacts folds probe verdicts per model; unprobed rows get null |
 | `non-text.test.js` | 288 |  | a published non-text output is proof; silence is not, output_modalities reaches the row at all, a video model never enters the catalog, a row that publishes no modality is kept, the dropped rows are gone BEFORE the fits are computed, any one of the three proofs drops the row, and none of them keeps it |
@@ -518,7 +518,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
 | `activity.test.js` | 231 |  | activity module initializes and exports window.ACTIVITY |
-| `antigravity-provider.test.js` | 236 | Antigravity is Google's Antigravity IDE entitlement: the sign-in is a | registers into window.INTEGRATED_PROVIDERS with the Antigravity identity, the account is the key: there is no key to paste, meta is plain data — structuredClone-safe for the provider store, logo file exists at the path the meta declares, the roster comes from the service\, a model of a family the account has no allowance for is not offered |
+| `antigravity-provider.test.js` | 273 | Antigravity is Google's Antigravity IDE entitlement: the sign-in is a | registers into window.INTEGRATED_PROVIDERS with the Antigravity identity, the account is the key: there is no key to paste, meta is plain data — structuredClone-safe for the provider store, logo file exists at the path the meta declares, the roster comes from the service\, models a filter hides are named, with the reason (rebuild R4) |
 | `apinex-provider.test.js` | 151 | Apinex discovery is tier-aware: a free key may call only the ids the public | a free key sees only allowFree ids, tagged FREE, a subscription key sees the full roster, none tagged FREE, an unreadable subscription answer is treated as free, not as paid, a 401 roster is an error naming the status, not an empty list, a free key reads its daily quota and the 00:00 UTC reset as expiry, a subscription key reads its plan quota and the plan expiry |
 | `appearance-dom.js` | 39 | Minimal DOM boundary for production appearance controls; live gates prove geometry. |  |
 | `appearance.test.js` | 56 | Appearance factory behavior with a small DOM boundary; production functions are not copied. | system theme changes only apply while following the system, unknown accents are refused without changing or saving appearance |

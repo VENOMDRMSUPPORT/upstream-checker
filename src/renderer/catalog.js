@@ -1212,6 +1212,27 @@
       : 'estimated from the sources';
   }
 
+  // First-party truth (foundation rebuild R4): what THIS app measured
+  // when it called the model itself, kept apart from the reference
+  // score above — the two kinds of knowing are not the same, and the
+  // row says which one it is showing.
+  function firstPartyTip(e) {
+    const bits = [];
+    const m = e.measured;
+    if (m) {
+      bits.push(`${m.passed}/${m.attempts} calls answered here`);
+      if (m.outputTps) bits.push(`~${m.outputTps} tok/s`);
+      if (m.avgLatencyMs) bits.push(`${m.avgLatencyMs} ms avg`);
+    }
+    const p = e.probeFacts;
+    if (p) {
+      if (p.chatOk === false) bits.push('probe: did not answer');
+      else if (p.toolsObserved === true) bits.push('probe: tool call observed');
+      else if (p.chatOk === true) bits.push('probe: answered');
+    }
+    return bits.length ? `Measured here: ${bits.join(' · ')}` : 'Not measured here yet';
+  }
+
   function scoreCell(e) {
     if (e.score == null) return '<div class="mc-quality-cell"><span class="mc-quality-val dt-muted">—</span></div>';
     return `<div class="mc-quality-cell"><span class="mc-quality-val">${escapeHtml(String(e.score))}</span></div>`;
@@ -1367,6 +1388,7 @@
     if (e.isNew) out.push(`<span class="pv-tag mc-new" title="${escapeHtml(e.first_seen ? `First seen ${formatAgo(e.first_seen)}` : 'Newly listed')}">NEW</span>`);
     if (e.kind && e.kind !== 'chat') out.push(`<span class="pv-tag t-violet">${escapeHtml(e.kind)}</span>`);
     if (e.cost_kind === 'free') out.push('<span class="pv-tag t-green">free</span>');
+    if (e.measured) out.push(`<span class="pv-tag t-green" title="${escapeHtml(firstPartyTip(e))}">measured</span>`);
     if (window.PROFILE_BADGES && typeof window.PROFILE_BADGES.badgeFor === 'function') {
       out.push(window.PROFILE_BADGES.badgeFor(e.providerId, e.id, e.key));
     }
@@ -1413,7 +1435,7 @@
         <div><div class="dt-provider-name mc-name">${escapeHtml(e.name || e.id)}${badges(e)}${healthBadgeHTML(e)}</div>
         <div class="dt-provider-host mc-sub">${healthDotHTML(p)}${escapeHtml(p.name)}${e.name && e.name !== e.id ? ` · <code>${escapeHtml(e.id)}</code>` : ''}${e.family ? ` · ${escapeHtml(e.family)}` : ''}${costLabel}</div></div>
       </div></td>
-      <td class="col-score" title="${escapeHtml(scoreTip(e))}">${scoreCell(e)}</td>
+      <td class="col-score" title="${escapeHtml(`${scoreTip(e)} — ${firstPartyTip(e)}`)}">${scoreCell(e)}</td>
       <td class="col-ctx">${contextCell(e)}</td>
       <td class="col-price">${priceCell(e)}</td>
       <td class="col-caps">${capsHTML(e)}</td>
@@ -1434,7 +1456,7 @@
       <h3 class="pv-name"><span>${escapeHtml(e.name || e.id)}</span></h3>
       <div class="mc-card-badges">${badges(e)}${healthBadgeHTML(e)}${rank ? `<span class="mc-rank ${rank <= 3 ? 'top' : ''}">#${rank}</span>` : ''}</div>
       <div class="pv-stats">
-        <div class="pv-stat" title="${escapeHtml(scoreTip(e))}"><span class="pv-stat-label">Score</span><span class="pv-stat-value">${e.score == null ? '—' : e.score}</span></div>
+        <div class="pv-stat" title="${escapeHtml(`${scoreTip(e)} — ${firstPartyTip(e)}`)}"><span class="pv-stat-label">Score</span><span class="pv-stat-value">${e.score == null ? '—' : e.score}</span></div>
         <div class="pv-stat"><span class="pv-stat-label">Context</span><span class="pv-stat-value">${e.context_tokens == null ? '—' : escapeHtml(fmtContext(e.context_tokens))}</span></div>
         <div class="pv-stat"><span class="pv-stat-label">Speed</span><span class="pv-stat-value">${speedCell(e, { compact: true })}</span></div>
         <div class="pv-stat"><span class="pv-stat-label">Price</span><span class="pv-stat-value">${priceCell(e, { compact: true })}</span></div>

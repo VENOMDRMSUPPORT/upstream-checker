@@ -176,7 +176,7 @@ function withAliases(row, model, roster) {
   return row;
 }
 
-function createCatalogIpc({ ipcMain, repos, engine, log = console, onRosterWritten = () => {} }) {
+function createCatalogIpc({ ipcMain, repos, engine, log = console, onRosterWritten = () => {}, factStamper = null }) {
   // The door (ref §9 refresh): one in-flight ingest per provider, shared by the
   // timer, a Fetch models click and a Fetch information click, so an overlap
   // costs one upstream fetch, one snapshot write, one diff.
@@ -387,6 +387,14 @@ function createCatalogIpc({ ipcMain, repos, engine, log = console, onRosterWritt
     // two-provider view answer with two rank 1s — while spec §7 defines `#` as the
     // dense rank over the MERGED view (ref providers/index.js:625 then :693).
     const rows = engine.scoreRows(merged);
+    // First-party facts (foundation rebuild R4): the host stamps what
+    // this app itself measured (traffic cards + probe verdicts) onto
+    // the read rows, so the Models page can show measured truth next
+    // to the reference score. Best-effort — a facts failure never
+    // fails the read.
+    if (factStamper) {
+      try { factStamper(rows); } catch (_) { /* the read stands on its own */ }
+    }
     return { ok: true, rows, providers, readAt: now, oldestFetch: oldest, stale: anyStale, warning,
       lastSyncAt: engine.state.lastSyncAt, catalogCount: engine.state.catalog.rows.length };
   }

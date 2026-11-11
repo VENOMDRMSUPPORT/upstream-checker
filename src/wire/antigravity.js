@@ -271,9 +271,12 @@ function parseModels(body) {
     return { models: [], deprecated: {}, error: 'The roster was not readable' };
   }
   const source = data && data.models && typeof data.models === 'object' ? data.models : {};
+  // The service keeps a few models for itself — the chat previews and the
+  // tab experiments. They are not models a person picks, but their ids
+  // are REPORTED (rebuild R4): a filter that hides without naming is
+  // how a whole family once vanished from the roster without a trace.
+  const internal = Object.keys(source).filter((id) => isInternalModel(id));
   const models = Object.keys(source)
-    // The service keeps a few models for itself — the chat previews and the
-    // tab experiments. They are not models a person picks.
     .filter((id) => !isInternalModel(id))
     .map((id) => {
       const entry = source[id] || {};
@@ -305,7 +308,7 @@ function parseModels(body) {
       reason: info.reasonCode ? String(info.reasonCode) : null,
     };
   });
-  return { models, deprecated, serverTime: data && data.serverTime ? String(data.serverTime) : null };
+  return { models, deprecated, internal, serverTime: data && data.serverTime ? String(data.serverTime) : null };
 }
 
 // The models the service keeps for itself: the chat previews and the tab

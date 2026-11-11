@@ -26,14 +26,14 @@ const { memoryStore } = require('../helpers');
 
 // A fake ipcMain that records handlers, plus a fake repos with the seam the real
 // one has. No electron, no database: the channel contract is what is under test.
-function harness({ snapshots, engine, providers, rosterEvents } = {}) {
+function harness({ snapshots, engine, providers, rosterEvents, factStamper } = {}) {
   const handlers = new Map();
   const ipcMain = { handle: (name, fn) => handlers.set(name, fn) };
   const calls = [];
   const log = { info: (...a) => calls.push(a), warn: () => {}, error: () => {} };
   const events = rosterEvents || fakeRosterEvents();
   createCatalogIpc({
-    ipcMain, log,
+    ipcMain, log, factStamper: factStamper || null,
     engine: engine || fakeEngine(),
     repos: { snapshots: snapshots || fakeSnapshots(), providers: providers || fakeProviders(),
       rosterEvents: events },
@@ -122,6 +122,32 @@ test('purge window reads the saved setting, clamped, defaulting to thirty days',
   assert.equal(readPurgeWindowDays({ purgeWindowDays: 0 }), 1, 'a saved 0 cannot mean purge at once');
   assert.equal(readPurgeWindowDays({ purgeWindowDays: 5000 }), 365);
   assert.equal(readPurgeWindowDays({ purgeWindowDays: 'soon' }), 30);
+});
+
+test('catalog:read stamps first-party facts onto the rows when a stamper is wired (rebuild R4)', async () => {
+  const snapshots = fakeSnapshots({
+    listProviderIds: () => ['nara'],
+    read: () => ({ createdAt: 1, fetchedAt: 1000, models: {
+      m: { name: 'M', first_seen: 1, last_seen: 1000 } },
+      lastGoodRows: [{ id: 'm', name: 'M', context_tokens: 10 }], lastSync: null }),
+  });
+  const factStamper = (rows) => { for (const r of rows) r.measured = { attempts: 2, passed: 2 }; };
+  const { send } = harness({ snapshots, factStamper });
+  const out = await send('catalog:read', { providerIds: ['nara'] });
+  assert.deepStrictEqual(out.rows[0].measured, { attempts: 2, passed: 2 });
+});
+
+test('a throwing fact stamper never fails the read (rebuild R4)', async () => {
+  const snapshots = fakeSnapshots({
+    listProviderIds: () => ['nara'],
+    read: () => ({ createdAt: 1, fetchedAt: 1000, models: {
+      m: { name: 'M', first_seen: 1, last_seen: 1000 } },
+      lastGoodRows: [{ id: 'm', name: 'M', context_tokens: 10 }], lastSync: null }),
+  });
+  const { send } = harness({ snapshots, factStamper: () => { throw new Error('facts down'); } });
+  const out = await send('catalog:read', { providerIds: ['nara'] });
+  assert.equal(out.ok, true);
+  assert.equal(out.rows.length, 1);
 });
 
 test('catalog:read re-scores stored rows and fetches nothing, writes nothing, publishes nothing', async () => {

@@ -199,6 +199,17 @@ window.VENOM_RENDERER.providerModels = {
       SUSPICIOUS_PROVIDER_DROP: 'The model count dropped sharply and is being held until it repeats — the last good list is still shown.',
       SYNC_IN_PROGRESS: 'That provider is already being re-read; try again in a moment.',
     };
+    // The fetch status line's hidden-models suffix (rebuild R4): what
+    // the service answered with but the roster filters hid, grouped by
+    // reason — never a silent disappearance.
+    function hiddenNote(hidden) {
+      if (!Array.isArray(hidden) || !hidden.length) return '';
+      const counts = {};
+      for (const h of hidden) counts[h.reason] = (counts[h.reason] || 0) + 1;
+      const parts = Object.entries(counts).map(([reason, n]) => `${n} ${reason}`);
+      return ` · ${hidden.length} answered but hidden by filters (${parts.join(', ')})`;
+    }
+
     function catalogIngestFailure(reply) {
       return INGEST_CODES[reply.code]
         || `The catalog refused this roster (${reply.code || 'no code given'})${reply.message ? `: ${reply.message}` : ''}`;
@@ -239,9 +250,15 @@ window.VENOM_RENDERER.providerModels = {
       setStatus('running', `Fetching models from ${activeKeys.length} key${activeKeys.length === 1 ? '' : 's'}...`);
       const byId = new Map();
       const failures = [];
+      const hiddenSeen = new Map();
       for (const k of activeKeys) {
         try {
           const list = await discoverModels(p, k.key);
+          // Roster transparency (rebuild R4): models the service
+          // answered with but a filter hid, named by the adapter.
+          if (Array.isArray(list.hidden)) {
+            for (const h of list.hidden) if (!hiddenSeen.has(h.id)) hiddenSeen.set(h.id, h);
+          }
           list.forEach((m) => {
             const existing = byId.get(m.id);
             if (existing) {
@@ -264,12 +281,13 @@ window.VENOM_RENDERER.providerModels = {
         try { await ingestProviderRoster(providerId); catalogNote = ' · catalog updated'; }
         catch (err) { catalogNote = ` · catalog not updated: ${err.message}`; }
         const keyNote = activeKeys.length > 1 ? ` across ${activeKeys.length} keys` : '';
+        const hiddenSuffix = hiddenNote([...hiddenSeen.values()]);
         if (p.plansUrl) {
           const free = models.filter((m) => m.isFree).length;
           const freeForPaid = models.filter((m) => m.isFreeForPaid).length;
-          setStatus('done', `Fetched ${models.length} models${keyNote} (${free} free + ${freeForPaid} free for paid)${catalogNote}`);
-        } else if (failures.length) setStatus('error', `Fetched ${models.length} models${keyNote} — ${failures.join('; ')}${catalogNote}`);
-        else setStatus('done', `Fetched ${models.length} models${keyNote}${catalogNote}`);
+          setStatus('done', `Fetched ${models.length} models${keyNote} (${free} free + ${freeForPaid} free for paid)${catalogNote}${hiddenSuffix}`);
+        } else if (failures.length) setStatus('error', `Fetched ${models.length} models${keyNote} — ${failures.join('; ')}${catalogNote}${hiddenSuffix}`);
+        else setStatus('done', `Fetched ${models.length} models${keyNote}${catalogNote}${hiddenSuffix}`);
         updateStats();
       } catch (err) {
         setStatus('error', err.message || 'Failed to fetch models');

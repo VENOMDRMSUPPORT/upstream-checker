@@ -149,6 +149,43 @@ test('the roster comes from the service\'s own route, through the wire', async (
   assert.strictEqual(gemini.maxOutputTokens, 64000);
   // The retired model is not offered, and the one that replaced it is.
   assert.ok(!models.find((m) => m.id === 'gemini-3.5-flash-low'));
+  // And its absence is explained, not silent (rebuild R4).
+  assert.deepStrictEqual(models.hidden, [
+    { id: 'gemini-3.5-flash-low', reason: 'retired', detail: 'replaced by gemini-3-pro-high' },
+  ]);
+});
+
+test('models a filter hides are named, with the reason (rebuild R4)', async () => {
+  // The live failure this rebuild answers: the service returns Gemini
+  // models, the account's allowance groups name only Claude/GPT, and
+  // the whole Gemini family used to vanish without a trace.
+  const wire = fakeWire();
+  const roster = {
+    serverTime: '2026-10-20T10:00:00Z',
+    models: {
+      'gemini-3-pro-high': { displayName: 'Gemini 3 Pro' },
+      'claude-sonnet-4-6': { displayName: 'Claude Sonnet 4.6' },
+      'chat_123': { displayName: 'Internal chat preview' },
+    },
+  };
+  const limits = { groups: [{ displayName: 'Claude and GPT models', buckets: [
+    { displayName: 'Weekly Limit', window: '7d', remainingFraction: 0.5, resetTime: '2026-10-23T14:00:00Z' },
+  ] }] };
+  const models = await ANTIGRAVITY.fetchModels({
+    apiKey: 'ya29.test:abc',
+    baseUrl: 'https://daily-cloudcode-pa.googleapis.com',
+    apiRequest: async (opts) => (opts.url.includes('retrieveUserQuotaSummary')
+      ? { status: 200, body: JSON.stringify(limits) }
+      : { status: 200, body: JSON.stringify(roster) }),
+    wire,
+    formatContext: (n) => (n ? `${n / 1000}K` : ''),
+    getFreeGroupName: (name) => name.toUpperCase(),
+  });
+  assert.deepStrictEqual(models.map((m) => m.id), ['claude-sonnet-4-6']);
+  const byId = Object.fromEntries(models.hidden.map((h) => [h.id, h]));
+  assert.equal(byId['chat_123'].reason, 'internal');
+  assert.equal(byId['gemini-3-pro-high'].reason, 'family-not-allowed');
+  assert.match(byId['gemini-3-pro-high'].detail, /claude, gpt/);
 });
 
 test('a model of a family the account has no allowance for is not offered', async () => {

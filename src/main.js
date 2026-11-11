@@ -168,6 +168,17 @@ function attachMeasurements(scoredRows) {
   }
 }
 
+// Foundation rebuild R4: the same first-party facts, stamped onto
+// Models-page read rows (catalog rows name their model `id`, so the
+// measured-card lookup key is aligned first).
+function stampCatalogFacts(rows) {
+  if (!Array.isArray(rows)) return;
+  for (const r of rows) {
+    if (r && r.model_id == null && r.id) r.model_id = r.id;
+  }
+  attachMeasurements(rows);
+}
+
 // Foundation rebuild R2: bounded capability probing. After each
 // catalog build/refresh, the models the router would actually route
 // to (the smart catalog's pools) that were never probed here — or not
@@ -703,7 +714,7 @@ function startCatalog({ repos, log, onRosterWritten }) {
     // re-fetch and rebuild. Unlike the database, which must stop it.
     log.warn('catalog cache load failed, starting empty:', err.message);
   }
-  createCatalogIpc({ ipcMain, repos, engine, log, onRosterWritten });
+  createCatalogIpc({ ipcMain, repos, engine, log, onRosterWritten, factStamper: stampCatalogFacts });
   return engine;
 }
 

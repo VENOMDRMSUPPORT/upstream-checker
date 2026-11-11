@@ -130,9 +130,29 @@ window.INTEGRATED_PROVIDERS.antigravity = {
     // family it does not mention is a family the account cannot call.
     const families = await accountFamilies({ baseUrl, apiKey, apiRequest, wire });
     const deprecated = parsed.deprecated || {};
-    return parsed.models
-      .filter((m) => !deprecated[m.id])
-      .filter((m) => familyAllowed(m.id, families))
+    // Transparency (foundation rebuild R4): every model the service
+    // answered with but this roster does not show is named in
+    // `hidden`, with the reason — a silent filter is how the Gemini
+    // family once disappeared from this page without a trace. The
+    // fetch status line in provider-models reads the same list.
+    const hidden = [];
+    for (const id of parsed.internal || []) {
+      hidden.push({ id, reason: 'internal', detail: 'the service keeps this model for itself' });
+    }
+    const kept = [];
+    for (const m of parsed.models) {
+      if (deprecated[m.id]) {
+        const dep = deprecated[m.id];
+        hidden.push({ id: m.id, reason: 'retired', detail: dep.replacement ? `replaced by ${dep.replacement}` : 'retired by the service' });
+        continue;
+      }
+      if (!familyAllowed(m.id, families)) {
+        hidden.push({ id: m.id, reason: 'family-not-allowed', detail: `the account's allowance groups (${[...families].join(', ')}) do not include this model's family` });
+        continue;
+      }
+      kept.push(m);
+    }
+    const models = kept
       .map((m) => {
         const ctx = m.context || null;
         return {
@@ -155,6 +175,8 @@ window.INTEGRATED_PROVIDERS.antigravity = {
           maxOutputTokens: m.maxOutputTokens || null,
         };
       });
+    models.hidden = hidden;
+    return models;
   },
 
   // The allowance, read the way the Antigravity app reads it: the grouped
