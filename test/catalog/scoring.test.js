@@ -219,6 +219,29 @@ test("attachScores: a spec-rich unmatched row stays unscored even when a spec fi
   assert.equal(providerRows[0].rank, null);
 });
 
+test("assignScores: a fit never extrapolates past the measured range (no floor-pinned estimates)", () => {
+  // 40 measured rows: intelligence 10..50, coding exactly twice it, so
+  // the coding fit is perfect INSIDE that range. A row whose coding
+  // signal sits far below the range asks the fit to extrapolate; the
+  // old clamp pinned its answer to the floor (lowest x 0.9 = 9) and
+  // stamped it as an estimate. It must now stay unrated, while an
+  // in-range row still earns its estimate.
+  const rows = [];
+  for (let i = 0; i < 40; i += 1) {
+    const intelligence = 10 + i * (40 / 39);
+    rows.push({ id: `m-${i}`, aa_intelligence: intelligence, aa_coding: intelligence * 2 });
+  }
+  const weak = { id: "weakling", aa_intelligence: null, aa_coding: 2 };
+  const mid = { id: "midrange", aa_intelligence: null, aa_coding: 60 };
+  rows.push(weak, mid);
+  assignScores(rows);
+  assert.equal(weak.score, null, "an extrapolated estimate is not an estimate — the row stays unrated");
+  assert.equal(weak.score_source, null);
+  assert.ok(mid.score != null && Math.abs(mid.score - 30) < 1.5,
+    `an in-range signal still estimates (saw ${mid.score})`);
+  assert.equal(mid.score_source, "est");
+});
+
 test("attachScores keeps low/high/thinking/max model identities distinct", () => {
   const catalogRows = [
     { id: "openai/gpt-5-low", name: "GPT-5 Low", score: 40, score_source: "aa", score_basis: ["aa"], rank: 4 },

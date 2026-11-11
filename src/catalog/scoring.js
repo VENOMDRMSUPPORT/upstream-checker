@@ -200,7 +200,18 @@ function assignScores(rows) {
       parts.push(["arena_text", fits.arena_text.predict(row.lmarena_elo), fits.arena_text.r2]);
     }
     if (fits.spec) parts.push(["spec", fits.spec.predict(row), fits.spec.r2]);
-    if (!parts.length) {
+    // An estimate is only as honest as the range it interpolates. A fit
+    // asked about a signal beyond everything it trained on extrapolates,
+    // and the clamp then pins the answer to the floor or ceiling —
+    // stamping the weakest (or strongest) measured value onto a model
+    // nobody measured. (Live case, 2026-11-11: on a benchmark-starved
+    // reference a coding fit extrapolated gpt-oss-20b to exactly the
+    // 3.1 floor.) Parts predicting outside the measured range are
+    // dropped; a row left with no in-range part stays unrated.
+    const highestMeasured = measured.reduce((max, r) => Math.max(max, r.aa_intelligence), 0);
+    const inRange = parts.filter(([, value]) => Number.isFinite(value)
+      && value >= lowestMeasured && value <= highestMeasured);
+    if (!inRange.length) {
       row.score = null;
       row.score_source = null;
       row.score_basis = [];
@@ -208,13 +219,13 @@ function assignScores(rows) {
     }
     let sum = 0;
     let weight = 0;
-    for (const [, value, r2] of parts) {
+    for (const [, value, r2] of inRange) {
       sum += value * r2;
       weight += r2;
     }
     row.score = Math.round(clamp(sum / weight, floor, ceiling) * 10) / 10;
     row.score_source = "est";
-    row.score_basis = parts.map((p) => p[0]);
+    row.score_basis = inRange.map((p) => p[0]);
   }
   return Object.fromEntries(
     Object.entries(fits).map(([key, fit]) => [key, fit ? { n: fit.n, r2: Math.round(fit.r2 * 100) / 100 } : null]),
