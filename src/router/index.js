@@ -155,6 +155,35 @@ function isFreeRow(row) {
   return /:(free|hosted|floor)$/i.test(id) || /-(free|latest)$/i.test(id);
 }
 
+// Entitlement gates: models a provider lists but the user's current
+// entitlement cannot call. The row stays in the catalog — it is real, and
+// the catalog should say so — but it must never enter a routing pool until
+// the entitlement exists, or the gateway burns attempts on refusals it
+// could have predicted. The gate names what would unlock the row; a row
+// carrying entitlement_met === true (a future signal: a billing-enabled
+// key, a paid plan) passes. The table lives here, not on the catalog row,
+// because the snapshot strips caller-stamped fields (src/catalog/
+// snapshot.js) — the router is the consumer that must honour the gate.
+// Gemini 4 Argon/Carbon on Google AI Studio: the API free tier excludes
+// them (live sweep 2026-11-11: FreeTier-quota 429s, and Google's pricing
+// page keeps Argon off the free tier); a paid plan or a billing-enabled
+// project is the unlock.
+const ENTITLEMENT_GATES = new Map([
+  ['googleaistudio::gemini-4-argon', 'paid-plan-or-billing'],
+  ['googleaistudio::gemini-4-carbon', 'paid-plan-or-billing'],
+]);
+
+function entitlementGate(row) {
+  if (!row) return null;
+  const providerId = row.providerId || row.provider_id || '';
+  const modelId = row.modelId || row.model_id || row.id || '';
+  return ENTITLEMENT_GATES.get(`${providerId}::${modelId}`) || null;
+}
+
+function isEntitlementBlocked(row) {
+  return Boolean(entitlementGate(row)) && !(row && row.entitlement_met === true);
+}
+
 function firstNonEmpty(...pools) {
   for (const pool of pools) {
     if (Array.isArray(pool) && pool.length) return pool;
@@ -250,7 +279,7 @@ function buildSmartCatalog(scoredRows, keys = []) {
   // that cannot answer in text is not a routing candidate.
   const usable = rows.filter((row) => (row.modelId && row.providerId)
     && (keySet.size === 0 || keyList.some((k) => k.providerId === row.providerId))
-    && isRoutableTextRow(row));
+    && isRoutableTextRow(row) && !isEntitlementBlocked(row));
   // Every row gets a number: measured rows keep theirs, the rest read an
   // explicit est-heuristic so no roster row stays outside the tiers.
   const scored = usable.map((row) => {
@@ -934,6 +963,7 @@ function createVenomHttpGateway({ cascadeEngine = null, port = ROUTER_PORT, host
 module.exports = { ROUTER_PORT, ROUTER_HOST, normalizeGatewayPort, canonicalSlug, upstreamModelId,
   evaluateModelCapabilities, compressToolMessages, rescuePlainTextToolCalls,
   analyzeCascadeStage, rowCost, formatModelDisplayName, isRoutableTextRow,
+  entitlementGate, isEntitlementBlocked,
   buildSmartCatalog, buildProfilesPayload,
   KeyPoolManager, persistCatalogScores,
   readCatalogScores, VenomCascadeEngine, pipeUpstreamStream, createVenomHttpGateway };

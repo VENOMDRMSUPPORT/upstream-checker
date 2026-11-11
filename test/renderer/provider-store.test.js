@@ -134,6 +134,47 @@ test('save payload carries the router tier for every key', async () => {
   assert.equal(store.providers.delta.keys.find((k) => k.id === 'd2').quotaPoolId, 'pool-9');
 });
 
+// A provider may declare its keys' router tier in meta (keyTier): a paid
+// relay plan like Nexum's weekly unlimited is a subscription the OAuth and
+// freeTier rules cannot see. The stamp lands only in the fallback — an
+// explicit tier on the key still wins.
+test('save payload stamps subscription for a provider declaring keyTier', async () => {
+  const payloads = [];
+  const api = {
+    readConfig: async () => ({ providers: {
+      epsilon: { name: 'Epsilon', baseUrl: 'https://epsilon.test/v1', keys: [
+        { id: 'e1', key: 'venomkey:e1', hint: '', active: true, tier: 'paid' },
+        { id: 'e2', key: 'venomkey:e2', hint: '', active: true, tier: 'cheap' },
+      ] },
+    } }),
+    saveProvider: async (payload) => {
+      payloads.push(payload);
+      return { keys: payload.keys.map((k) => ({ ...k, key: `venomkey:${k.id}`, hint: '', locked: false })) };
+    },
+    mergeProvider: async () => null,
+    deleteProvider: async () => true,
+  };
+  const store = loadRendererModules(['provider-store'], {
+    structuredClone,
+    window: { VENOM_RENDERER: {}, CATALOG: null },
+  }).providerStore.create({
+    builtinProviders: {
+      epsilon: { id: 'epsilon', name: 'Epsilon', baseUrl: 'https://epsilon.test/v1', keyTier: 'subscription' },
+    },
+    electronAPI: api,
+    persist: async (_, call) => call(),
+    quotaSpentExpired: () => false,
+    getCurrentPage: () => 'overview',
+    renderProvidersPage: () => {},
+    onProvidersChanged: () => {},
+  });
+  await store.loadAll();
+  await store.save('epsilon');
+  const byId = Object.fromEntries(payloads.flatMap((p) => p.keys.map((k) => [k.id, k])));
+  assert.equal(byId.e1.tier, 'subscription');
+  assert.equal(byId.e2.tier, 'cheap');
+});
+
 test('save invalidates catalog data and refreshes the visible providers page', async () => {
   const syncs = [];
   const catalog = { syncAll: (options) => syncs.push(options) };

@@ -26,6 +26,12 @@ window.INTEGRATED_PROVIDERS.nexum = {
       range: '0 → ∞ tokens',
       detail: 'Unlimited model usage · $5.50 per week',
     },
+    // The router's key-tier waterfall reads provider_keys.tier: a Nexum key
+    // is a paid weekly subscription, so provider-store stamps it
+    // 'subscription' from this declaration, and the drain order spends this
+    // unlimited pool before windowed subscription pools (the Google
+    // accounts) whose quota actually depletes.
+    keyTier: 'subscription',
   },
 
   // Nexum is OpenAI-compatible and its /models response already carries a context

@@ -2,7 +2,7 @@
 
 > GENERATED FILE — do not edit by hand. Regenerate with: npm run repo:map
 
-225 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
+226 files under src/, scripts/, test plus the app shell and the stylesheet. Each row is one file: its size, what it is for and the names it defines. Read this before opening files, then open only what the task needs — for the long ones, jump with the landmarks section below.
 
 The architecture behind these files — boot order, IPC channels, the two databases, the request lifecycle — is in [ARCHITECTURE.md](ARCHITECTURE.md). Task recipes are in [COOKBOOK.md](COOKBOOK.md).
 
@@ -119,13 +119,13 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | --- | --- |
 | 2 | Models Catalog — the merged reference, scored |
 
-### src/renderer/logs.js — 1310 lines
+### src/renderer/logs.js — 1348 lines
 
 | Line | Section |
 | --- | --- |
 | 2 | Log pages — Runs, Requests and Monitoring |
 
-### src/router/index.js — 940 lines
+### src/router/index.js — 970 lines
 
 *(no section banners)*
 
@@ -359,7 +359,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `key-usage.js` | 659 | Key usage — quota, expiry and request history per API key | KEY_USAGE |
 | `lock.js` | 492 | The app lock screen — src/renderer/lock.js | MIN_IDLE_MIN, el, mode, legacySetup, resolved, onUnlocked, particle, frame, running, activityBound, lastActivitySent, throttleTimer, +40 more |
 | `logs-format.js` | 132 | Log pages — pure formatting and mapping | LOGS_RANGES, logEscape, normalizeProvider, providerLabel, formatDuration, formatCost, formatTokens, logPad, formatWhen, statusTone, passRateText, rangePreset, +1 more |
-| `logs.js` | 1310 | Log pages — Runs, Requests and Monitoring | state, el, REDUCED_MOTION, drawerOpener, closeTimer, tabFromRoute, parts, loadInfo, LOG_ICONS, emptyState, loggingOffMarkup, why, +130 more |
+| `logs.js` | 1348 | Log pages — Runs, Requests and Monitoring | state, el, REDUCED_MOTION, drawerOpener, closeTimer, tabFromRoute, parts, loadInfo, LOG_ICONS, emptyState, loggingOffMarkup, why, +132 more |
 | `oauth-connect.js` | 205 | OAuth — the connect flow in the page | VENOM_RENDERER |
 | `page-router.js` | 51 | Hash-route parsing and synchronization for the renderer shell. | VENOM_RENDERER |
 | `profile-badges.js` | 95 | Venom Profiles — shared profile badges | SHORT, indexProfiles, map, add, classify, badgeHTML, label, state, warm, bridge, badgeFor, profile |
@@ -370,7 +370,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `provider-keys.js` | 205 | Shared provider-key status and rendering for cards and connected rows. | VENOM_RENDERER |
 | `provider-models.js` | 293 | Provider model discovery, roster ownership and catalog ingestion. | VENOM_RENDERER |
 | `provider-roster.js` | 298 | Connected and integrated providers page controller. | VENOM_RENDERER |
-| `provider-store.js` | 138 | Runtime provider data and its persistence boundary. | VENOM_RENDERER |
+| `provider-store.js` | 142 | Runtime provider data and its persistence boundary. | VENOM_RENDERER |
 | `provider-view.js` | 557 | Shared provider presentation and card/row markup. | VENOM_RENDERER, isConnected, providerWebsite, websiteLinkHTML, providerHost, providerStats, providerCapabilities, providerTags, RL_ICON, rlPopOpener, rateLimitPopHTML, openRateLimitPop, +23 more |
 | `results-table.js` | 275 | Results table sort/filter/export and response modal. Row HTML and reference | VENOM_RENDERER |
 | `router-status.js` | 454 | Venom Profiles — routing dossiers page | MIN_EVIDENCE, rtState, esc, api, buildShell, crumbs, refresh, DOSSIERS, POLICY, median, sorted, mid, +61 more |
@@ -399,16 +399,16 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `darkapi.js` | 54 | DARK API — integrated provider module | INTEGRATED_PROVIDERS |
 | `devora.js` | 61 | DEVORA — integrated provider module | INTEGRATED_PROVIDERS |
 | `experiential.js` | 129 | Experiential Labs — integrated provider module | INTEGRATED_PROVIDERS |
-| `githubmodels.js` | 47 | GitHub Models — integrated provider module | INTEGRATED_PROVIDERS |
+| `githubmodels.js` | 126 | GitHub Models — integrated provider module | INTEGRATED_PROVIDERS, githubmodelsResetMs |
 | `googleaistudio.js` | 48 | Google AI Studio — integrated provider module | INTEGRATED_PROVIDERS |
-| `groq.js` | 45 | Groq — integrated provider module | INTEGRATED_PROVIDERS |
+| `groq.js` | 123 | Groq — integrated provider module | INTEGRATED_PROVIDERS, groqResetMs |
 | `inception.js` | 60 | INCEPTION LABS — integrated provider module | INTEGRATED_PROVIDERS |
 | `jerouter.js` | 48 | JEROUTER — integrated provider module | INTEGRATED_PROVIDERS |
 | `kiosapi.js` | 43 | KIOSAPI — integrated provider module | INTEGRATED_PROVIDERS |
 | `mirai.js` | 160 | MIRAI API — integrated provider module | INTEGRATED_PROVIDERS |
 | `nara.js` | 143 | NARA Router — integrated provider module | INTEGRATED_PROVIDERS |
-| `nexum.js` | 61 | NEXUM ROUTER — integrated provider module | INTEGRATED_PROVIDERS |
-| `openrouter.js` | 45 | OpenRouter — integrated provider module | INTEGRATED_PROVIDERS |
+| `nexum.js` | 67 | NEXUM ROUTER — integrated provider module | INTEGRATED_PROVIDERS |
+| `openrouter.js` | 78 | OpenRouter — integrated provider module | INTEGRATED_PROVIDERS |
 | `pollinations.js` | 45 | Pollinations — integrated provider module | INTEGRATED_PROVIDERS |
 | `tokenharbor.js` | 271 | Token Harbor — integrated provider module | INTEGRATED_PROVIDERS, TOKENHARBOR_VIRTUAL_OWNER, tokenharborIsZero, tokenharborIsFree, TOKENHARBOR_QUOTA_CODE, tokenharborResetAt, TOKENHARBOR_QUOTA_ATTEMPTS, TOKENHARBOR_QUOTA_MODELS, TOKENHARBOR_RETRY_BASE_MS, TOKENHARBOR_RETRY_AFTER_MAX_S, tokenharborLowerHeaders, tokenharborRetryAfterMs, +5 more |
 
@@ -416,7 +416,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
-| `index.js` | 940 | Venom router plane: multi-account smart routing behind one local endpoint. | ROUTER_PORT, ROUTER_HOST, normalizeGatewayPort, TIER_DRAIN_ORDER, TIER_RANK, canonicalSlug, upstreamModelId, evaluateModelCapabilities, compressToolMessages, rescuePlainTextToolCalls, analyzeCascadeStage, PRO_MIN_SCORE, +30 more |
+| `index.js` | 970 | Venom router plane: multi-account smart routing behind one local endpoint. | ROUTER_PORT, ROUTER_HOST, normalizeGatewayPort, TIER_DRAIN_ORDER, TIER_RANK, canonicalSlug, upstreamModelId, evaluateModelCapabilities, compressToolMessages, rescuePlainTextToolCalls, analyzeCascadeStage, PRO_MIN_SCORE, +33 more |
 
 ### src/wire/
 
@@ -516,15 +516,16 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `catalog-caps.test.js` | 139 | catalog-caps.js is a plain browser script of top-level consts and function | a published modality list that omits a token answers no, vision and audio are read from the input modalities, case-insensitively, only a real boolean counts as a published flag, files prefers the published flag and falls back to the modality list, a declared generator answers yes with no modality published, capabilityOrigin names where each answer was read from |
 | `cerebras-provider.test.js` | 59 | Cerebras registers as a built-in provider through the standard contract: | registers into window.INTEGRATED_PROVIDERS with the Cerebras identity, meta is plain data — structuredClone-safe for the provider store, the entry is data only — no behaviour hooks, logo file exists at the path the meta declares, carries its verified free-tier facts |
 | `decision-probe.test.js` | 126 | The TypeSafe /systemone decision wire protocol — the `noul` probe body and | nara declares the TypeSafe decision hooks at adapter level, nara decisionProbe builds the noul question body, experiential declares the same hooks at adapter level, readDecisionAnswer scores an object answer, named in the row, readDecisionAnswer scores a bare numeric answer, readDecisionAnswer returns null when no probability comes back |
-| `githubmodels-provider.test.js` | 57 | GitHub Models registers as a built-in provider through the standard contract: | meta is plain data — structuredClone-safe for the provider store, the entry is data only — no behaviour hooks, logo file exists at the path the meta declares, carries its verified free-tier facts |
+| `githubmodels-provider.test.js` | 96 | GitHub Models registers as a built-in provider through the standard contract: | meta is plain data — structuredClone-safe for the provider store, the entry is meta plus the key-usage hooks — no other behaviour, logo file exists at the path the meta declares, carries its verified free-tier facts, readUsageHeaders reads the documented Azure-style headers, fetchKeyUsage probes a one-token chat and reads its headers |
 | `googleaistudio-provider.test.js` | 57 | Google AI Studio registers as a built-in provider through the standard contract: | meta is plain data — structuredClone-safe for the provider store, the entry is data only — no behaviour hooks, logo file exists at the path the meta declares, carries its verified free-tier facts |
-| `groq-provider.test.js` | 57 | Groq registers as a built-in provider through the standard contract: | registers into window.INTEGRATED_PROVIDERS with the Groq identity, meta is plain data — structuredClone-safe for the provider store, the entry is data only — no behaviour hooks, logo file exists at the path the meta declares, carries its verified free-tier facts |
+| `groq-provider.test.js` | 122 | Groq registers as a built-in provider through the standard contract: | registers into window.INTEGRATED_PROVIDERS with the Groq identity, meta is plain data — structuredClone-safe for the provider store, the entry is meta plus the key-usage hooks — no other behaviour, logo file exists at the path the meta declares, carries its verified free-tier facts, readUsageHeaders reads the token window off a chat answer |
 | `key-budget-free.test.js` | 38 | Free-budget checks through the same production pacing used by test attempts. | a key under its cap has a free slot, a key at its cap is not free, slots older than a minute do not count against the cap, no configured cap means no constraint (always free) |
 | `key-quota-state.test.js` | 54 | The complete key-policy factory owns these quota predicates. Evaluating it | a per-model refusal is a partial spend, never a spent key, a model-less record spends the whole key, a reset-less record expires after the TTL, a dated record is untouched by the TTL |
 | `kiosapi-provider.test.js` | 87 | KiosAPI registers as the eleventh built-in provider. Its roster differs per | registers into window.INTEGRATED_PROVIDERS with the KiosAPI identity, meta is plain data — structuredClone-safe for the provider store, declares a free tier so the Providers legend shows the Free Tier dot, logo file exists at the path the meta declares, no fetchKeyUsage: sentinel billing numbers must not feed a quota bar, the default discovery mappers read a KiosAPI-shaped entry without harm |
 | `logs-format.test.js` | 140 | logs-format.js is a plain browser script of top-level function | logEscape: provider text cannot close a tag, toViewModel: escapes every string it puts on the page, formatCost: micros to dollars, small amounts kept visible, formatTokens: thousands separated, null is a dash, statusTone: one tone per outcome, passRateText: a fraction becomes a percentage, null stays unknown |
 | `module-loader.js` | 20 | Loads complete browser modules in a controlled VM; no source slicing. |  |
-| `openrouter-provider.test.js` | 57 | OpenRouter registers as a built-in provider through the standard contract: | registers into window.INTEGRATED_PROVIDERS with the OpenRouter identity, meta is plain data — structuredClone-safe for the provider store, the entry is data only — no behaviour hooks, logo file exists at the path the meta declares, carries its verified free-tier facts |
+| `nexum-provider.test.js` | 60 | Nexum Router registers as a built-in provider: an OpenAI-compatible | registers into window.INTEGRATED_PROVIDERS with the Nexum identity, meta is plain data — structuredClone-safe for the provider store, declares unlimited usage on the weekly plan, declares its keys as subscription tier for the router waterfall, logo file exists at the path the meta declares, classify keeps generators out of the chat pool |
+| `openrouter-provider.test.js` | 93 | OpenRouter registers as a built-in provider through the standard contract: | registers into window.INTEGRATED_PROVIDERS with the OpenRouter identity, meta is plain data — structuredClone-safe for the provider store, the entry is meta plus the key-usage hook — no other behaviour, logo file exists at the path the meta declares, carries its verified free-tier facts, fetchKeyUsage maps a free-tier key to a plan label with no quota |
 | `page-router.test.js` | 60 | Hash routes belong to the page-router unit; page changes remain app callbacks. | deep links delegate page entry and subpage behavior to the app |
 | `pollinations-provider.test.js` | 57 | Pollinations registers as a built-in provider through the standard contract: | meta is plain data — structuredClone-safe for the provider store, the entry is data only — no behaviour hooks, logo file exists at the path the meta declares, carries its verified free-tier facts |
 | `profile-badges.test.js` | 51 | Profile badges: the pure classifier behind the fixed model color identity. | badge markup wears the fixed profile tone and nothing else, a missing bridge warms to empty instead of throwing |
@@ -534,7 +535,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | `provider-keys.test.js` | 48 | Shared key status and provider-row rendering. |  |
 | `provider-models.test.js` | 104 | Provider model discovery owns the per-provider roster and catalog handoff. | a quota-based roster (no free rows) still renders every model item |
 | `provider-roster.test.js` | 94 | Connected and integrated provider page state and rendering. |  |
-| `provider-store.test.js` | 168 | Provider runtime records, hydration and save reconciliation. | failed config read blocks all seed, merge and cleanup writes, save reconciles stored key placeholders without erasing live key state, save payload carries the router tier for every key, save invalidates catalog data and refreshes the visible providers page |
+| `provider-store.test.js` | 209 | Provider runtime records, hydration and save reconciliation. | failed config read blocks all seed, merge and cleanup writes, save reconciles stored key placeholders without erasing live key state, save payload carries the router tier for every key, save payload stamps subscription for a provider declaring keyTier, save invalidates catalog data and refreshes the visible providers page |
 | `results-table.test.js` | 146 | Results table sort/filter/export through the production factory. | results module registers a create factory, sort sinks null times and toggles failed-only filter, clear restores empty DOM and notifies status, CSV export uses provider slug and includes status, tokensPerSecond ignores prompt tokens and non-pass rows |
 | `retry-after-parse.test.js` | 33 | Exercise the complete pure response module with no provider or window I/O. | delay-seconds form reads as seconds, HTTP-date form reads as seconds until that date, a past HTTP-date waits a moment, not a full window, garbage and absence read as "not stated" (0) |
 | `router-status.test.js` | 239 | Venom Profiles page: the complete production module against a fake DOM | typing in search updates the query state for live filtering, measured outcomes compute from routed log rows only, outcome labels sit above their values, dynamic strings are escaped, refresh button re-queries main and re-renders, a refused profiles payload falls back to status counts, never a throw |
@@ -556,7 +557,7 @@ Files of 700+ lines, with the section banners inside them. Open the window you n
 | File | Lines | Purpose | Defines |
 | --- | --- | --- | --- |
 | `profiles.test.js` | 261 | Venom Profiles: tier differentiation, heuristic scoring, lead-analyst | lite admits free rows at VQ >= 20 only, pro and max stay distinct, frontier VQ 56-58 rows reach venom-max and the pro capable rung, fake and non-text rows never enter any tier or the counts, formatModelDisplayName strips routing prefixes, upstream id stays raw, unscored rows read an est-heuristic score but stay below the lite floor, buildProfilesPayload carries per-profile target lists with key counts |
-| `router.test.js` | 249 | Router plane: smart catalog split, three-level key isolation, cascade | gateway port falls back to the default outside 1024..65535, identity keeps the raw upstream address apart from the match key, capability read never invents a measured score, smart catalog preserves upstream ids and splits three tiers, key pool isolates a model-on-key failure from the rest of the key, key pool drains subscription before free before paid |
+| `router.test.js` | 272 | Router plane: smart catalog split, three-level key isolation, cascade | gateway port falls back to the default outside 1024..65535, identity keeps the raw upstream address apart from the match key, capability read never invents a measured score, smart catalog preserves upstream ids and splits three tiers, key pool isolates a model-on-key failure from the rest of the key, key pool drains subscription before free before paid |
 
 ### test/wire/
 

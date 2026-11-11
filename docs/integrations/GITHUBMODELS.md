@@ -38,3 +38,13 @@ Integrated provider module: `src/renderer/providers/githubmodels.js`
   entry is a one-line data change by design.
 - Token note: fine-grained personal access tokens need model access granted;
   a classic token works as issued.
+
+## Key usage (added 2026-11-11)
+
+No usage endpoint. The module's `readUsageHeaders` / `fetchKeyUsage`
+follow the same probe pattern as Groq, reading the Azure-style
+`x-ratelimit-limit / -remaining / -reset` headers the inference endpoint
+documents (the per-token spellings are accepted too). NOT verified live
+— no token was available — so the parser returns null when the headers
+are absent rather than inventing a reading; the first real connect
+settles the dialect, like the retirement question above.

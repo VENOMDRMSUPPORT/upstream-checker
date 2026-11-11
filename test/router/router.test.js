@@ -10,6 +10,7 @@ const {
   compressToolMessages, rescuePlainTextToolCalls, analyzeCascadeStage,
   buildSmartCatalog, KeyPoolManager, VenomCascadeEngine,
   createVenomHttpGateway, persistCatalogScores, readCatalogScores,
+  entitlementGate, isEntitlementBlocked,
   ROUTER_PORT, normalizeGatewayPort,
 } = require('../../src/router');
 
@@ -245,4 +246,26 @@ test('catalog scores persist for 0ms boot values and skip unscored rows', () => 
   assert.equal(written.written, 1);
   assert.equal(readCatalogScores(db).length, 1);
   assert.equal(readCatalogScores(db)[0].model_key, 'lab/a');
+});
+
+test('entitlement gate names the unlock and blocks until it is met', () => {
+  const argon = { providerId: 'googleaistudio', modelId: 'gemini-4-argon' };
+  assert.equal(entitlementGate(argon), 'paid-plan-or-billing');
+  assert.equal(isEntitlementBlocked(argon), true);
+  assert.equal(isEntitlementBlocked({ ...argon, entitlement_met: true }), false);
+  assert.equal(entitlementGate({ providerId: 'googleaistudio', modelId: 'gemini-3.8-flash' }), null);
+  assert.equal(entitlementGate({ provider_id: 'googleaistudio', model_id: 'gemini-4-carbon' }), 'paid-plan-or-billing');
+  assert.equal(entitlementGate(null), null);
+});
+
+test('gated rows never enter a tier pool until the entitlement is met', () => {
+  const keys = [{ id: 'g1', providerId: 'googleaistudio', tier: 'free' }];
+  const gated = { id: 'a1', provider_id: 'googleaistudio', model_id: 'gemini-4-argon', score: 60, score_source: 'aa', cost_in_per_m: 2, tools: true };
+  const open = { id: 'f1', provider_id: 'googleaistudio', model_id: 'gemini-3.8-flash', score: 60, score_source: 'aa', cost_in_per_m: 0, cost_kind: 'free', tools: true };
+  const poolsOf = (catalog) => [catalog.lite, catalog.efficient, catalog.capable, catalog.max].flat();
+  const blocked = buildSmartCatalog([gated, open], keys);
+  assert.ok(poolsOf(blocked).every((r) => r.modelId !== 'gemini-4-argon'), 'the gated row enters no pool');
+  assert.ok(poolsOf(blocked).some((r) => r.modelId === 'gemini-3.8-flash'), 'its ungated sibling still routes');
+  const met = buildSmartCatalog([{ ...gated, entitlement_met: true }, open], keys);
+  assert.ok(met.max.some((r) => r.modelId === 'gemini-4-argon'), 'a met entitlement routes at the frontier');
 });

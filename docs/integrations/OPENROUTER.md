@@ -35,3 +35,12 @@ Integrated provider module: `src/renderer/providers/openrouter.js`
   price enrichment later; discovery today records the ids like any provider.
 - Attribution headers (`HTTP-Referer`, `X-Title`) are optional and only
   affect OpenRouter's public rankings; the app does not send them.
+
+## Key usage (added 2026-11-11)
+
+`GET /api/v1/auth/key` with the key answers `{ data: { usage, limit,
+limit_remaining, is_free_tier } }` — verified live the same day on a
+free-tier key (usage $0.1557 lifetime, limit null). The module's
+`fetchKeyUsage` maps a numeric limit onto the key-usage quota bar in USD
+and a free-tier key onto the plan label; the `:free` daily request caps
+in meta are per-account and are not part of this answer.

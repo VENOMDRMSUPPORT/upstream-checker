@@ -34,3 +34,13 @@ documentation, read 2026-11-11. Site: `https://console.groq.com`.
   per **day**, the token figures per **minute**.
 - The roster turns over quarterly; discovery reads it live, nothing is
   hard-coded here.
+
+## Key usage (added 2026-11-11)
+
+There is no usage endpoint. Chat answers carry the rate window in
+headers — captured live the same day on a free key (one-token chat):
+limit-tokens 8000, remaining-tokens 7927, reset-tokens "547ms",
+reset-requests "1m26.4s" (durations, not timestamps). `GET /models`
+carries none of them. The module's `readUsageHeaders` reads the token
+window into key-usage's allowance shape, and `fetchKeyUsage` probes
+with a one-token chat on one of the key's own models.

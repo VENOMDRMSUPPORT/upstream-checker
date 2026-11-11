@@ -1018,7 +1018,45 @@
       : `${totalsMarkup(stats.totals)}
          ${requestsChart(stats.series)}
          ${latencyChart(stats.series)}
-         ${chartMarkup('Cost', stats.series, (p) => (p.costMicros || 0) / 1e6)}`;
+         ${chartMarkup('Cost', stats.series, (p) => (p.costMicros || 0) / 1e6)}
+         ${state.monitor.groupBy === 'provider' ? providerUsageMarkup(stats.series) : ''}`;
+  }
+
+  // Class B quota visibility: what the router itself routed, per provider,
+  // from its own request log — the usage reading for providers that publish
+  // no quota of their own. Aggregates the grouped series the charts already
+  // fetched; nothing new is queried.
+  function providerUsageMarkup(series) {
+    const byProvider = new Map();
+    series.forEach((p) => {
+      const key = p.group == null || p.group === '' ? 'unknown' : normalizeProvider(p.group);
+      const acc = byProvider.get(key) || { requests: 0, ok: 0, attempted: 0, inputTokens: 0, outputTokens: 0, costMicros: 0 };
+      acc.requests += p.requests || 0;
+      acc.ok += p.ok || 0;
+      acc.attempted += Math.max(0, (p.requests || 0) - (p.cancelled || 0) - (p.blocked || 0));
+      acc.inputTokens += p.inputTokens || 0;
+      acc.outputTokens += p.outputTokens || 0;
+      acc.costMicros += p.costMicros || 0;
+      byProvider.set(key, acc);
+    });
+    const rows = [...byProvider.entries()]
+      .sort((a, b) => (b[1].requests - a[1].requests) || a[0].localeCompare(b[0]))
+      .map(([provider, a]) => `<tr>
+        <td>${logEscape(provider)}</td>
+        <td>${formatTokens(a.requests)}</td>
+        <td>${passRateText(a.attempted > 0 ? a.ok / a.attempted : null)}</td>
+        <td>${formatTokens(a.inputTokens)}</td>
+        <td>${formatTokens(a.outputTokens)}</td>
+        <td>${formatCost(a.costMicros)}</td>
+      </tr>`).join('');
+    if (!rows) return '';
+    return `<div class="log-chart-panel">
+      <div class="log-chart-head"><div class="log-chart-head-info"><span class="log-chart-title">Usage by provider</span></div></div>
+      <table class="dt-table log-table">
+        <thead><tr><th>Provider</th><th>Requests</th><th>Passed</th><th>Tokens in</th><th>Tokens out</th><th>Cost</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
   }
 
   // The spec asks for requests split into what worked and what did not, and

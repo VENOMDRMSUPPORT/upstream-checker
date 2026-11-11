@@ -29,9 +29,13 @@ window.VENOM_RENDERER.providerStore = {
           // must say it outright or every save resets the router's
           // subscription → free → cheap → paid waterfall to all-paid.
           // A signed-in account is a subscription; an explicit non-default
-          // tier wins; a key on a free-tier provider is free.
+          // tier wins; a key on a free-tier provider is free; a provider
+          // that declares keyTier 'subscription' (a paid relay plan, e.g.
+          // Nexum's weekly unlimited) stamps its keys as subscriptions.
           tier: k.oauth ? 'subscription'
-            : (k.tier && k.tier !== 'paid' ? k.tier : (p.freeTier ? 'free' : (k.tier || 'paid'))),
+            : (k.tier && k.tier !== 'paid' ? k.tier
+              : (p.freeTier ? 'free'
+                : (p.keyTier === 'subscription' ? 'subscription' : (k.tier || 'paid')))),
           quotaPoolId: k.quotaPoolId != null ? String(k.quotaPoolId) : null,
         })),
       };
